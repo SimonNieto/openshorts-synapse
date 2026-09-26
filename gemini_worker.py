@@ -39,10 +39,56 @@ class DetailClipModel(BaseModel):
     video_description_for_instagram: str
     video_title_for_youtube_short: str
     viral_hook_text: str
+    # A content-niche guess for the whole SOURCE video, not just this clip —
+    # asked per-clip only because the response schema has no other place to
+    # put a video-level field; main.get_viral_clips picks the first non-empty
+    # one across all returned clips and drops the field from what gets saved.
+    content_niche: str = ""
 
 
 class DetailResponse(BaseModel):
     shorts: List[DetailClipModel]
+
+
+# Clip Generator++ BETA ("selection v2"): same clip + the exact spoken lines
+# the cut is built on, so main.py can start ON the hook sentence and end on
+# the punchline instead of trusting Gemini's timestamps alone. Only used when
+# SELECTION_V2=1; the classic schema above is untouched.
+class DetailClipModelV2(DetailClipModel):
+    hook_line: str = ""      # verbatim: the sentence the clip OPENS on
+    punchline: str = ""      # verbatim: the strongest line / payoff
+
+
+class DetailResponseV2(BaseModel):
+    shorts: List[DetailClipModelV2]
+
+
+DETAIL_V2_ADDENDUM = """
+SELECTION V2 (strict):
+- THE OPENING LINE IS THE HOOK: the clip starts EXACTLY on a sentence that works
+  as a hook when heard cold — a bold claim, a confession, a surprising number, a
+  "you" statement, or a question. Never on "so", "um", "yeah", "and", "I mean",
+  "you know", a greeting, or the middle of a thought. Return that sentence
+  VERBATIM (exact transcript words) in `hook_line`.
+- END ON THE PUNCHLINE: the strongest line — the payoff, the verdict, the twist —
+  is the last or nearly last thing said. Return it VERBATIM in `punchline`. Cut
+  the trailing "yeah, anyway", laughter and follow-up chatter after it.
+- WHAT TRAVELS: prefer moments about the viewer's own life (relationships, being
+  single or alone, friends, confidence, discipline, money habits, how people
+  think), or that EXPOSE how an everyday thing really works (apps, food, stores,
+  jobs). Rank purely informational, medical or insider topics lower.
+- A clip that needs no context, opens on its hook and closes on its punchline in
+  15-35 s beats a longer, more complete one.
+"""
+
+SERIES_TITLE_ADDENDUM = """
+SERIES TITLES (strict): write `video_title_for_youtube_short` as a recognisable
+series title, max 60 characters, in one of these shapes:
+- "{name} On <topic of this moment>."
+- "{name} Exposes <everyday thing>!"
+- "{name}'s Brutal Take On <topic>"
+then add 1-2 fitting emojis at the end. The topic names THIS moment, concretely.
+"""
 
 
 # Visual (no-transcript) clip selection: Gemini watches a silent video and
@@ -284,6 +330,11 @@ Choose the BEST short clips from these shortlisted candidate windows.
 CLIP RULES:
 - Return only valid JSON.
 - Each clip must be {min_secs:g} to {max_secs:g} seconds long, in absolute seconds from the start of the source video.
+- LENGTH IS A CEILING, NOT A TARGET: default to the shortest length that lands
+  the moment cleanly. Only stretch toward {max_secs:g}s when the setup or
+  payoff genuinely needs that extra room to keep its sense — a joke that
+  lands at 22s stays at 22s. Never pad an already-complete moment just to
+  use more of the allowed range.
 - Stay within the candidate window boundaries.
 - THE 2-SECOND RULE: the clip MUST open on its strongest moment. If the first
   2 seconds would not stop a cold viewer from scrolling, move the start or skip the clip.
@@ -327,6 +378,12 @@ COPY RULES — ALL text fields (descriptions, title, hook) MUST be written in TR
 - `video_title_for_youtube_short`: max 100 chars, curiosity-driven, no fake claims.
 - `predicted_score`: honest 0-100 estimate of viral potential.
 
+NICHE: also guess `content_niche`, a short (2-6 word) description of this
+channel's repost niche — the kind of thing a creator would type as their own
+content category, e.g. "Joe Rogan podcast clips", "gym motivation", "cooking
+hacks". Same guess on every clip (it describes the whole source video, not
+this one moment) — used to research real hashtags for this channel later.
+
 TRANSCRIPT_LANGUAGE: {language}
 VIDEO_DURATION_SECONDS: {video_duration}
 CANDIDATE_WINDOWS_JSON:
@@ -343,7 +400,8 @@ Return only:
       "video_description_for_tiktok": "<description + hashtags>",
       "video_description_for_instagram": "<description + hashtags>",
       "video_title_for_youtube_short": "<title max 100 chars>",
-      "viral_hook_text": "<short overlay max 10 words>"
+      "viral_hook_text": "<short overlay max 10 words>",
+      "content_niche": "<2-6 word niche guess for the whole video>"
     }}
   ]
 }}

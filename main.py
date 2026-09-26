@@ -298,34 +298,62 @@ class SpeakerTracker:
         face_candidates: list of {'box': [x,y,w,h], 'score': float}
         """
         current_candidates = []
-        
-        # 1. Match faces to known IDs (simple distance tracking)
+
+        # 1. Match faces to known IDs.
+        #
+        # Was x-distance only, against a fixed radius. Two failure modes that
+        # produced exactly the "locked onto the wrong person" symptom:
+        #   - Two people at similar x (one nearer camera, one farther, or one
+        #     seated/one standing) matched to the same id whenever their
+        #     centres happened to cross — the tracker then carried A's
+        #     hysteresis score onto B's face.
+        #   - A face only confirmed every DETECT_STRIDE frames could drift
+        #     past the fixed radius on a normal move, got treated as a brand
+        #     new id, and lost the hysteresis/lock that was keeping the
+        #     camera on the right person.
+        # Weighting y and size into the match, and growing the radius with
+        # how long it's been since this id was last confirmed, fixes both
+        # without changing the function's signature or its callers.
         for face in face_candidates:
             x, y, w, h = face['box']
             center_x = x + w / 2
-            
+            center_y = y + h / 2
+            area = max(1.0, w * h)
+
             best_match_id = -1
-            min_dist = width * 0.15 # Reduced matching radius to avoid jumping in groups
-            
-            # Try to match with known faces seen recently
+            best_dist = None
+
             for kf in self.known_faces:
-                if frame_number - kf['last_frame'] > 30: # Forgot faces older than 1s (was 2s)
+                frames_since = frame_number - kf['last_frame']
+                if frames_since > 30: # Forgot faces older than 1s (was 2s)
                     continue
-                    
-                dist = abs(center_x - kf['center'])
-                if dist < min_dist:
-                    min_dist = dist
+
+                # A size ratio outside this band is very unlikely to be the
+                # same face at a normal talking distance — most likely a
+                # second person passing through the same x range.
+                size_ratio = area / max(1.0, kf.get('area', area))
+                if size_ratio < 0.4 or size_ratio > 2.5:
+                    continue
+
+                radius = width * 0.15 * (1 + frames_since / 10.0)
+                dx = center_x - kf['center']
+                dy = center_y - kf.get('center_y', center_y)
+                dist = (dx * dx + dy * dy) ** 0.5
+                if dist < radius and (best_dist is None or dist < best_dist):
+                    best_dist = dist
                     best_match_id = kf['id']
-            
+
             # If no match, assign new ID
             if best_match_id == -1:
                 best_match_id = self.next_id
                 self.next_id += 1
-            
+
             # Update known face
             self.known_faces = [kf for kf in self.known_faces if kf['id'] != best_match_id]
-            self.known_faces.append({'id': best_match_id, 'center': center_x, 'last_frame': frame_number})
-            
+            self.known_faces.append({'id': best_match_id, 'center': center_x,
+                                     'center_y': center_y, 'area': area,
+                                     'last_frame': frame_number})
+
             current_candidates.append({
                 'id': best_match_id,
                 'box': face['box'],
@@ -982,7 +1010,8 @@ def finalize_clip_passthrough(input_video, final_output_video):
     return True
 
 
-def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=None):
+def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=None,
+                      output_format="vertical"):
     """Burn the default caption style onto a finished clip.
 
     ``split_ranges``: (start, end) stretches, in clip seconds, rendered with
@@ -1010,6 +1039,17 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
     try:
         import subtitles as _subs
         style = _subs.AUTO_CAPTION_STYLE
+        # The dashboard's saved default subtitle profile (SubtitleModal.jsx)
+        # crosses the browser/subprocess boundary as an env var, same as
+        # every other per-job override /api/process sets before Popen — this
+        # module has no other way to see it. Falls back to the fixed default
+        # on any parse error so a bad payload costs a look, never the clip.
+        style_json = os.environ.get("AUTO_CAPTION_STYLE_JSON")
+        if style_json:
+            try:
+                style = {**style, **json.loads(style_json)}
+            except (TypeError, ValueError) as e:
+                print(f"⚠️ Ignoring invalid AUTO_CAPTION_STYLE_JSON ({e}) — using the built-in default.")
         output_dir = os.path.dirname(clip_path)
         stem = os.path.basename(clip_path)
         generation_id = int(time.time())
@@ -1042,6 +1082,11 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
         if split_ranges is None:
             import layout_ranges as _layouts
             split_ranges = _layouts.split_ranges(_layouts.read(clip_path))
+        # effect="highlight-box" positions every word itself and needs the
+        # clip's real aspect ratio to do that (see generate_ass's docstring).
+        aspect_ratio = (1.0 if output_format == "square"
+                       else 16.0 / 9.0 if output_format == "horizontal"
+                       else 9.0 / 16.0)
         if not _subs.generate_ass(
                 transcript, clip_start, clip_end, ass_path,
                 split_ranges=split_ranges,
@@ -1050,7 +1095,13 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
                 font_name=style["font_name"], font_color=style["font_color"],
                 border_color=style["border_color"], border_width=style["border_width"],
                 highlight_color=style["highlight_color"], effect=style["effect"],
-                base_opacity=style["base_opacity"], uppercase=style["uppercase"]):
+                base_opacity=style["base_opacity"], uppercase=style["uppercase"],
+                # Only present on a browser-saved profile override, not on
+                # the built-in AUTO_CAPTION_STYLE dict — .get() so the
+                # built-in default keeps working unchanged.
+                position_percent=style.get("position_percent"),
+                max_words=style.get("max_words"), letter_spacing=style.get("letter_spacing", 0),
+                aspect_ratio=aspect_ratio):
             print("   ℹ️ No words in range — clip ships without captions.")
             return None
 
@@ -1064,6 +1115,29 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
     except Exception as e:
         print(f"   ⚠️ Auto-captions failed ({type(e).__name__}: {e}) — "
               f"delivering the clip without them.")
+        return None
+
+
+def viral_caption_clip(clip_path, transcript, clip_start, clip_end, style, watermark=None, clip=None):
+    """The edit style's captions (viral_fx) instead of the default caption
+    profile, written as ``subtitled_<ts>_<clip>`` like auto_caption_clip so a
+    restyle from the subtitle editor still replaces them. None on skip/fail."""
+    if os.environ.get("AUTO_CAPTIONS", "1").strip() == "0":
+        return None
+    try:
+        import viral_fx
+        words = viral_fx.clip_words(transcript, clip_start, clip_end)
+        if not words:
+            return None
+        out = os.path.join(os.path.dirname(clip_path),
+                           f"subtitled_{int(time.time())}_{os.path.basename(clip_path)}")
+        topic = viral_fx.topic_words((clip or {}).get('video_title_for_youtube_short'),
+                                     (clip or {}).get('viral_hook_text'))
+        viral_fx.apply_captions(clip_path, words, style, out, watermark=watermark, topic=topic)
+        print(f"   💬 {style} captions burned: {os.path.basename(out)}")
+        return out
+    except Exception as e:
+        print(f"   ⚠️ {style} captions failed ({type(e).__name__}: {e}) — default captions instead.")
         return None
 
 
@@ -1492,12 +1566,18 @@ def _run_gemini_stage(client, model_name, prompt, schema):
         response_mime_type="application/json",
         response_schema=schema,
     )
-    max_attempts = 3
+    # Gemini's "503 high demand" spikes last minutes, not seconds: 3 tries
+    # over 15 s failed whole jobs after the download + transcription were
+    # already paid for. 6 tries over ~2 min 15 s, and from the 4th on the
+    # call moves to another model, which has its own capacity.
+    max_attempts = 3 if use_local else 6
+    fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL") or "gemini-3.7-flash"
+    current_model = model_name
     for attempt in range(1, max_attempts + 1):
         try:
             if use_local:
                 return llm_backend.generate_json(prompt, schema, model=model_name)
-            response = client.models.generate_content(model=model_name, contents=prompt, config=config)
+            response = client.models.generate_content(model=current_model, contents=prompt, config=config)
             # Policy blocks are deterministic — retrying only burns quota and
             # time, and the user deserves the real reason instead of a generic
             # "empty response" (prod 23-jul: PROHIBITED_CONTENT on every try).
@@ -1512,7 +1592,7 @@ def _run_gemini_stage(client, model_name, prompt, schema):
             else:
                 parsed = gemini_worker._parse_json_response_text(
                     gemini_worker._get_response_text(response))
-            return parsed, gemini_worker._calculate_cost_analysis(response, model_name)
+            return parsed, gemini_worker._calculate_cost_analysis(response, current_model)
         except gemini_worker.GeminiBlockedError:
             raise  # deterministic policy block — never retry
         except Exception as e:
@@ -1528,10 +1608,15 @@ def _run_gemini_stage(client, model_name, prompt, schema):
                 'validation error'))
             if attempt == max_attempts or not transient:
                 raise
-            wait = 5 * (2 ** (attempt - 1))
-            who = "LLM server" if use_local else "Gemini"
+            wait = min(60, 5 * (2 ** (attempt - 1)))
+            who = "LLM server" if use_local else f"Gemini ({current_model})"
             print(f"⚠️ {who} transient error (attempt {attempt}/{max_attempts}), retrying in {wait}s: {msg[:150]}")
             time.sleep(wait)
+            overloaded = any(tok in msg for tok in ('503', 'UNAVAILABLE', 'overloaded', '429', 'RESOURCE_EXHAUSTED'))
+            if (not use_local and overloaded and attempt >= 3
+                    and fallback_model and current_model != fallback_model):
+                print(f"🔁 {current_model} still overloaded — switching to {fallback_model} for this call.")
+                current_model = fallback_model
 
 
 def _run_stage_split(client, model_name, items, build_prompt, schema, key, costs, label):
@@ -1572,6 +1657,119 @@ def score_batch_size():
         except ValueError:
             pass
     return 3 if llm_backend.active() else 8
+
+
+# Spoken fillers a clip must never open on (selection v2).
+_OPENING_FILLERS = {"so", "um", "uh", "umm", "uhh", "yeah", "and", "but", "well", "okay", "ok",
+                    "like", "anyway", "right", "alright", "mean", "i", "you", "know"}
+
+
+def _tokens(text):
+    return [re.sub(r"[^a-z0-9']", "", t.lower()) for t in str(text or "").split() if re.sub(r"[^a-z0-9']", "", t.lower())]
+
+
+def _find_line(words, line, lo, hi):
+    """Index of the first word of ``line`` among ``words`` whose start is in
+    [lo, hi], matched on its first 4 tokens (tolerant to punctuation)."""
+    toks = _tokens(line)[:4]
+    if len(toks) < 2:
+        return None
+    wt = [re.sub(r"[^a-z0-9']", "", w["w"].lower()) for w in words]
+    for i in range(len(words) - len(toks) + 1):
+        if lo <= words[i]["s"] <= hi and wt[i:i + len(toks)] == toks:
+            return i
+    return None
+
+
+def align_hook_and_punchline(clip, words, min_secs, max_secs):
+    """Selection v2: start ON the verbatim hook sentence Gemini quoted, never
+    on a filler; end shortly after the verbatim punchline. Keeps Gemini's cut
+    whenever the quote can't be found or the result would break the length
+    band. Stores punchline_time (clip-relative) for the edit layer."""
+    start, end = float(clip["start"]), float(clip["end"])
+    i = _find_line(words, clip.get("hook_line"), start - 4, start + 12)
+    if i is not None and end - (words[i]["s"] - 0.08) >= min_secs:
+        start = max(0.0, words[i]["s"] - 0.08)
+        clip["hook_aligned"] = True
+    # Never open on a filler ("so", "um", "yeah, and"...), hook found or not.
+    k = next((j for j, w in enumerate(words) if w["s"] >= start - 0.05), None)
+    skipped = 0
+    while (k is not None and k < len(words) - 1 and skipped < 3
+           and re.sub(r"[^a-z']", "", words[k]["w"].lower()) in _OPENING_FILLERS
+           and end - words[k + 1]["s"] >= min_secs):
+        k += 1
+        skipped += 1
+    if skipped:
+        start = max(0.0, words[k]["s"] - 0.08)
+    j = _find_line(words, clip.get("punchline"), start, end + 2)
+    if j is not None:
+        n = len(_tokens(clip.get("punchline")))
+        last = words[min(len(words) - 1, j + n - 1)]
+        clip["punchline_time"] = round(words[j]["s"] - start, 2)
+        new_end = last["e"] + 0.45
+        if min_secs <= new_end - start <= max_secs and new_end < end + 2:
+            end = new_end
+    clip["start"], clip["end"] = round(start, 3), round(end, 3)
+
+
+_SENTENCE_END = re.compile(r"[.!?…][\"'”’)\]]*$")
+
+
+def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.0):
+    """Clip Generator++ (CLEAN_END=1): never stop mid-thought. If the last
+    word heard is not the end of a sentence, cut back to the last full stop
+    when it is at most ``max_trim`` s earlier (drops a dangling "cause..." after
+    the punchline), else run on to the next full stop when it is at most
+    ``max_extend`` s later. Keeps the cut when neither exists or the length
+    band would break (a little over max is accepted: a clean ending is worth
+    more than the exact length)."""
+    start, end = float(clip["start"]), float(clip["end"])
+    inside = [i for i, w in enumerate(words) if w["s"] >= start - 0.05 and w["e"] <= end + 0.05]
+    if not inside:
+        return
+
+    def ends_sentence(i):
+        return bool(_SENTENCE_END.search((words[i].get("w") or "").strip()))
+
+    def tail(i):
+        # Half the pause after the word (max 0.45 s) — and nothing when the
+        # next word starts right away, so it cannot leak into the clip.
+        nxt = words[i + 1]["s"] if i + 1 < len(words) else words[i]["e"] + 1.0
+        gap = nxt - words[i]["e"]
+        if gap > 0.06:
+            return words[i]["e"] + min(0.45, gap / 2)
+        # Timestamps touching / overlapping: stop just before the next word.
+        return max(words[i]["s"] + 0.15, nxt - 0.02)
+
+    last = inside[-1]
+    if ends_sentence(last):
+        return
+    for i in reversed(inside[:-1]):
+        if end - words[i]["e"] > max_trim:
+            break
+        if ends_sentence(i):
+            if tail(i) - start >= min_secs:
+                clip["end"] = round(tail(i), 3)
+                clip["clean_end"] = "trimmed"
+                return
+            break
+    for i in range(last + 1, len(words)):
+        if words[i]["e"] - end > max_extend:
+            break
+        if ends_sentence(i):
+            if tail(i) - start <= max_secs + 3:
+                clip["end"] = round(tail(i), 3)
+                clip["clean_end"] = "extended"
+                return
+            break
+    # Last resort: a longer run-on sentence — go back up to twice as far.
+    for i in reversed(inside[:-1]):
+        if end - words[i]["e"] > 2 * max_trim:
+            break
+        if ends_sentence(i) and tail(i) - start >= min_secs:
+            clip["end"] = round(tail(i), 3)
+            clip["clean_end"] = "trimmed"
+            return
 
 
 def get_viral_clips(transcript_result, video_duration):
@@ -1649,17 +1847,30 @@ def get_viral_clips(transcript_result, video_duration):
         # --- Pass 2: detailed clip extraction on the shortlist ---
         min_clips, max_clips = clip_count_targets(len(shortlist))
 
+        # Clip Generator++ BETA switches (off = the classic prompt, byte for byte).
+        selection_v2 = os.environ.get("SELECTION_V2") == "1"
+        series_name = (os.environ.get("TITLE_SERIES") or "").strip()
+
         def _detail_prompt(ws):
             # A split batch keeps the full clip-count band: a short list can
             # still hold the best clips, and the model returns fewer anyway.
-            return gemini_worker.DETAIL_PROMPT_TEMPLATE.format(
+            prompt = gemini_worker.DETAIL_PROMPT_TEMPLATE.format(
                 video_duration=video_duration, language=language,
                 min_clips=min_clips, max_clips=max_clips,
                 min_secs=min_secs, max_secs=max_secs,
                 windows_json=json.dumps(_payload(ws), ensure_ascii=False))
+            if selection_v2:
+                prompt += gemini_worker.DETAIL_V2_ADDENDUM
+            if series_name:
+                prompt += gemini_worker.SERIES_TITLE_ADDENDUM.replace("{name}", series_name)
+            return prompt
 
+        detail_schema = gemini_worker.DetailResponseV2 if selection_v2 else gemini_worker.DetailResponse
+        if selection_v2 or series_name:
+            print(f"   🧪 Beta: selection v2={'on' if selection_v2 else 'off'}"
+                  f"{f', series titles ({series_name})' if series_name else ''}")
         shorts = _run_stage_split(client, model_name, shortlist, _detail_prompt,
-                                  gemini_worker.DetailResponse, "shorts", costs, "detail")
+                                  detail_schema, "shorts", costs, "detail")
         if len(shorts) > max_clips:
             # By score, never by position: the results arrive in transcript
             # order, so slicing kept the earliest clips and silently dropped
@@ -1673,6 +1884,24 @@ def get_viral_clips(transcript_result, video_duration):
             ns, ne = snap_clip_to_words(s.get("start", 0), s.get("end", 0), words, video_duration,
                                         min_duration=min_secs, max_duration=max_secs)
             s["start"], s["end"] = ns, ne
+        if selection_v2:
+            for s in shorts:
+                align_hook_and_punchline(s, words, min_secs, max_secs)
+        if os.environ.get("CLEAN_END") == "1":
+            fixed = 0
+            for s in shorts:
+                end_on_sentence(s, words, min_secs, max_secs)
+                fixed += bool(s.get("clean_end"))
+            print(f"   ✂️  Clean endings: {fixed}/{len(shorts)} clip(s) moved to a full stop.")
+
+        # content_niche describes the whole video, not any one clip (see
+        # gemini_worker.DetailClipModel) — pull the first non-empty guess out
+        # for the caller to offer as a suggestion, then drop the per-clip
+        # copies so it doesn't get saved as if it were clip data.
+        niche_guess = next((s["content_niche"].strip() for s in shorts
+                           if s.get("content_niche", "").strip()), None)
+        for s in shorts:
+            s.pop("content_niche", None)
 
         # Aggregate cost across both passes.
         cost_analysis = None
@@ -1692,6 +1921,8 @@ def get_viral_clips(transcript_result, video_duration):
         result = {"shorts": shorts}
         if cost_analysis:
             result["cost_analysis"] = cost_analysis
+        if niche_guess:
+            result["niche_guess"] = niche_guess
         return result
     except gemini_worker.GeminiBlockedError as e:
         # Content-policy rejection: propagate so the job fails with the real
@@ -1976,6 +2207,12 @@ if __name__ == '__main__':
             # basename is enough — the file sits in the job dir (URL jobs with
             # --keep-original) or in uploads/ (upload jobs).
             clips_data['source_video'] = os.path.basename(input_video)
+            # Which Clip Generator++ profile made this project (stats group by it).
+            if os.environ.get("PLUS_PROFILE_JSON"):
+                try:
+                    clips_data['plus_profile'] = json.loads(os.environ["PLUS_PROFILE_JSON"])
+                except ValueError:
+                    pass
             clips_data['output_format'] = output_format
             metadata_file = os.path.join(output_dir, f"{video_title}_metadata.json")
             with open(metadata_file, 'w') as f:
@@ -2002,12 +2239,98 @@ if __name__ == '__main__':
                     success = render_clip(clip_temp_path, clip_final_path, output_format)
                     # Layer order: watermark burns into the canonical (so any
                     # later hook replacement, which re-derives from it, keeps
-                    # the branding), the hook is a derived hooked_ file, and
-                    # captions go last on top of whichever is current. Each
-                    # worker writes only its own clip dict, so the re-dump
-                    # after the pool is race-free.
+                    # the branding), background music mixes into the canonical
+                    # audio for the same reason, the hook is a derived hooked_
+                    # file, and captions go last on top of whichever is
+                    # current. Each worker writes only its own clip dict, so
+                    # the re-dump after the pool is race-free.
                     if success and os.environ.get("WATERMARK") == "1":
                         apply_watermark(clip_final_path)
+                    if success and os.environ.get("BACKGROUND_MUSIC") == "1":
+                        import background_music
+                        background_music.add_background_music(clip_final_path)
+                    # Clip Generator++ music bed: ducked under the voice, mix at
+                    # ~-11 LUFS, into the canonical like BACKGROUND_MUSIC does.
+                    if success and os.environ.get("PLUS_MUSIC_ON") == "1":
+                        try:
+                            import plus as _plus
+                            import viral_fx
+                            track = _plus.pick_track(os.environ.get("PLUS_MUSIC_MOOD", ""), seed=f"{video_title}-{i}")
+                            if track:
+                                mus_tmp = os.path.join(output_dir, f"mustmp_{i + 1}_{int(time.time())}.mp4")
+                                viral_fx.mix_music(clip_final_path, track, mus_tmp,
+                                                   volume=float(os.environ.get("PLUS_MUSIC_VOLUME", "0.22")))
+                                os.replace(mus_tmp, clip_final_path)
+                                clip['music'] = os.path.basename(track)
+                                print(f"   🎵 Music bed: {os.path.basename(track)}")
+                            else:
+                                print("   🎵 Music on, but no track in that mood folder — skipped.")
+                        except Exception as e:
+                            print(f"   ⚠️ Music bed failed ({type(e).__name__}: {e}) — clip kept without it.")
+                    # Clip Generator++ reaction cutaways (reactions.py): cut to
+                    # the listener for ~0.9 s after a line lands, speaker's
+                    # audio untouched. Before the motion layer, so zooms and
+                    # grade apply to the reaction too, and before the pristine
+                    # copy, so a restyle keeps them.
+                    if success and os.environ.get("PLUS_REACTIONS") == "1" and transcript:
+                        try:
+                            import reactions as _react
+                            r_tmp = os.path.join(output_dir, f"reacttmp_{i + 1}_{int(time.time())}.mp4")
+                            rep = _react.add_reactions(input_video, clip_final_path, start, end, transcript, r_tmp,
+                                                       punchline_time=clip.get("punchline_time"))
+                            if rep:
+                                os.replace(r_tmp, clip_final_path)
+                                clip['reactions'] = rep
+                        except Exception as e:
+                            print(f"   ⚠️ Reactions failed ({type(e).__name__}: {e}) — clip kept without them.")
+                    # B-roll images (Clip Generator++ beta): cut in BEFORE the
+                    # edit style, so the pristine copy keeps them on a restyle.
+                    if success and os.environ.get("PLUS_BROLL_JSON") and transcript:
+                        try:
+                            import broll as _broll
+                            br_tmp = os.path.join(output_dir, f"brtmp_{i + 1}_{int(time.time())}.mp4")
+                            br = _broll.add_broll(clip_final_path, br_tmp, clip, transcript, start, end,
+                                                  json.loads(os.environ["PLUS_BROLL_JSON"]),
+                                                  api_key=os.getenv("GEMINI_API_KEY"))
+                            if br:
+                                os.replace(br_tmp, clip_final_path)
+                                clip['broll'] = br["items"]
+                                if br["credits"]:
+                                    clip['broll_credits'] = br["credits"]
+                                print(f"   🖼️ B-roll: {len(br['items'])} image(s) "
+                                      f"({', '.join(sorted(set(br['sources'])))}) at "
+                                      f"{', '.join(str(x['t']) + 's ' + x['anchor'] for x in br['items'])}")
+                        except Exception as e:
+                            print(f"   ⚠️ B-roll failed ({type(e).__name__}: {e}) — clip kept without it.")
+                    # Viral edit style (EDIT_STYLE=punchy|clean): the motion
+                    # layer (jump zooms, shake, grade) goes INTO the canonical,
+                    # under the hook, so the hook text is never zoomed or cut;
+                    # its captions replace the default ones as the last layer.
+                    edit_style = os.environ.get("EDIT_STYLE", "").strip()
+                    if success and edit_style in ("natural", "punchy", "clean"):
+                        try:
+                            import viral_fx
+                            # Pristine copy (music included, no motion): the
+                            # "viral style" button rebuilds from it, so a
+                            # restyle never stacks zooms on zooms.
+                            import shutil as _shutil
+                            _shutil.copy2(clip_final_path, clip_final_path[:-4] + ".pre_fx.mp4")
+                            fx_opts = json.loads(os.environ.get("PLUS_FX_JSON") or "{}")
+                            # The channel name is burned once, by the captions
+                            # layer (under the words) — not here too.
+                            fx_opts.pop("watermark", None)
+                            if clip.get("punchline_time") is not None:
+                                fx_opts["hints"] = {"punchline_time": clip["punchline_time"]}
+                            fx_tmp = os.path.join(output_dir, f"fxtmp_{i + 1}_{int(time.time())}.mp4")
+                            report = viral_fx.apply_motion(clip_final_path,
+                                                           viral_fx.clip_words(transcript, start, end),
+                                                           edit_style, fx_tmp, opts=fx_opts)
+                            os.replace(fx_tmp, clip_final_path)
+                            clip['edit_style'] = edit_style
+                            print(f"   🎬 Edit style '{edit_style}' applied "
+                                  f"({len(report.get('shots', []))} shots, spotlight {report.get('spotlight', [])})")
+                        except Exception as e:
+                            print(f"   ⚠️ Edit style failed ({type(e).__name__}: {e}) — plain clip kept.")
                     deliver_path = clip_final_path
                     # Which stretches were stacked (SPLIT): captions go on the
                     # seam there, and /api/subtitle needs it again later.
@@ -2023,9 +2346,16 @@ if __name__ == '__main__':
                         if hooked:
                             deliver_path, clip['auto_hook'] = hooked
                     if success:
-                        captioned = auto_caption_clip(
-                            deliver_path, transcript, start, end,
-                            split_ranges=_layouts.split_ranges(clip['layout_ranges']))
+                        captioned = None
+                        if clip.get('edit_style'):
+                            wm = (json.loads(os.environ.get("PLUS_FX_JSON") or "{}") or {}).get("watermark")
+                            captioned = viral_caption_clip(deliver_path, transcript, start, end,
+                                                           clip['edit_style'], watermark=wm, clip=clip)
+                        if not captioned:
+                            captioned = auto_caption_clip(
+                                deliver_path, transcript, start, end,
+                                split_ranges=_layouts.split_ranges(clip['layout_ranges']),
+                                output_format=output_format)
                         print(f"   ✅ Clip {i+1} ready: {clip_final_path}")
                         # Hand the API the file to actually serve for this clip.
                         # Without it the status poller guesses the clean reframe

@@ -4,7 +4,8 @@
  * selectors, mode switches).
  *
  * Props:
- *  - options: [{ value, label, icon?, hint?, disabled? }]
+ *  - options: [{ value, label, icon?, hint?, disabled?, muted? }]
+ *    (muted: shown greyed but still clickable — "unavailable here, usable elsewhere")
  *  - value: selected value (or array when multi)
  *  - onChange(value)
  *  - multi: allow multiple selections (value must be an array)
@@ -44,6 +45,7 @@ export default function SegmentedControl({ options, value, onChange, multi = fal
               ${active
                 ? 'border-brass bg-paper3 text-ink'
                 : 'border-rule bg-paper text-muted hover:text-ink2 hover:border-rule2'}
+              ${opt.muted ? 'opacity-50' : ''}
               disabled:opacity-40 disabled:cursor-not-allowed`}
           >
             {opt.icon && <span className={active ? 'text-brass' : 'text-muted'}>{opt.icon}</span>}

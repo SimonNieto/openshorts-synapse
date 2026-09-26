@@ -3,7 +3,7 @@ import { Scan, Scissors, Activity, Radio, CheckCircle } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiFetch } from '../lib/api';
 
-const ProcessingAnimation = ({ media, isComplete, syncedTime, isSyncedPlaying, syncTrigger }) => {
+const ProcessingAnimation = ({ media, isComplete, syncedTime, isSyncedPlaying, syncTrigger, progress }) => {
   const [videoSrc, setVideoSrc] = useState(null);
   const [isYouTube, setIsYouTube] = useState(false);
   const videoRef = useRef(null);
@@ -187,8 +187,9 @@ const ProcessingAnimation = ({ media, isComplete, syncedTime, isSyncedPlaying, s
       {!isSyncedPlaying && !isComplete && (
           <div className="hidden sm:flex absolute bottom-0 left-0 right-0 p-4 bg-black/70 z-30 justify-between items-end border-t border-rule">
               <div className="readout text-brass space-y-1">
-                 <div className="flex items-center gap-2"><Activity size={10} className="animate-pulse" /> {'>'} ANALYSIS_THREAD_01: ACTIVE</div>
-                 <div className="flex items-center gap-2"><Radio size={10} /> {'>'} AUDIO_TRANSCRIPT: PROCESSING</div>
+                 {/* The job's real stage + percent (app.py _job_progress). */}
+                 <div className="flex items-center gap-2"><Activity size={10} className="animate-pulse" /> {'>'} STAGE: {(progress?.stage || 'starting').toUpperCase()}</div>
+                 <div className="flex items-center gap-2"><Radio size={10} /> {'>'} PROGRESS: {progress?.percent ?? 0}%{progress?.clips_total ? ` · CLIPS ${progress.clips_done}/${progress.clips_total}` : ''}</div>
               </div>
               <div className="flex gap-1">
                  <div className="w-1 h-3 bg-brass opacity-40 animate-[pulse_0.5s_infinite]"></div>

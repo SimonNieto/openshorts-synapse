@@ -20,7 +20,7 @@ import signal
 import socket
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Union
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -650,7 +650,8 @@ def _recover_jobs_from_disk():
                 'logs': ["♻️ Job recovered from disk after server restart."],
                 'output_dir': job_path,
                 'user_id': owner,
-                'result': {'clips': clips, 'cost_analysis': data.get('cost_analysis')},
+                'result': {'clips': clips, 'cost_analysis': data.get('cost_analysis'),
+                          'niche_guess': data.get('niche_guess'), 'niche': data.get('niche'), 'upload_profile': data.get('upload_profile')},
             }
             recovered += 1
         except Exception as e:
@@ -1050,7 +1051,7 @@ def _enforce_output_size_cap():
         if job_id == thumbs:
             continue
         p = os.path.join(OUTPUT_DIR, job_id)
-        if os.path.isdir(p):
+        if os.path.isdir(p) and not os.path.exists(os.path.join(p, ".keep")):
             try:
                 candidates.append((os.path.getmtime(p), p, job_id))
             except OSError:
@@ -1115,6 +1116,8 @@ async def cleanup_jobs():
                     continue
                 job_path = os.path.join(OUTPUT_DIR, job_id)
                 if os.path.isdir(job_path):
+                    if os.path.exists(os.path.join(job_path, ".keep")):
+                        continue
                     if now - os.path.getmtime(job_path) > JOB_RETENTION_SECONDS:
                         print(f"🧹 Purging old job: {job_id}")
                         shutil.rmtree(job_path, ignore_errors=True)
@@ -1805,6 +1808,85 @@ def _visible_logs(logs):
     return friendly_logs(logs)
 
 
+# --- Real job progress, read from what main.py actually prints ---
+# Weighted stages: download 2-12 %, transcription 12-32 % (its own 25 % steps),
+# AI analysis 34-40 %, then 40-97 % by clips finished (CLIP_READY markers,
+# a started clip counts 40 %), 97-99 % for the auto-publish, 100 on done.
+_DL_PCT_RE = re.compile(r'\[download\]\s+(\d+(?:\.\d+)?)%')
+_TR_PCT_RE = re.compile(r'Transcribing… (\d+)%')
+_FOUND_CLIPS_RE = re.compile(r'Found (\d+) (?:viral )?clips')
+_CLIP_START_RE = re.compile(r'Processing Clip (\d+):')
+# Scan state per job id, kept out of the job dict (it holds a set, and job
+# dicts get serialised in places).
+_progress_state: dict = {}
+
+
+def _job_progress(job: dict) -> dict:
+    status = job.get('status')
+    key = job.get('output_dir') or id(job)
+    if status == 'completed':
+        _progress_state.pop(key, None)
+        return {"percent": 100, "stage": "done"}
+    if status == 'queued':
+        return {"percent": 0, "stage": "queued"}
+    if status != 'processing':
+        return {"percent": _progress_state.pop(key, {}).get("floor", 0), "stage": status or "unknown"}
+
+    # Incremental: only the log lines added since the last poll are scanned.
+    st = _progress_state.setdefault(key, {"i": 0, "pct": 2.0, "stage": "starting",
+                                          "total": None, "started": set(), "floor": 0})
+    logs = job.get('logs') or []
+    for line in logs[st["i"]:]:
+        m = _DL_PCT_RE.search(line)
+        if m:
+            st["stage"] = "downloading"
+            st["pct"] = max(st["pct"], 2 + float(m.group(1)) * 0.10)
+            continue
+        if 'Transcribing' in line:
+            st["stage"] = "transcribing"
+            m = _TR_PCT_RE.search(line)
+            st["pct"] = max(st["pct"], 12 + (int(m.group(1)) * 0.20 if m else 0))
+            continue
+        if 'Analyzing with' in line or 'analyzing with Gemini vision' in line:
+            st["stage"] = "analyzing"
+            st["pct"] = max(st["pct"], 34)
+            continue
+        m = _FOUND_CLIPS_RE.search(line)
+        if m:
+            st["total"] = int(m.group(1))
+            st["stage"] = "rendering"
+            st["pct"] = max(st["pct"], 40)
+            st.setdefault("render_start", time.time())
+            continue
+        m = _CLIP_START_RE.search(line)
+        if m:
+            st["started"].add(int(m.group(1)))
+    st["i"] = len(logs)
+
+    out = {"stage": st["stage"]}
+    total = st["total"]
+    pct = st["pct"]
+    if total:
+        done = min(total, len(job.get('ready_files') or {}))
+        in_flight = max(0, len(st["started"]) - done)
+        work = done + 0.4 * in_flight
+        pct = max(pct, 40 + 57 * min(1.0, work / total))
+        out.update(clips_done=done, clips_total=total)
+        # ETA from the pace of this very render, once one clip is through.
+        if done >= 1 and work < total:
+            spent = time.time() - st.get("render_start", time.time())
+            out["eta_seconds"] = int(spent / work * (total - work))
+    if job.get('auto_publishing'):
+        out["stage"] = "publishing"
+        pct = max(pct, 97)
+    # Never goes backwards (a second download pass restarts yt-dlp's %).
+    st["floor"] = max(st["floor"], min(99, int(pct)))
+    out["percent"] = st["floor"]
+    if job.get('started_at'):
+        out["elapsed_seconds"] = int(time.time() - job['started_at'])
+    return out
+
+
 def enqueue_output(out, job_id):
     """Reads output from a subprocess and appends it to jobs logs."""
     try:
@@ -1857,6 +1939,7 @@ async def run_job(job_id, job_data):
     output_dir = job_data['output_dir']
     
     jobs[job_id]['status'] = 'processing'
+    jobs[job_id]['started_at'] = time.time()
     jobs[job_id]['logs'].append("Job started by worker.")
     print(f"🎬 [run_job] Executing command for {job_id}: {' '.join(cmd)}")
     
@@ -1919,7 +2002,8 @@ async def run_job(job_id, job_data):
                                  ready_clips.append(clip)
                         
                         if ready_clips:
-                             jobs[job_id]['result'] = {'clips': ready_clips, 'cost_analysis': cost_analysis}
+                             jobs[job_id]['result'] = {'clips': ready_clips, 'cost_analysis': cost_analysis,
+                                                       'niche_guess': data.get('niche_guess'), 'niche': data.get('niche'), 'upload_profile': data.get('upload_profile')}
             except Exception as e:
                 # Ignore read errors during processing
                 pass
@@ -1964,7 +2048,20 @@ async def run_job(job_id, job_data):
                     if missing:
                         jobs[job_id]['logs'].append(
                             f"⚠️ {missing} of {len(clips)} clips failed to render.")
-                    jobs[job_id]['result'] = {'clips': rendered, 'cost_analysis': cost_analysis}
+                    jobs[job_id]['result'] = {'clips': rendered, 'cost_analysis': cost_analysis,
+                                              'niche_guess': data.get('niche_guess'), 'niche': data.get('niche'), 'upload_profile': data.get('upload_profile')}
+                    if jobs[job_id].get('auto_publish'):
+                        # Held in "processing" while the best clips go out, so
+                        # the dashboard shows them already scheduled when the
+                        # job turns complete (no await ran since 'completed'
+                        # was set above, so no poll saw it).
+                        jobs[job_id]['status'] = 'processing'
+                        jobs[job_id]['auto_publishing'] = True
+                        try:
+                            await _auto_publish_best(job_id)
+                        finally:
+                            jobs[job_id]['auto_publishing'] = False
+                            jobs[job_id]['status'] = 'completed'
             else:
                  jobs[job_id]['status'] = 'failed'
                  jobs[job_id]['logs'].append("No metadata file generated.")
@@ -2007,6 +2104,9 @@ async def get_config():
         # Self-host only: tells the dashboard the Gemini key is optional
         # because the moment picker runs on an OpenAI-compatible server.
         "localLlm": None if BILLING_ENABLED else llm_backend.describe(),
+        # Lets the dashboard only warn about "TikTok arrives as a draft" when
+        # it actually does (MEDIA_UPLOAD), not under DIRECT_POST.
+        "tiktokPostMode": TIKTOK_POST_MODE,
     }
 
 async def _probe_youtube_quality(url: str) -> dict:
@@ -2241,7 +2341,11 @@ async def process_endpoint(
     auto_hook_style: Optional[str] = Form(None),
     thumbnail_session_id: Optional[str] = Form(None),
     captions: Optional[str] = Form(None),
+    caption_style: Optional[str] = Form(None),
     upload_id: Optional[str] = Form(None),
+    auto_publish: Optional[str] = Form(None),
+    edit_style: Optional[str] = Form(None),
+    plus_profile_id: Optional[str] = Form(None),
 ):
     api_key = await resolve_gemini(request)
     if not api_key and not (llm_backend.active() and not BILLING_ENABLED):
@@ -2276,6 +2380,22 @@ async def process_endpoint(
         thumbnail_session_id = body.get("thumbnail_session_id")
         captions = body.get("captions")
         upload_id = body.get("upload_id")
+        auto_publish = body.get("auto_publish")
+        edit_style = body.get("edit_style")
+        plus_profile_id = body.get("plus_profile_id")
+
+    # "Publish the best clips" (self-host): validated now so a bad payload is
+    # a clear 400, not a silent no-op 20 minutes later.
+    auto_publish_cfg = None if BILLING_ENABLED else _parse_auto_publish(auto_publish)
+    if auto_publish_cfg:
+        upload_key, _ = await resolve_upload_post(request, None)
+        if not upload_key:
+            raise HTTPException(status_code=400, detail="Auto-publish needs your Upload-Post API key (Settings).")
+        if not (auto_publish_cfg["profile"] or auto_publish_cfg["default_profile"]):
+            raise HTTPException(status_code=400, detail="Auto-publish needs an Upload-Post account.")
+        # In memory only, never in the resume manifest (no secrets on disk):
+        # a job resumed after a restart just doesn't auto-publish.
+        auto_publish_cfg["upload_key"] = upload_key
 
     # Normalize output format (auto = keep pipeline default).
     if output_format not in ("vertical", "horizontal", "square"):
@@ -2448,6 +2568,39 @@ async def process_endpoint(
         env["AUTO_CAPTIONS"] = "0"
         print(f"[captions] job={job_id} auto-captions off")
 
+    # The dashboard's default subtitle profile (SubtitleModal.jsx, saved in
+    # the browser) — main.py has no access to localStorage, so it has to
+    # cross as an env var like every other per-job override here. Without
+    # this, "set my default caption style" only ever applied when the user
+    # reopened the subtitle editor by hand; the automatic caption pass every
+    # clip gets on generation kept using subtitles.AUTO_CAPTION_STYLE no
+    # matter what was saved as default.
+    # Viral edit style (viral_fx): jump zooms + shake + grade under the hook,
+    # the style's own captions on top. Absent/none = the classic render.
+    if edit_style in ("punchy", "clean"):
+        env["EDIT_STYLE"] = edit_style
+        print(f"[edit-style] job={job_id} style={edit_style}")
+
+    # Clip Generator++: a saved channel profile sets the whole recipe for this
+    # job (style + options, length band, hook box, music, beta switches). It
+    # is applied last so it wins over the per-field form values above. The
+    # classic Clip Generator never sends it.
+    plus_profile = None
+    if plus_profile_id and not BILLING_ENABLED:
+        import plus as _plus
+        plus_profile = _plus.get_profile(str(plus_profile_id))
+        if not plus_profile:
+            raise HTTPException(status_code=404, detail="Clip Generator++ profile not found")
+        env.update(_plus.job_env(plus_profile))
+        print(f"[plus] job={job_id} profile={plus_profile.get('name')}")
+
+    if caption_style:
+        try:
+            json.loads(caption_style)  # validate before handing it to the subprocess
+            env["AUTO_CAPTION_STYLE_JSON"] = caption_style
+        except (TypeError, ValueError):
+            print(f"[caption-style] job={job_id} ignored invalid caption_style payload")
+
     input_path = None
     if url:
         # Keep the downloaded source inside the job dir: the clip editor's
@@ -2548,6 +2701,7 @@ async def process_endpoint(
         'webhook_url': webhook_url,
         'webhook_secret': webhook_secret,
         'base_url': api_base,
+        'auto_publish': auto_publish_cfg,
     }
 
     # Persist the owner so recovered jobs keep their multi-tenant guard after a
@@ -2620,8 +2774,481 @@ async def get_status(job_id: str, request: Request):
     return {
         "status": _presented_status(job_id, job),
         "logs": _visible_logs(job['logs']),
-        "result": job.get('result')
+        "result": job.get('result'),
+        "progress": _job_progress(job),
     }
+
+
+@app.get("/api/local-projects")
+async def list_local_projects():
+    """Self-host convenience: list job directories still on disk (default 24h,
+    JOB_RETENTION_SECONDS) so the dashboard can offer to reopen one.
+
+    Not the cloud Library (``/api/history`` / ``/api/projects``, cloud/videos.py):
+    that page lists ONE signed-in user's R2 archive, while this reads the shared
+    local OUTPUT_DIR directly — meaningless (and cross-tenant) on a billed,
+    multi-user box, so it stays off there. Reopening still goes through the
+    normal ``/api/status/{job_id}``, which already resolves any job on disk.
+    """
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    projects = []
+    try:
+        entries = os.listdir(OUTPUT_DIR)
+    except FileNotFoundError:
+        entries = []
+    for job_id in entries:
+        job_path = os.path.join(OUTPUT_DIR, job_id)
+        if not os.path.isdir(job_path):
+            continue
+        json_files = glob.glob(os.path.join(job_path, "*_metadata.json"))
+        if not json_files:
+            continue
+        try:
+            with open(json_files[0], 'r') as f:
+                data = json.load(f)
+            base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
+            clips = []
+            for i, clip in enumerate(data.get('shorts', [])):
+                video_url = clip.get('video_url') or (
+                    f"/videos/{job_id}/{_canonical_clip_file(job_path, base_name, i)}")
+                clips.append({
+                    "title": clip.get('video_title_for_youtube_short') or f"Clip {i + 1}",
+                    "video_url": video_url,
+                    "predicted_score": clip.get('predicted_score'),
+                    "published": bool(clip.get('published')),
+                })
+            projects.append({
+                "job_id": job_id,
+                "title": base_name,
+                "updated_at": os.path.getmtime(json_files[0]),
+                "clips": clips,
+                "niche": data.get('niche'),
+                "niche_guess": data.get('niche_guess'),
+                "upload_profile": data.get('upload_profile'),
+                "kept": os.path.exists(os.path.join(job_path, ".keep")),
+            })
+        except Exception as e:
+            print(f"⚠️ Could not list local project {job_id}: {e}")
+    projects.sort(key=lambda p: p["updated_at"], reverse=True)
+    return {"projects": projects}
+
+
+@app.delete("/api/local-projects/{job_id}")
+async def delete_local_project(job_id: str):
+    """Self-host counterpart to list_local_projects: erase a job's directory
+    and any uploaded source from disk, and drop it from the in-memory trackers
+    so a stale entry can't reappear via /api/status."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    job_path = os.path.join(OUTPUT_DIR, job_id)
+    if not os.path.isdir(job_path):
+        raise HTTPException(status_code=404, detail="Project not found")
+    shutil.rmtree(job_path, ignore_errors=True)
+    for f in glob.glob(os.path.join(UPLOAD_DIR, f"{glob.escape(job_id)}_*")):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+    jobs.pop(job_id, None)
+    rework_jobs.pop(job_id, None)
+    return {"deleted": True}
+
+
+@app.post("/api/local-projects/{job_id}/keep")
+async def keep_local_project(job_id: str):
+    """Mark a job directory exempt from the age-based purge in cleanup_jobs()
+    and from the disk-cap trim in _enforce_output_size_cap() — a plain
+    sentinel file rather than a DB row, so it survives a restart with zero
+    extra state to keep in sync."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    job_path = os.path.join(OUTPUT_DIR, job_id)
+    if not os.path.isdir(job_path):
+        raise HTTPException(status_code=404, detail="Project not found")
+    open(os.path.join(job_path, ".keep"), "w").close()
+    return {"kept": True}
+
+
+@app.delete("/api/local-projects/{job_id}/keep")
+async def unkeep_local_project(job_id: str):
+    """Undo keep_local_project: the job goes back to ageing out normally."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    job_path = os.path.join(OUTPUT_DIR, job_id)
+    if not os.path.isdir(job_path):
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        os.remove(os.path.join(job_path, ".keep"))
+    except OSError:
+        pass
+    return {"kept": False}
+
+
+# --- Publish plan: a manual posting checklist, no third-party API ---
+#
+# Every social-posting path in this app (POST /api/social/post, scheduling,
+# analytics) goes through Upload-Post, a paid third-party service. For a
+# repost/clipping channel that just needs the discipline of posting several
+# times a day across platforms, paying for and wiring up a posting API is
+# overkill (and a third-party auto-poster is itself a common way to get a
+# repost account flagged). This is the free alternative: a flat on-disk
+# checklist the user ticks off by hand after posting natively in each app.
+# Self-host only, same as /api/local-projects — there's no per-user store to
+# scope it to in cloud mode.
+
+PUBLISH_SCHEDULE_FILE = "publish_schedule.json"
+
+
+def _load_schedule() -> list:
+    try:
+        with open(PUBLISH_SCHEDULE_FILE, "r") as f:
+            return json.load(f).get("entries", [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _save_schedule(entries: list) -> None:
+    with open(PUBLISH_SCHEDULE_FILE, "w") as f:
+        json.dump({"entries": entries}, f, indent=2)
+
+
+def _mark_clip_published(job_id: str, clip_index: int, via: Optional[str],
+                         scheduled_for: Optional[str] = None) -> None:
+    """Take a posted clip out of its project (``via=None`` puts it back).
+
+    Soft removal on purpose: the clip gets a ``published`` stamp in
+    metadata.json (+ the in-memory job) and every picker hides it, so it can
+    never be scheduled twice. Its files stay until the whole project ages out
+    — deleting them, or dropping the entry from ``shorts``, would shift every
+    clip_index the plan, the editor and saved per-clip state rely on.
+    Never raises: the post itself already succeeded.
+    """
+    try:
+        output_dir = os.path.join(OUTPUT_DIR, job_id)
+        json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+        stamp = ({"via": via, "at": time.time(), "scheduled_for": scheduled_for}
+                 if via else None)
+        if json_files:
+            with open(json_files[0], 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            shorts = data.get('shorts', [])
+            if 0 <= clip_index < len(shorts):
+                if stamp:
+                    shorts[clip_index]['published'] = stamp
+                else:
+                    shorts[clip_index].pop('published', None)
+                # Keep the file's mtime: it's the project's date in History /
+                # the publish plan AND what the retention sweep ages it by —
+                # posting a clip must neither reorder nor extend the project.
+                st = os.stat(json_files[0])
+                with open(json_files[0], 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                os.utime(json_files[0], (st.st_atime, st.st_mtime))
+        mem_clips = ((jobs.get(job_id) or {}).get('result') or {}).get('clips') or []
+        if 0 <= clip_index < len(mem_clips):
+            if stamp:
+                mem_clips[clip_index]['published'] = stamp
+            else:
+                mem_clips[clip_index].pop('published', None)
+    except Exception as e:
+        print(f"⚠️ Could not update published state of {job_id}#{clip_index}: {e}")
+
+
+def _record_upload_post_in_plan(req, clip: dict, title: str, profile: Optional[str] = None) -> None:
+    """Mirror a successful Upload-Post send into the Publish Plan, one entry
+    per platform, flagged ``auto`` (Upload-Post publishes it — nothing to tick
+    by hand). Without this the plan and the real schedule lived in two places
+    and nothing stopped the same clip being scheduled twice. Never raises: the
+    post already went out, a bookkeeping failure must not report it as failed.
+    """
+    try:
+        scheduled = bool(req.scheduled_date)
+        if scheduled:
+            # "YYYY-MM-DDTHH:MM[:SS]" in the user's own timezone (the
+            # dashboard sends local time + an IANA timezone, never UTC).
+            date_str, time_str = req.scheduled_date[:10], req.scheduled_date[11:16]
+        else:
+            # The container clock is UTC; the plan is in the user's own time.
+            try:
+                from zoneinfo import ZoneInfo
+                now = datetime.now(ZoneInfo(req.timezone)) if getattr(req, 'timezone', None) else datetime.now()
+            except Exception:
+                now = datetime.now()
+            date_str, time_str = now.strftime("%Y-%m-%d"), now.strftime("%H:%M")
+        entries = _load_schedule()
+        for platform in req.platforms:
+            entries.append({
+                "id": str(uuid.uuid4()),
+                "job_id": req.job_id,
+                "clip_index": req.clip_index,
+                "title": title,
+                "video_url": clip.get('video_url', ''),
+                "platform": platform,
+                "date": date_str,
+                "time": time_str,
+                "posted": not scheduled,
+                "posted_at": None if scheduled else time.time(),
+                "created_at": time.time(),
+                "auto": True,
+                "source": "upload-post",
+                # The Upload-Post profile (= the niche's accounts) it went to:
+                # slots only collide within one account, never across them.
+                "profile": profile,
+            })
+        _save_schedule(entries)
+    except Exception as e:
+        print(f"⚠️ Could not record Upload-Post send in the publish plan: {e}")
+
+
+class ScheduleEntryRequest(BaseModel):
+    job_id: str
+    clip_index: int
+    title: str
+    video_url: str
+    platform: str  # 'tiktok' | 'instagram' | 'youtube'
+    date: str       # 'YYYY-MM-DD'
+    time: str = ""  # 'HH:MM', optional
+    profile: Optional[str] = None  # which account it'll be posted on
+
+
+class ScheduleUpdateRequest(BaseModel):
+    posted: bool
+
+
+@app.get("/api/schedule")
+async def list_schedule():
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"entries": _load_schedule()}
+
+
+@app.post("/api/schedule")
+async def add_schedule_entry(req: ScheduleEntryRequest):
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    entries = _load_schedule()
+    entry = {
+        "id": str(uuid.uuid4()),
+        "job_id": req.job_id,
+        "clip_index": req.clip_index,
+        "title": req.title,
+        "video_url": req.video_url,
+        "platform": req.platform,
+        "date": req.date,
+        "time": req.time,
+        "posted": False,
+        "posted_at": None,
+        "created_at": time.time(),
+        "profile": req.profile,
+    }
+    entries.append(entry)
+    _save_schedule(entries)
+    return entry
+
+
+@app.patch("/api/schedule/{entry_id}")
+async def update_schedule_entry(entry_id: str, req: ScheduleUpdateRequest):
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    entries = _load_schedule()
+    for entry in entries:
+        if entry["id"] == entry_id:
+            entry["posted"] = req.posted
+            entry["posted_at"] = time.time() if req.posted else None
+            _save_schedule(entries)
+            # Posted by hand on every platform planned for it → the clip
+            # leaves its project, same as an Upload-Post send. Un-ticking
+            # brings it back (unless Upload-Post already has it).
+            same_clip = [e for e in entries
+                         if e["job_id"] == entry["job_id"] and e["clip_index"] == entry["clip_index"]]
+            if not any(e.get("auto") for e in same_clip):
+                if all(e.get("posted") for e in same_clip):
+                    _mark_clip_published(entry["job_id"], entry["clip_index"], "manual")
+                else:
+                    _mark_clip_published(entry["job_id"], entry["clip_index"], None)
+            return entry
+    raise HTTPException(status_code=404, detail="Entry not found")
+
+
+class ProjectNicheRequest(BaseModel):
+    niche: Optional[str] = None
+    # The Upload-Post profile (the niche's own TikTok/IG/YouTube accounts)
+    # this project posts to. Omitted = leave whatever is saved unchanged.
+    profile: Optional[str] = None
+
+
+@app.post("/api/jobs/{job_id}/niche")
+async def set_project_niche(job_id: str, req: ProjectNicheRequest, request: Request):
+    """Save the channel niche ON the project (metadata.json) the first time the
+    user confirms it, so every later schedule/post/download of this project
+    reuses it — instead of the last niche typed anywhere, which may belong to
+    a different project. mtime is kept: it's the project's date and its age
+    for the retention sweep."""
+    await _ensure_job_files(job_id, request)
+    if job_id in jobs:
+        await _assert_job_owner(request, jobs[job_id])
+    saved = _save_project_niche(job_id, req.niche, req.profile)
+    if saved is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return saved
+
+
+def _save_project_niche(job_id: str, niche: Optional[str], profile: Optional[str]) -> Optional[dict]:
+    """Write niche (+ profile when not None) into the project's metadata.json
+    and the in-memory result, keeping the file's mtime. None = no project."""
+    json_files = glob.glob(os.path.join(OUTPUT_DIR, job_id, "*_metadata.json"))
+    if not json_files:
+        return None
+    niche = (niche or "").strip() or None
+    st = os.stat(json_files[0])
+    with open(json_files[0], 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    data['niche'] = niche
+    if profile is not None:
+        data['upload_profile'] = profile.strip() or None
+    with open(json_files[0], 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    os.utime(json_files[0], (st.st_atime, st.st_mtime))
+    result = (jobs.get(job_id) or {}).get('result')
+    if isinstance(result, dict):
+        result['niche'] = niche
+        result['upload_profile'] = data.get('upload_profile')
+    return {"niche": niche, "upload_profile": data.get('upload_profile')}
+
+
+class ViralEditRequest(BaseModel):
+    style: str  # 'punchy' | 'clean'
+    profile_id: Optional[str] = None  # Clip Generator++: that profile's effects + watermark
+
+
+@app.post("/api/clip/{job_id}/{clip_index}/viral-edit")
+async def viral_edit_clip(job_id: str, clip_index: int, req: ViralEditRequest, request: Request):
+    """Apply an edit style (viral_fx) to an already generated clip: jump zooms
+    + shake + grade on the clean clip, the hook re-burned on top when the clip
+    had one (so its text is not zoomed), then the style's captions. Always
+    rebuilt from the clean canonical, so applying twice never stacks zooms."""
+    import viral_fx
+    if req.style not in viral_fx.PRESETS:
+        raise HTTPException(status_code=400, detail="Unknown style")
+    await _ensure_job_files(job_id, request)
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _assert_job_owner(request, job)
+    output_dir = os.path.join(OUTPUT_DIR, job_id)
+    meta_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+    if not meta_files:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+    with open(meta_files[0], 'r') as f:
+        meta = json.load(f)
+    shorts = meta.get('shorts', [])
+    clips = (job.get('result') or {}).get('clips') or []
+    if not (0 <= clip_index < len(shorts)) or clip_index >= len(clips):
+        raise HTTPException(status_code=404, detail="Clip not found")
+    clip = shorts[clip_index]
+
+    recipe_segments = (clip.get('recipe') or {}).get('segments')
+    if recipe_segments:
+        words = viral_fx.clip_words(recut.virtual_transcript(meta.get('transcript'), recipe_segments),
+                                    0.0, recut.total_duration(recipe_segments))
+    else:
+        words = viral_fx.clip_words(meta.get('transcript'), float(clip.get('start', 0)), float(clip.get('end', 0)))
+
+    current = os.path.basename(clips[clip_index].get('video_url') or '')
+    no_caps = _strip_burned_captions(output_dir, current)
+    clean = _strip_burned_hook(output_dir, no_caps)
+    if not os.path.exists(os.path.join(output_dir, clean)):
+        raise HTTPException(status_code=404, detail="Clip file not found")
+    hook = clip.get('auto_hook') if no_caps != clean else None
+    opts, watermark = {}, None
+    if req.profile_id and not BILLING_ENABLED:
+        import plus as _plus
+        prof = _plus.get_profile(req.profile_id)
+        if prof:
+            prof = _plus.sanitize(prof)
+            opts = dict(prof["fx"])
+            watermark = prof["watermark"] or None
+    if clip.get("punchline_time") is not None:
+        opts["hints"] = {"punchline_time": clip["punchline_time"]}
+    topic = viral_fx.topic_words(clip.get('video_title_for_youtube_short'), clip.get('viral_hook_text'))
+
+    def run():
+        ts = int(time.time())
+        clean_path = os.path.join(output_dir, clean)
+        # A Clip Generator++ render baked its zooms into the canonical and
+        # kept the untouched version next to it: always restyle from that.
+        pristine = clean_path[:-4] + ".pre_fx.mp4"
+        if os.path.exists(pristine):
+            clean_path = pristine
+        if hook and hook.get('text'):
+            # motion under the hook, then the hook, then the captions.
+            from hooks import add_hook_to_video
+            motion = os.path.join(output_dir, f"fxtmp_{ts}_{clean}")
+            viral_fx.apply_motion(clean_path, words, req.style, motion, opts=opts)
+            hooked = os.path.join(output_dir, f"hooked_{ts}_{clean}")
+            try:
+                add_hook_to_video(motion, hook['text'], hooked, position=hook.get('position', 'top'),
+                                  duration=float(hook.get('duration_seconds') or 5), style=hook.get('style', 'classic'))
+            finally:
+                if os.path.exists(motion):
+                    os.remove(motion)
+            out = os.path.join(output_dir, f"subtitled_{ts}_{os.path.basename(hooked)}")
+            viral_fx.apply_captions(hooked, words, req.style, out, watermark=watermark, topic=topic)
+        elif no_caps == clean:
+            # No hook: motion + captions in one encode, from the pristine file.
+            out = os.path.join(output_dir, f"subtitled_{ts}_{clean}")
+            viral_fx.apply(clean_path, words, req.style, out, watermark=watermark, opts=opts, topic=topic)
+        else:
+            # A manual hook without its config is kept as is (zoomed with the clip).
+            src = os.path.join(output_dir, no_caps)
+            out = os.path.join(output_dir, f"subtitled_{ts}_{no_caps}")
+            viral_fx.apply(src, words, req.style, out, watermark=watermark, opts=opts, topic=topic)
+        return os.path.basename(out)
+
+    try:
+        served = await asyncio.get_event_loop().run_in_executor(None, run)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Edit style failed: {str(e)[:300]}")
+
+    new_url = f"/videos/{job_id}/{served}"
+    clips[clip_index]['video_url'] = new_url
+    clips[clip_index]['edit_style'] = req.style
+    shorts[clip_index]['video_url'] = new_url
+    shorts[clip_index]['edit_style'] = req.style
+    st = os.stat(meta_files[0])
+    with open(meta_files[0], 'w') as f:
+        json.dump(meta, f, indent=4)
+    try:
+        # Keep the project's date (History order + retention age).
+        os.utime(meta_files[0], (st.st_atime, st.st_mtime))
+    except OSError:
+        pass
+    _archive_clip_edit_bg(job_id, clip_index, served)
+    return {"success": True, "new_video_url": new_url, "style": req.style}
+
+
+@app.post("/api/clip/{job_id}/{clip_index}/restore")
+async def restore_published_clip(job_id: str, clip_index: int, request: Request):
+    """Put a posted clip back into its project (undo of the automatic removal
+    after posting) — e.g. the platform rejected it and it needs another go."""
+    await _ensure_job_files(job_id, request)
+    if job_id in jobs:
+        await _assert_job_owner(request, jobs[job_id])
+    _mark_clip_published(job_id, clip_index, None)
+    return {"restored": True}
+
+
+@app.delete("/api/schedule/{entry_id}")
+async def delete_schedule_entry(entry_id: str):
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    entries = _load_schedule()
+    remaining = [e for e in entries if e["id"] != entry_id]
+    if len(remaining) == len(entries):
+        raise HTTPException(status_code=404, detail="Entry not found")
+    _save_schedule(remaining)
+    return {"deleted": True}
 
 
 def _locate_source(job_id: str):
@@ -2741,12 +3368,347 @@ async def get_source_video(job_id: str, request: Request,
     return FileResponse(source_path, media_type="video/mp4")
 
 
+def _pad_title_with_hashtags(title: str, hashtags: Optional[List[str]], max_len: int = 100) -> str:
+    """Append as many niche hashtags as fit in YouTube's 100-char title
+    budget — one at a time, stopping before the next one would overflow it,
+    so the title is never truncated mid-hashtag."""
+    title = (title or '').strip()
+    if not title:
+        return '(none)'
+    if not hashtags:
+        return title
+    # Only the niche generator's hashtags: drop any the AI put in the title.
+    title = _strip_hashtags(title) or title
+    out = title
+    for tag in hashtags:
+        candidate = f"{out} {tag}" if out else tag
+        if len(candidate) > max_len:
+            break
+        out = candidate
+    return out
+
+
+_HASHTAG_TOKEN_RE = re.compile(r'(?<!\w)#\w+', re.UNICODE)
+
+
+def _strip_hashtags(text: Optional[str]) -> str:
+    """The text without its hashtags (and without the gaps they leave)."""
+    return re.sub(r'\s{2,}', ' ', _HASHTAG_TOKEN_RE.sub('', text or '')).strip()
+
+
+def _with_niche_hashtags(text: Optional[str], hashtags: Optional[List[str]]) -> str:
+    """Description = the AI-written sentence(s) + the NICHE GENERATOR's
+    hashtags, and only those: the 3-5 hashtags Gemini invents while writing a
+    description are dropped, so every hashtag that goes out is one the niche
+    research (Settings → Content Niche & Hashtags) actually produced. With no
+    pool (no niche / nothing researched) the text is left as Gemini wrote it."""
+    if not hashtags:
+        return (text or '').strip()
+    body = _strip_hashtags(text)
+    tags = " ".join(hashtags)
+    return f"{body} {tags}".strip() if body else tags
+
+
+async def _niche_hashtag_pool(niche: Optional[str]) -> Optional[List[str]]:
+    """Researched hashtag pool for a niche, or None. Cache first — a niche
+    already researched anywhere (Settings, regenerate-copy, an earlier
+    download) is free and needs no YOUTUBE_DATA_API_KEY; only a cache miss
+    goes to the network, and a failure there degrades to None rather than
+    failing the download/post it was meant to decorate."""
+    if not niche or not niche.strip():
+        return None
+    import niche_hashtags
+    pool = niche_hashtags.cached_hashtags(niche)
+    if pool is not None:
+        return pool
+    youtube_key = os.environ.get("YOUTUBE_DATA_API_KEY")
+    if not youtube_key:
+        return None
+    try:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, niche_hashtags.research_hashtags, niche, youtube_key)
+    except Exception as e:
+        print(f"⚠️ Hashtag lookup failed for niche {niche!r} ({e}) — continuing without them.")
+        return None
+
+
+# --- Clean hashtags ---------------------------------------------------------
+# The researched pool is "every hashtag the niche's top Shorts use, by
+# frequency" — for "joe rogan podcast clips" that is #ufc #superman #russia
+# #sigma... Stuffed whole into every description and padded into every title,
+# it was 20+ hashtags, most unrelated to the clip (YouTube reads unrelated
+# hashtags as misleading metadata and ignores all of them past 60). Clean mode
+# (Settings, on by default, off = the old behaviour byte for byte) sends 3-5
+# per clip — the channel's 1-2 identity tags + the ones about THIS clip — and
+# none in the YouTube title.
+PUBLISH_SETTINGS_FILE = "publish_settings.json"
+_NO_INFO_HASHTAGS = {
+    'shorts', 'short', 'fyp', 'foryou', 'foryoupage', 'pourtoi', 'viral', 'viralvideo', 'trending',
+    'reels', 'reel', 'youtubeshorts', 'ytshorts', 'explore', 'explorepage', 'edit', 'edits', 'video',
+    'clip', 'clips', 'tiktok', 'fypage', 'xyzbca',
+}
+
+
+def _publish_settings() -> dict:
+    try:
+        with open(PUBLISH_SETTINGS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {}
+    niche_tags = {}
+    for key, tags in (data.get("niche_tags") or {}).items():
+        if isinstance(tags, list):
+            niche_tags[str(key).strip().lower()] = [str(t).strip() for t in tags if str(t).strip()][:40]
+    return {"clean_hashtags": bool(data.get("clean_hashtags", True)),
+            "youtube_tags": bool(data.get("youtube_tags", True)),
+            "niche_tags": niche_tags}
+
+
+# --- YouTube tags (the hidden keywords field) -------------------------------
+# Sent with every YouTube upload (Upload-Post `tags[]`): the clip's own topics
+# first (from its 3-5 hashtags, re-spaced: #selfdefense -> "self defense"),
+# then the niche's base tags from Settings, within YouTube's 500 characters.
+_YT_TAG_BUDGET = 480   # YouTube counts a tag with a space with its quotes
+
+
+def _niche_base_tags(niche: Optional[str], table: Optional[dict] = None) -> List[str]:
+    """Base tags saved for this niche, matched on its words so "Joe rogan
+    podcast" finds the ones saved under "joe rogan podcast clips"."""
+    table = _publish_settings()["niche_tags"] if table is None else table
+    key = (niche or "").strip().lower()
+    if not key or not table:
+        return []
+    if key in table:
+        return list(table[key])
+    want = set(re.findall(r"[a-z0-9à-ÿ]+", key))
+    best, best_score = [], 1
+    for k, tags in table.items():
+        score = len(want & set(re.findall(r"[a-z0-9à-ÿ]+", k)))
+        if score > best_score:
+            best, best_score = tags, score
+    return list(best)
+
+
+def _spaced(word: str, text: str) -> str:
+    """"selfdefense" -> "self defense" when the clip's text writes it apart,
+    "MedicalFacts" -> "medical facts" (but "OpenAI" stays "openai")."""
+    parts = re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+", word)
+    if len(parts) > 1 and all(len(x) >= 3 for x in parts):
+        return " ".join(parts).lower()
+    tokens = re.findall(r"[a-z0-9à-ÿ]+", (text or "").lower())
+    w = word.lower()
+    for n in (2, 3):
+        for i in range(len(tokens) - n + 1):
+            if "".join(tokens[i:i + n]) == w:
+                return " ".join(tokens[i:i + n])
+    return w
+
+
+def _youtube_tags(clip: dict, pool: Optional[List[str]], niche: Optional[str]) -> List[str]:
+    text = " ".join(filter(None, [
+        niche, clip.get('video_title_for_youtube_short'), clip.get('viral_hook_text'),
+        clip.get('video_description_for_instagram'), clip.get('video_description_for_tiktok')]))
+    topic = [_spaced(h.lstrip('#'), text) for h in _pick_clip_hashtags(clip, pool, niche, lo=0, hi=8)]
+    base = _niche_base_tags(niche) or ([niche.strip().lower()] if niche and niche.strip() else [])
+    out, seen, used = [], set(), 0
+    for t in topic + base:
+        t = re.sub(r"[<>,]", "", t).strip()[:30]
+        k = t.replace(" ", "").lower()
+        cost = len(t) + (2 if " " in t else 0) + 1
+        if not t or k in seen or used + cost > _YT_TAG_BUDGET:
+            continue
+        seen.add(k)
+        out.append(t)
+        used += cost
+    return out
+
+
+def _job_language(job_id: str) -> Optional[str]:
+    """The transcript's language (e.g. "en") — sent to YouTube as the video's
+    audio / title language so it is shown to the right audience."""
+    for f in glob.glob(os.path.join(OUTPUT_DIR, job_id, "*_metadata.json")):
+        try:
+            with open(f, encoding="utf-8") as fh:
+                lang = str(((json.load(fh).get("transcript") or {}).get("language")) or "").strip().lower()
+        except Exception:
+            continue
+        if re.fullmatch(r"[a-z]{2,3}", lang):
+            return lang
+    return None
+
+
+def _tag_key(tag: str) -> str:
+    """#MentalHealth -> mentalhealth; plural folded (psychedelics ~ psychedelic)."""
+    t = tag.lstrip('#').lower()
+    return t[:-1] if len(t) > 4 and t.endswith('s') else t
+
+
+def _text_keys(text: str) -> set:
+    """Every word of the clip's copy, plus 2- and 3-word runs glued together
+    (hashtags are written "selfdefense", "mentalhealth"), plural-folded."""
+    words = re.findall(r"[a-zà-ÿ0-9]+", (text or '').lower())
+    keys = set()
+    for n in (1, 2, 3):
+        for i in range(len(words) - n + 1):
+            k = "".join(words[i:i + n])
+            if len(k) >= 3:
+                keys.add(k[:-1] if len(k) > 4 and k.endswith('s') else k)
+    return keys
+
+
+def _pick_clip_hashtags(clip: dict, pool: Optional[List[str]], niche: Optional[str],
+                        lo: int = 3, hi: int = 5) -> List[str]:
+    """3-5 hashtags for THIS clip: up to 2 channel-identity tags from the
+    niche pool (#joerogan #jre), then pool tags the clip's own words name
+    (#psychedelics on an ibogaine clip, #kratom on the kratom one), then the
+    topical ones the AI wrote into the description. Never a no-information
+    tag (#fyp #viral #edits), never a pool tag unrelated to the clip."""
+    ai_text = " ".join(filter(None, [clip.get('video_description_for_instagram'),
+                                     clip.get('video_description_for_tiktok')]))
+    ai_tags = ["#" + t for t in re.findall(r'(?<!\w)#(\w+)', ai_text, re.UNICODE)]
+    copy_text = " ".join(filter(None, [
+        clip.get('video_title_for_youtube_short'), _strip_hashtags(ai_text),
+        clip.get('viral_hook_text'), " ".join(t.lstrip('#') for t in ai_tags)]))
+    keys = _text_keys(copy_text)
+    niche_words = [w for w in re.findall(r"[a-zà-ÿ0-9]+", (niche or '').lower()) if len(w) >= 3]
+    pool = [t if t.startswith('#') else f"#{t}" for t in (pool or [])]
+    useful = [t for t in pool if t.lstrip('#').lower() not in _NO_INFO_HASHTAGS]
+
+    out, seen = [], set()
+
+    def add(tag):
+        k = _tag_key(tag)
+        if k and k not in seen and tag.lstrip('#').lower() not in _NO_INFO_HASHTAGS and len(out) < hi:
+            seen.add(k)
+            out.append(tag)
+
+    # Identity: the niche's most-used tags among those that spell the niche
+    # (#joerogan) or top its pool (#jre) — at most 2.
+    for t in [t for i, t in enumerate(useful) if i < 3 or any(w in t.lower() for w in niche_words)][:2]:
+        add(t)
+    for t in useful:
+        if _tag_key(t) in keys:
+            add(t)
+    for t in ai_tags:
+        add(t)
+    if len(out) < lo:
+        for t in useful:
+            if len(out) >= lo:
+                break
+            add(t)
+    return out
+
+
+def _with_clip_hashtags(text: Optional[str], tags: List[str]) -> str:
+    body = _strip_hashtags(text)
+    joined = " ".join(tags)
+    return f"{body} {joined}".strip() if body else joined
+
+
+def _captions_from_pool(clip: dict, title: Optional[str], description: Optional[str],
+                        pool: Optional[List[str]], niche: Optional[str] = None,
+                        clean: Optional[bool] = None) -> dict:
+    """The exact text each platform receives, given the niche generator's
+    hashtag pool. ONE place for it: the real send, the preview, the ZIP's
+    .txt files and the single-clip download all come through here, so they
+    can never disagree.
+
+    - YouTube title: the title + as many generator hashtags as fit in 100.
+    - Every description: the AI sentence(s) + the generator's hashtags only.
+    A user-typed title/description (single-clip modal) is sent as typed.
+    """
+    tiktok_text = clip.get('video_description_for_tiktok') or clip.get('video_description_for_instagram')
+    instagram_text = clip.get('video_description_for_instagram') or clip.get('video_description_for_tiktok')
+    base_title = title or clip.get('video_title_for_youtube_short') or 'Viral Short'
+    settings = _publish_settings()
+    if clean is None:
+        clean = settings["clean_hashtags"]
+    # B-roll photos under CC BY must be credited where the video is posted.
+    credits = clip.get('broll_credits') or []
+    credit_line = ("\n\nImages: " + " · ".join(credits)) if credits and not description else ""
+    yt_tags = _youtube_tags(clip, pool, niche) if settings["youtube_tags"] else []
+    if clean:
+        # 3-5 hashtags about this clip in every description, none in the
+        # YouTube title (phones cut it before they show). Typed text wins.
+        tags = _pick_clip_hashtags(clip, pool, niche)
+        if description:
+            tiktok = instagram = youtube_description = description
+        else:
+            tiktok = _with_clip_hashtags(tiktok_text, tags) or "Check this out!"
+            instagram = youtube_description = _with_clip_hashtags(instagram_text, tags) or "Check this out!"
+        return {
+            "youtube_title": base_title if title else (_strip_hashtags(base_title) or base_title),
+            "youtube_description": youtube_description + credit_line,
+            "youtube_tags": yt_tags,
+            "tiktok": tiktok,
+            "instagram": instagram + credit_line,
+        }
+    if description:
+        tiktok = instagram = youtube_description = description
+    else:
+        tiktok = _with_niche_hashtags(tiktok_text, pool) or "Check this out!"
+        instagram = youtube_description = _with_niche_hashtags(instagram_text, pool) or "Check this out!"
+    return {
+        "youtube_title": base_title if title else _pad_title_with_hashtags(base_title, pool),
+        "youtube_description": youtube_description + credit_line,
+        "youtube_tags": yt_tags,
+        "tiktok": tiktok,
+        "instagram": instagram + credit_line,
+    }
+
+
+async def _build_post_captions(clip: dict, title: Optional[str], description: Optional[str],
+                               niche: Optional[str]) -> dict:
+    """_captions_from_pool with the niche's pool looked up (cache first)."""
+    pool = None if description else await _niche_hashtag_pool(niche)
+    return _captions_from_pool(clip, title, description, pool, niche)
+
+
+def _clip_copy_text(clip: dict, hashtags: Optional[List[str]] = None, niche: Optional[str] = None) -> str:
+    """Plain-text title + platform descriptions for a clip, ready to paste
+    into a posting form — exactly what an Upload-Post send would carry
+    (same _captions_from_pool), plus the full generator pool at the end."""
+    c = _captions_from_pool(clip, None, None, hashtags, niche)
+    lines = [
+        "YOUTUBE TITLE",
+        c["youtube_title"],
+        "",
+        "YOUTUBE DESCRIPTION",
+        c["youtube_description"],
+        "",
+        "YOUTUBE TAGS",
+        ", ".join(c.get("youtube_tags") or []),
+        "",
+        "TIKTOK DESCRIPTION",
+        c["tiktok"],
+        "",
+        "INSTAGRAM DESCRIPTION",
+        c["instagram"],
+    ]
+    if clip.get('viral_hook_text'):
+        lines += ["", "ON-SCREEN HOOK", clip['viral_hook_text']]
+    if hashtags:
+        lines += ["", "NICHE HASHTAGS", " ".join(hashtags)]
+    return "\n".join(lines) + "\n"
+
+
 @app.get("/api/jobs/{job_id}/download-all")
-async def download_all_clips(job_id: str, request: Request):
-    """Bundle the current version of every clip of a job into one ZIP."""
+async def download_all_clips(job_id: str, request: Request, niche: Optional[str] = None):
+    """Bundle the current version of every clip of a job into one ZIP.
+
+    ``niche``, when given, adds a researched hashtag pool (niche_hashtags.py,
+    same cached-first lookup regenerate-copy uses) to each clip's bundled
+    text file — the dashboard asks for a niche before downloading when none
+    is saved yet in Settings, precisely so this has something to work with.
+    Missing key / lookup failure degrades to no hashtags rather than failing
+    the whole download: the video files are the point, the hashtags are a
+    bonus.
+    """
     await _ensure_job_files(job_id, request)
     if job_id in jobs:
         await _assert_job_owner(request, jobs[job_id])
+
+    hashtag_pool = await _niche_hashtag_pool(niche)
 
     output_dir = os.path.join(OUTPUT_DIR, job_id)
     json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
@@ -2773,7 +3735,7 @@ async def download_all_clips(job_id: str, request: Request):
                     else _canonical_clip_file(output_dir, base_name, i))
         path = os.path.join(output_dir, filename)
         if filename and os.path.exists(path):
-            files.append((i, path))
+            files.append((i, path, clip))
 
     if not files:
         raise HTTPException(status_code=404, detail="No clip files found for this job")
@@ -2783,8 +3745,11 @@ async def download_all_clips(job_id: str, request: Request):
     def build_zip():
         # Videos are already compressed; store instead of deflate for speed.
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_STORED) as zf:
-            for i, path in files:
-                zf.write(path, arcname=f"clip_{i + 1:02d}_{os.path.basename(path)}")
+            for i, path, clip in files:
+                arcname = f"clip_{i + 1:02d}_{os.path.basename(path)}"
+                zf.write(path, arcname=arcname)
+                zf.writestr(f"clip_{i + 1:02d}_title_and_description.txt",
+                            _clip_copy_text(clip, hashtag_pool, niche))
 
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, build_zip)
@@ -3174,7 +4139,14 @@ class CaptionWordIn(BaseModel):
 class SubtitleRequest(BaseModel):
     job_id: str
     clip_index: int
-    position: str = "bottom" # top, middle, bottom
+    # Legacy 'top'/'middle'/'bottom' string, OR a raw number if a caller
+    # forwards the slider's position_percent value under this field by
+    # mistake — accepted either way since position_percent (below) is what
+    # actually rules whenever it's present; this one is a harmless fallback.
+    position: Union[str, int, float] = "bottom"
+    # 0-100, caption's top edge as % of frame height — overrides `position`
+    # entirely when given, for a slider instead of the three fixed presets.
+    position_percent: Optional[float] = None
     font_size: int = 16
     font_name: str = "Verdana"
     font_color: str = "#FFFFFF"
@@ -3184,9 +4156,22 @@ class SubtitleRequest(BaseModel):
     bg_opacity: float = 0.0
     style: str = "classic"  # classic (uniform color) or karaoke (word highlight)
     highlight_color: str = "#FFD700"
-    effect: str = "none"  # none | glow | pop | box (karaoke only)
+    effect: str = "none"  # none | glow | pop | box | highlight-box (karaoke only)
     base_opacity: float = 1.0  # opacity of non-active words (dimmed modern look)
     uppercase: bool = False
+    # subtitles.AUTO_CAPTION_STYLE's own values (16/1.4) — the defaults here
+    # used to fall through to generate_ass's own (20/2.0), so a manual restyle
+    # from this modal never actually matched what a clip ships with by
+    # default: bigger chunks, slower cycling, a visibly different rhythm.
+    max_chars: int = 16
+    max_duration: float = 1.4
+    # Caption block also breaks on word count when set, independent of
+    # max_chars — lets a style force e.g. one word at a time regardless of
+    # how short those words are.
+    max_words: Optional[int] = None
+    # ASS "Spacing" field, in points — positive tracks letters apart,
+    # negative tightens them.
+    letter_spacing: float = 0.0
     input_filename: Optional[str] = None
     # User-edited caption words. When present, the burn uses them VERBATIM
     # instead of regenerating from the stored transcript — without this, text
@@ -3249,6 +4234,246 @@ async def get_clip_transcript(job_id: str, clip_index: int, request: Request):
         "durationSec": duration_sec,
         "language": transcript.get('language', 'en'),
     }
+
+
+class TranslateCaptionsRequest(BaseModel):
+    target_language: str
+
+
+@app.post("/api/clip/{job_id}/{clip_index}/translate-captions")
+async def translate_clip_captions(job_id: str, clip_index: int, req: TranslateCaptionsRequest, request: Request):
+    """Translate this clip's caption TEXT only (voice stays original) — same
+    engine as the Viral Clip Reworker's "subtitles only" language picker
+    (rework.translate_transcript), exposed here so any clip's subtitle editor
+    can translate on demand, not just a clip freshly run through the Reworker.
+
+    Returns the SAME shape as GET .../transcript (captions/durationSec/
+    language), clip-relative and in ms, so the caller (SubtitleModal) can
+    drop it straight into its existing edited-captions state — the burn
+    endpoint already knows how to render caller-supplied words verbatim, so
+    no separate persistence or new burn path is needed for this to work.
+    """
+    await require_managed_entitlement(request)
+    await _ensure_job_files(job_id, request)
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _assert_job_owner(request, jobs[job_id])
+
+    api_key = await resolve_gemini(request)
+    if not api_key and not (llm_backend.active() and not BILLING_ENABLED):
+        raise gemini_missing_error()
+
+    output_dir = os.path.join(OUTPUT_DIR, job_id)
+    json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+    with open(json_files[0], 'r') as f:
+        data = json.load(f)
+    transcript = data.get('transcript')
+    if not transcript:
+        raise HTTPException(status_code=400, detail="Transcript not found in metadata")
+    clips = data.get('shorts', [])
+    if clip_index >= len(clips):
+        raise HTTPException(status_code=404, detail="Clip not found")
+    clip_data = clips[clip_index]
+
+    recipe_segments = (clip_data.get('recipe') or {}).get('segments')
+    if recipe_segments:
+        source_transcript = recut.virtual_transcript(transcript, recipe_segments)
+        clip_start, clip_end = 0.0, recut.total_duration(recipe_segments)
+    else:
+        source_transcript = transcript
+        clip_start = clip_data.get('start', 0)
+        clip_end = clip_data.get('end', 0)
+
+    # Narrow to this clip's own words, re-based to clip-relative 0.0 — a
+    # non-recut clip's "transcript" is still the WHOLE source video's, and
+    # translating that instead of just the clip's slice would burn tokens on
+    # text nobody will ever see captioned here.
+    narrowed_segments = []
+    for seg in source_transcript.get('segments', []):
+        words = [w for w in (seg.get('words') or []) if w['end'] > clip_start and w['start'] < clip_end]
+        if not words:
+            continue
+        narrowed_segments.append({
+            "start": max(0.0, seg.get('start', 0) - clip_start),
+            "end": min(clip_end, seg.get('end', 0)) - clip_start,
+            "text": seg.get('text', ''),
+            "words": [{"word": w['word'], "start": w['start'] - clip_start, "end": w['end'] - clip_start}
+                      for w in words],
+        })
+    if not narrowed_segments:
+        raise HTTPException(status_code=400, detail="No captions in range for this clip")
+
+    import rework
+    try:
+        translated = rework.translate_transcript(
+            {"language": source_transcript.get('language'), "segments": narrowed_segments},
+            req.target_language, api_key)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Translation failed: {e}")
+
+    captions = [
+        {"text": w.get('word', '').strip(),
+         "startMs": int(max(0, w['start']) * 1000),
+         "endMs": int(max(0, w['end']) * 1000)}
+        for seg in translated.get('segments', []) for w in seg.get('words', [])
+    ]
+    return {"captions": captions, "durationSec": clip_end - clip_start, "language": req.target_language}
+
+
+class ViralShortsRequest(BaseModel):
+    niche: str
+    max_results: int = 20
+    include_shorts: bool = True
+    include_videos: bool = False
+
+
+@app.post("/api/viral-shorts")
+async def find_viral_shorts(req: ViralShortsRequest):
+    """The most-viewed YouTube Shorts (and/or regular videos) for a niche — a
+    ready-made list of source material to watch and pick from for a
+    repost/clipping channel, instead of hunting for it by hand. Not cached
+    (unlike hashtag research): "most viral right now" is meant to be checked
+    fresh, not remembered.
+    """
+    youtube_key = os.environ.get("YOUTUBE_DATA_API_KEY")
+    if not youtube_key:
+        raise HTTPException(status_code=400, detail="YOUTUBE_DATA_API_KEY is not configured on the server")
+    import viral_finder
+    try:
+        loop = asyncio.get_event_loop()
+        shorts = await loop.run_in_executor(
+            None, viral_finder.find_viral_shorts, req.niche, youtube_key, req.max_results,
+            req.include_shorts, req.include_videos)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Viral shorts search failed: {e}")
+    return {"niche": req.niche, "shorts": shorts}
+
+
+class HashtagResearchRequest(BaseModel):
+    niche: str
+
+
+@app.post("/api/hashtags/research")
+async def research_niche_hashtags(req: HashtagResearchRequest):
+    """Force a fresh YouTube search for this niche's hashtags (bypassing the
+    30-day cache) — exposed for a "research now" action in Settings, so the
+    user can see and sanity-check the pool before it's used on their clips.
+    """
+    youtube_key = os.environ.get("YOUTUBE_DATA_API_KEY")
+    if not youtube_key:
+        raise HTTPException(status_code=400, detail="YOUTUBE_DATA_API_KEY is not configured on the server")
+    import niche_hashtags
+    try:
+        loop = asyncio.get_event_loop()
+        hashtags = await loop.run_in_executor(None, niche_hashtags.research_hashtags, req.niche, youtube_key)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Hashtag research failed: {e}")
+    return {"niche": req.niche, "hashtags": hashtags}
+
+
+@app.get("/api/hashtags")
+async def get_niche_hashtags(niche: str):
+    """Cache-first hashtag pool for a niche — unlike "research now" above,
+    this never forces a fresh YouTube search. Used wherever a hashtag pool is
+    a nice-to-have bonus on an action the user didn't explicitly ask to spend
+    quota on (bundling a downloaded clip's text file, e.g.): a niche nobody
+    has researched yet just comes back empty instead of surprising them with
+    a live network call, exactly like download-all's own bundling already
+    behaves server-side.
+    """
+    import niche_hashtags
+    hashtags = niche_hashtags.cached_hashtags(niche) or []
+    return {"niche": niche, "hashtags": hashtags}
+
+
+class RegenerateCopyRequest(BaseModel):
+    # The channel's content niche (e.g. "Joe Rogan podcast clips"), set once
+    # in Settings. When given, real hashtags researched from top-performing
+    # Shorts in that niche (niche_hashtags.py, YouTube Data API) are offered
+    # to the model instead of it inventing plausible-looking ones.
+    niche: Optional[str] = None
+
+
+@app.post("/api/clip/{job_id}/{clip_index}/regenerate-copy")
+async def regenerate_clip_copy(job_id: str, clip_index: int, request: Request,
+                                req: RegenerateCopyRequest = RegenerateCopyRequest()):
+    """New hook/title/descriptions for a clip that already has some — same
+    generator the Viral Clip Reworker uses for a freshly erased clip
+    (rework.generate_clip_copy), reused here so a normally generated clip's
+    copy can be re-rolled without re-running the whole pipeline. Persists the
+    result into metadata.json (and the in-memory job) so it survives a reload
+    and feeds downloads/social posting like the original copy did.
+    """
+    await require_managed_entitlement(request)
+    await _ensure_job_files(job_id, request)
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = jobs[job_id]
+    await _assert_job_owner(request, job)
+
+    api_key = await resolve_gemini(request)
+    if not api_key and not (llm_backend.active() and not BILLING_ENABLED):
+        raise gemini_missing_error()
+
+    output_dir = os.path.join(OUTPUT_DIR, job_id)
+    json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+    with open(json_files[0], 'r') as f:
+        data = json.load(f)
+    clips = data.get('shorts', [])
+    if clip_index >= len(clips):
+        raise HTTPException(status_code=404, detail="Clip not found")
+    clip = clips[clip_index]
+
+    transcript = data.get('transcript') or {}
+    recipe_segments = (clip.get('recipe') or {}).get('segments')
+    if recipe_segments:
+        source_transcript = recut.virtual_transcript(transcript, recipe_segments)
+        clip_start, clip_end = 0.0, recut.total_duration(recipe_segments)
+    else:
+        source_transcript = transcript
+        clip_start = clip.get('start', 0)
+        clip_end = clip.get('end', 0)
+
+    import rework
+    clip_text = " ".join(
+        (seg.get('text') or "").strip()
+        for seg in source_transcript.get('segments', [])
+        if seg.get('end', 0) > clip_start and seg.get('start', 0) < clip_end
+    ).strip()
+    if not clip_text:
+        raise HTTPException(status_code=400, detail="No transcript text for this clip")
+
+    hashtag_pool = None
+    if req.niche:
+        import niche_hashtags
+        youtube_key = os.environ.get("YOUTUBE_DATA_API_KEY")
+        if youtube_key:
+            try:
+                loop = asyncio.get_event_loop()
+                hashtag_pool = await loop.run_in_executor(
+                    None, niche_hashtags.get_or_research, req.niche, youtube_key)
+            except Exception as e:
+                print(f"⚠️ Hashtag research failed for niche {req.niche!r} ({e}) — falling back to Gemini's own guess.")
+
+    try:
+        new_copy = rework.generate_clip_copy(clip_text, source_transcript.get('language'), api_key,
+                                              hashtag_pool=hashtag_pool)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Copy generation failed: {e}")
+
+    clip.update(new_copy)
+    data['shorts'] = clips
+    with open(json_files[0], 'w') as f:
+        json.dump(data, f, indent=2)
+    mem_clips = (job.get('result') or {}).get('clips') or []
+    if clip_index < len(mem_clips):
+        mem_clips[clip_index].update(new_copy)
+
+    return new_copy
 
 
 # --- Clip editor: EDL + re-render ---
@@ -4176,6 +5401,11 @@ async def add_subtitles(req: SubtitleRequest, request: Request):
     # recorded there.
     seam_ranges = layout_ranges.split_ranges(
         clip_data.get('layout_ranges') or layout_ranges.read(input_path))
+    # effect="highlight-box" positions every word itself and needs to know the
+    # clip's real aspect ratio to do that (see generate_ass's aspect_ratio
+    # docstring) — every other effect ignores this.
+    aspect_ratio = 1.0 if data.get('output_format') == 'square' else (
+        16.0 / 9.0 if data.get('output_format') == 'horizontal' else 9.0 / 16.0)
     karaoke_opts = dict(
         split_ranges=seam_ranges,
         alignment=req.position, fontsize=req.font_size, font_name=req.font_name,
@@ -4183,6 +5413,10 @@ async def add_subtitles(req: SubtitleRequest, request: Request):
         border_width=req.border_width, highlight_color=req.highlight_color,
         bg_color=req.bg_color, bg_opacity=req.bg_opacity,
         effect=req.effect, base_opacity=req.base_opacity, uppercase=req.uppercase,
+        max_chars=req.max_chars, max_duration=req.max_duration,
+        position_percent=req.position_percent,
+        max_words=req.max_words, letter_spacing=req.letter_spacing,
+        aspect_ratio=aspect_ratio,
     )
 
     # Output video
@@ -4592,19 +5826,907 @@ async def translate_clip(
         "new_video_url": f"/videos/{req.job_id}/{output_filename}"
     }
 
+
+# --- Viral Clip Reworker ----------------------------------------------------
+# Upload any already-cut clip, erase its existing hook and captions
+# (text_eraser.py: text-only masks + background carried in from neighbouring
+# frames — see rework.py's module docstring for what that can and cannot do), burn a
+# fresh AI hook + captions, with an optional dub to another language. Not tied
+# to the AI clip-generation `jobs` dict (no clip selection, no scene detection,
+# no billing/quota coupling) — its own lightweight tracker instead.
+rework_jobs: Dict[str, Dict] = {}
+
+
+@app.post("/api/rework/upload")
+async def rework_upload(file: UploadFile = File(...)):
+    """Stash an uploaded clip and hand back a preview frame + dimensions so
+    the dashboard can let the user drag the erase box over the actual video,
+    before any processing starts."""
+    job_id = str(uuid.uuid4())
+    job_dir = os.path.join(OUTPUT_DIR, job_id)
+    os.makedirs(job_dir, exist_ok=True)
+    safe_name = os.path.basename(file.filename or "clip.mp4") or "clip.mp4"
+    source_path = os.path.join(job_dir, f"source_{safe_name}")
+
+    size = 0
+    limit_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
+    try:
+        with open(source_path, "wb") as buffer:
+            while content := await file.read(1024 * 1024):
+                size += len(content)
+                if size > limit_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large. Max size {MAX_FILE_SIZE_MB}MB")
+                buffer.write(content)
+
+        import rework
+        source_path = rework.ensure_playable(source_path)
+        info = rework.probe_video(source_path)
+        if not info["width"] or not info["duration"]:
+            raise HTTPException(status_code=400, detail="Could not read this video file")
+
+        preview_path = os.path.join(job_dir, "preview.jpg")
+        rework.extract_preview_frame(source_path, preview_path)
+    except HTTPException:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
+
+    rework_jobs[job_id] = {
+        "status": "uploaded", "source_path": source_path, "job_dir": job_dir,
+        "logs": [], "result": None, "progress": 0,
+    }
+    return {
+        "job_id": job_id, "width": info["width"], "height": info["height"],
+        "duration": info["duration"],
+        "preview_url": f"/videos/{job_id}/preview.jpg",
+        "source_url": f"/videos/{job_id}/{os.path.basename(source_path)}",
+    }
+
+
+def _run_rework_pipeline(job_id, boxes, target_language, variations, gemini_key, elevenlabs_key,
+                         erase_mode=None):
+    """Blocking pipeline body, run off the event loop. Never raises past this
+    point: failures are recorded on the job so the poller can show them.
+
+    Stops at the erase — it does NOT burn a hook or captions. Instead it
+    writes a normal metadata.json and registers the result in the main
+    ``jobs`` dict, so the dashboard can hand off straight into the Clip
+    Generator's own results view: same ResultCard, same edit clip / reframing
+    / subtitles / viral hook / dub voice tools a freshly generated clip gets,
+    instead of a second, thinner set of style controls duplicating them.
+    """
+    import rework
+    import main as _main
+    job = rework_jobs[job_id]
+    job_dir = job["job_dir"]
+    # A job queued before this check existed (or uploaded some other way)
+    # can still hold an AV1/etc. source ensure_playable never touched — fix
+    # it here too, and update job["source_path"] so the "source_video" name
+    # written into metadata.json below points at a file that still exists
+    # (erase_regions applies the same check again internally, but only on
+    # its own local variable — it has no way to update this job record).
+    current_path = rework.ensure_playable(job["source_path"])
+    job["source_path"] = current_path
+
+    def log(msg):
+        job["logs"].append(msg)
+        print(f"[rework {job_id}] {msg}")
+
+    is_dubbing = bool(target_language)
+    ERASE_START, ERASE_END = (35, 90) if is_dubbing else (20, 90)
+    job["progress"] = 0
+
+    try:
+        log("🎙️ Transcribing...")
+        transcript = _main.transcribe_video(current_path)
+        job["progress"] = 15 if is_dubbing else 20
+        _preview_text = rework.transcript_text(transcript)
+        if _preview_text:
+            log(f"   Heard ({transcript.get('language')}, {len(_preview_text.split())} words): "
+                f"\"{_preview_text[:150]}{'...' if len(_preview_text) > 150 else ''}\"")
+        else:
+            log("   ⚠️ No speech detected — the hook suggestion will have nothing real to work from.")
+
+        if target_language and target_language != transcript.get("language"):
+            log(f"🌐 Dubbing to {target_language}...")
+            dubbed_path = os.path.join(job_dir, f"dubbed_{target_language}.mp4")
+            translate_video(video_path=current_path, output_path=dubbed_path,
+                            target_language=target_language, api_key=elevenlabs_key)
+            current_path = dubbed_path
+            job["progress"] = 25
+            log("🎙️ Re-transcribing the dubbed audio...")
+            transcript = _main.transcribe_video(current_path)
+            job["progress"] = ERASE_START
+
+        log(f"🧽 Removing {len(boxes)} old region(s) (hook/captions)...")
+        erased_path = os.path.join(job_dir, "erased.mp4")
+        erase_span = ERASE_END - ERASE_START
+        rework.erase_regions(current_path, erased_path, boxes,
+                             on_progress=lambda frac: job.__setitem__(
+                                 "progress", ERASE_START + int(frac * erase_span)),
+                             mode=erase_mode)
+        current_path = erased_path
+        job["progress"] = ERASE_END
+
+        variations = variations or {}
+        flip = bool(variations.get("flip"))
+        speed = float(variations.get("speed") or 1.0)
+        zoom = float(variations.get("zoom") or 1.0)
+        color_boost = float(variations.get("color_boost") or 1.0)
+        if flip or speed != 1.0 or zoom != 1.0 or color_boost != 1.0:
+            log("🎛️ Varying the edit (flip/speed/zoom/color) so it doesn't read as a re-upload of the same file...")
+            varied_path = os.path.join(job_dir, "varied.mp4")
+            try:
+                if rework.apply_variations(current_path, varied_path, flip=flip, speed=speed,
+                                           zoom=zoom, color_boost=color_boost):
+                    current_path = varied_path
+            except Exception as e:
+                log(f"⚠️ Variation pass failed ({e}) — shipping without it.")
+        job["progress"] = min(92, ERASE_END + 2)
+
+        # Not burned — just seeds the "viral hook" tool and the "view
+        # descriptions" panel with real generated copy instead of the raw
+        # transcript / blank fields. A failure here costs nothing but that
+        # convenience (the clip still ships, just with empty copy to fill in
+        # by hand).
+        log("✍️ Writing title, hook and descriptions...")
+        copy = {"viral_hook_text": "", "video_title_for_youtube_short": "Reworked clip",
+                "video_description_for_tiktok": "", "video_description_for_instagram": ""}
+        try:
+            copy = rework.generate_clip_copy(
+                rework.transcript_text(transcript), transcript.get("language"), gemini_key)
+        except Exception as e:
+            log(f"⚠️ Copy generation failed ({e}) — title/hook/descriptions will start blank.")
+
+        output_filename = f"reworked_{job_id}.mp4"
+        final_output = os.path.join(job_dir, output_filename)
+        if os.path.abspath(current_path) != os.path.abspath(final_output):
+            shutil.copy(current_path, final_output)
+        duration = rework.probe_video(final_output)["duration"]
+
+        metadata = {
+            "transcript": transcript,
+            "source_video": os.path.basename(job["source_path"]),
+            "output_format": "vertical",
+            "shorts": [{
+                "start": 0.0, "end": duration,
+                "video_url": f"/videos/{job_id}/{output_filename}",
+                "predicted_score": 0,
+                **copy,
+            }],
+        }
+        with open(os.path.join(job_dir, "reworked_metadata.json"), "w") as f:
+            json.dump(metadata, f, indent=2)
+
+        # Same shape _recover_jobs_from_disk builds — makes this job
+        # indistinguishable from a normally generated one to every other
+        # endpoint (edit/subtitle/hook/translate/reframe all just read
+        # metadata.json off disk by job_id).
+        jobs[job_id] = {
+            "status": "completed",
+            "logs": list(job["logs"]),
+            "output_dir": job_dir,
+            "user_id": None,
+            "result": {"clips": metadata["shorts"], "cost_analysis": None},
+        }
+
+        job["result"] = {"job_id": job_id}
+        job["status"] = "completed"
+        job["progress"] = 100
+        log("✅ Done — opening in the Clip Generator.")
+    except Exception as e:
+        job["status"] = "failed"
+        log(f"❌ {e}")
+
+
+class ReworkRequest(BaseModel):
+    job_id: str
+    boxes: list  # [{x, y, w, h}, ...], fractions 0-1 of the frame — one per erased region
+    target_language: Optional[str] = None  # dub (voice) language; falsy/unset = keep the original
+    # Caption-only translation lives on the subtitles tool itself now
+    # (POST /api/clip/{job_id}/{clip_index}/translate-captions), reachable
+    # for any clip instead of only one freshly run through the Reworker.
+    # {flip: bool, speed: float 0.5-2.0, zoom: float 1.0-1.3, color_boost: float 1.0-1.3}
+    variations: Optional[dict] = None
+    # "smart" (default: text-only, background carried from other frames) or
+    # "legacy" (the old whole-rectangle inpaint, faster, visibly smeared).
+    erase_mode: Optional[str] = None
+
+
+def _erase_mode(value: Optional[str]) -> Optional[str]:
+    return value if value in ("smart", "legacy") else None
+
+
+@app.post("/api/rework/process")
+async def rework_process(
+    req: ReworkRequest, request: Request,
+    x_elevenlabs_key: Optional[str] = Header(None, alias="X-ElevenLabs-Key"),
+):
+    job = rework_jobs.get(req.job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Upload not found or expired")
+    if job["status"] == "processing":
+        raise HTTPException(status_code=409, detail="Already processing")
+
+    api_key = await resolve_gemini(request)
+    if not api_key and not (llm_backend.active() and not BILLING_ENABLED):
+        raise gemini_missing_error()
+    if req.target_language and not x_elevenlabs_key:
+        raise HTTPException(status_code=400,
+                            detail="Missing X-ElevenLabs-Key header for translation")
+    if not req.boxes:
+        raise HTTPException(status_code=400, detail="Draw at least one region to erase")
+
+    job["status"] = "processing"
+    job["logs"] = ["Starting..."]
+
+    async def run():
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None, _run_rework_pipeline, req.job_id, req.boxes,
+            req.target_language, req.variations,
+            api_key, x_elevenlabs_key, _erase_mode(req.erase_mode))
+
+    asyncio.create_task(run())
+    return {"status": "processing"}
+
+
+@app.get("/api/rework/status/{job_id}")
+async def rework_status(job_id: str):
+    job = rework_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"status": job["status"], "logs": job["logs"], "result": job.get("result"),
+            "progress": job.get("progress", 0)}
+
+
+@app.get("/api/rework/detect/{job_id}")
+async def rework_detect(job_id: str):
+    """Suggested erase regions: where burned-in captions / a hook show up
+    and when (text_eraser.detect_text_regions — ~30 frames, a few seconds,
+    no AI call). The dashboard pre-draws them; the user can still edit."""
+    job = rework_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Upload not found or expired")
+    if job.get("detected") is None:
+        import text_eraser
+        loop = asyncio.get_event_loop()
+        job["detected"] = await loop.run_in_executor(
+            None, text_eraser.detect_text_regions, job["source_path"])
+    return {"boxes": job["detected"]}
+
+
+class ReworkPreviewRequest(BaseModel):
+    job_id: str
+    boxes: list
+    at: float = 0.0
+    erase_mode: Optional[str] = None
+
+
+def _run_rework_preview(job_id, boxes, at, erase_mode, token):
+    import rework
+    job = rework_jobs[job_id]
+    name = f"preview_{token}.mp4"
+    try:
+        rework.preview_erase(job["source_path"], os.path.join(job["job_dir"], name), boxes, at, mode=erase_mode)
+        if job.get("preview", {}).get("token") == token:
+            job["preview"] = {"status": "done", "token": token, "url": f"/videos/{job_id}/{name}"}
+    except Exception as e:
+        if job.get("preview", {}).get("token") == token:
+            job["preview"] = {"status": "failed", "token": token, "error": str(e)[-300:]}
+
+
+@app.post("/api/rework/preview")
+async def rework_preview(req: ReworkPreviewRequest):
+    """Erase 3 s around ``at`` exactly like the real run and hand back a
+    before | after clip, so the result can be judged before spending minutes
+    on the whole video. Poll GET /api/rework/preview/{job_id}."""
+    job = rework_jobs.get(req.job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Upload not found or expired")
+    if not req.boxes:
+        raise HTTPException(status_code=400, detail="Draw at least one region to erase")
+    if job.get("preview", {}).get("status") == "running":
+        raise HTTPException(status_code=409, detail="A preview is already rendering")
+    token = uuid.uuid4().hex[:8]
+    job["preview"] = {"status": "running", "token": token}
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _run_rework_preview, req.job_id, req.boxes, req.at,
+                         _erase_mode(req.erase_mode), token)
+    return {"status": "running"}
+
+
+@app.get("/api/rework/preview/{job_id}")
+async def rework_preview_status(job_id: str):
+    job = rework_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return job.get("preview") or {"status": "none"}
+
+
 class SocialPostRequest(BaseModel):
     job_id: str
     clip_index: int
     api_key: Optional[str] = None  # BYOK; ignored for managed users
     user_id: Optional[str] = None  # BYOK profile; ignored for managed users
     platforms: List[str] # ["tiktok", "instagram", "youtube"]
-    # Optional overrides if frontend wants to edit them
+    # Optional overrides if frontend wants to edit them. When given they win
+    # for every platform (the single-clip modal, where the user typed them).
     title: Optional[str] = None
     description: Optional[str] = None
     scheduled_date: Optional[str] = None # ISO-8601 string
     timezone: Optional[str] = "UTC"
+    # Channel niche: when set, each platform's caption is topped up from the
+    # researched hashtag pool exactly like the downloaded .txt (_clip_copy_text):
+    # YouTube title padded to 100 chars, TikTok description gets the full pool.
+    niche: Optional[str] = None
+    # Record the post in the Publish Plan (publish_schedule.json) so every
+    # scheduled post shows up in one calendar and can't be scheduled twice
+    # by accident. Self-host only, like the plan itself.
+    record_in_plan: bool = True
 
 import httpx
+
+
+# --- Story Channel (story.py): script → narrated, animated 2D explainer ------
+# Self-host only. The script is written in-process (two Gemini calls); the
+# render runs as a subprocess like main.py, its progress read from
+# "STORY_PROGRESS <pct> <stage>" lines. The output is an ordinary project.
+
+story_jobs: dict = {}
+
+
+class StoryScriptRequest(BaseModel):
+    topic: str
+    seconds: int = 60
+    cast: List[str] = ["casey", "prof"]
+    research: bool = True
+
+
+@app.post("/api/story/script")
+async def story_script(req: StoryScriptRequest, request: Request):
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    api_key = await resolve_gemini(request)
+    if not api_key:
+        raise gemini_missing_error()
+    topic = (req.topic or "").strip()
+    if not topic:
+        raise HTTPException(status_code=400, detail="Give the video a topic.")
+    import story
+    seconds = max(30, min(90, int(req.seconds or 60)))
+    try:
+        return await asyncio.get_event_loop().run_in_executor(
+            None, story.generate_script, topic, api_key, seconds, req.cast, req.research)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Script generation failed: {str(e)[:300]}")
+
+
+class StoryRenderRequest(BaseModel):
+    script: dict
+    voice: Optional[str] = None
+    music: bool = True
+    niche: Optional[str] = None
+    caption_style: Optional[str] = None
+
+
+def _read_story_output(proc, story_id):
+    job = story_jobs[story_id]
+    try:
+        for raw in iter(proc.stdout.readline, b''):
+            line = _scrub_secrets(raw.decode('utf-8', 'replace').strip())
+            if not line:
+                continue
+            if line.startswith("STORY_PROGRESS "):
+                _, pct, stage = (line.split(" ", 2) + ["", ""])[:3]
+                job['progress'] = {"percent": int(pct), "stage": stage}
+                continue
+            if line.startswith("STORY_RESULT "):
+                try:
+                    job['result'] = json.loads(line.split(" ", 1)[1])
+                except ValueError:
+                    pass
+                continue
+            print(f"📝 [Story] {line}")
+            job['logs'].append(line)
+    finally:
+        proc.stdout.close()
+
+
+async def _watch_story(proc, story_id):
+    while proc.poll() is None:
+        await asyncio.sleep(1)
+    job = story_jobs[story_id]
+    job['status'] = 'completed' if proc.returncode == 0 and job.get('result') else 'failed'
+    if job['status'] == 'completed':
+        # Make it a regular project right away (History, editor, scheduling).
+        _recover_jobs_from_disk()
+
+
+@app.post("/api/story/render")
+async def story_render(req: StoryRenderRequest):
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not (req.script or {}).get("scenes"):
+        raise HTTPException(status_code=400, detail="The script has no scenes.")
+    job_id = str(uuid.uuid4())
+    out_dir = os.path.join(OUTPUT_DIR, job_id)
+    os.makedirs(out_dir, exist_ok=True)
+    spec_path = os.path.join(out_dir, "story_spec.json")
+    with open(spec_path, "w", encoding="utf-8") as f:
+        json.dump({"job_id": job_id, "output_dir": out_dir, "script": req.script, "voice": req.voice,
+                   "music": req.music, "niche": (req.niche or "").strip() or None}, f, ensure_ascii=False)
+    env = os.environ.copy()
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    if req.caption_style:
+        try:
+            json.loads(req.caption_style)
+            env["AUTO_CAPTION_STYLE_JSON"] = req.caption_style
+        except ValueError:
+            pass
+    proc = subprocess.Popen([sys.executable, "-u", "story.py", "render", spec_path],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, cwd=os.getcwd())
+    story_jobs[job_id] = {'status': 'processing', 'logs': ["Story render started."], 'started_at': time.time(),
+                          'progress': {"percent": 0, "stage": "starting"}, 'result': None}
+    threading.Thread(target=_read_story_output, args=(proc, job_id), daemon=True).start()
+    asyncio.create_task(_watch_story(proc, job_id))
+    return {"job_id": job_id}
+
+
+@app.get("/api/story/status/{job_id}")
+async def story_status(job_id: str):
+    job = story_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Story job not found")
+    return {"status": job['status'], "progress": {**job['progress'],
+            "elapsed_seconds": int(time.time() - job['started_at'])},
+            "logs": job['logs'][-80:], "result": job.get('result'), "job_id": job_id}
+
+
+# --- Clip Generator++ (plus.py): channel profiles, music moods, own stats ------
+
+@app.get("/api/plus/profiles")
+async def plus_list_profiles():
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import plus as _plus
+    return {"profiles": _plus.load_profiles(), "defaults": _plus.DEFAULT_PROFILE,
+            "music": _plus.music_library()}
+
+
+@app.post("/api/plus/profiles")
+async def plus_create_profile(body: dict):
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import plus as _plus
+    return _plus.upsert(body)
+
+
+class BrollTestRequest(BaseModel):
+    style: Optional[str] = "photo"
+
+
+@app.post("/api/plus/broll/test")
+async def plus_broll_test(req: BrollTestRequest, request: Request):
+    """Clip Generator++ B-roll: can this Gemini key make images (or is it the
+    free tier / billing off), and do free photos come through? One tiny
+    image, one photo search."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not available")
+    import broll
+    key = await resolve_gemini(request)
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, broll.test_sources, key, req.style or "photo")
+
+
+@app.put("/api/plus/profiles/{profile_id}")
+async def plus_update_profile(profile_id: str, body: dict):
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import plus as _plus
+    saved = _plus.upsert(body, profile_id)
+    if not saved:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return saved
+
+
+@app.delete("/api/plus/profiles/{profile_id}")
+async def plus_delete_profile(profile_id: str):
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import plus as _plus
+    if not _plus.delete(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {"deleted": True}
+
+
+def _norm_title(t):
+    t = re.sub(r"#\w+", "", str(t or "")).lower()
+    return re.sub(r"[^a-z0-9]+", " ", t).strip()[:40]
+
+
+def _plus_clip_meta(cache, job_id, clip_index):
+    """What we know about one of our clips: its profile, style, length, score."""
+    if job_id not in cache:
+        data = {}
+        files = glob.glob(os.path.join(OUTPUT_DIR, job_id, "*_metadata.json"))
+        if files:
+            try:
+                with open(files[0], encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                data = {}
+        cache[job_id] = data
+    data = cache[job_id]
+    shorts = data.get("shorts") or []
+    c = shorts[clip_index] if 0 <= clip_index < len(shorts) else {}
+    dur = (c.get("end") or 0) - (c.get("start") or 0)
+    return {
+        "profile": (data.get("plus_profile") or {}).get("name") or ("classic" if data else None),
+        "edit_style": c.get("edit_style") or "none",
+        "duration": round(dur, 1) if dur > 0 else None,
+        "predicted_score": c.get("predicted_score"),
+        "niche": data.get("niche"),
+        "title": c.get("video_title_for_youtube_short"),
+        "hook_line": c.get("hook_line"),
+    }
+
+
+@app.get("/api/plus/stats")
+async def plus_stats(request: Request, users: Optional[str] = None, days: int = 60):
+    """Our own published shorts, with their real views (Upload-Post's post
+    analytics cache), joined to what made them: profile, edit style, length,
+    AI score, posting hour. The same analysis as the competitor study, on the
+    user's channels, so each new batch learns from the last ones."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    api_key, _ = await resolve_upload_post(request, None)
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Missing Upload-Post key")
+    names = [u.strip() for u in (users or "").split(",") if u.strip()]
+    if not names:
+        raise HTTPException(status_code=400, detail="No Upload-Post account given")
+    since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(365, days)))).strftime("%Y-%m-%d")
+
+    raw_rows = []
+    for user in names:
+        params = {"user": user, "since": since, "limit": 200}
+        for _page in range(5):
+            data = await _upload_post_get(
+                api_key, "https://api.upload-post.com/api/uploadposts/post-analytics/cached", params)
+            items = data.get("posts") or data.get("data") or data.get("items") or []
+            raw_rows += [(user, r) for r in items if isinstance(r, dict)]
+            cursor = data.get("next_cursor")
+            if not cursor or not data.get("has_more"):
+                break
+            params["cursor"] = cursor
+
+    plan = [e for e in _load_schedule() if e.get("source") == "upload-post"]
+    by_title = {}
+    for e in plan:
+        by_title.setdefault((e.get("platform"), _norm_title(e.get("title"))), e)
+    cache, posts = {}, {}
+    unmatched = 0
+    for user, r in raw_rows:
+        platform = r.get("platform") or ""
+        views = _post_row_views(r)
+        ext = r.get("external_id") or (r.get("post") or {}).get("external_id") or ""
+        title = r.get("title") or r.get("caption") or r.get("post_title") or ""
+        job_id = clip_index = None
+        m = re.match(r"openshorts:([\w-]+):(\d+)$", str(ext))
+        entry = None
+        if m:
+            job_id, clip_index = m.group(1), int(m.group(2))
+            entry = next((e for e in plan if e.get("job_id") == job_id and e.get("clip_index") == clip_index), None)
+        else:
+            entry = by_title.get((platform, _norm_title(title)))
+            if entry:
+                job_id, clip_index = entry.get("job_id"), entry.get("clip_index")
+        if job_id is None:
+            unmatched += 1
+            key = f"other:{platform}:{_norm_title(title)}"
+        else:
+            key = f"{job_id}:{clip_index}"
+        post = posts.setdefault(key, {
+            "key": key, "account": user, "job_id": job_id, "clip_index": clip_index,
+            "title": title, "views": 0, "per_platform": {},
+            "posted": (entry or {}).get("date"), "hour": ((entry or {}).get("time") or "")[:2] or None,
+            **(_plus_clip_meta(cache, job_id, clip_index) if job_id else {"profile": None}),
+        })
+        post["views"] += views
+        post["per_platform"][platform] = post["per_platform"].get(platform, 0) + views
+
+    ours = [p for p in posts.values() if p["job_id"]]
+
+    def group(keyfn):
+        out = {}
+        for p in ours:
+            k = keyfn(p)
+            if k is None:
+                continue
+            g = out.setdefault(str(k), {"posts": 0, "views": 0})
+            g["posts"] += 1
+            g["views"] += p["views"]
+        return sorted(({"key": k, "posts": g["posts"], "avg_views": round(g["views"] / g["posts"])}
+                       for k, g in out.items()), key=lambda x: -x["avg_views"])
+
+    def dur_bucket(p):
+        d = p.get("duration")
+        if not d:
+            return None
+        return "< 25 s" if d < 25 else "25-40 s" if d < 40 else "40-60 s" if d < 60 else "60 s +"
+
+    def score_bucket(p):
+        s = p.get("predicted_score")
+        if not isinstance(s, (int, float)):
+            return None
+        return "90+" if s >= 90 else "80-89" if s >= 80 else "70-79" if s >= 70 else "< 70"
+
+    ranked = sorted(ours, key=lambda p: -p["views"])
+    return {
+        "posts": ranked,
+        "total_posts": len(ours), "unmatched": unmatched, "rows": len(raw_rows),
+        "groups": {
+            "profile": group(lambda p: p.get("profile")),
+            "edit_style": group(lambda p: p.get("edit_style")),
+            "duration": group(dur_bucket),
+            "hour": group(lambda p: f"{p['hour']}h" if p.get("hour") else None),
+            "ai_score": group(score_bucket),
+            "account": group(lambda p: p.get("account")),
+        },
+        "sample_fields": sorted((raw_rows[0][1] or {}).keys())[:40] if raw_rows else [],
+    }
+
+
+class StoryIdeasRequest(BaseModel):
+    channel_url: Optional[str] = None
+    image_base64: Optional[str] = None  # data URL or bare base64
+    hint: Optional[str] = None
+
+
+@app.post("/api/story/ideas")
+async def story_ideas(req: StoryIdeasRequest, request: Request):
+    """Inspiration: a channel link (titles + views via yt-dlp) or a screenshot
+    of one → what makes its titles work + 10 original ideas for our niche."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    api_key = await resolve_gemini(request)
+    if not api_key:
+        raise gemini_missing_error()
+    import story
+    import base64
+    loop = asyncio.get_event_loop()
+    titles, channel, image, mime = None, "", None, "image/png"
+    if (req.channel_url or "").strip():
+        try:
+            channel, titles = await loop.run_in_executor(None, story.fetch_channel_titles, req.channel_url)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Could not read that channel: {str(e)[:200]}")
+        if not titles:
+            raise HTTPException(status_code=400, detail="No videos found on that channel.")
+    elif req.image_base64:
+        raw = req.image_base64
+        m = re.match(r"data:(image/[\w.+-]+);base64,(.*)$", raw, re.S)
+        if m:
+            mime, raw = m.group(1), m.group(2)
+        try:
+            image = base64.b64decode(raw)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid image.")
+        if len(image) > 12 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Screenshot too large (max 12 MB).")
+    else:
+        raise HTTPException(status_code=400, detail="Give a channel link or a screenshot.")
+    try:
+        ideas = await loop.run_in_executor(
+            None, lambda: story.generate_ideas(api_key, titles, channel, image, mime, (req.hint or "").strip()))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Idea generation failed: {str(e)[:300]}")
+    top = sorted(titles or [], key=lambda r: r.get("views") or 0, reverse=True)[:10]
+    return {**ideas, "channel": channel, "top_titles": top}
+
+
+@app.get("/api/story/config")
+async def story_config():
+    import story
+    return {"voices": story.VOICES, "kokoro": story.kokoro_available(),
+            "cast": [{"id": k, "name": v["name"]} for k, v in story.CAST.items()]}
+
+
+def _upload_post_send(upload_key: str, post_user: str, job_id: str, clip_index: int, file_path: str,
+                      platforms: List[str], captions: dict, scheduled_date: Optional[str],
+                      timezone: Optional[str]):
+    """One multipart POST to Upload-Post's /api/upload (sync: httpx's async
+    client refuses multipart files). Shared by the manual post and the
+    auto-publish at the end of a job, so both send exactly the same fields."""
+    data_payload = {
+        "user": post_user,
+        "title": captions["youtube_title"],
+        "platform[]": platforms,
+        "async_upload": "true",
+        # Echoed back by Upload-Post's schedule/status/history endpoints,
+        # so a queued job maps back to its project clip without matching
+        # on the (editable) title.
+        "external_id": f"openshorts:{job_id}:{clip_index}",
+    }
+    if scheduled_date:
+        data_payload["scheduled_date"] = scheduled_date
+        if timezone:
+            data_payload["timezone"] = timezone
+    if "tiktok" in platforms:
+        data_payload["tiktok_title"] = captions["tiktok"]
+        data_payload["post_mode"] = TIKTOK_POST_MODE
+    if "instagram" in platforms:
+        data_payload["instagram_title"] = captions["instagram"]
+        data_payload["media_type"] = "REELS"
+    if "youtube" in platforms:
+        data_payload["youtube_title"] = captions["youtube_title"]
+        data_payload["youtube_description"] = captions["youtube_description"]
+        data_payload["privacyStatus"] = "public"
+        if captions.get("youtube_tags"):
+            data_payload["tags[]"] = captions["youtube_tags"]
+        lang = _job_language(job_id)
+        if lang:
+            data_payload["defaultLanguage"] = lang
+            data_payload["defaultAudioLanguage"] = lang
+    with open(file_path, "rb") as f:
+        files = {"video": (os.path.basename(file_path), f.read(), "video/mp4")}
+    with httpx.Client(timeout=120.0) as client:
+        print(f"📡 Sending to Upload-Post for platforms: {platforms}")
+        return client.post("https://api.upload-post.com/api/upload",
+                           headers={"Authorization": f"Apikey {upload_key}"},
+                           data=data_payload, files=files)
+
+
+# --- Auto-publish (the Clip Generator's "publish the best clips" option) ---
+# Self-host only. When the job ends, its N best clips by predicted_score are
+# scheduled on Upload-Post, in the next FREE daily slots of that account: a
+# slot is taken as soon as the account already has a post at that time on one
+# of the chosen platforms — in our plan or in Upload-Post's own queue — so an
+# account never publishes twice at the same time on the same platform.
+
+AUTO_PUBLISH_TIMES = ["08:00", "12:00", "20:00"]
+AUTO_PUBLISH_MIN_LEAD = timedelta(minutes=15)
+
+
+def _parse_auto_publish(raw) -> Optional[dict]:
+    if raw in (None, "", False):
+        return None
+    try:
+        cfg = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="auto_publish must be a JSON object")
+    if not cfg or not cfg.get("enabled", True):
+        return None
+    platforms = [p for p in (cfg.get("platforms") or []) if p in ("tiktok", "instagram", "youtube")]
+    if not platforms:
+        raise HTTPException(status_code=400, detail="auto_publish needs at least one platform")
+    times = sorted({t for t in (cfg.get("times") or AUTO_PUBLISH_TIMES)
+                    if isinstance(t, str) and re.fullmatch(r"\d{2}:\d{2}", t)}) or AUTO_PUBLISH_TIMES
+    try:
+        count = max(1, min(5, int(cfg.get("count") or 3)))
+    except (TypeError, ValueError):
+        count = 3
+    return {
+        "count": count,
+        "platforms": platforms,
+        "times": times,
+        "profile": (cfg.get("profile") or "").strip() or None,
+        # The Settings profile: plan entries saved without an account are its.
+        "default_profile": (cfg.get("default_profile") or "").strip() or None,
+        "niche": (cfg.get("niche") or "").strip() or None,
+        "timezone": cfg.get("timezone") or "UTC",
+    }
+
+
+async def _auto_publish_occupied(upload_key: str, profile: str, default_profile: Optional[str],
+                                 platforms: List[str], tz) -> set:
+    """'YYYY-MM-DDTHH:MM' (local) where this account already posts on one of
+    these platforms: our plan + Upload-Post's live queue (best effort)."""
+    taken = set()
+    for e in _load_schedule():
+        owner = e.get("profile") or default_profile
+        if e.get("time") and owner == profile and e.get("platform") in platforms:
+            taken.add(f"{e.get('date')}T{e.get('time')}")
+    try:
+        for row in await _scheduled_posts_for(upload_key, profile):
+            if not set(row.get("platforms") or platforms) & set(platforms):
+                continue
+            local = (row.get("original_scheduled_str") or "")[:16]
+            if not local and row.get("scheduled_date"):
+                when = datetime.fromisoformat(str(row["scheduled_date"]).replace("Z", "+00:00"))
+                local = when.astimezone(tz).strftime("%Y-%m-%dT%H:%M")
+            if local:
+                taken.add(local)
+    except Exception as e:
+        print(f"⚠️ auto-publish: could not read Upload-Post's queue ({e}); using the plan only")
+    return taken
+
+
+def _next_free_slots(count: int, times: List[str], occupied: set, tz) -> List[str]:
+    """The next `count` future slots ('YYYY-MM-DDTHH:MM', local) not taken.
+    Future only: an automatic batch never fires two posts "now" at once."""
+    now = datetime.now(tz)
+    day = now.date()
+    slots = []
+    for _ in range(400):
+        for t in times:
+            h, m = map(int, t.split(":"))
+            dt = datetime(day.year, day.month, day.day, h, m, tzinfo=tz)
+            key = dt.strftime("%Y-%m-%dT%H:%M")
+            if key in occupied or dt - now < AUTO_PUBLISH_MIN_LEAD:
+                continue
+            slots.append(key)
+            if len(slots) == count:
+                return slots
+        day += timedelta(days=1)
+    return slots
+
+
+async def _auto_publish_best(job_id: str) -> None:
+    """Schedule the job's best clips on Upload-Post (see block comment above).
+    Never raises: the clips are made either way, failures go to the job log."""
+    job = jobs.get(job_id) or {}
+    cfg = job.get("auto_publish")
+    clips = (job.get("result") or {}).get("clips") or []
+    if not cfg or not clips or BILLING_ENABLED:
+        return
+    log = job.setdefault("logs", [])
+    upload_key = cfg.get("upload_key")
+    profile = cfg.get("profile") or cfg.get("default_profile")
+    if not upload_key or not profile:
+        log.append("⚠️ Auto-publish skipped: no Upload-Post key or account.")
+        return
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(cfg["timezone"])
+    except Exception:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("UTC")
+
+    ranked = sorted(
+        [(i, c) for i, c in enumerate(clips) if not c.get("published")],
+        key=lambda ic: ic[1].get("predicted_score") if isinstance(ic[1].get("predicted_score"), (int, float)) else -1,
+        reverse=True,
+    )[:cfg["count"]]
+    # The niche typed at submit wins, else the AI's guess for this video.
+    niche = cfg.get("niche") or (job.get("result") or {}).get("niche_guess")
+    try:
+        _save_project_niche(job_id, niche, profile)
+    except Exception as e:
+        print(f"⚠️ auto-publish: could not save the niche on {job_id}: {e}")
+
+    occupied = await _auto_publish_occupied(upload_key, profile, cfg.get("default_profile"),
+                                            cfg["platforms"], tz)
+    slots = _next_free_slots(len(ranked), cfg["times"], occupied, tz)
+    log.append(f"📅 Auto-publish: best {len(ranked)} clips → {profile}"
+               f"{f' · niche {niche}' if niche else ''}")
+    loop = asyncio.get_event_loop()
+    for (index, clip), slot in zip(ranked, slots):
+        filename = (clip.get("video_url") or "").split("/")[-1]
+        file_path = os.path.join(OUTPUT_DIR, job_id, filename)
+        if not filename or not os.path.exists(file_path):
+            log.append(f"⚠️ Auto-publish: clip {index + 1} file missing, skipped.")
+            continue
+        scheduled = f"{slot}:00"
+        try:
+            captions = await _build_post_captions(clip, None, None, niche)
+            response = await loop.run_in_executor(
+                None, _upload_post_send, upload_key, profile, job_id, index, file_path,
+                cfg["platforms"], captions, scheduled, cfg["timezone"])
+            if response.status_code not in (200, 201, 202):
+                log.append(f"⚠️ Auto-publish: clip {index + 1} refused by Upload-Post: {response.text[:200]}")
+                continue
+            req = SocialPostRequest(job_id=job_id, clip_index=index, platforms=cfg["platforms"],
+                                    scheduled_date=scheduled, timezone=cfg["timezone"])
+            _record_upload_post_in_plan(req, clip, captions["youtube_title"], profile)
+            _mark_clip_published(job_id, index, "upload-post", scheduled)
+            log.append(f"✅ Auto-publish: clip {index + 1} (score {clip.get('predicted_score', '?')}) "
+                       f"scheduled {slot.replace('T', ' ')} on {', '.join(cfg['platforms'])}")
+        except Exception as e:
+            log.append(_scrub_secrets(f"⚠️ Auto-publish: clip {index + 1} failed: {e}"))
+
 
 @app.post("/api/social/post")
 async def post_to_socials(req: SocialPostRequest, request: Request):
@@ -4637,70 +6759,85 @@ async def post_to_socials(req: SocialPostRequest, request: Request):
         if not os.path.exists(file_path):
              raise HTTPException(status_code=404, detail=f"Video file not found: {file_path}")
 
-        # Construct parameters for Upload-Post API
-        # Fallbacks
-        final_title = req.title or clip.get('title', 'Viral Short')
-        final_description = req.description or clip.get('video_description_for_instagram') or clip.get('video_description_for_tiktok') or "Check this out!"
-        
-        # Prepare form data
-        url = "https://api.upload-post.com/api/upload"
-        headers = {
-            "Authorization": f"Apikey {upload_key}"
-        }
+        captions = await _build_post_captions(clip, req.title, req.description, req.niche)
+        final_title = captions["youtube_title"]
 
-        # Prepare data as dict (httpx handles lists for multiple values)
-        data_payload = {
-            "user": post_user,
-            "title": final_title,
-            "platform[]": req.platforms, # Pass list directly
-            "async_upload": "true"  # Enable async upload
-        }
-
-        # Add scheduling if present
-        if req.scheduled_date:
-            data_payload["scheduled_date"] = req.scheduled_date
-            if req.timezone:
-                data_payload["timezone"] = req.timezone
-        
-        # Add Platform specifics
-        if "tiktok" in req.platforms:
-             data_payload["tiktok_title"] = final_description
-             data_payload["post_mode"] = TIKTOK_POST_MODE
-             
-        if "instagram" in req.platforms:
-             data_payload["instagram_title"] = final_description
-             data_payload["media_type"] = "REELS"
-
-        if "youtube" in req.platforms:
-             yt_title = req.title or clip.get('video_title_for_youtube_short', final_title)
-             data_payload["youtube_title"] = yt_title
-             data_payload["youtube_description"] = final_description
-             data_payload["privacyStatus"] = "public"
-
-        # Send File
-        # httpx AsyncClient requires async file reading or bytes. 
-        # Since we have MAX_FILE_SIZE_MB, reading into memory is safe-ish.
-        with open(file_path, "rb") as f:
-            file_content = f.read()
-            
-        files = {
-            "video": (filename, file_content, "video/mp4")
-        }
-
-        # Switch to synchronous Client to avoid "sync request with AsyncClient" error with multipart/files
-        with httpx.Client(timeout=120.0) as client:
-            print(f"📡 Sending to Upload-Post for platforms: {req.platforms}")
-            response = client.post(url, headers=headers, data=data_payload, files=files)
-            
+        response = _upload_post_send(upload_key, post_user, req.job_id, req.clip_index, file_path,
+                                     req.platforms, captions, req.scheduled_date, req.timezone)
         if response.status_code not in [200, 201, 202]: # Added 201
              print(f"❌ Upload-Post Error: {response.text}")
              raise HTTPException(status_code=response.status_code, detail=f"Vendor API Error: {response.text}")
+
+        if req.record_in_plan and not BILLING_ENABLED:
+            _record_upload_post_in_plan(req, clip, final_title, post_user)
+        # The file is already with Upload-Post (scheduled or live), so the clip
+        # leaves the project: it can't be picked and posted a second time.
+        _mark_clip_published(req.job_id, req.clip_index, "upload-post", req.scheduled_date)
 
         return response.json()
 
     except Exception as e:
         print(f"❌ Social Post Exception: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+class SocialPreviewRequest(BaseModel):
+    job_id: str
+    clip_index: int
+    niche: Optional[str] = None
+
+
+@app.post("/api/social/preview")
+async def preview_post_captions(req: SocialPreviewRequest, request: Request):
+    """Dry run of /api/social/post's text: the title/description each
+    platform would get for this clip + niche, without sending anything."""
+    await _ensure_job_files(req.job_id, request)
+    if req.job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _assert_job_owner(request, jobs[req.job_id])
+    clips = ((jobs[req.job_id].get('result') or {}).get('clips')) or []
+    if not (0 <= req.clip_index < len(clips)):
+        raise HTTPException(status_code=404, detail="Clip not found")
+    # Looked up once here and passed through, so the preview also reports
+    # whether the niche generator produced anything (quota exhausted / no
+    # YouTube key → [] and the AI's own hashtags would go out instead).
+    pool = await _niche_hashtag_pool(req.niche)
+    return {**_captions_from_pool(clips[req.clip_index], None, None, pool, req.niche),
+            "niche_hashtags": pool or []}
+
+
+class PublishSettingsRequest(BaseModel):
+    clean_hashtags: Optional[bool] = None
+    youtube_tags: Optional[bool] = None
+    # Base YouTube tags for one niche: "a, b, c" or a list. Empty clears it.
+    niche: Optional[str] = None
+    niche_tags: Optional[Union[str, List[str]]] = None
+
+
+@app.get("/api/publish-settings")
+async def get_publish_settings():
+    return _publish_settings()
+
+
+@app.put("/api/publish-settings")
+async def put_publish_settings(req: PublishSettingsRequest):
+    """Partial update: only the fields sent change."""
+    data = _publish_settings()
+    if req.clean_hashtags is not None:
+        data["clean_hashtags"] = bool(req.clean_hashtags)
+    if req.youtube_tags is not None:
+        data["youtube_tags"] = bool(req.youtube_tags)
+    if req.niche is not None and req.niche.strip() and req.niche_tags is not None:
+        raw = req.niche_tags if isinstance(req.niche_tags, list) else str(req.niche_tags).split(",")
+        tags = [t.strip() for t in raw if t and t.strip()][:40]
+        key = req.niche.strip().lower()
+        if tags:
+            data["niche_tags"][key] = tags
+        else:
+            data["niche_tags"].pop(key, None)
+    with open(PUBLISH_SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return data
+
 
 @app.get("/api/social/user")
 async def get_social_user(request: Request):

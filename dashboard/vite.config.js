@@ -15,6 +15,12 @@ export default defineConfig({
   // llms.txt. See vite-plugin-seo.js.
   plugins: [react(), seo()],
   server: {
+    // Docker Desktop on Windows (and some Mac setups) doesn't propagate
+    // inotify events across a bind mount, so Vite never notices a file saved
+    // from the host and keeps serving the stale transformed module forever —
+    // no error, no HMR, just silently wrong until the container is restarted.
+    // Polling costs a bit of CPU but is the only thing that works there.
+    watch: { usePolling: true, interval: 300 },
     allowedHosts: [
       'openshorts.app',
       'www.openshorts.app'

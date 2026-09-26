@@ -16,15 +16,24 @@ export const notoSerifFontFace = `
 `;
 
 /**
- * Map of subtitle font families to their CSS-safe names.
- * These match the options available in SubtitleModal.jsx.
+ * Map of subtitle font families to the faces the BURN actually renders with,
+ * not to the name on the picker button. openshorts-fontmap.conf aliases the
+ * picker's names to the fonts installed in the render container, so mirroring
+ * the button label here showed the editor a typeface the delivered clip never
+ * used — different letterforms, different word widths, different wrapping:
+ *   Verdana / Arial / Helvetica -> Liberation Sans Bold (Arial metrics)
+ *   Georgia                     -> Liberation Serif Bold (Times metrics)
+ *   Courier New                 -> Liberation Mono Bold
+ *   Impact                      -> Anton (bundled with the renderer)
+ * Anton itself is the default caption face and is served from /fonts.css.
  */
 export const SUBTITLE_FONTS: Record<string, string> = {
-  Verdana: "Verdana, Geneva, sans-serif",
+  Anton: "Anton, Impact, sans-serif",
+  Verdana: "Arial, Helvetica, sans-serif",
   Arial: "Arial, Helvetica, sans-serif",
-  Impact: "Impact, Haettenschweiler, sans-serif",
-  Helvetica: "Helvetica, Arial, sans-serif",
-  Georgia: "Georgia, 'Times New Roman', serif",
+  Impact: "Anton, Impact, sans-serif",
+  Helvetica: "Arial, Helvetica, sans-serif",
+  Georgia: "'Times New Roman', Times, serif",
   "Courier New": "'Courier New', Courier, monospace",
 };
 

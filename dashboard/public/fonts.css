@@ -141,3 +141,18 @@
   src: url(/fonts/noto-serif-700-latin.woff2) format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
+
+/* Anton — the face the caption burn actually renders with. It is the default
+ * subtitle font (subtitles.AUTO_CAPTION_STYLE) and what openshorts-fontmap.conf
+ * aliases "Impact" to, but the browser had no copy of it, so the subtitle
+ * editor's preview silently fell back to Arial: different letterforms,
+ * different word widths, different line wrapping than the delivered clip.
+ * Same file the renderer uses (fonts/Anton-Regular.ttf), served from our own
+ * origin like every other face here. */
+@font-face {
+  font-family: 'Anton';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/Anton-Regular.ttf) format('truetype');
+}

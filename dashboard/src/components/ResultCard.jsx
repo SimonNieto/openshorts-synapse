@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Share2, Instagram, Youtube, Video, AlertCircle, Loader2, Copy, Check, Wand2, Type, Calendar, Languages, FileText, Link2, Scissors, Crosshair, TrendingUp } from 'lucide-react';
+import { Download, Share2, Instagram, Youtube, Video, AlertCircle, Loader2, Copy, Check, Wand2, Type, Languages, FileText, Link2, Scissors, Crosshair, TrendingUp, RefreshCw, Film } from 'lucide-react';
 import { getApiUrl } from '../config';
-import { apiFetch } from '../lib/api';
+import { apiFetch, apiJson } from '../lib/api';
 import SubtitleModal from './SubtitleModal';
 import HookModal from './HookModal';
 import TranslateModal from './TranslateModal';
 import Modal from './ui/Modal';
+import NichePromptModal from './NichePromptModal';
+import { pushNicheHistory } from '../lib/nicheHistory';
+import { localDateStr, userTimezone } from '../lib/postSlots';
+import NichePicker from './NichePicker';
 import SegmentedControl from './ui/SegmentedControl';
 import WatermarkModal, { watermarkNoticeDismissed } from './WatermarkModal';
 import TikTokDraftNotice from './TikTokDraftNotice';
@@ -36,9 +40,41 @@ function formatDuration(clip) {
     return `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
 }
 
-export default function ResultCard({ clip, index, jobId, durable, uploadPostKey, uploadUserId, geminiApiKey, elevenLabsKey, isManaged, onPlay, onPause, onBulkSubtitle, clipCount = 1, bulkProgress, initialState = null, onStateChange, connectedPlatforms = null, onConnectSocials, onEditClip = null, onReframeClip = null }) {
+const WHEN_OPTIONS = [
+    { value: 'now', label: 'now' },
+    { value: 'tonight', label: 'tonight 19:00' },
+    { value: 'tomorrow', label: 'tomorrow 12:00' },
+    { value: 'custom', label: 'pick…' },
+];
+
+// The one-click "when" chips as a local "YYYY-MM-DDTHH:MM:00" string (or null
+// for "now"). "tonight" rolls to tomorrow once 19:00 is too close to make.
+function resolveWhen(choice, customValue) {
+    const at = (dayOffset, hh) => {
+        const d = new Date();
+        d.setDate(d.getDate() + dayOffset);
+        return `${localDateStr(d)}T${hh}:00`;
+    };
+    if (choice === 'tonight') {
+        const cutoff = new Date();
+        cutoff.setHours(18, 45, 0, 0);
+        return new Date() < cutoff ? at(0, '19:00') : at(1, '19:00');
+    }
+    if (choice === 'tomorrow') return at(1, '12:00');
+    if (choice === 'custom') return customValue ? `${customValue}:00` : null;
+    return null;
+}
+
+export default function ResultCard({ clip, index, jobId, durable, uploadPostKey, uploadUserId, geminiApiKey, elevenLabsKey, niche, isManaged, onPlay, onPause, onBulkSubtitle, clipCount = 1, bulkProgress, initialState = null, onStateChange, connectedPlatforms = null, onConnectSocials, onEditClip = null, onReframeClip = null, onPublished = null, onNicheUsed = null, plusProfileId = null }) {
     const [showModal, setShowModal] = useState(false);
     const [showDescModal, setShowDescModal] = useState(false);
+    // Regenerated hook/title/descriptions override the original clip copy
+    // until the page reloads (the backend persists the same fields into
+    // metadata.json, so a reload picks them up as the new "clip" anyway).
+    const [copyOverride, setCopyOverride] = useState(null);
+    const [regeneratingCopy, setRegeneratingCopy] = useState(false);
+    const [regenerateCopyError, setRegenerateCopyError] = useState('');
+    const displayClip = copyOverride ? { ...clip, ...copyOverride } : clip;
     const [showSubtitleModal, setShowSubtitleModal] = useState(false);
     const [showWatermarkModal, setShowWatermarkModal] = useState(false);
     const { plan } = useAuth();
@@ -82,6 +118,72 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     // button. Stream it instead and report progress.
     const [downloadPct, setDownloadPct] = useState(null);
 
+    // Shared with handleRegenerateCopy below: asked before EVERY action that
+    // needs a niche (never silently reused — see NichePromptModal), resolved
+    // via a modal instead of window.prompt so picking a recent one is a
+    // click. Renders near the other modals further down this component.
+    const [nichePrompt, setNichePrompt] = useState(null);
+    const askNiche = (message, { skippable = true } = {}) => new Promise((resolve) => {
+        setNichePrompt({
+            message,
+            defaultValue: niche || localStorage.getItem('openshorts_niche') || '',
+            onSkip: skippable ? () => { setNichePrompt(null); resolve(''); } : undefined,
+            onConfirm: (n) => {
+                setNichePrompt(null);
+                if (n) {
+                    localStorage.setItem('openshorts_niche', n);
+                    pushNicheHistory(n);
+                    onNicheUsed?.(n); // becomes this project's niche
+                }
+                resolve(n);
+            },
+        });
+    });
+
+    // Plain text ready to paste into a posting form, downloaded alongside the
+    // video. The texts come from the server's own caption builder
+    // (/api/social/preview → app.py _captions_from_pool) — the same code an
+    // Upload-Post send and the ZIP's .txt use — so the file can't differ from
+    // what would be published: niche-generator hashtags only, title padded to
+    // YouTube's 100 chars.
+    const downloadCopyText = async () => {
+        const activeNiche = await askNiche(
+            "What's your channel's niche? (e.g. \"Joe Rogan podcast clips\") " +
+            "Real hashtags for it will be added to this file. Leave blank to skip.");
+        let hashtags = [];
+        let captions = null;
+        try {
+            captions = await apiJson('/api/social/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ job_id: jobId, clip_index: index, niche: activeNiche || null }),
+            });
+            if (activeNiche) {
+                hashtags = (await apiJson(`/api/hashtags?niche=${encodeURIComponent(activeNiche)}`)).hashtags || [];
+            }
+        } catch { /* server unreachable — fall back to the raw AI copy below */ }
+
+        const lines = [
+            'YOUTUBE TITLE', captions?.youtube_title || displayClip.video_title_for_youtube_short || '(none)', '',
+            'YOUTUBE DESCRIPTION', captions?.youtube_description || displayClip.video_description_for_instagram || '(none)', '',
+            'TIKTOK DESCRIPTION', captions?.tiktok || displayClip.video_description_for_tiktok || '(none)', '',
+            'INSTAGRAM DESCRIPTION', captions?.instagram || displayClip.video_description_for_instagram || '(none)',
+        ];
+        if (displayClip.viral_hook_text) lines.push('', 'ON-SCREEN HOOK', displayClip.viral_hook_text);
+        if (hashtags.length) lines.push('', 'NICHE HASHTAGS', hashtags.join(' '));
+
+        const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `clip-${index + 1}-title-and-description.txt`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    };
+
     const downloadClip = async () => {
         try {
             setDownloadPct(0);
@@ -115,6 +217,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
+            await downloadCopyText();
         } catch (err) {
             console.error('Download error:', err);
             window.open(currentVideoUrl, '_blank');
@@ -176,8 +279,15 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     });
     const [postTitle, setPostTitle] = useState("");
     const [postDescription, setPostDescription] = useState("");
-    const [isScheduling, setIsScheduling] = useState(false);
+    // One-click "when": now / tonight / tomorrow, or a custom date-time.
+    const [whenChoice, setWhenChoice] = useState('now');
+    const isScheduling = whenChoice !== 'now';
     const [scheduleDate, setScheduleDate] = useState("");
+    const [postNiche, setPostNiche] = useState("");
+    // What the form was prefilled with: untouched fields are NOT sent, so the
+    // server can give each platform its own caption (+ niche hashtags)
+    // instead of forcing the Instagram text onto TikTok and YouTube.
+    const [postPrefill, setPostPrefill] = useState({ title: '', description: '' });
 
     const [posting, setPosting] = useState(false);
     const [postResult, setPostResult] = useState(null);
@@ -193,7 +303,36 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
         }
     };
 
+    const handleRegenerateCopy = async () => {
+        if (regeneratingCopy) return;
+        setRegeneratingCopy(true);
+        setRegenerateCopyError('');
+        try {
+            const apiKey = geminiApiKey || localStorage.getItem('gemini_key');
+            if (!apiKey && !isManaged) {
+                throw new Error('Gemini API Key is missing. Please set it in Settings.');
+            }
+            // Real, researched hashtags need to know the channel's niche —
+            // asked every time rather than silently reusing whatever was
+            // used last (this clip might not be in the same niche).
+            const activeNiche = await askNiche(
+                "What's your channel's niche? (e.g. \"Joe Rogan podcast clips\") " +
+                "Used to research real, on-topic hashtags. Leave blank to skip.");
+            setCopyOverride(await apiJson(`/api/clip/${jobId}/${index}/regenerate-copy`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'X-Gemini-Key': apiKey } : {}) },
+                body: JSON.stringify({ niche: activeNiche || null }),
+            }));
+        } catch (e) {
+            setRegenerateCopyError(e.detail || e.message || 'Failed to generate new copy');
+        } finally {
+            setRegeneratingCopy(false);
+        }
+    };
+
     const [isEditing, setIsEditing] = useState(false);
+    // Viral edit styles (viral_fx.py): jump zooms + colour key-word captions.
+    const [stylePicker, setStylePicker] = useState(false);
     const [isSubtitling, setIsSubtitling] = useState(false);
     const [isHooking, setIsHooking] = useState(false);
     const [isTranslating, setIsTranslating] = useState(false);
@@ -258,9 +397,13 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     // Initialize/Reset form when modal opens
     useEffect(() => {
         if (showModal) {
-            setPostTitle(clip.video_title_for_youtube_short || "Viral Short");
-            setPostDescription(clip.video_description_for_instagram || clip.video_description_for_tiktok || "");
-            setIsScheduling(false);
+            const title = displayClip.video_title_for_youtube_short || "Viral Short";
+            const description = displayClip.video_description_for_instagram || displayClip.video_description_for_tiktok || "";
+            setPostTitle(title);
+            setPostDescription(description);
+            setPostPrefill({ title, description });
+            setPostNiche(niche || localStorage.getItem('openshorts_niche') || '');
+            setWhenChoice('now');
             setScheduleDate("");
             setPostResult(null);
             // Only preselect platforms the profile can actually publish to.
@@ -276,6 +419,30 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
         // it is open must not wipe the user's selection.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showModal, clip]);
+
+    // Rebuilt server-side from the clean clip every time, so switching style
+    // (or applying twice) never stacks zooms.
+    const handleViralStyle = async (style) => {
+        setStylePicker(false);
+        setIsEditing(true);
+        try {
+            const data = await apiJson(`/api/clip/${jobId}/${index}/viral-edit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ style, profile_id: plusProfileId || null }),
+            });
+            if (data.new_video_url) {
+                setCurrentVideoUrl(getApiUrl(data.new_video_url));
+                setServerVideoFile(data.new_video_url.split('/').pop());
+                if (videoRef.current) videoRef.current.load();
+            }
+        } catch (e) {
+            setEditError(e.detail || e.message);
+            setTimeout(() => setEditError(null), 6000);
+        } finally {
+            setIsEditing(false);
+        }
+    };
 
     const handleAutoEdit = async () => {
         setIsEditing(true);
@@ -438,6 +605,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     job_id: jobId,
                     clip_index: index,
                     position: options.position,
+                    position_percent: options.positionPercent ?? (typeof options.position === 'number' ? options.position : null),
                     font_size: options.fontSize,
                     font_name: options.fontName,
                     font_color: options.fontColor,
@@ -450,6 +618,10 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     effect: options.effect || 'none',
                     base_opacity: options.baseOpacity ?? 1.0,
                     uppercase: options.uppercase || false,
+                    max_chars: options.maxChars ?? 16,
+                    max_duration: options.maxDuration ?? 1.4,
+                    letter_spacing: options.letterSpacing ?? 0,
+                    max_words: options.maxWords ?? null,
                     input_filename: serverVideoFile,
                     // Edited caption text (clip-relative ms); null = server
                     // regenerates from the transcript as before.
@@ -664,7 +836,8 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             return;
         }
 
-        if (isScheduling && !scheduleDate) {
+        const scheduledLocal = resolveWhen(whenChoice, scheduleDate);
+        if (isScheduling && !scheduledLocal) {
             setPostResult({ success: false, msg: "Please select a date and time." });
             return;
         }
@@ -673,21 +846,30 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
         setPostResult(null);
 
         try {
+            const trimmedNiche = postNiche.trim();
+            if (trimmedNiche) {
+                localStorage.setItem('openshorts_niche', trimmedNiche);
+                pushNicheHistory(trimmedNiche);
+                onNicheUsed?.(trimmedNiche); // becomes this project's niche
+            }
             const payload = {
                 job_id: jobId,
                 clip_index: index,
                 api_key: uploadPostKey,
                 user_id: uploadUserId,
                 platforms: selectedPlatforms,
-                title: postTitle,
-                description: postDescription
+                niche: trimmedNiche || null,
+                // Always sent: also dates a "now" post in the Publish Plan.
+                timezone: userTimezone(),
             };
+            // Only send what the user actually edited — see postPrefill.
+            if (postTitle !== postPrefill.title) payload.title = postTitle;
+            if (postDescription !== postPrefill.description) payload.description = postDescription;
 
-            if (isScheduling && scheduleDate) {
-                // Convert to ISO-8601
-                payload.scheduled_date = new Date(scheduleDate).toISOString();
-                // Optional: pass timezone if needed, backend defaults to UTC or we can send user's timezone
-                payload.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            if (scheduledLocal) {
+                // Local wall-clock time + IANA zone (what Upload-Post expects,
+                // and what the Publish Plan records), never a UTC ISO string.
+                payload.scheduled_date = scheduledLocal;
             }
 
             const res = await apiFetch('/api/social/post', {
@@ -706,11 +888,14 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 }
             }
 
-            setPostResult({ success: true, msg: isScheduling ? "Scheduled successfully!" : "Posted successfully!" });
+            setPostResult({ success: true, msg: isScheduling ? "Scheduled — clip moved out of the project." : "Posted — clip moved out of the project." });
             setTimeout(() => {
                 setShowModal(false);
                 setPostResult(null);
-            }, 3000);
+                // The server took the clip out of the project; let the grid
+                // drop this card so it can't be posted a second time.
+                onPublished?.();
+            }, 2000);
 
         } catch (e) {
             setPostResult({ success: false, msg: `Failed: ${e.message}` });
@@ -737,7 +922,10 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             <div className="w-full max-w-[calc(64vh*0.5625)] md:max-w-none mx-auto md:mx-0 md:w-[236px] bg-black relative shrink-0 aspect-[9/16] md:aspect-auto group/video">
                 <video
                     ref={videoRef}
-                    src={playbackUrl}
+                    // #t=0.1 makes the browser paint the first real frame
+                    // instead of a black box until the clip is played.
+                    src={playbackUrl && !playbackUrl.includes('#') ? `${playbackUrl}#t=0.1` : playbackUrl}
+                    preload="metadata"
                     controls
                     className="w-full h-full object-contain"
                     playsInline
@@ -813,14 +1001,12 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             {/* Right: Content & Details */}
             <div className="flex-1 p-4 md:p-5 flex flex-col overflow-hidden min-w-0">
                 <div className="mb-4">
-                    <h3 className="text-base font-medium text-ink leading-tight line-clamp-2 mb-2 break-words" title={clip.video_title_for_youtube_short}>
-                        {clip.video_title_for_youtube_short || "Viral Clip Generated"}
+                    <h3 className="text-base font-medium text-ink leading-tight line-clamp-2 mb-2 break-words" title={displayClip.video_title_for_youtube_short}>
+                        {displayClip.video_title_for_youtube_short || "Viral Clip Generated"}
                     </h3>
                     <div className="flex flex-wrap gap-1.5">
                         {durationReadout && <span className="readout bg-paper3 px-2 py-0.5 rounded-full shrink-0">{durationReadout}</span>}
                         {resolution && <span className="readout bg-paper3 px-2 py-0.5 rounded-full shrink-0">{resolution}</span>}
-                        <span className="readout bg-paper3 px-2 py-0.5 rounded-full shrink-0">#shorts</span>
-                        <span className="readout bg-paper3 px-2 py-0.5 rounded-full shrink-0">#viral</span>
                     </div>
                 </div>
 
@@ -829,10 +1015,10 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0">
                         <span className="eyebrow shrink-0">YOUTUBE</span>
                         <p className="text-xs text-ink2 truncate flex-1 min-w-0">
-                            {clip.video_title_for_youtube_short || "Viral Short Video"}
+                            {displayClip.video_title_for_youtube_short || "Viral Short Video"}
                         </p>
                         <button
-                            onClick={() => handleCopy('youtube', clip.video_title_for_youtube_short || "Viral Short Video")}
+                            onClick={() => handleCopy('youtube', displayClip.video_title_for_youtube_short || "Viral Short Video")}
                             aria-label="copy youtube title"
                             className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
                         >
@@ -843,10 +1029,10 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0">
                         <span className="eyebrow shrink-0">TIKTOK · IG</span>
                         <p className="text-xs text-ink2 truncate flex-1 min-w-0">
-                            {clip.video_description_for_tiktok || clip.video_description_for_instagram}
+                            {displayClip.video_description_for_tiktok || displayClip.video_description_for_instagram}
                         </p>
                         <button
-                            onClick={() => handleCopy('caption', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
+                            onClick={() => handleCopy('caption', displayClip.video_description_for_tiktok || displayClip.video_description_for_instagram)}
                             aria-label="copy caption"
                             className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
                         >
@@ -900,6 +1086,24 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         {isEditing ? <Loader2 size={16} className="animate-spin text-brass shrink-0" /> : <Wand2 size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />}
                         {isEditing ? 'editing…' : 'auto edit'}
                     </button>
+
+                    <button
+                        onClick={() => setStylePicker((v) => !v)}
+                        disabled={isEditing}
+                        className={QUIET_BTN}
+                        title="Jump zooms + big captions with coloured key words, like viral podcast shorts"
+                    >
+                        <Film size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
+                        viral style
+                    </button>
+                    {stylePicker && (
+                        <div className="col-span-2 flex flex-wrap items-center gap-2 p-2 rounded-input border border-rule bg-paper">
+                            <button type="button" onClick={() => handleViralStyle('natural')} className="btn-quiet px-3 py-1.5 text-xs" title="2-3 plain white words, calm reframes at sentence ends — like the big podcast channels">natural</button>
+                            <button type="button" onClick={() => handleViralStyle('punchy')} className="btn-quiet px-3 py-1.5 text-xs" title="1-2 big glowing words, colour key words, zooms + shake, warm grade">punchy</button>
+                            <button type="button" onClick={() => handleViralStyle('clean')} className="btn-quiet px-3 py-1.5 text-xs" title="2-4 words, one coloured key word, softer zooms, dips to black">clean</button>
+                            <span className="text-[11px] text-muted">replaces this clip's captions</span>
+                        </div>
+                    )}
 
                     <button
                         onClick={() => setShowSubtitleModal(true)}
@@ -962,11 +1166,25 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 size="md"
             >
                 <div className="space-y-4">
+                    <button
+                        onClick={handleRegenerateCopy}
+                        disabled={regeneratingCopy}
+                        className="w-full flex items-center justify-center gap-2 py-2 rounded-input border border-dashed border-rule text-xs lowercase text-muted hover:text-brass hover:border-rule2 transition-colors disabled:opacity-50"
+                    >
+                        <RefreshCw size={14} className={regeneratingCopy ? 'animate-spin' : ''} />
+                        {regeneratingCopy ? 'generating new ideas…' : 'refresh: new title & description'}
+                    </button>
+                    {regenerateCopyError && (
+                        <p className="text-xs text-danger flex items-center gap-1.5">
+                            <AlertCircle size={13} className="shrink-0" /> {regenerateCopyError}
+                        </p>
+                    )}
+
                     <div>
                         <div className="flex items-center justify-between gap-2 mb-1.5">
                             <label className="eyebrow">YOUTUBE TITLE</label>
                             <button
-                                onClick={() => handleCopy('youtube', clip.video_title_for_youtube_short || "Viral Short Video")}
+                                onClick={() => handleCopy('youtube', displayClip.video_title_for_youtube_short || "Viral Short Video")}
                                 aria-label="copy youtube title"
                                 className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
                             >
@@ -974,7 +1192,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                             </button>
                         </div>
                         <p className="text-sm text-ink2 select-all break-words bg-paper rounded-input p-3 border border-rule">
-                            {clip.video_title_for_youtube_short || "Viral Short Video"}
+                            {displayClip.video_title_for_youtube_short || "Viral Short Video"}
                         </p>
                     </div>
 
@@ -982,7 +1200,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         <div className="flex items-center justify-between gap-2 mb-1.5">
                             <label className="eyebrow">TIKTOK · IG CAPTION</label>
                             <button
-                                onClick={() => handleCopy('caption', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
+                                onClick={() => handleCopy('caption', displayClip.video_description_for_tiktok || displayClip.video_description_for_instagram)}
                                 aria-label="copy caption"
                                 className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
                             >
@@ -990,7 +1208,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                             </button>
                         </div>
                         <p className="text-sm text-ink2 select-all break-words bg-paper rounded-input p-3 border border-rule whitespace-pre-wrap">
-                            {clip.video_description_for_tiktok || clip.video_description_for_instagram}
+                            {displayClip.video_description_for_tiktok || displayClip.video_description_for_instagram}
                         </p>
                     </div>
                 </div>
@@ -1060,33 +1278,35 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                             className="input-field resize-none"
                             placeholder="write a caption for your post…"
                         />
+                        <p className="readout mt-1.5">
+                            leave title & caption untouched to send each platform its own caption + niche hashtags
+                        </p>
                     </div>
 
-                    {/* Scheduling */}
-                    <div className="p-3 bg-paper rounded-input border border-rule">
-                        <label className="flex items-center justify-between cursor-pointer">
-                            <span className="flex items-center gap-2 text-sm text-ink2 lowercase">
-                                <Calendar size={16} className={isScheduling ? 'text-brass' : 'text-muted'} /> schedule post
-                            </span>
+                    {/* When — one click, the date picker only for "pick…". */}
+                    <div>
+                        <label className="eyebrow block mb-2">WHEN</label>
+                        <SegmentedControl
+                            options={WHEN_OPTIONS}
+                            value={whenChoice}
+                            onChange={setWhenChoice}
+                            columns={4}
+                            size="sm"
+                        />
+                        {whenChoice === 'custom' && (
                             <input
-                                type="checkbox"
-                                checked={isScheduling}
-                                onChange={(e) => setIsScheduling(e.target.checked)}
-                                className="w-4 h-4 accent-brass cursor-pointer"
+                                type="datetime-local"
+                                value={scheduleDate}
+                                onChange={(e) => setScheduleDate(e.target.value)}
+                                className="input-field mt-2 [color-scheme:dark] animate-fade"
                             />
-                        </label>
-
-                        {isScheduling && (
-                            <div className="mt-3 animate-fade">
-                                <label className="eyebrow block mb-1.5">DATE · TIME</label>
-                                <input
-                                    type="datetime-local"
-                                    value={scheduleDate}
-                                    onChange={(e) => setScheduleDate(e.target.value)}
-                                    className="input-field [color-scheme:dark]"
-                                />
-                            </div>
                         )}
+                    </div>
+
+                    {/* Niche — real hashtags on the YouTube title + TikTok caption. */}
+                    <div>
+                        <label className="eyebrow block mb-2">NICHE</label>
+                        <NichePicker value={postNiche} onChange={setPostNiche} />
                     </div>
 
                     {/* Platforms */}
@@ -1130,6 +1350,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 jobId={jobId}
                 clipIndex={index}
                 existingHook={activeLayers.hook}
+                geminiApiKey={geminiApiKey}
             />
 
             <HookModal
@@ -1162,6 +1383,15 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     onContinue={downloadClip}
                 />
             )}
+
+            <NichePromptModal
+                isOpen={!!nichePrompt}
+                onClose={() => setNichePrompt(null)}
+                defaultValue={nichePrompt?.defaultValue}
+                message={nichePrompt?.message}
+                onSkip={nichePrompt?.onSkip}
+                onConfirm={nichePrompt?.onConfirm}
+            />
 
         </div>
     );

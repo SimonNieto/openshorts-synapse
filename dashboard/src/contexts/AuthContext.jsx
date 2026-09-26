@@ -141,6 +141,8 @@ export function AuthProvider({ children }) {
     localLlm: config.localLlm || null,
     googleAuthEnabled: config.googleAuthEnabled,
     jobRetentionSeconds: config.jobRetentionSeconds || null,
+    // 'MEDIA_UPLOAD' (TikTok draft) unless the server says otherwise.
+    tiktokPostMode: config.tiktokPostMode || 'MEDIA_UPLOAD',
     loading,
     signingIn,
     user: me?.user || null,

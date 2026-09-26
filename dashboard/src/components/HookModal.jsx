@@ -19,6 +19,7 @@ const HOOK_STYLES = [
     { value: 'red', label: 'Red', box: 'rgba(220,38,38,0.96)', text: '#fff' },
     { value: 'outline', label: 'Outline', box: 'transparent', text: '#fff', outline: true },
     { value: 'outline_yellow', label: 'Outline+', box: 'transparent', text: '#FFD600', outline: true },
+    { value: 'bold', label: 'Bold', box: 'transparent', text: '#fff', outline: true },
 ];
 
 const POSITION_OPTIONS = [

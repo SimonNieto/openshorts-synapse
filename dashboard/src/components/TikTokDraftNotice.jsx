@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertCircle } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 /**
  * Shown wherever tiktok is among the selected platforms, before the button
@@ -20,6 +21,10 @@ import { AlertCircle } from 'lucide-react';
  * rewards, so this is a better default, not a limitation we are apologising for.
  */
 export default function TikTokDraftNotice() {
+    // Only true under MEDIA_UPLOAD: with TIKTOK_POST_MODE=DIRECT_POST the
+    // post goes live on schedule, caption and hashtags included.
+    const { tiktokPostMode } = useAuth();
+    if (tiktokPostMode !== 'MEDIA_UPLOAD') return null;
     return (
         <div className="mb-4 px-3 py-2 rounded-input text-xs text-ink2 bg-paper3 flex items-start gap-2">
             <AlertCircle size={14} className="mt-0.5 shrink-0 text-brass" />

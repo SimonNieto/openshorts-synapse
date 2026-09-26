@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock } from 'lucide-react';
+import { Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket } from 'lucide-react';
 import KeyInput from './components/KeyInput';
 import MediaInput from './components/MediaInput';
 import McpConnectCard from './components/McpConnectCard';
 import ResultCard from './components/ResultCard';
+import { loadSubtitleProfileStore, activeSubtitleProfileSettings } from './components/SubtitleModal';
 import ProcessingAnimation from './components/ProcessingAnimation';
+import JobProgressBar from './components/JobProgressBar';
 // import Gallery from './components/Gallery';
 import ThumbnailStudio from './components/ThumbnailStudio';
 import SaaShortsTab from './components/SaaShortsTab';
@@ -22,8 +24,16 @@ import LoginModal from './components/LoginModal';
 import TrialGate from './components/TrialGate';
 import AdvancedBanner from './components/AdvancedBanner';
 import HistoryTab from './components/HistoryTab';
+import ReworkerTab from './components/ReworkerTab';
+import PublishPlanTab from './components/PublishPlanTab';
+import ViralFinderTab from './components/ViralFinderTab';
+import StoryTab from './components/StoryTab';
+import PlusPanel from './components/PlusPanel';
 import ProfileMenu from './components/ProfileMenu';
 import Modal from './components/ui/Modal';
+import NichePromptModal from './components/NichePromptModal';
+import { loadNicheHistory, pushNicheHistory, rememberNicheProfile } from './lib/nicheHistory';
+import { userTimezone } from './lib/postSlots';
 import { useAuth } from './contexts/AuthContext';
 import { apiFetch, apiJson, QuotaError } from './lib/api';
 import { track } from './lib/analytics';
@@ -231,6 +241,52 @@ function App() {
     return '';
   });
 
+  // Content niche (e.g. "Joe Rogan podcast clips") — not a secret, so plain
+  // localStorage, no encrypt/decrypt. Lets hashtag research (niche_hashtags.py)
+  // and copy generation target real, on-topic hashtags instead of generic ones.
+  const [niche, setNiche] = useState(() => localStorage.getItem('openshorts_niche') || '');
+  useEffect(() => { localStorage.setItem('openshorts_niche', niche); }, [niche]);
+  const [nicheResearching, setNicheResearching] = useState(false);
+  const [nicheHashtags, setNicheHashtags] = useState(null);
+  const [nicheTitleHashtags, setNicheTitleHashtags] = useState(null);
+  const [nicheError, setNicheError] = useState('');
+  const [nicheHistory, setNicheHistory] = useState(() => loadNicheHistory());
+  // Server-side publish setting (publish_settings.json): 3-5 hashtags about
+  // each clip + none in the YouTube title, instead of the niche's whole pool.
+  const [cleanHashtags, setCleanHashtags] = useState(true);
+  // YouTube's hidden tags field: the clip's topics + these base tags of the
+  // niche, sent with every YouTube upload (Upload-Post tags[]).
+  const [ytTags, setYtTags] = useState(true);
+  const [nicheTagsTable, setNicheTagsTable] = useState({});
+  const [nicheTagsDraft, setNicheTagsDraft] = useState('');
+  const [nicheTagsSaved, setNicheTagsSaved] = useState(false);
+  const applyPublishSettings = (d) => {
+    setCleanHashtags(d.clean_hashtags !== false);
+    setYtTags(d.youtube_tags !== false);
+    setNicheTagsTable(d.niche_tags || {});
+  };
+  useEffect(() => {
+    apiJson('/api/publish-settings').then(applyPublishSettings).catch(() => {});
+  }, []);
+  useEffect(() => {
+    setNicheTagsDraft((nicheTagsTable[niche.trim().toLowerCase()] || []).join(', '));
+    setNicheTagsSaved(false);
+  }, [niche, nicheTagsTable]);
+  const savePublishSettings = async (patch) => {
+    try {
+      applyPublishSettings(await apiJson('/api/publish-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      }));
+      return true;
+    } catch (_) { return false; }
+  };
+  const saveCleanHashtags = (value) => { setCleanHashtags(value); savePublishSettings({ clean_hashtags: value }); };
+  // Asked before every download — the hashtag bundling needs a niche and
+  // should never silently reuse whatever was used for a different clip/job.
+  const [showNichePrompt, setShowNichePrompt] = useState(false);
+
   const [uploadUserId, setUploadUserId] = useState(() => localStorage.getItem('uploadUserId') || '');
   const [userProfiles, setUserProfiles] = useState([]); // List of {username, connected: []}
   // Post-generation social nudge: shown at the results peak until the user
@@ -244,6 +300,17 @@ function App() {
   const [jobId, setJobId] = useState(null);
   const [status, setStatus] = useState('idle'); // idle, processing, complete, error
   const [results, setResults] = useState(null);
+  // Gemini's own niche guess for this video (main.get_viral_clips,
+  // gemini_worker.DetailClipModel.content_niche) — a suggestion, never forced:
+  // only fills the Settings field when the user hasn't set one already, same
+  // as it would if they'd typed it themselves, so it stays editable/correctable.
+  useEffect(() => {
+    if (results?.niche_guess && !niche.trim()) setNiche(results.niche_guess);
+    // Deliberately keyed on the guess alone: `niche` is read as a guard, not
+    // a trigger — including it would refire this on every keystroke in
+    // Settings, which is exactly the "silently overwritten" bug this avoids.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results?.niche_guess]);
   // Best clips first. The backend hands them back in transcript order, which
   // buries the strongest one wherever it happens to fall in the video — and
   // the first card is the one people actually watch and publish.
@@ -265,6 +332,12 @@ function App() {
         return sb - sa || a.index - b.index;
       });
   }, [results]);
+  // Posted clips leave the project (app.py _mark_clip_published) so nothing
+  // gets posted twice; they stay reachable behind a "show posted" toggle,
+  // with a one-click restore in case a platform rejected one.
+  const [showPosted, setShowPosted] = useState(false);
+  const postedCount = rankedClips.filter(({ clip }) => clip?.published).length;
+  const visibleClips = rankedClips.filter(({ clip }) => showPosted || !clip?.published);
   // Bulk subtitles: apply one style to every clip of the job (triggered from
   // within a clip's subtitle modal via "apply to all").
   const [bulkSub, setBulkSub] = useState({ running: false, current: 0, total: 0, errors: 0 });
@@ -290,6 +363,15 @@ function App() {
 
   const [sessionRecovered, setSessionRecovered] = useState(false);
   const [showScheduleWeek, setShowScheduleWeek] = useState(false);
+  // Once a job is done and there's no source preview to show, the left panel
+  // is only a status badge over a log nobody reads: fold it away and give the
+  // clips the full width. The "logs" chip brings it back on demand.
+  const [showJobPanel, setShowJobPanel] = useState(false);
+  // The Clip Generator++ profile picked in its tab (used by the results' "viral style").
+  const [plusProfile, setPlusProfile] = useState(null);
+  // Real progress from /api/status (app.py _job_progress): percent, stage,
+  // clips done / total, ETA — computed from what the pipeline actually logs.
+  const [jobProgress, setJobProgress] = useState(null);
   // Clip editor overlay: index of the clip being edited, or null.
   const [editingClip, setEditingClip] = useState(null);
   const [reframingClip, setReframingClip] = useState(null);
@@ -428,13 +510,20 @@ function App() {
   // Reopen an archived project from the History tab: the backend re-downloads
   // its files from R2 into the server's working dir and returns the full state.
   const restoreProject = async (projectJobId) => {
-    const data = await apiJson(`/api/projects/${projectJobId}/restore`, { method: 'POST' });
+    // Self-host has no R2 archive to restore from — the job's files are
+    // simply still on disk (JOB_RETENTION_SECONDS), and /api/status already
+    // resolves any job id found there, in memory or not. Cloud goes through
+    // the dedicated restore endpoint, which also pulls the job back from R2
+    // if the local working files have since been swept.
+    const data = billingEnabled
+      ? await apiJson(`/api/projects/${projectJobId}/restore`, { method: 'POST' })
+      : await apiJson(`/api/status/${projectJobId}`);
     flushClipState();
     setProjectState(data.project_state || null);
     setNoSource(true);
-    setJobId(data.job_id);
+    setJobId(data.job_id || projectJobId);
     setResults(data.result || null);
-    setLogs(['♻️ Project restored from your library.']);
+    setLogs(['♻️ Project reopened.']);
     setProcessingMedia(null);
     setQualityGate(null);
     setStatus('complete');
@@ -458,6 +547,7 @@ function App() {
             job_id: jobId,
             clip_index: i,
             position: options.position,
+            position_percent: options.positionPercent ?? (typeof options.position === 'number' ? options.position : null),
             font_size: options.fontSize,
             font_name: options.fontName,
             font_color: options.fontColor,
@@ -470,6 +560,10 @@ function App() {
             effect: options.effect || 'none',
             base_opacity: options.baseOpacity ?? 1.0,
             uppercase: options.uppercase || false,
+            max_chars: options.maxChars ?? 16,
+            max_duration: options.maxDuration ?? 1.4,
+            letter_spacing: options.letterSpacing ?? 0,
+            max_words: options.maxWords ?? null,
             // Chain from the clip's current server file (its video_url basename).
             input_filename: (clips[i].video_url || '').split('/').pop(),
           }),
@@ -488,12 +582,88 @@ function App() {
     } catch { /* keep current results */ }
   };
 
-  const handleDownloadAll = async () => {
+  // No niche saved yet -> ask first (in the same niche+history UI as
+  // The niche belongs to the PROJECT: saved on it the first time it's
+  // confirmed, then reused by every schedule/post/download of that project.
+  // Proposed in order: this project's saved niche → the AI's guess for this
+  // video → the last niche used anywhere.
+  const projectNiche = results?.niche || '';
+  const proposedNiche = projectNiche || results?.niche_guess || niche;
+  // One account (Upload-Post profile) per niche: the project's own, else the
+  // one Settings has selected.
+  const projectProfile = results?.upload_profile || '';
+  const postingProfile = projectProfile || uploadUserId;
+  // The current project in the shape the shared scheduling form expects
+  // (same as Publish Plan's /api/local-projects rows).
+  const jobPanelFolded = status === 'complete' && !processingMedia && !showJobPanel;
+
+  const scheduleProject = useMemo(() => (jobId && results?.clips ? {
+    job_id: jobId,
+    niche: results.niche || null,
+    niche_guess: results.niche_guess || null,
+    upload_profile: results.upload_profile || null,
+    clips: results.clips.map((c, index) => ({
+      index,
+      title: c.video_title_for_youtube_short || `Clip ${index + 1}`,
+      video_url: c.video_url,
+      predicted_score: c.predicted_score,
+      published: !!c.published,
+    })),
+  } : null), [jobId, results]);
+
+  const saveProjectNiche = async (value, profile) => {
+    const trimmed = (value || '').trim();
+    if (trimmed) {
+      setNiche(trimmed);
+      setNicheHistory(pushNicheHistory(trimmed));
+      if (profile) rememberNicheProfile(trimmed, profile);
+    }
+    setResults((prev) => (prev
+      ? { ...prev, niche: trimmed || null, ...(profile ? { upload_profile: profile } : {}) }
+      : prev));
+    if (!jobId) return;
+    try {
+      await apiFetch(`/api/jobs/${jobId}/niche`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ niche: trimmed || null, ...(profile ? { profile } : {}) }),
+      });
+    } catch { /* kept locally for this session; next confirm retries */ }
+  };
+
+  // Re-read the job after anything that changes clips server-side (a post
+  // marks its clip published) so the grid drops/restores cards immediately.
+  const refreshResults = async () => {
+    if (!jobId) return;
+    try {
+      const data = await pollJob(jobId);
+      if (data.result) setResults(data.result);
+    } catch { /* keep current results */ }
+  };
+
+  const restoreClip = async (index) => {
+    try {
+      await apiFetch(`/api/clip/${jobId}/${index}/restore`, { method: 'POST' });
+    } finally {
+      refreshResults();
+    }
+  };
+
+  // Settings) instead of silently shipping a ZIP with no hashtags.
+  const handleDownloadAll = () => {
+    if (!jobId) return;
+    setShowNichePrompt(true);
+  };
+
+  const downloadAllWithNiche = async (nicheForDownload) => {
     if (!jobId) return;
     setDownloadingAll(true);
     try {
-      const res = await apiFetch(`/api/jobs/${jobId}/download-all`);
+      const trimmed = (nicheForDownload || '').trim();
+      const qs = trimmed ? `?niche=${encodeURIComponent(trimmed)}` : '';
+      const res = await apiFetch(`/api/jobs/${jobId}/download-all${qs}`);
       if (!res.ok) throw new Error(await res.text());
+      if (trimmed) setNicheHistory(pushNicheHistory(trimmed));
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -533,6 +703,14 @@ function App() {
         if (session.activeTab) setActiveTab(session.activeTab);
         // If was processing, resume polling; if complete/error, just show results
         setStatus(session.status === 'processing' ? 'processing' : session.status);
+        // The saved snapshot can be stale (a clip posted/scheduled since, which
+        // takes it out of the project): show it instantly, then swap in the
+        // server's current state so a posted clip can't reappear on reload.
+        if (session.status === 'complete') {
+          pollJob(session.jobId)
+            .then((d) => { if (d?.result?.clips) setResults(d.result); })
+            .catch(() => { /* keep the snapshot */ });
+        }
         setSessionRecovered(true);
         setTimeout(() => setSessionRecovered(false), 5000);
       }
@@ -655,6 +833,7 @@ function App() {
           const data = await pollJob(jobId);
           console.log("Job status:", data);
 
+          if (data.progress) setJobProgress(data.progress);
           // Update results if available (real-time)
           if (data.result) {
             setResults(data.result);
@@ -685,8 +864,17 @@ function App() {
 
   // silent: background auto-fetch — never alert(), just log. Managed users need
   // no local key (the server resolves its own); BYOK sends the header.
-  const fetchUserProfiles = async ({ silent = false } = {}) => {
-    if (!uploadPostKey && !isManaged) return;
+  // The Settings "connect" button used to succeed silently — it only ever spoke
+  // up on failure, so a working key looked like a dead button. Now it always
+  // says what happened. (onClick passes the click event: not an options bag.)
+  const [connectStatus, setConnectStatus] = useState(null); // null | 'loading' | { ok, msg }
+  const fetchUserProfiles = async (opts) => {
+    const silent = !!(opts && opts.silent === true);
+    if (!uploadPostKey && !isManaged) {
+      if (!silent) setConnectStatus({ ok: false, msg: 'Paste your Upload-Post API key first.' });
+      return;
+    }
+    if (!silent) setConnectStatus('loading');
     try {
       const res = await apiFetch('/api/social/user', {
         headers: uploadPostKey ? { 'X-Upload-Post-Key': uploadPostKey } : {}
@@ -699,11 +887,12 @@ function App() {
         if (!uploadUserId) {
           setUploadUserId(data.profiles[0].username);
         }
+        if (!silent) setConnectStatus({ ok: true, msg: `Connected · ${data.profiles.length} profile${data.profiles.length === 1 ? '' : 's'} found` });
       } else if (!silent) {
-        alert("No profiles found for this API Key.");
+        setConnectStatus({ ok: false, msg: 'Key accepted, but no profiles yet — create one at upload-post.com (step 2).' });
       }
     } catch (e) {
-      if (!silent) alert("Error fetching User Profiles. Please check key.");
+      if (!silent) setConnectStatus({ ok: false, msg: 'Upload-Post refused this key — check it was copied in full.' });
       console.error(e);
     }
   };
@@ -837,6 +1026,7 @@ function App() {
       return;
     }
     setStatus('processing');
+    setJobProgress(null);
     setLogs(["Starting process..."]);
     setResults(null);
     // Studio handovers have no local media object; the preview switches to the
@@ -851,6 +1041,14 @@ function App() {
       // BYOK sends the Gemini header; managed users rely on the bearer token
       // that apiFetch attaches automatically.
       const headers = apiKey ? { 'X-Gemini-Key': apiKey } : {};
+      // "Publish the 3 best clips": the server schedules them on Upload-Post
+      // when the job ends, so it needs the key now (kept in memory only).
+      if (data.autoPublish && uploadPostKey) headers['X-Upload-Post-Key'] = uploadPostKey;
+      const autoNiche = (data.autoPublish?.niche || '').trim();
+      if (autoNiche) {
+        setNicheHistory(pushNicheHistory(autoNiche));
+        if (data.autoPublish.profile) rememberNicheProfile(autoNiche, data.autoPublish.profile);
+      }
 
       // Advanced generation controls: only sent when the user set them, so the
       // default request stays byte-identical to the pre-feature one.
@@ -864,6 +1062,29 @@ function App() {
         auto_hook_style: data.autoHook ? (data.autoHookStyle || 'classic') : null,
         // 'auto' is the server default, so only a deliberate choice travels.
         layouts: data.layout && data.layout !== 'auto' ? data.layout : null,
+        // Whatever the user last marked "default" in the subtitle editor's
+        // "My Profiles" — otherwise the automatic caption pass every new
+        // clip gets always used subtitles.AUTO_CAPTION_STYLE regardless of
+        // what they configured there (SubtitleModal.jsx only ever applied
+        // it when the editor was reopened by hand).
+        plus_profile_id: data.plusProfileId || null,
+        auto_publish: data.autoPublish ? JSON.stringify({
+          count: 3,
+          platforms: data.autoPublish.platforms,
+          profile: data.autoPublish.profile || null,
+          default_profile: uploadUserId || null,
+          niche: autoNiche || null,
+          timezone: userTimezone(),
+        }) : null,
+        caption_style: (() => {
+          const s = activeSubtitleProfileSettings(loadSubtitleProfileStore());
+          return JSON.stringify({
+            position_percent: s.position, font_name: s.fontName, font_color: s.fontColor,
+            highlight_color: s.highlightColor, border_color: s.borderColor, border_width: s.borderWidth,
+            effect: s.effect, base_opacity: s.baseOpacity, uppercase: s.uppercase,
+            font_size: s.fontSize, letter_spacing: s.letterSpacing, max_words: s.maxWords,
+          });
+        })(),
       };
 
       if (data.type === 'url') {
@@ -956,12 +1177,21 @@ function App() {
   // wraps to two lines in a 5-up bar on a 360px phone.
   const navItems = [
     { id: 'dashboard', ord: '01', icon: LayoutDashboard, label: 'Clip Generator', short: 'clips', primary: true },
+    // Clip Generator++: the same generator driven by saved channel profiles
+    // (plus.py). Self-host only; the classic tab above is untouched.
+    ...(!billingEnabled ? [{ id: 'plus', ord: '01+', icon: Rocket, label: 'Clip Generator++', short: 'clips++' }] : []),
     { id: 'saasshorts', ord: '02', icon: Sparkles, label: 'AI Shorts', short: 'ai shorts', byok: true, primary: true },
     { id: 'ai-agent', ord: '03', icon: Bot, label: 'AI Agent', short: 'agent', byok: true },
     { id: 'ugc-gallery', ord: '04', icon: LayoutGrid, label: 'UGC Gallery', short: 'gallery', primary: true },
     { id: 'thumbnails', ord: '05', icon: Image, label: 'YouTube Studio', short: 'studio', primary: true },
-    ...(billingEnabled && isSignedIn ? [{ id: 'history', ord: '06', icon: History, label: 'History', short: 'history' }] : []),
-    { id: 'settings', ord: '07', icon: Settings, label: 'Settings', short: 'settings' },
+    // Cloud: gated on being signed in (it's a per-user R2 archive). Self-host:
+    // always on — it lists whatever job directories are still on local disk.
+    ...(!billingEnabled || isSignedIn ? [{ id: 'history', ord: '06', icon: History, label: 'History', short: 'history' }] : []),
+    { id: 'reworker', ord: '07', icon: Eraser, label: 'Viral Clip Reworker', short: 'reworker', byok: true },
+    ...(!billingEnabled ? [{ id: 'publish-plan', ord: '08', icon: Calendar, label: 'Publish Plan', short: 'plan' }] : []),
+    ...(!billingEnabled ? [{ id: 'viral-finder', ord: '09', icon: Flame, label: 'Viral Finder', short: 'finder' }] : []),
+    ...(!billingEnabled ? [{ id: 'story', ord: '10', icon: Clapperboard, label: 'Story Channel', short: 'story' }] : []),
+    { id: 'settings', ord: billingEnabled ? '08' : '11', icon: Settings, label: 'Settings', short: 'settings' },
   ];
   const activeNav = navItems.find((n) => n.id === activeTab);
 
@@ -1323,6 +1553,196 @@ function App() {
                   <Shield size={12} className="text-ok shrink-0" /> Privacy: keys only live in your browser (sent to backend just to process)
                 </div>
               </div>
+
+              <div className="card p-4 sm:p-6 mb-6">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0">
+                      <Hash size={16} className="text-brass" />
+                    </div>
+                    <h2 className="text-base font-medium text-ink lowercase">Content Niche &amp; Hashtags</h2>
+                  </div>
+                  <span className="readout">optional</span>
+                </div>
+                <p className="text-xs text-muted mb-4 leading-relaxed">
+                  Tell it what your channel reposts (e.g. "Joe Rogan podcast clips") and "refresh" in a
+                  clip's descriptions will research real hashtags from top-performing Shorts in that niche
+                  (YouTube Data API) instead of guessing generic ones.
+                </p>
+                {results?.niche_guess && niche.trim() === results.niche_guess.trim() && (
+                  <p className="text-xs text-brass mb-3 -mt-1">
+                    Guessed from this video by AI — correct it if it's off, it'll be remembered either way.
+                  </p>
+                )}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={niche}
+                    onChange={(e) => setNiche(e.target.value)}
+                    className="input-field"
+                    placeholder="e.g. Joe Rogan podcast clips"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!niche.trim() || nicheResearching) return;
+                      setNicheResearching(true);
+                      setNicheHashtags(null);
+                      setNicheTitleHashtags(null);
+                      setNicheError('');
+                      try {
+                        const data = await apiJson('/api/hashtags/research', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ niche }),
+                        });
+                        setNicheHashtags(data.hashtags || []);
+                        setNicheHistory(pushNicheHistory(niche));
+                      } catch (e) {
+                        setNicheError(e.detail || e.message || 'Research failed');
+                      } finally {
+                        setNicheResearching(false);
+                      }
+                    }}
+                    disabled={!niche.trim() || nicheResearching}
+                    className="btn-quiet py-2 px-4 text-sm shrink-0"
+                  >
+                    {nicheResearching ? 'researching…' : 'research now'}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!niche.trim() || nicheResearching) return;
+                      // The pool is already ranked by real frequency (most
+                      // common in top Shorts first) — same source data as
+                      // "research now", just re-fetched if it's not cached
+                      // yet and narrowed to the 3 worth spending a YouTube
+                      // title's tight character budget on.
+                      setNicheResearching(true);
+                      setNicheError('');
+                      try {
+                        let pool = nicheHashtags;
+                        if (!pool) {
+                          const data = await apiJson('/api/hashtags/research', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ niche }),
+                          });
+                          pool = data.hashtags || [];
+                          setNicheHashtags(pool);
+                        }
+                        setNicheTitleHashtags(pool.slice(0, 3));
+                        setNicheHistory(pushNicheHistory(niche));
+                      } catch (e) {
+                        setNicheError(e.detail || e.message || 'Research failed');
+                      } finally {
+                        setNicheResearching(false);
+                      }
+                    }}
+                    disabled={!niche.trim() || nicheResearching}
+                    className="btn-quiet py-2 px-4 text-sm shrink-0"
+                    title="Show the 3 hashtags worth spending a YouTube title's tight character budget on"
+                  >
+                    title
+                  </button>
+                </div>
+                {nicheHistory.filter((n) => n.toLowerCase() !== niche.trim().toLowerCase()).length > 0 && (
+                  <div className="mt-3">
+                    <p className="eyebrow mb-1.5">recent niches</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {nicheHistory
+                        .filter((n) => n.toLowerCase() !== niche.trim().toLowerCase())
+                        .map((n) => (
+                          <button
+                            key={n}
+                            onClick={() => setNiche(n)}
+                            className="readout bg-paper3 hover:bg-paper2 px-2 py-1 rounded-full text-ink2"
+                          >
+                            {n}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+                {nicheError && <p className="text-danger text-xs mt-3">{nicheError}</p>}
+                <label className="flex items-start gap-3 mt-4 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={cleanHashtags}
+                    onChange={(e) => saveCleanHashtags(e.target.checked)}
+                    className="mt-0.5 accent-brass"
+                  />
+                  <span className="text-xs leading-relaxed">
+                    <span className="text-ink">clean hashtags (recommended)</span>
+                    <span className="text-muted block">
+                      Each post gets 3-5 hashtags about that clip — the niche's 1-2 main tags + the ones matching its
+                      topic — and none in the YouTube title. Off: the whole researched pool goes in every description
+                      and fills the title (the old behaviour; unrelated tags read as spam to YouTube).
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 mt-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={ytTags}
+                    onChange={(e) => { setYtTags(e.target.checked); savePublishSettings({ youtube_tags: e.target.checked }); }}
+                    className="mt-0.5 accent-brass"
+                  />
+                  <span className="text-xs leading-relaxed">
+                    <span className="text-ink">send youtube tags</span>
+                    <span className="text-muted block">
+                      Fills YouTube's hidden tags field on every upload: the clip's own topics first, then the base tags
+                      below, within YouTube's 500 characters. The video's language is set from its transcript too.
+                    </span>
+                  </span>
+                </label>
+                {ytTags && niche.trim() && (
+                  <div className="mt-3 ml-7">
+                    <p className="eyebrow mb-1.5">base youtube tags for “{niche.trim()}”</p>
+                    <textarea
+                      value={nicheTagsDraft}
+                      onChange={(e) => { setNicheTagsDraft(e.target.value); setNicheTagsSaved(false); }}
+                      rows={3}
+                      className="input-field text-xs"
+                      placeholder="podcast, podcast clips, joe rogan, jre, mental health, science…"
+                    />
+                    <div className="flex items-center gap-3 mt-1.5">
+                      <button
+                        onClick={async () => {
+                          setNicheTagsSaved(await savePublishSettings({ niche: niche.trim(), niche_tags: nicheTagsDraft }));
+                        }}
+                        className="btn-quiet py-1.5 px-3 text-xs"
+                      >
+                        save tags
+                      </button>
+                      <span className="text-xs text-muted">
+                        {nicheTagsSaved ? 'saved' : 'comma-separated · every video of this niche gets them'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {nicheTitleHashtags && (
+                  <div className="mt-3">
+                    <p className="eyebrow mb-1.5">best for a youtube title</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {nicheTitleHashtags.length === 0 && <p className="text-xs text-muted">No hashtags found for this niche.</p>}
+                      {nicheTitleHashtags.map((h) => (
+                        <span key={h} className="readout bg-paper3 px-2 py-0.5 rounded-full text-brass border border-brass/40">{h}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {nicheHashtags && (
+                  <div className="mt-3">
+                    {nicheTitleHashtags && <p className="eyebrow mb-1.5">full pool</p>}
+                    <div className="flex flex-wrap gap-1.5">
+                      {nicheHashtags.length === 0 && !nicheTitleHashtags && <p className="text-xs text-muted">No hashtags found for this niche.</p>}
+                      {nicheHashtags.map((h) => (
+                        <span key={h} className="readout bg-paper3 px-2 py-0.5 rounded-full">{h}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Self-hosted installs have no account page, so the agent
                   how-to lives here; cloud users get it (with OAuth) in Account. */}
               {!billingEnabled && <div className="mb-6"><McpConnectCard cloud={false} /></div>}
@@ -1397,10 +1817,29 @@ function App() {
                       className="input-field"
                       placeholder="ey..."
                     />
-                    <button onClick={fetchUserProfiles} className="btn-quiet py-2 px-4 text-sm">
-                      Connect
+                    <button onClick={fetchUserProfiles} disabled={connectStatus === 'loading'} className="btn-quiet py-2 px-4 text-sm">
+                      {connectStatus === 'loading' ? <Loader2 size={14} className="animate-spin" /> : 'Connect'}
                     </button>
                   </div>
+                  {connectStatus && connectStatus !== 'loading' && (
+                    <p className={`text-xs flex items-center gap-1.5 ${connectStatus.ok ? 'text-ok' : 'text-danger'}`}>
+                      {connectStatus.ok ? <Check size={13} /> : <AlertTriangle size={13} />}
+                      {connectStatus.msg}
+                    </p>
+                  )}
+                  {userProfiles.length > 0 && (() => {
+                    const active = userProfiles.find((p) => p.username === uploadUserId) || userProfiles[0];
+                    const connected = active?.connected || [];
+                    return (
+                      <p className="text-xs text-muted">
+                        Posting as <span className="text-ink2">{active?.username}</span>
+                        {' · '}
+                        {connected.length
+                          ? <span className="text-ok">{connected.join(', ')} connected</span>
+                          : <span className="text-warn">no social account connected on this profile</span>}
+                      </p>
+                    );
+                  })()}
                   <div className="text-xs text-muted leading-relaxed">
                     Connect your Upload-Post account to enable one-click publishing.
                     <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -1679,7 +2118,47 @@ function App() {
           {activeTab === 'history' && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
               <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-8">
-                <HistoryTab onReopenProject={restoreProject} />
+                <HistoryTab onReopenProject={restoreProject} billingEnabled={billingEnabled} />
+              </div>
+            </div>
+          )}
+
+          {/* View: Viral Clip Reworker */}
+          {activeTab === 'reworker' && (
+            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
+              <ReworkerTab geminiApiKey={apiKey} elevenLabsKey={elevenLabsKey} onDone={restoreProject} />
+            </div>
+          )}
+
+          {activeTab === 'publish-plan' && (
+            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
+              <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-8">
+                <PublishPlanTab
+                  uploadPostKey={uploadPostKey}
+                  uploadUserId={uploadUserId}
+                  profiles={userProfiles}
+                  isManaged={isManaged}
+                  lastNiche={niche}
+                  onNicheUsed={(n, profile) => {
+                    setNiche(n);
+                    setNicheHistory(pushNicheHistory(n));
+                    if (profile) rememberNicheProfile(n, profile);
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'story' && (
+            <div className="h-full overflow-y-auto custom-scrollbar">
+              <StoryTab geminiApiKey={apiKey} onOpenProject={restoreProject} />
+            </div>
+          )}
+
+          {activeTab === 'viral-finder' && (
+            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
+              <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-8">
+                <ViralFinderTab />
               </div>
             </div>
           )}
@@ -1736,7 +2215,13 @@ function App() {
                   )}
                 </div>
 
-                <MediaInput onProcess={handleProcess} isProcessing={status === 'processing'} />
+                <MediaInput
+                  onProcess={handleProcess}
+                  isProcessing={status === 'processing'}
+                  publishProfiles={userProfiles}
+                  defaultProfile={uploadUserId}
+                  canAutoPublish={!billingEnabled && !!uploadPostKey && !!(uploadUserId || userProfiles.length)}
+                />
 
                 <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-8 text-muted text-xs sm:text-sm">
                   <span className="flex items-center gap-2"><Youtube size={16} /> YouTube</span>
@@ -1749,11 +2234,26 @@ function App() {
           )}
 
           {/* View: Processing / Results (Split View) */}
-          {activeTab === 'dashboard' && (status === 'processing' || status === 'complete' || status === 'error') && (
+          {activeTab === 'plus' && status === 'idle' && (
+            <div className="h-full overflow-y-auto custom-scrollbar">
+              <PlusPanel
+                onProcess={handleProcess}
+                isProcessing={status === 'processing'}
+                publishProfiles={userProfiles}
+                defaultProfile={uploadUserId}
+                canAutoPublish={!billingEnabled && !!uploadPostKey && !!(uploadUserId || userProfiles.length)}
+                uploadPostKey={uploadPostKey}
+                geminiApiKey={apiKey}
+                onProfileChange={setPlusProfile}
+              />
+            </div>
+          )}
+
+          {(activeTab === 'dashboard' || activeTab === 'plus') && (status === 'processing' || status === 'complete' || status === 'error') && (
             <div className="h-full flex flex-col md:flex-row gap-3 md:gap-4 p-3 md:p-4 overflow-y-auto md:overflow-y-hidden custom-scrollbar animate-fade">
 
               {/* Left Panel: Preview & Status */}
-              <div className={`${status === 'complete' ? 'w-full md:w-[30%] lg:w-[25%]' : 'w-full md:w-[55%] lg:w-[60%]'} md:h-full flex flex-col shrink-0 md:shrink card p-3.5 sm:p-6 md:overflow-y-auto custom-scrollbar transition-all duration-700 ease-in-out`}>
+              <div className={`${status === 'complete' ? 'w-full md:w-[30%] lg:w-[25%]' : 'w-full md:w-[55%] lg:w-[60%]'} ${jobPanelFolded ? 'hidden' : ''} md:h-full flex flex-col shrink-0 md:shrink card p-3.5 sm:p-6 md:overflow-y-auto custom-scrollbar transition-all duration-700 ease-in-out`}>
                 <div className="mb-4 sm:mb-6 flex items-center justify-between gap-2">
                   <h2 className="text-sm font-medium text-ink lowercase flex items-center gap-2">
                     <Activity className={`text-brass ${status === 'processing' ? 'animate-pulse' : ''}`} size={18} />
@@ -1767,6 +2267,8 @@ function App() {
                   </span>
                 </div>
 
+                {status === 'processing' && <JobProgressBar progress={jobProgress} />}
+
                 {/* Video Preview */}
                 {processingMedia && (
                   <ProcessingAnimation
@@ -1775,6 +2277,7 @@ function App() {
                     syncedTime={syncedTime}
                     isSyncedPlaying={isSyncedPlaying}
                     syncTrigger={syncTrigger}
+                    progress={jobProgress}
                   />
                 )}
 
@@ -1834,7 +2337,7 @@ function App() {
               </div>
 
               {/* Right Panel: Results Grid */}
-              <div className={`${status === 'complete' ? 'w-full md:w-[70%] lg:w-[75%]' : 'w-full md:w-[45%] lg:w-[40%]'} md:h-full flex flex-col shrink-0 md:shrink card p-3.5 sm:p-6 transition-all duration-700 ease-in-out`}>
+              <div className={`${jobPanelFolded ? 'w-full' : status === 'complete' ? 'w-full md:w-[70%] lg:w-[75%]' : 'w-full md:w-[45%] lg:w-[40%]'} md:h-full flex flex-col shrink-0 md:shrink card p-3.5 sm:p-6 transition-all duration-700 ease-in-out`}>
                 {/* Title + counters on one row, the two actions on their own row
                     below. Wrapping them all together dropped a lone half-width
                     "schedule week" pill under the title on a phone. */}
@@ -1843,13 +2346,35 @@ function App() {
                     <span className="mr-auto">Generated Shorts</span>
                     {results?.clips?.length > 0 && (
                       <span className="readout bg-paper3 px-2.5 py-1 rounded-full">
-                        {results.clips.length} Clips
+                        {results.clips.length - postedCount} to post
                       </span>
+                    )}
+                    {postedCount > 0 && (
+                      <button
+                        onClick={() => setShowPosted((v) => !v)}
+                        className={`readout px-2.5 py-1 rounded-full border transition-colors ${showPosted
+                          ? 'bg-ok/15 border-ok/50 text-ok'
+                          : 'bg-paper3 border-transparent hover:border-rule2'}`}
+                        title="Posted clips leave the project so they can't be posted twice"
+                      >
+                        {postedCount} posted · {showPosted ? 'hide' : 'show'}
+                      </button>
                     )}
                     {results?.cost_analysis && !isManaged && (
                       <span className="readout bg-paper3 px-2.5 py-1 rounded-full" title={`Input: ${results.cost_analysis.input_tokens} | Output: ${results.cost_analysis.output_tokens}`}>
                         GEMINI · ${results.cost_analysis.total_cost.toFixed(5)}
                       </span>
+                    )}
+                    {status === 'complete' && !processingMedia && (
+                      <button
+                        onClick={() => setShowJobPanel((v) => !v)}
+                        className={`readout px-2.5 py-1 rounded-full border inline-flex items-center gap-1.5 transition-colors ${showJobPanel
+                          ? 'bg-brass/15 border-brass/50 text-brass'
+                          : 'bg-paper3 border-transparent hover:border-rule2'}`}
+                        title="Show the job's logs"
+                      >
+                        <Terminal size={11} /> logs
+                      </button>
                     )}
                   </h2>
                   {results?.clips?.length > 0 && status === 'complete' && (
@@ -1864,15 +2389,13 @@ function App() {
                           ? <><Loader2 size={14} className="animate-spin" />zipping…</>
                           : <><Download size={14} />download all</>}
                       </button>
-                      {results.clips.length > 1 && (
-                        <button
-                          onClick={() => setShowScheduleWeek(true)}
-                          className="btn-primary px-4 py-2 text-xs"
-                        >
-                          <Calendar size={14} />
-                          schedule week
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setShowScheduleWeek(true)}
+                        className="btn-primary px-4 py-2 text-xs"
+                      >
+                        <Calendar size={14} />
+                        schedule clips
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1947,31 +2470,52 @@ function App() {
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
                   {results && results.clips && results.clips.length > 0 ? (
-                    <div className={`grid gap-4 pb-10 ${status === 'complete' ? 'grid-cols-1 xl:grid-cols-2' : 'grid-cols-1'}`}>
-                      {rankedClips.map(({ clip, index: i }) => (
+                    <div className={`grid gap-4 pb-10 ${status !== 'complete' ? 'grid-cols-1'
+                      : jobPanelFolded ? 'grid-cols-1 lg:grid-cols-2 min-[1800px]:grid-cols-3' : 'grid-cols-1 xl:grid-cols-2'}`}>
+                      {visibleClips.length === 0 && (
+                        <div className="col-span-full text-center py-16 text-muted">
+                          <p className="text-sm lowercase">Every clip of this project is posted. Nothing left to publish.</p>
+                        </div>
+                      )}
+                      {visibleClips.map(({ clip, index: i }) => (
+                        <div key={`${jobId}-${i}-${clip.video_url || ''}`} className={clip.published ? 'relative' : undefined}>
+                          {clip.published && (
+                            <div className="flex items-center justify-between gap-2 mb-1.5 px-3 py-1.5 rounded-input bg-ok/10 border border-ok/30 text-xs">
+                              <span className="text-ok lowercase">
+                                {clip.published.via === 'manual' ? 'posted by hand' : clip.published.scheduled_for ? `scheduled · ${clip.published.scheduled_for.slice(0, 16).replace('T', ' ')}` : 'posted'}
+                              </span>
+                              <button onClick={() => restoreClip(i)} className="text-muted hover:text-ink lowercase">
+                                put back in project
+                              </button>
+                            </div>
+                          )}
                         <ResultCard
-                          key={`${jobId}-${i}-${clip.video_url || ''}`}
                           clip={clip}
                           index={i}
                           jobId={jobId}
                           onEditClip={(index) => setEditingClip(index)}
+                          plusProfileId={activeTab === 'plus' ? plusProfile?.id : null}
                           onReframeClip={(index) => setReframingClip(index)}
                           initialState={projectState?.clips?.find((c) => c.index === i) || null}
                           onStateChange={handleClipStateChange}
                           durable={durableClips[i]}
                           uploadPostKey={uploadPostKey}
-                          uploadUserId={uploadUserId}
+                          uploadUserId={postingProfile}
                           geminiApiKey={apiKey}
                           elevenLabsKey={elevenLabsKey}
+                          niche={proposedNiche}
+                          onNicheUsed={(n) => saveProjectNiche(n, projectProfile || undefined)}
                           isManaged={isManaged}
-                          connectedPlatforms={(userProfiles.find((p) => p.username === uploadUserId) || userProfiles[0])?.connected ?? null}
+                          connectedPlatforms={(userProfiles.find((p) => p.username === postingProfile) || userProfiles[0])?.connected ?? null}
                           onConnectSocials={isManaged ? handleConnectSocials : null}
                           onPlay={(time) => handleClipPlay(time)}
                           onPause={handleClipPause}
                           onBulkSubtitle={handleBulkSubtitles}
                           clipCount={results.clips.length}
                           bulkProgress={bulkSub}
+                          onPublished={refreshResults}
                         />
+                        </div>
                       ))}
                     </div>
                   ) : (
@@ -2098,12 +2642,31 @@ function App() {
 
       <ScheduleWeekModal
         isOpen={showScheduleWeek}
-        onClose={() => setShowScheduleWeek(false)}
-        clips={results?.clips || []}
-        jobId={jobId}
+        onClose={() => { setShowScheduleWeek(false); refreshResults(); }}
+        project={scheduleProject}
         uploadPostKey={uploadPostKey}
         uploadUserId={uploadUserId}
+        profiles={userProfiles}
         isManaged={isManaged}
+        lastNiche={niche}
+        onNicheChosen={(choice) => saveProjectNiche(choice.niche, choice.profile)}
+        onOpenPlan={billingEnabled ? undefined : () => goToTab('publish-plan')}
+      />
+
+      {/* Asked before EVERY download (never silently reused) — picking a
+          niche here also updates Settings' "Content Niche & Hashtags" field
+          and the shared history every other niche picker reads from. */}
+      <NichePromptModal
+        isOpen={showNichePrompt}
+        onClose={() => setShowNichePrompt(false)}
+        defaultValue={proposedNiche}
+        message="Real hashtags from top-performing Shorts in this niche will be added to each clip's bundled text file. Leave it blank to download without them."
+        onSkip={() => { setShowNichePrompt(false); downloadAllWithNiche(''); }}
+        onConfirm={(n) => {
+          saveProjectNiche(n);
+          setShowNichePrompt(false);
+          downloadAllWithNiche(n);
+        }}
       />
 
       {/* Pre-flight quality gate */}

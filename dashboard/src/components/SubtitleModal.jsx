@@ -1,11 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
-import { apiFetch } from '../lib/api';
+import { Loader2, Languages, AlertCircle, Save, Plus, Star, Trash2 } from 'lucide-react';
+import { apiFetch, apiJson } from '../lib/api';
 import RemotionPreview from './RemotionPreview';
+import {
+    previewFontSizePx,
+    previewBorderPx,
+    previewLetterSpacingPx,
+    previewFontWeight,
+} from '../remotion/lib/assScale';
 import Modal from './ui/Modal';
 import SegmentedControl from './ui/SegmentedControl';
+import { LANGUAGES } from './TranslateModal';
 
-const FONT_OPTIONS = [
+export const FONT_OPTIONS = [
+    // Anton is the default caption face (subtitles.AUTO_CAPTION_STYLE) but was
+    // missing from the picker, so the modal opened with nothing selected and
+    // touching the control silently swapped the clip's font.
+    { value: 'Anton', label: 'Anton' },
     { value: 'Verdana', label: 'Verdana' },
     { value: 'Arial', label: 'Arial' },
     { value: 'Impact', label: 'Impact' },
@@ -14,7 +25,7 @@ const FONT_OPTIONS = [
     { value: 'Courier New', label: 'Courier New' },
 ];
 
-const COLOR_PRESETS = [
+export const COLOR_PRESETS = [
     { color: '#FFFFFF', label: 'White' },
     { color: '#FFFF00', label: 'Yellow' },
     { color: '#00FFFF', label: 'Cyan' },
@@ -23,7 +34,7 @@ const COLOR_PRESETS = [
     { color: '#FF69B4', label: 'Pink' },
 ];
 
-const HIGHLIGHT_PRESETS = [
+export const HIGHLIGHT_PRESETS = [
     { color: '#FFDD00', label: 'Gold' },
     { color: '#FF4444', label: 'Red' },
     { color: '#00FF88', label: 'Green' },
@@ -35,18 +46,14 @@ const ANIMATION_OPTIONS = [
     { value: 'pop', label: 'Pop' },
     { value: 'word-highlight', label: 'Glow' },
     { value: 'karaoke', label: 'Karaoke' },
+    { value: 'box', label: 'Box' },
+    { value: 'highlight-box', label: 'Box Fill' },
     { value: 'none', label: 'None' },
-];
-
-const POSITION_OPTIONS = [
-    { value: 'top', label: 'top' },
-    { value: 'middle', label: 'middle' },
-    { value: 'bottom', label: 'bottom' },
 ];
 
 // Ready-made caption looks burned server-side as karaoke ASS (word highlight):
 // dimmed base text + strong active word, optional glow/pop/box effect.
-const CAPTION_PRESETS = [
+export const CAPTION_PRESETS = [
     { id: 'tiktok',  label: 'TikTok',     style: 'karaoke', effect: 'none', highlightColor: '#FE2C55', baseOpacity: 0.75, uppercase: false, fontName: 'Verdana', borderWidth: 2 },
     { id: 'reels',   label: 'Reels',      style: 'karaoke', effect: 'none', highlightColor: '#E1306C', baseOpacity: 0.7,  uppercase: false, fontName: 'Verdana', borderWidth: 2 },
     { id: 'shorts',  label: 'Shorts Pop', style: 'karaoke', effect: 'pop',  highlightColor: '#FF0000', baseOpacity: 0.7,  uppercase: false, fontName: 'Verdana', borderWidth: 2 },
@@ -57,6 +64,7 @@ const CAPTION_PRESETS = [
     { id: 'minimal', label: 'Minimal',    style: 'karaoke', effect: 'none', highlightColor: '#FFFFFF', baseOpacity: 0.65, uppercase: false, fontName: 'Verdana', borderWidth: 1 },
     { id: 'beast',   label: 'Beast',      style: 'karaoke', effect: 'pop',  highlightColor: '#FFD700', baseOpacity: 1.0,  uppercase: true,  fontName: 'Impact',  borderWidth: 3 },
     { id: 'boxed',   label: 'Boxed',      style: 'karaoke', effect: 'box',  highlightColor: '#7C3AED', baseOpacity: 0.85, uppercase: false, fontName: 'Verdana', borderWidth: 2 },
+    { id: 'capcut',  label: 'CapCut',     style: 'karaoke', effect: 'highlight-box', highlightColor: '#FFE500', baseOpacity: 0.85, uppercase: true, fontName: 'Anton', borderWidth: 3 },
     { id: 'classic', label: 'Classic',    style: 'classic', effect: 'none', highlightColor: '#FFD700', baseOpacity: 1.0,  uppercase: false, fontName: 'Verdana', borderWidth: 2 },
 ];
 
@@ -65,25 +73,173 @@ const swatchClass = (selected) =>
         ? 'ring-2 ring-[color:var(--color-accent)] ring-offset-2 ring-offset-[color:var(--color-paper-2)]'
         : 'ring-1 ring-[color:var(--color-rule-2)] hover:ring-[color:var(--color-accent)]'}`;
 
-export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll, onRemove, isProcessing, videoUrl, jobId, clipIndex, existingHook, bulkCount = 0, bulkProgress }) {
-    const [position, setPosition] = useState('bottom');
-    const [fontSize] = useState(24);
-    const [fontName, setFontName] = useState('Verdana');
-    const [fontColor, setFontColor] = useState('#FFFFFF');
-    const [highlightColor, setHighlightColor] = useState('#FFDD00');
-    const [borderColor, setBorderColor] = useState('#000000');
-    const [borderWidth, setBorderWidth] = useState(2);
-    const [bgColor, setBgColor] = useState('#000000');
-    const [bgOpacity, setBgOpacity] = useState(0.0);
-    const [animation, setAnimation] = useState('pop');
+// Saved caption LOOKS the user built themselves (position/font/colors/effect),
+// distinct from the fixed built-in CAPTION_PRESETS above. The one marked
+// "default" is what a freshly opened editor starts from — edit it once here
+// and every clip (including from a brand new generation) picks it up.
+const SUBTITLE_PROFILES_KEY = 'openshorts_subtitle_profiles_v1';
+
+// Mirrors subtitles.AUTO_CAPTION_STYLE — the look a clip gets automatically
+// from the main pipeline, so a freshly opened editor (no saved profile yet)
+// still starts matching what the user already sees on their clips.
+function builtinDefaultSettings() {
+    return {
+        // 0-100, % of frame height up from the bottom (see subtitles.generate_ass's
+        // position_percent) — 15 reproduces the old fixed "bottom" preset exactly.
+        position: 15, fontName: 'Anton', fontColor: '#FFFFFF', highlightColor: '#FFE500',
+        borderColor: '#000000', borderWidth: 4, bgColor: '#000000', bgOpacity: 0.0, animation: 'pop',
+        style: 'karaoke', effect: 'pop', baseOpacity: 1.0, uppercase: true,
+        fontSize: 44, letterSpacing: 0, maxWords: null,
+    };
+}
+
+// A profile saved before "position" became a 0-100 slider still has the old
+// 'top' | 'middle' | 'bottom' string — coerce it once on load so the range
+// input (and the "N% from bottom" label) never renders that string raw.
+const LEGACY_POSITION_PERCENT = { top: 85, middle: 50, bottom: 15 };
+function normalizePosition(pos) {
+    if (typeof pos === 'number') return pos;
+    return LEGACY_POSITION_PERCENT[pos] ?? 15;
+}
+
+export function loadSubtitleProfileStore() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(SUBTITLE_PROFILES_KEY) || 'null');
+        if (raw && Array.isArray(raw.profiles) && raw.profiles.length) {
+            return {
+                ...raw,
+                profiles: raw.profiles.map((p) => ({ ...p, settings: { ...p.settings, position: normalizePosition(p.settings.position) } })),
+            };
+        }
+    } catch { /* ignore */ }
+    return { profiles: [{ id: 'default', name: 'Default', settings: builtinDefaultSettings() }], defaultId: 'default' };
+}
+
+export function activeSubtitleProfileSettings(store) {
+    return (store.profiles.find((p) => p.id === store.defaultId) || store.profiles[0]).settings;
+}
+
+export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll, onRemove, isProcessing, videoUrl, jobId, clipIndex, existingHook, bulkCount = 0, bulkProgress, geminiApiKey }) {
+    // Defaults come from whichever subtitle profile is marked default (see
+    // SUBTITLE_PROFILES_KEY above) — a freshly opened editor with no saved
+    // profile yet starts from AUTO_CAPTION_STYLE, the look every clip
+    // (including a freshly erased Viral Clip Reworker clip, which starts
+    // with no captions at all) gets automatically from the main pipeline.
+    const [subtitleProfileStore, setSubtitleProfileStore] = useState(loadSubtitleProfileStore);
+    const [activeSubtitleProfileId, setActiveSubtitleProfileId] = useState(() => loadSubtitleProfileStore().defaultId);
+    const initialSubtitle = activeSubtitleProfileSettings(subtitleProfileStore);
+    const [position, setPosition] = useState(initialSubtitle.position);
+    const [fontSize, setFontSize] = useState(initialSubtitle.fontSize);
+    const [letterSpacing, setLetterSpacing] = useState(initialSubtitle.letterSpacing);
+    const [maxWords, setMaxWords] = useState(initialSubtitle.maxWords);
+    // subtitles.AUTO_CAPTION_STYLE's own values — were never sent at all
+    // before, so the burn always fell back to generate_ass's own defaults
+    // (20/2.0), which chunk captions differently than a real clip.
+    const [maxChars] = useState(16);
+    const [maxDuration] = useState(1.4);
+    const [fontName, setFontName] = useState(initialSubtitle.fontName);
+    const [fontColor, setFontColor] = useState(initialSubtitle.fontColor);
+    const [highlightColor, setHighlightColor] = useState(initialSubtitle.highlightColor);
+    const [borderColor, setBorderColor] = useState(initialSubtitle.borderColor);
+    const [borderWidth, setBorderWidth] = useState(initialSubtitle.borderWidth);
+    const [bgColor, setBgColor] = useState(initialSubtitle.bgColor);
+    const [bgOpacity, setBgOpacity] = useState(initialSubtitle.bgOpacity);
+    const [animation, setAnimation] = useState(initialSubtitle.animation);
     const [showTextEditor, setShowTextEditor] = useState(false);
 
     // Karaoke (server-side ASS burn) state
-    const [style, setStyle] = useState('classic'); // classic | karaoke
-    const [effect, setEffect] = useState('none'); // none | glow | pop | box
-    const [baseOpacity, setBaseOpacity] = useState(1.0);
-    const [uppercase, setUppercase] = useState(false);
+    const [style, setStyle] = useState(initialSubtitle.style); // classic | karaoke
+    const [effect, setEffect] = useState(initialSubtitle.effect); // none | glow | pop | box
+    const [baseOpacity, setBaseOpacity] = useState(initialSubtitle.baseOpacity);
+    const [uppercase, setUppercase] = useState(initialSubtitle.uppercase);
     const [activePreset, setActivePreset] = useState(null);
+
+    useEffect(() => {
+        try { localStorage.setItem(SUBTITLE_PROFILES_KEY, JSON.stringify(subtitleProfileStore)); } catch { /* ignore */ }
+    }, [subtitleProfileStore]);
+
+    const currentSubtitleSettings = () => ({
+        position, fontName, fontColor, highlightColor, borderColor, borderWidth,
+        bgColor, bgOpacity, animation, style, effect, baseOpacity, uppercase,
+        fontSize, letterSpacing, maxWords,
+    });
+
+    const applySettingsObject = (s) => {
+        setPosition(s.position);
+        setFontName(s.fontName);
+        setFontColor(s.fontColor);
+        setHighlightColor(s.highlightColor);
+        setBorderColor(s.borderColor);
+        setBorderWidth(s.borderWidth);
+        setBgColor(s.bgColor);
+        setBgOpacity(s.bgOpacity);
+        setAnimation(s.animation);
+        setStyle(s.style);
+        setEffect(s.effect);
+        setBaseOpacity(s.baseOpacity);
+        setUppercase(s.uppercase);
+        setFontSize(s.fontSize ?? 44);
+        setLetterSpacing(s.letterSpacing ?? 0);
+        setMaxWords(s.maxWords ?? null);
+    };
+
+    const applySubtitleProfile = (id) => {
+        const p = subtitleProfileStore.profiles.find((pr) => pr.id === id);
+        if (!p) return;
+        setActiveSubtitleProfileId(id);
+        setActivePreset(null);
+        applySettingsObject(p.settings);
+    };
+
+    // This modal stays mounted (isOpen just toggles rendering — see the
+    // `if (!isOpen) return null` below), so the useState() initializers above
+    // only ever run once per clip's card and never see a profile saved
+    // *after* that first mount. Re-read from disk and re-apply the current
+    // default every time the editor is actually opened, so editing a profile
+    // in one clip's editor and reopening ANY clip's (including a brand new
+    // generation's) picks it up instead of the stale value from first mount.
+    useEffect(() => {
+        if (!isOpen) return;
+        const store = loadSubtitleProfileStore();
+        setSubtitleProfileStore(store);
+        setActiveSubtitleProfileId(store.defaultId);
+        setActivePreset(null);
+        applySettingsObject(activeSubtitleProfileSettings(store));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen]);
+
+    const handleSaveNewSubtitleProfile = () => {
+        const name = window.prompt('Name this caption style:');
+        if (!name || !name.trim()) return;
+        const id = `sp_${Date.now()}`;
+        setSubtitleProfileStore((prev) => ({
+            ...prev,
+            profiles: [...prev.profiles, { id, name: name.trim(), settings: currentSubtitleSettings() }],
+        }));
+        setActiveSubtitleProfileId(id);
+    };
+
+    const handleUpdateSubtitleProfile = () => {
+        setSubtitleProfileStore((prev) => ({
+            ...prev,
+            profiles: prev.profiles.map((p) => (p.id === activeSubtitleProfileId ? { ...p, settings: currentSubtitleSettings() } : p)),
+        }));
+    };
+
+    const handleSetDefaultSubtitleProfile = () => {
+        setSubtitleProfileStore((prev) => ({ ...prev, defaultId: activeSubtitleProfileId }));
+    };
+
+    const handleDeleteSubtitleProfile = () => {
+        if (subtitleProfileStore.profiles.length <= 1) return;
+        if (!window.confirm('Delete this caption style?')) return;
+        const remaining = subtitleProfileStore.profiles.filter((p) => p.id !== activeSubtitleProfileId);
+        setSubtitleProfileStore((prev) => ({
+            profiles: remaining,
+            defaultId: prev.defaultId === activeSubtitleProfileId ? remaining[0].id : prev.defaultId,
+        }));
+        applySubtitleProfile(remaining[0].id);
+    };
 
     const applyPreset = (p) => {
         setActivePreset(p.id);
@@ -97,7 +253,10 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
         setFontColor('#FFFFFF');
         setBgOpacity(0);
         // Keep the Remotion preview roughly in sync with the burned look
-        setAnimation(p.style === 'karaoke' ? (p.effect === 'pop' ? 'pop' : p.effect === 'glow' ? 'word-highlight' : 'karaoke') : 'none');
+        setAnimation(p.style === 'karaoke'
+            ? (p.effect === 'pop' ? 'pop' : p.effect === 'glow' ? 'word-highlight'
+              : p.effect === 'box' ? 'box' : p.effect === 'highlight-box' ? 'highlight-box' : 'karaoke')
+            : 'none');
     };
 
     // Remotion preview state
@@ -107,6 +266,13 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
     const [durationSec, setDurationSec] = useState(30);
     const [captionsLoading, setCaptionsLoading] = useState(false);
     const [useRemotionPreview, setUseRemotionPreview] = useState(false);
+
+    // Caption translation: text only, voice stays original. Reuses the same
+    // engine as the Viral Clip Reworker's "subtitles only" language picker,
+    // exposed here so any clip's subtitle editor can translate on demand.
+    const [translateLang, setTranslateLang] = useState('');
+    const [translating, setTranslating] = useState(false);
+    const [translateError, setTranslateError] = useState('');
 
     // Fetch word-level captions when modal opens
     useEffect(() => {
@@ -152,19 +318,67 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
         setCaptions(newCaptions);
     };
 
+    // Fetches translated captions and drops them into `captions`/`editableText`
+    // ONLY — `originalCaptions` deliberately stays the pre-translation
+    // baseline. The burn ("apply to this clip") already sends the edited
+    // `captions` array whenever `editableText` differs from that baseline
+    // (see styleOptions.captions below); translating is just another way to
+    // produce an edit, so it needs no new persistence or burn path.
+    const handleTranslate = async () => {
+        if (!translateLang || !jobId || clipIndex === undefined) return;
+        const apiKey = geminiApiKey || localStorage.getItem('gemini_key');
+        if (!apiKey) {
+            setTranslateError('Set your Gemini API key in Settings first.');
+            return;
+        }
+        setTranslating(true);
+        setTranslateError('');
+        try {
+            const data = await apiJson(`/api/clip/${jobId}/${clipIndex}/translate-captions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Gemini-Key': apiKey },
+                body: JSON.stringify({ target_language: translateLang }),
+            });
+            if (!data.captions || data.captions.length === 0) {
+                throw new Error('No captions came back');
+            }
+            setCaptions(data.captions);
+            setEditableText(data.captions.map((c) => c.text).join(' '));
+            setShowTextEditor(true);
+        } catch (e) {
+            setTranslateError(e.detail || e.message || 'Translation failed');
+        } finally {
+            setTranslating(false);
+        }
+    };
+
     if (!isOpen) return null;
 
     // Build subtitle config for Remotion
     const subtitleConfig = {
         captions,
         position,
+        // Caption-block chunking — without these the preview always grouped
+        // words with groupCaptionsIntoBlocks' own hardcoded defaults (20
+        // chars / 2s / no word cap), so "Max Words" and "Letter Spacing"
+        // visibly did nothing here even though the real server-side burn
+        // already honored them.
+        maxChars,
+        maxDurationMs: maxDuration * 1000,
+        maxWords,
         style: {
             fontFamily: fontName,
-            fontSize: fontSize * 2.2, // Scale up for 1080p (modal fontSize is for small preview)
+            // Sizes go through the same two steps the burn does (see
+            // assScale.ts): the *2.2 / *1.5 factors these replace were never
+            // derived from libass, so the editor drew captions ~45% smaller
+            // than the file it was previewing, with an outline 4x too thin.
+            fontSize: previewFontSizePx(fontSize),
+            letterSpacing: previewLetterSpacingPx(letterSpacing),
+            fontWeight: previewFontWeight(fontName),
             fontColor,
             highlightColor,
             borderColor,
-            borderWidth: borderWidth * 1.5,
+            borderWidth: previewBorderPx(borderWidth),
             bgColor,
             bgOpacity,
             animation,
@@ -206,8 +420,9 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
     return (
         <Modal isOpen={isOpen} onClose={onClose} size="xl" eyebrow="EDITOR · SUBTITLES" title="subtitles">
             <div className="flex flex-col md:flex-row gap-6">
-                {/* Left: Preview */}
-                <div className="flex-1 flex flex-col items-center justify-center bg-black rounded-card border border-rule overflow-hidden relative aspect-[9/16] max-h-[600px]">
+                {/* Left: Preview — sticky so it stays visible while the
+                    (often long) controls column scrolls past it. */}
+                <div className="flex-1 flex flex-col items-center justify-center bg-black rounded-card border border-rule overflow-hidden relative aspect-[9/16] max-h-[600px] sticky top-0 self-start">
                     {captionsLoading ? (
                         <div className="flex items-center gap-2 text-muted">
                             <Loader2 size={16} className="animate-spin" />
@@ -285,28 +500,136 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
                             )}
                         </div>
 
-                        {/* Position Selector */}
+                        {/* Your own saved caption styles — edit one, mark it
+                            default, and every clip's editor (including a
+                            brand new generation) opens with it pre-loaded. */}
                         <div>
-                            <p className="eyebrow mb-2">Position</p>
-                            <SegmentedControl
-                                options={POSITION_OPTIONS}
-                                value={position}
-                                onChange={setPosition}
-                                size="sm"
-                            />
+                            <p className="eyebrow mb-2">My Profiles</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <select
+                                    value={activeSubtitleProfileId}
+                                    onChange={(e) => applySubtitleProfile(e.target.value)}
+                                    className="input-field !w-auto text-xs py-1.5 flex-1 min-w-[100px]"
+                                    aria-label="caption style profile"
+                                >
+                                    {subtitleProfileStore.profiles.map((p) => (
+                                        <option key={p.id} value={p.id}>
+                                            {p.name}{p.id === subtitleProfileStore.defaultId ? ' (default)' : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                <button type="button" onClick={handleUpdateSubtitleProfile} className="btn-ghost px-2 py-1.5 text-xs shrink-0" title="Save the style below into this profile">
+                                    <Save size={13} />
+                                </button>
+                                <button type="button" onClick={handleSaveNewSubtitleProfile} className="btn-ghost px-2 py-1.5 text-xs shrink-0" title="Save the style below as a new profile">
+                                    <Plus size={13} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSetDefaultSubtitleProfile}
+                                    disabled={activeSubtitleProfileId === subtitleProfileStore.defaultId}
+                                    className="btn-ghost px-2 py-1.5 text-xs shrink-0 disabled:opacity-40"
+                                    title="Use this style automatically every time the editor opens"
+                                >
+                                    <Star size={13} className={activeSubtitleProfileId === subtitleProfileStore.defaultId ? 'fill-current text-brass' : ''} />
+                                </button>
+                                {subtitleProfileStore.profiles.length > 1 && (
+                                    <button type="button" onClick={handleDeleteSubtitleProfile} className="btn-ghost px-2 py-1.5 text-xs shrink-0 text-danger" title="Delete this profile">
+                                        <Trash2 size={13} />
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
-                        {/* Animation Style (new) */}
+                        {/* Position — a slider instead of top/middle/bottom
+                            presets, so it can be pinned exactly where wanted. */}
+                        <div>
+                            <div className="flex justify-between mb-1">
+                                <p className="eyebrow">Position</p>
+                                <span className="readout">{position}% from bottom</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0"
+                                max="92"
+                                value={position}
+                                onChange={(e) => setPosition(parseInt(e.target.value, 10))}
+                                className="w-full accent-[var(--color-accent)]"
+                            />
+                            <div className="flex justify-between">
+                                <span className="readout">bottom</span>
+                                <span className="readout">top</span>
+                            </div>
+                        </div>
+
+                        {/* Animation Style — this drives BOTH the live preview
+                            (`animation`) and the real server-side burn
+                            (`style`/`effect`); they used to be unsynced, so
+                            picking "Karaoke" here still shipped whatever
+                            `effect` a preset had last set (usually "pop"). */}
                         <div>
                             <p className="eyebrow mb-2">Animation</p>
                             <SegmentedControl
                                 options={ANIMATION_OPTIONS}
                                 value={animation}
-                                onChange={setAnimation}
+                                onChange={(v) => {
+                                    setAnimation(v);
+                                    setActivePreset(null);
+                                    if (v === 'none') {
+                                        setStyle('classic');
+                                        setEffect('none');
+                                    } else {
+                                        setStyle('karaoke');
+                                        setEffect(
+                                            v === 'pop' ? 'pop'
+                                            : v === 'word-highlight' ? 'glow'
+                                            : v === 'box' ? 'box'
+                                            : v === 'highlight-box' ? 'highlight-box'
+                                            : 'none'
+                                        );
+                                    }
+                                }}
                                 columns={2}
                                 size="sm"
                             />
                         </div>
+
+                        {/* Translate captions: text only, voice stays original */}
+                        {useRemotionPreview && (
+                            <div>
+                                <p className="eyebrow mb-2">Translate captions</p>
+                                <div className="flex gap-2">
+                                    <select
+                                        value={translateLang}
+                                        onChange={(e) => setTranslateLang(e.target.value)}
+                                        className="input-field flex-1 appearance-none cursor-pointer"
+                                        disabled={translating}
+                                    >
+                                        <option value="">choose a language...</option>
+                                        {Object.entries(LANGUAGES).sort((a, b) => a[1].localeCompare(b[1])).map(([code, name]) => (
+                                            <option key={code} value={code}>{name}</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        onClick={handleTranslate}
+                                        disabled={!translateLang || translating}
+                                        className="btn-ghost px-3 shrink-0 disabled:opacity-40"
+                                        title="translate the caption text only — the voice stays as-is"
+                                    >
+                                        {translating ? <Loader2 size={16} className="animate-spin" /> : <Languages size={16} />}
+                                    </button>
+                                </div>
+                                {translateError && (
+                                    <p className="text-danger text-xs mt-1.5 flex items-center gap-1">
+                                        <AlertCircle size={12} /> {translateError}
+                                    </p>
+                                )}
+                                <p className="text-xs text-muted mt-1.5">
+                                    Translates the text only — the spoken voice is unaffected. For dubbing the voice
+                                    itself, use "dub voice" instead.
+                                </p>
+                            </div>
+                        )}
 
                         {/* Editable Transcript (collapsible) */}
                         {useRemotionPreview && (
@@ -343,6 +666,62 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
                                     <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
                                 ))}
                             </select>
+                        </div>
+
+                        {/* Text Size */}
+                        <div>
+                            <div className="flex justify-between mb-1">
+                                <p className="eyebrow">Text Size</p>
+                                <span className="readout">{fontSize}px</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="20"
+                                max="80"
+                                value={fontSize}
+                                onChange={(e) => setFontSize(parseInt(e.target.value, 10))}
+                                className="w-full accent-[var(--color-accent)]"
+                            />
+                        </div>
+
+                        {/* Letter Spacing */}
+                        <div>
+                            <div className="flex justify-between mb-1">
+                                <p className="eyebrow">Letter Spacing</p>
+                                <span className="readout">{letterSpacing}px</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="-3"
+                                max="15"
+                                value={letterSpacing}
+                                onChange={(e) => setLetterSpacing(parseInt(e.target.value, 10))}
+                                className="w-full accent-[var(--color-accent)]"
+                            />
+                        </div>
+
+                        {/* Max words per caption block — breaks a block early
+                            regardless of character count when set. */}
+                        <div>
+                            <div className="flex justify-between mb-1">
+                                <p className="eyebrow">Max Words</p>
+                                <span className="readout">{maxWords ? maxWords : 'unlimited'}</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0"
+                                max="8"
+                                value={maxWords ?? 0}
+                                onChange={(e) => {
+                                    const v = parseInt(e.target.value, 10);
+                                    setMaxWords(v === 0 ? null : v);
+                                }}
+                                className="w-full accent-[var(--color-accent)]"
+                            />
+                            <div className="flex justify-between">
+                                <span className="readout">unlimited</span>
+                                <span className="readout">8 words</span>
+                            </div>
                         </div>
 
                         {/* Text Color */}
@@ -450,7 +829,8 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
                             const textEdited = originalCaptions.length > 0
                                 && editableText.trim() !== originalCaptions.map((c) => c.text).join(' ').trim();
                             const styleOptions = {
-                                position, fontSize, fontName, fontColor, borderColor, borderWidth, bgColor, bgOpacity,
+                                position, positionPercent: position, fontSize, fontName, fontColor, borderColor, borderWidth, bgColor, bgOpacity,
+                                maxChars, maxDuration, letterSpacing, maxWords,
                                 // Karaoke burn (server-side ASS render)
                                 style, effect, baseOpacity, uppercase, highlightColor,
                                 // Remotion data

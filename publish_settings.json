@@ -1,0 +1,22 @@
+{
+  "clean_hashtags": true,
+  "youtube_tags": true,
+  "niche_tags": {
+    "joe rogan podcast clips": [
+      "podcast",
+      "podcast clips",
+      "jre clips",
+      "joe rogan",
+      "joe rogan experience",
+      "joe rogan podcast",
+      "jre",
+      "mental health",
+      "neuroscience",
+      "psychology",
+      "science",
+      "health",
+      "self improvement",
+      "brain"
+    ]
+  }
+}

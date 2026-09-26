@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Loader2, Languages, AlertCircle } from 'lucide-react';
 import Modal from './ui/Modal';
 
-const LANGUAGES = {
+export const LANGUAGES = {
     "es": "Spanish",
     "fr": "French",
     "de": "German",

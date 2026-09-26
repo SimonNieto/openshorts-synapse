@@ -202,7 +202,104 @@ HOOK_STYLES = {
     "outline": {"box": (0, 0, 0, 0),         "text": (255, 255, 255), "outline": ((0, 0, 0), 8), "shadow": False},
     # No box: yellow text with black outline.
     "outline_yellow": {"box": (0, 0, 0, 0),  "text": (255, 214, 0),   "outline": ((0, 0, 0), 8), "shadow": False},
+    # Headline: big condensed caps (Anton), white + heavy outline, the 1-2
+    # strongest words in yellow, one line whenever it fits. Rendered by
+    # create_bold_hook_image and faded/slid in (add_hook_to_video).
+    "bold":    {"box": (0, 0, 0, 0),         "text": (255, 255, 255), "outline": ((0, 0, 0), 10), "shadow": True},
 }
+
+BOLD_FONT_CANDIDATES = [
+    "/usr/local/share/fonts/openshorts/Anton-Regular.ttf",
+    os.path.join(FONT_DIR, "Anton-Regular.ttf"),
+]
+BOLD_ACCENT = (255, 216, 77)   # the natural captions' accent yellow
+_BOLD_STOP = {
+    "THE", "A", "AN", "AND", "OR", "BUT", "OF", "TO", "IN", "ON", "AT", "FOR", "WITH", "IS", "ARE", "WAS",
+    "IT", "IT'S", "ITS", "THIS", "THAT", "YOU", "YOUR", "I", "WE", "HE", "SHE", "THEY", "MY", "BE", "BY",
+    "LE", "LA", "LES", "DE", "DU", "DES", "UN", "UNE", "ET", "EST", "CE", "QUI", "QUE", "POUR", "DANS",
+    "WHY", "HOW", "WHAT", "NOT", "ISN'T", "DON'T", "CAN", "WILL", "JUST",
+    "THINK", "KNOW", "REALLY", "ABOUT", "THAN", "EVERY", "THING", "THINGS", "ACTUALLY", "BEEN", "HAVE",
+    "FROM", "INTO", "WHEN", "THEN", "THERE", "THEIR", "WOULD", "COULD", "SHOULD", "VERY", "MUCH",
+}
+
+
+def _bold_font_path():
+    return next((p for p in BOLD_FONT_CANDIDATES if os.path.exists(p)), FONT_PATH)
+
+
+def _accent_words(words):
+    """Indexes of the 1-2 words to colour: the longest non-filler ones, the
+    later one winning a tie (a hook puts its payoff last)."""
+    scored = [(len(re.sub(r"[^\w]", "", w)), i) for i, w in enumerate(words)
+              if re.sub(r"[^\w']", "", w) not in _BOLD_STOP and len(re.sub(r"[^\w]", "", w)) >= 4]
+    scored.sort(reverse=True)
+    return {i for _, i in scored[:2 if len(words) >= 5 else 1]}
+
+
+def create_bold_hook_image(text, video_width, output_image_path, font_scale=1.0):
+    """The "bold" hook as a transparent PNG: one line if it fits at >= ~8.5%
+    of the frame width (big enough to read at a glance), else two balanced
+    lines. Returns (path, w, h)."""
+    text = re.sub(r"\s+", " ", _EMOJI_RE.sub("", text or "")).strip().upper()
+    words = text.split() or [""]
+    font_path = _bold_font_path()
+    max_w = int(video_width * 0.92)
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+
+    def width(line_words, font):
+        return probe.textlength(" ".join(line_words), font=font)
+
+    lines, font = None, None
+    hi = int(video_width * 0.115 * font_scale)
+    for size in range(hi, int(video_width * 0.085) - 1, -2):
+        f = ImageFont.truetype(font_path, size)
+        if width(words, f) <= max_w:
+            lines, font = [words], f
+            break
+    if lines is None:
+        for size in range(int(video_width * 0.1 * font_scale), 20, -2):
+            f = ImageFont.truetype(font_path, size)
+            best = min(range(1, max(2, len(words))),
+                       key=lambda k: max(width(words[:k], f), width(words[k:], f)))
+            if max(width(words[:best], f), width(words[best:], f)) <= max_w or size <= 22:
+                lines, font = [words[:best], words[best:]], f
+                break
+    lines = [l for l in lines if l]
+    size = font.size
+    accents = _accent_words(words)
+    stroke = max(4, size // 9)
+    ascent, descent = font.getmetrics()
+    line_h = ascent + descent
+    gap = int(size * 0.08)
+    pad = stroke * 3 + int(size * 0.3)
+    w = int(max(width(l, font) for l in lines)) + 2 * pad
+    h = len(lines) * line_h + (len(lines) - 1) * gap + 2 * pad
+
+    # A soft dark cloud hugging the letters (not a box): keeps them readable
+    # over a busy set — a yellow neon sign behind yellow words — without the
+    # "template card" look.
+    halo = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    hd, sd, d = ImageDraw.Draw(halo), ImageDraw.Draw(shadow), ImageDraw.Draw(img)
+    idx, y = 0, pad
+    for line in lines:
+        x = (w - width(line, font)) / 2
+        for word in line:
+            fill = BOLD_ACCENT if idx in accents else (255, 255, 255)
+            hd.text((x, y), word, font=font, fill=(0, 0, 0, 150),
+                    stroke_width=stroke * 3, stroke_fill=(0, 0, 0, 150))
+            sd.text((x, y + size * 0.07), word, font=font, fill=(0, 0, 0, 170),
+                    stroke_width=stroke, stroke_fill=(0, 0, 0, 170))
+            d.text((x, y), word, font=font, fill=fill, stroke_width=stroke, stroke_fill=(0, 0, 0))
+            x += probe.textlength(word + " ", font=font)
+            idx += 1
+        y += line_h + gap
+    out = halo.filter(ImageFilter.GaussianBlur(max(6, size // 5)))
+    out.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(max(3, size // 14))))
+    out.alpha_composite(img)
+    out.save(output_image_path)
+    return output_image_path, w, h
 
 
 def create_hook_image(text, target_width, output_image_path="hook_overlay.png", font_scale=1.0, style="classic"):
@@ -407,6 +504,9 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
                      f"{_truncate_bytes(stem, 80)}.png")
     
     try:
+        if style == "bold":
+            return _add_bold_hook(video_path, text, output_path, hook_filename, video_width, video_height,
+                                  position, font_scale, duration)
         img_path, box_w, box_h = create_hook_image(text, target_box_width, hook_filename, font_scale=font_scale, style=style)
         
         # 3. Calculate Overlay Position
@@ -454,3 +554,41 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
         # Cleanup temp image
         if os.path.exists(hook_filename):
             os.remove(hook_filename)
+
+
+def _add_bold_hook(video_path, text, output_path, png_path, video_width, video_height,
+                   position, font_scale, duration):
+    """Burn the "bold" headline: fades in while sliding down ~2% in 0.2 s,
+    fades out over the last 0.3 s of ``duration`` (or stays on the whole
+    clip when no duration). Top sits at 12% of the height — above the face
+    in a podcast framing, far from the captions at ~65%."""
+    _, box_w, box_h = create_bold_hook_image(text, video_width, png_path, font_scale=font_scale)
+    x = (video_width - box_w) // 2
+    if position == "center":
+        y = (video_height - box_h) // 2
+    elif position == "bottom":
+        y = int(video_height * 0.70)
+    else:
+        y = int(video_height * 0.12)
+    slide = max(8, int(video_height * 0.02))
+    chain = "[1:v]format=rgba,fade=t=in:st=0:d=0.2:alpha=1"
+    inputs = ["-i", video_path]
+    if duration:
+        dur = max(0.8, float(duration))
+        chain += f",fade=t=out:st={dur - 0.3:.2f}:d=0.3:alpha=1"
+        inputs += ["-loop", "1", "-framerate", "30", "-t", f"{dur:.2f}", "-i", png_path]
+        tail = "eof_action=pass"
+    else:
+        inputs += ["-loop", "1", "-framerate", "30", "-i", png_path]
+        tail = "shortest=1"
+    graph = (f"{chain}[h];[0:v][h]overlay=x={x}:y='{y}-{slide}*max(0,1-t/0.2)':{tail}[v]")
+    print(f"🎬 Overlaying bold hook: '{text}' at {x},{y}")
+    cmd = ["ffmpeg", "-y", *inputs, "-filter_complex", graph, "-map", "[v]", "-map", "0:a?",
+           "-c:a", "copy", *video_encode_args(QUALITY), *METADATA_SCRUB, "-movflags", "+faststart", output_path]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1800)
+    finally:
+        if os.path.exists(png_path):
+            os.remove(png_path)
+    print(f"✅ Hook added to {output_path}")
+    return True

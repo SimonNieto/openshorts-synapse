@@ -1,0 +1,52 @@
+{
+  "profiles": [
+    {
+      "name": "Joe Rogan · natural",
+      "upload_profile": "default",
+      "niche": "Joe Rogan podcast clips",
+      "clip_min": 15,
+      "clip_max": 60,
+      "target_clips": null,
+      "edit_style": "natural",
+      "hook_style": "bold",
+      "hook_seconds": 4,
+      "hook_box": true,
+      "clean_ending": true,
+      "watermark": "@TheSynapseCut",
+      "fx": {
+        "smart_framing": true,
+        "look": false,
+        "spotlight": false,
+        "streaks": false,
+        "reactions": true
+      },
+      "music": {
+        "enabled": false,
+        "mood": "",
+        "volume": 0.22
+      },
+      "broll": {
+        "enabled": true,
+        "source": "auto",
+        "style": "photo",
+        "max": 3
+      },
+      "auto_publish": {
+        "enabled": false,
+        "platforms": [
+          "tiktok",
+          "instagram",
+          "youtube"
+        ]
+      },
+      "beta": {
+        "selection_v2": false,
+        "series_titles": false,
+        "series_name": "Joe Rogan"
+      },
+      "id": "2d73847389ae",
+      "created_at": 1790343628.8880663,
+      "updated_at": 1790366924.0831249
+    }
+  ]
+}

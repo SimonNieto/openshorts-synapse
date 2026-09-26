@@ -8,8 +8,17 @@ export interface CaptionWord {
 }
 
 // --- Subtitle config ---
-export type SubtitleAnimation = "none" | "word-highlight" | "pop" | "karaoke";
-export type SubtitlePosition = "top" | "middle" | "bottom";
+export type SubtitleAnimation =
+  | "none"
+  | "word-highlight"
+  | "pop"
+  | "karaoke"
+  | "box"
+  | "highlight-box";
+// 0-100, % of frame height up from the bottom (matches subtitles.py's
+// position_percent) — a slider value, not a fixed preset. The legacy string
+// presets still work for any older config that hasn't been re-saved.
+export type SubtitlePosition = number | "top" | "middle" | "bottom";
 
 export interface SubtitleStyle {
   fontFamily: string;
@@ -21,15 +30,25 @@ export interface SubtitleStyle {
   bgColor: string;
   bgOpacity: number;
   animation: SubtitleAnimation;
+  // Anton has a single weight and libass does not synthesise a bold for it,
+  // so the preview must not ask for 700 there either (see assScale.ts).
+  fontWeight?: number;
   // Karaoke look: dim inactive words (0-1) and force uppercase.
   baseOpacity?: number;
   uppercase?: boolean;
+  // ASS "Spacing" equivalent, in px — positive tracks letters apart.
+  letterSpacing?: number;
 }
 
 export interface SubtitleConfig {
   captions: CaptionWord[];
   position: SubtitlePosition;
   style: SubtitleStyle;
+  // Caption-block chunking, mirrored from subtitles.py's own defaults so the
+  // preview groups words the same way the real burn does.
+  maxChars?: number;
+  maxDurationMs?: number;
+  maxWords?: number | null;
 }
 
 // --- Hook config ---
@@ -97,13 +116,17 @@ export const subtitleStyleSchema = z.object({
   borderWidth: z.number(),
   bgColor: z.string(),
   bgOpacity: z.number().min(0).max(1),
-  animation: z.enum(["none", "word-highlight", "pop", "karaoke"]),
+  animation: z.enum(["none", "word-highlight", "pop", "karaoke", "box", "highlight-box"]),
+  fontWeight: z.number().optional(),
 });
 
 export const subtitleConfigSchema = z.object({
   captions: z.array(captionWordSchema),
-  position: z.enum(["top", "middle", "bottom"]),
+  position: z.union([z.number(), z.enum(["top", "middle", "bottom"])]),
   style: subtitleStyleSchema,
+  maxChars: z.number().optional(),
+  maxDurationMs: z.number().optional(),
+  maxWords: z.number().nullable().optional(),
 });
 
 export const hookConfigSchema = z.object({

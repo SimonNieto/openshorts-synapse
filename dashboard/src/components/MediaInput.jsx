@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link2, Upload, FileVideo, X, Info, Loader2, ChevronDown } from 'lucide-react';
 import { getApiUrl } from '../config';
+import AutoPublishOption from './AutoPublishOption';
+import { loadAutoPublish, saveAutoPublish } from '../lib/autoPublish';
 
 const SUPPORTED_PLATFORMS = [
     'YouTube', 'Vimeo', 'TikTok', 'X / Twitter', 'Twitch',
     'Facebook', 'Instagram', 'Dailymotion', 'Reddit', 'Streamable',
 ];
 
-export default function MediaInput({ onProcess, isProcessing }) {
+export default function MediaInput({ onProcess, isProcessing, publishProfiles = [], defaultProfile = '', canAutoPublish = false, plusProfile = null }) {
     const [youtubeUrlEnabled, setYoutubeUrlEnabled] = useState(true);
     // File upload is the primary path; the link is secondary.
     const [mode, setMode] = useState('file'); // 'file' | 'url'
@@ -36,6 +38,8 @@ export default function MediaInput({ onProcess, isProcessing }) {
     const [layout, setLayout] = useState(() => {
         try { return localStorage.getItem('os_layout') || 'auto'; } catch { return 'auto'; }
     });
+    // Publish the best clips on Upload-Post as soon as the job ends.
+    const [autoPublish, setAutoPublish] = useState(loadAutoPublish);
     const infoRef = useRef(null);
 
     // Close the compatibility popover on any outside click.
@@ -85,12 +89,30 @@ export default function MediaInput({ onProcess, isProcessing }) {
             autoHook,
             autoHookStyle,
             layout,
+            autoPublish: canAutoPublish && autoPublish.enabled
+                ? { ...autoPublish, profile: autoPublish.profile || defaultProfile || publishProfiles[0]?.username || '' }
+                : null,
         };
+        // Clip Generator++: the profile carries the recipe (the server reads it
+        // by id) and its own auto-publish settings.
+        if (plusProfile) {
+            advanced.plusProfileId = plusProfile.id;
+            const ap = plusProfile.auto_publish || {};
+            advanced.autoPublish = canAutoPublish && ap.enabled
+                ? {
+                    enabled: true,
+                    platforms: ap.platforms,
+                    niche: plusProfile.niche || '',
+                    profile: plusProfile.upload_profile || defaultProfile || publishProfiles[0]?.username || '',
+                }
+                : null;
+        }
         try {
             localStorage.setItem('os_auto_hook', autoHook ? '1' : '0');
             localStorage.setItem('os_auto_hook_style', autoHookStyle);
             localStorage.setItem('os_layout', layout);
         } catch { /* ignore */ }
+        saveAutoPublish(autoPublish);
         if (mode === 'url' && url) {
             onProcess({ type: 'url', payload: url, acknowledged: true, outputFormat, ...advanced });
         } else if (mode === 'file' && file) {
@@ -338,6 +360,16 @@ export default function MediaInput({ onProcess, isProcessing }) {
                     )}
                 </div>
 
+                {!plusProfile && (
+                    <AutoPublishOption
+                        value={autoPublish}
+                        onChange={setAutoPublish}
+                        profiles={publishProfiles}
+                        defaultProfile={defaultProfile}
+                        available={canAutoPublish}
+                    />
+                )}
+
                 <label className="flex items-start gap-2.5 mt-5 text-left text-[13px] sm:text-xs leading-relaxed text-muted cursor-pointer select-none">
                     <input
                         type="checkbox"
@@ -363,7 +395,9 @@ export default function MediaInput({ onProcess, isProcessing }) {
                         </>
                     ) : (
                         <>
-                            Generate Clips
+                            {plusProfile
+                                ? `Generate with “${plusProfile.name}”`
+                                : (canAutoPublish && autoPublish.enabled ? 'Generate & publish the 3 best' : 'Generate Clips')}
                         </>
                     )}
                 </button>

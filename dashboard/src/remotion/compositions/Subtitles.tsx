@@ -10,20 +10,37 @@ import {
 import type { SubtitleConfig } from "../lib/types";
 import { groupCaptionsIntoBlocks, getActiveWordIndex } from "../lib/captions";
 import { getFontStack } from "../lib/fonts";
+import { ASS_OUTLINE_PX } from "../lib/assScale";
 
 interface SubtitlesProps {
   config: SubtitleConfig;
 }
 
+// Legacy string presets, kept for any config saved before the slider existed.
 const POSITION_MAP: Record<string, React.CSSProperties> = {
   top: { top: "12%", bottom: "auto" },
   middle: { top: "45%", bottom: "auto" },
   bottom: { bottom: "10%", top: "auto" },
 };
 
+// position is 0-100, % of frame height up from the bottom (matches
+// subtitles.py's position_percent) — direct CSS `bottom` percentage, no
+// conversion needed since both count from the same edge.
+function positionStyleFor(position: number | string): React.CSSProperties {
+  if (typeof position === "number") {
+    return { bottom: `${position}%`, top: "auto" };
+  }
+  return POSITION_MAP[position] ?? POSITION_MAP.bottom;
+}
+
 export const Subtitles: React.FC<SubtitlesProps> = ({ config }) => {
   const { fps } = useVideoConfig();
-  const blocks = groupCaptionsIntoBlocks(config.captions);
+  const blocks = groupCaptionsIntoBlocks(
+    config.captions,
+    config.maxChars ?? 20,
+    config.maxDurationMs ?? 2000,
+    config.maxWords
+  );
 
   return (
     <AbsoluteFill>
@@ -72,7 +89,7 @@ const SubtitleBlock: React.FC<SubtitleBlockProps> = ({
   const currentTimeMs = blockStartMs + (frame / fps) * 1000;
   const activeIndex = getActiveWordIndex(block.words, currentTimeMs);
 
-  const positionStyle = POSITION_MAP[position] ?? POSITION_MAP.bottom;
+  const positionStyle = positionStyleFor(position);
   const fontStack = getFontStack(style.fontFamily);
 
   // Background box style
@@ -103,7 +120,15 @@ const SubtitleBlock: React.FC<SubtitleBlockProps> = ({
           display: "flex",
           flexWrap: "wrap",
           justifyContent: "center",
-          gap: "6px 8px",
+          // Not the flex default (stretch): a highlight-box word sizes its
+          // own filled rectangle from its padding, and stretching would make
+          // it taller than the rectangle the burn draws.
+          alignItems: "center",
+          // Proportional to the type, like the burn: libass separates words by
+          // the font's own space advance (~0.25em). A fixed 8px gap was
+          // invisible at the real caption size, so words sat tighter here than
+          // in the delivered clip and wrapped at different points.
+          gap: `${style.fontSize * 0.18}px ${style.fontSize * 0.25}px`,
           maxWidth: "85%",
           ...bgStyle,
         }}
@@ -157,13 +182,18 @@ const WordSpan: React.FC<WordSpanProps> = ({
   let transform = "";
   let color = style.fontColor;
   let extraStyle: React.CSSProperties = {};
+  // Set by effects whose burn counterpart clears the outline (\bord0\shad0).
+  let suppressStroke = false;
 
   // Dim inactive words toward the backend's opaque scaled color (matches the
-  // burned ASS look; not CSS opacity).
+  // burned ASS look; not CSS opacity). Formula mirrors subtitles._dim_hex_color
+  // exactly (factor = 0.5 + 0.5*opacity) — a different curve here used to make
+  // the preview dim more aggressively than the actual burned video at the
+  // same slider value.
   if (!isActive && style.baseOpacity != null && style.baseOpacity < 1) {
     const m = /^#?([0-9a-fA-F]{6})$/.exec(style.fontColor || "#FFFFFF");
     if (m) {
-      const scale = 0.35 + 0.65 * style.baseOpacity;
+      const scale = 0.5 + 0.5 * style.baseOpacity;
       const [r, g, b] = [0, 2, 4].map((i) =>
         Math.round(parseInt(m[1].slice(i, i + 2), 16) * scale)
       );
@@ -186,18 +216,50 @@ const WordSpan: React.FC<WordSpanProps> = ({
         transform = `scale(${scaleValue})`;
         break;
       }
-      case "karaoke": {
+      // "karaoke" = plain color swap on the active word (matches the real
+      // burn's effect="none") — no box. A filled box used to render here,
+      // which never matched what generate_ass actually produces for
+      // effect="none", so the preview and the final video visibly disagreed.
+      case "box": {
+        // Mirrors generate_ass's effect="box": fill forced to white, a
+        // thick colored OUTLINE (not a filled background) at borderWidth+3.
+        // The +3 and the floor of 4 are ASS units in the burn, so convert
+        // back out of pixels before applying them, then scale the result.
+        color = "#FFFFFF";
+        const bordUnits = (style.borderWidth || 0) / ASS_OUTLINE_PX;
+        const boxBord = Math.max(4, bordUnits + 3) * ASS_OUTLINE_PX;
         extraStyle = {
-          backgroundColor: style.highlightColor,
-          color: style.bgColor || "#000000",
-          borderRadius: 4,
-          padding: "2px 6px",
+          textShadow: [
+            `${boxBord}px 0 0 ${style.highlightColor}`,
+            `-${boxBord}px 0 0 ${style.highlightColor}`,
+            `0 ${boxBord}px 0 ${style.highlightColor}`,
+            `0 -${boxBord}px 0 ${style.highlightColor}`,
+          ].join(", "),
         };
         break;
       }
       case "word-highlight": {
         extraStyle = {
           textShadow: `0 0 12px ${style.highlightColor}, 0 0 24px ${style.highlightColor}40`,
+        };
+        break;
+      }
+      case "highlight-box": {
+        // Mirrors generate_ass's effect="highlight-box": a solid filled
+        // rectangle behind the active word (not just an outline, unlike
+        // "box"), with text in borderColor for contrast against the fill.
+        // Same geometry as the drawn ASS rectangle: 0.22em of padding either
+        // side, 0.30em above and below, square corners.
+        color = style.borderColor || "#000000";
+        // The burn draws this word with \bord0\shad0 — it already reads
+        // against the filled box. Keeping the normal outline here painted a
+        // borderColor-on-borderColor blob wider than the box itself.
+        suppressStroke = true;
+        extraStyle = {
+          backgroundColor: style.highlightColor,
+          borderRadius: 0,
+          lineHeight: 1,
+          padding: `${style.fontSize * 0.3}px ${style.fontSize * 0.22}px`,
         };
         break;
       }
@@ -208,7 +270,7 @@ const WordSpan: React.FC<WordSpanProps> = ({
 
   // Text stroke via textShadow (CSS paint-order not reliable in Remotion)
   const strokeShadow =
-    style.borderWidth > 0
+    style.borderWidth > 0 && !suppressStroke
       ? [
           `${style.borderWidth}px 0 0 ${style.borderColor}`,
           `-${style.borderWidth}px 0 0 ${style.borderColor}`,
@@ -222,12 +284,10 @@ const WordSpan: React.FC<WordSpanProps> = ({
       style={{
         fontFamily: fontStack,
         fontSize: style.fontSize,
-        fontWeight: 700,
-        color: animation === "karaoke" && isActive ? undefined : color,
-        textShadow:
-          animation !== "karaoke"
-            ? [strokeShadow, extraStyle.textShadow].filter(Boolean).join(", ")
-            : strokeShadow,
+        letterSpacing: style.letterSpacing ? `${style.letterSpacing}px` : undefined,
+        fontWeight: style.fontWeight ?? 700,
+        color,
+        textShadow: [strokeShadow, extraStyle.textShadow].filter(Boolean).join(", "),
         transform,
         display: "inline-block",
         transition: "none",
