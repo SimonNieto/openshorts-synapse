@@ -173,6 +173,11 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                         <span className="block text-xs text-muted leading-relaxed mt-1">
                             The first 1.5 s decide the swipe: the bold headline reads at a glance, above the face and far from the captions.
                         </span>
+                        {(p.hook_style || (p.hook_box ? 'classic' : 'none')) !== 'none' && (
+                            <Toggle checked={p.hook_emoji ?? true} onChange={(v) => set({ hook_emoji: v })}
+                                label="add a meaningful emoji"
+                                hint="One emoji at the end of the headline when its words call for it: brain 🧠, death 💀, drugs 💊, AI 🤖, psychedelics 🍄, soldiers / PTSD 🪖, money 💰… None if nothing fits." />
+                        )}
                     </div>
                     <label className="block mt-2">
                         <span className="text-xs text-muted">channel name under the captions (blank = none)</span>

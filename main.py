@@ -1157,6 +1157,11 @@ def auto_hook_clip(clip_path, clip):
     if not text:
         return None
     style = os.environ.get("AUTO_HOOK_STYLE", "classic")
+    if os.environ.get("AUTO_HOOK_EMOJI") == "1":
+        # Clip Generator++: one emoji at the end when the headline's own words
+        # call for one (hooks.TOPIC_EMOJI) — never a random one.
+        from hooks import add_topic_emoji
+        text = add_topic_emoji(text)
     try:
         seconds = float(os.environ.get("AUTO_HOOK_SECONDS", "5"))
     except ValueError:

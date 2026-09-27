@@ -16,6 +16,8 @@ import re
 import time
 import uuid
 
+import channel_copy
+
 PROFILE_FILE = "clip_profiles.json"
 MUSIC_DIR = os.environ.get("PLUS_MUSIC_DIR") or "music"
 AUDIO_EXT = (".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac")
@@ -32,6 +34,7 @@ DEFAULT_PROFILE = {
     # "classic" (the white serif card of the classic Clip Generator).
     "hook_style": "bold",
     "hook_seconds": 4,
+    "hook_emoji": True,    # one meaningful emoji at the end of the headline
     "hook_box": True,
     # End every clip on a full stop (never on a dangling "cause...").
     "clean_ending": True,
@@ -42,6 +45,10 @@ DEFAULT_PROFILE = {
     "broll": {"enabled": False, "source": "auto", "style": "photo", "max": 3},
     "auto_publish": {"enabled": False, "platforms": ["tiktok", "instagram", "youtube"]},
     "beta": {"selection_v2": False, "series_titles": False, "series_name": ""},
+    # BETA: the channel's publishing voice (channel_copy.py) — titles and
+    # descriptions written for this channel, footer + hashtags + tags on
+    # every post to its account.
+    "copy": dict(channel_copy.DEFAULT_COPY),
 }
 
 
@@ -91,6 +98,7 @@ def sanitize(raw):
         "edit_style": raw.get("edit_style") if raw.get("edit_style") in ("natural", "punchy", "clean") else "natural",
         "hook_style": hook_style,
         "hook_seconds": _int(raw.get("hook_seconds"), 2, 10, d["hook_seconds"]),
+        "hook_emoji": _bool(raw.get("hook_emoji", True)),
         "hook_box": hook_style != "none",
         "clean_ending": _bool(raw.get("clean_ending", True)),
         "watermark": re.sub(r"[^\w .@&'-]", "", str(raw.get("watermark") or ""))[:30],
@@ -108,6 +116,7 @@ def sanitize(raw):
         "beta": {"selection_v2": _bool(beta.get("selection_v2")),
                  "series_titles": _bool(beta.get("series_titles")),
                  "series_name": str(beta.get("series_name") or "").strip()[:40]},
+        "copy": channel_copy.sanitize(raw.get("copy")),
     }
 
 
@@ -202,6 +211,7 @@ def job_env(profile):
     if p["hook_style"] != "none":
         env["AUTO_HOOK_STYLE"] = p["hook_style"]
         env["AUTO_HOOK_SECONDS"] = str(p["hook_seconds"])
+        env["AUTO_HOOK_EMOJI"] = "1" if p["hook_emoji"] else "0"
     if p["target_clips"]:
         env["CLIP_TARGET_MIN"] = env["CLIP_TARGET_MAX"] = str(p["target_clips"])
     if p["fx"].get("reactions"):
@@ -216,4 +226,27 @@ def job_env(profile):
         env["SELECTION_V2"] = "1"
     if p["beta"]["series_titles"] and p["beta"]["series_name"]:
         env["TITLE_SERIES"] = p["beta"]["series_name"]
+    if p["copy"]["enabled"]:
+        env["CHANNEL_COPY_JSON"] = channel_copy.to_env(p["copy"])
     return env
+
+
+def copy_for(account=None, niche=None, profile_id=None):
+    """The active channel copy for a post or a clip: the job's own profile
+    first, else the profile that publishes to this Upload-Post account, else
+    the one with this niche. None when no profile has it switched on."""
+    profiles = load_profiles()
+    candidates = []
+    if profile_id:
+        candidates += [p for p in profiles if p.get("id") == profile_id]
+    acc = (account or "").strip().lower()
+    if acc:
+        candidates += [p for p in profiles if (p.get("upload_profile") or "").strip().lower() == acc]
+    key = (niche or "").strip().lower()
+    if key:
+        candidates += [p for p in profiles if (p.get("niche") or "").strip().lower() == key]
+    for p in candidates:
+        c = channel_copy.active(p.get("copy"))
+        if c:
+            return c
+    return None
