@@ -25,6 +25,9 @@ _FONT_FILE_MAP = {
     "helvetica": os.path.join(_LIBERATION_DIR, "LiberationSans-Bold.ttf"),
     "georgia": os.path.join(_LIBERATION_DIR, "LiberationSerif-Bold.ttf"),
     "courier new": os.path.join(_LIBERATION_DIR, "LiberationMono-Bold.ttf"),
+    # The dashboard's own mono face (its "readout" labels), converted from the
+    # self-hosted woff2 (OFL): latin subset, every French accent included.
+    "jetbrains mono": os.path.join(_FONTS_DIR, "JetBrainsMono-Medium.ttf"),
 }
 _PIL_FONT_CACHE = {}
 
