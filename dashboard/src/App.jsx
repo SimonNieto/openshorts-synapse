@@ -336,8 +336,9 @@ function App() {
   // gets posted twice; they stay reachable behind a "show posted" toggle,
   // with a one-click restore in case a platform rejected one.
   const [showPosted, setShowPosted] = useState(false);
-  const postedCount = rankedClips.filter(({ clip }) => clip?.published).length;
-  const visibleClips = rankedClips.filter(({ clip }) => showPosted || !clip?.published);
+  const postedCount = rankedClips.filter(({ clip }) => clip?.published && !clip?.deleted).length;
+  // Deleted clips (trash button) are gone for good: never shown again.
+  const visibleClips = rankedClips.filter(({ clip }) => !clip?.deleted && (showPosted || !clip?.published));
   // Bulk subtitles: apply one style to every clip of the job (triggered from
   // within a clip's subtitle modal via "apply to all").
   const [bulkSub, setBulkSub] = useState({ running: false, current: 0, total: 0, errors: 0 });
@@ -538,6 +539,7 @@ function App() {
     setBulkSub({ running: true, current: 0, total, errors: 0 });
     let errors = 0;
     for (let i = 0; i < total; i++) {
+      if (clips[i]?.deleted) continue;
       setBulkSub({ running: true, current: i + 1, total, errors });
       try {
         const res = await apiFetch('/api/subtitle', {
@@ -607,7 +609,7 @@ function App() {
       title: c.video_title_for_youtube_short || `Clip ${index + 1}`,
       video_url: c.video_url,
       predicted_score: c.predicted_score,
-      published: !!c.published,
+      published: !!c.published || !!c.deleted,
     })),
   } : null), [jobId, results]);
 
@@ -2514,6 +2516,8 @@ function App() {
                           clipCount={results.clips.length}
                           bulkProgress={bulkSub}
                           onPublished={refreshResults}
+                          onDeleted={refreshResults}
+                          canDelete={status !== 'processing'}
                         />
                         </div>
                       ))}

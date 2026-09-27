@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Share2, Instagram, Youtube, Video, AlertCircle, Loader2, Copy, Check, Wand2, Type, Languages, FileText, Link2, Scissors, Crosshair, TrendingUp, RefreshCw, Film } from 'lucide-react';
+import { Download, Share2, Instagram, Youtube, Video, AlertCircle, Loader2, Copy, Check, Wand2, Type, Languages, FileText, Link2, Scissors, Crosshair, TrendingUp, RefreshCw, Film, Trash2 } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiFetch, apiJson } from '../lib/api';
 import SubtitleModal from './SubtitleModal';
@@ -65,7 +65,7 @@ function resolveWhen(choice, customValue) {
     return null;
 }
 
-export default function ResultCard({ clip, index, jobId, durable, uploadPostKey, uploadUserId, geminiApiKey, elevenLabsKey, niche, isManaged, onPlay, onPause, onBulkSubtitle, clipCount = 1, bulkProgress, initialState = null, onStateChange, connectedPlatforms = null, onConnectSocials, onEditClip = null, onReframeClip = null, onPublished = null, onNicheUsed = null, plusProfileId = null }) {
+export default function ResultCard({ clip, index, jobId, durable, uploadPostKey, uploadUserId, geminiApiKey, elevenLabsKey, niche, isManaged, onPlay, onPause, onBulkSubtitle, clipCount = 1, bulkProgress, initialState = null, onStateChange, connectedPlatforms = null, onConnectSocials, onEditClip = null, onReframeClip = null, onPublished = null, onNicheUsed = null, plusProfileId = null, onDeleted = null, canDelete = true }) {
     const [showModal, setShowModal] = useState(false);
     const [showDescModal, setShowDescModal] = useState(false);
     // Regenerated hook/title/descriptions override the original clip copy
@@ -117,6 +117,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     // fetch-then-save took minutes with nothing on screen, which reads as a dead
     // button. Stream it instead and report progress.
     const [downloadPct, setDownloadPct] = useState(null);
+    const [deleting, setDeleting] = useState(false);
 
     // Shared with handleRegenerateCopy below: asked before EVERY action that
     // needs a niche (never silently reused — see NichePromptModal), resolved
@@ -987,6 +988,38 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         </span>
                     )}
                 </div>
+
+                {onDeleted && (
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            if (!canDelete) {
+                                window.alert('Wait until the whole project has finished rendering, then delete the clip.');
+                                return;
+                            }
+                            if (!window.confirm(`Delete clip ${index + 1}?\n\nIts video files are erased for good (the clip disappears from this project). A post already scheduled on Upload-Post is not cancelled.`)) return;
+                            setDeleting(true);
+                            try {
+                                const res = await apiFetch(`/api/clip/${jobId}/${index}/delete`, { method: 'POST' });
+                                if (!res.ok) {
+                                    const text = await res.text().catch(() => '');
+                                    let detail = text;
+                                    try { detail = JSON.parse(text).detail || text; } catch { /* raw */ }
+                                    throw new Error(detail || 'Delete failed');
+                                }
+                                onDeleted();
+                            } catch (e) {
+                                window.alert(e.message || 'Delete failed');
+                                setDeleting(false);
+                            }
+                        }}
+                        disabled={deleting}
+                        title="delete this clip"
+                        className="absolute top-3 right-3 z-20 w-8 h-8 rounded-full bg-black/70 text-muted hover:text-danger hover:bg-black/85 flex items-center justify-center transition-colors"
+                    >
+                        {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                    </button>
+                )}
 
                 {/* Auto Edit Overlay if Processing */}
                 {isEditing && (

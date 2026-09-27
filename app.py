@@ -2816,7 +2816,10 @@ async def list_local_projects():
                     "title": clip.get('video_title_for_youtube_short') or f"Clip {i + 1}",
                     "video_url": video_url,
                     "predicted_score": clip.get('predicted_score'),
-                    "published": bool(clip.get('published')),
+                    # Pickers skip published clips; a deleted one must never be
+                    # offered either (its files are gone).
+                    "published": bool(clip.get('published')) or bool(clip.get('deleted')),
+                    "deleted": bool(clip.get('deleted')),
                 })
             projects.append({
                 "job_id": job_id,
@@ -3226,6 +3229,67 @@ async def viral_edit_clip(job_id: str, clip_index: int, req: ViralEditRequest, r
         pass
     _archive_clip_edit_bg(job_id, clip_index, served)
     return {"success": True, "new_video_url": new_url, "style": req.style}
+
+
+def _delete_clip(job_id: str, clip_index: int) -> List[str]:
+    """Delete one clip from its project: its video files are erased (the
+    clean reframe, the pristine pre-edit copy, every hooked_/subtitled_/
+    recut_... derivation) and the entry is stamped ``deleted`` — NOT dropped
+    from ``shorts``: removing it would shift every clip_index the plan, the
+    editor and saved per-clip state rely on (same reason posted clips are
+    only stamped, see _mark_clip_published). Returns the removed file names."""
+    output_dir = os.path.join(OUTPUT_DIR, job_id)
+    json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="Project not found")
+    base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
+    with open(json_files[0], 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    shorts = data.get('shorts', [])
+    if not 0 <= clip_index < len(shorts):
+        raise HTTPException(status_code=404, detail="Clip not found")
+    clean = f"{base_name}_clip_{clip_index + 1}.mp4"
+    # "*_<clean>" ends exactly with "_clip_<n>.mp4": clip_1 never matches clip_11.
+    candidates = set(glob.glob(os.path.join(output_dir, f"*_{clean}")))
+    candidates.update(os.path.join(output_dir, n) for n in
+                      (clean, clean[:-4] + ".pre_fx.mp4", clean + ".layout.json"))
+    removed = []
+    for path in sorted(candidates):
+        if os.path.isfile(path):
+            try:
+                os.remove(path)
+                removed.append(os.path.basename(path))
+            except OSError as e:
+                print(f"⚠️ Could not delete {path}: {e}")
+    stamp = {"at": time.time(), "files": len(removed)}
+    shorts[clip_index]['deleted'] = stamp
+    st_m = os.stat(json_files[0])
+    with open(json_files[0], 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    # Deleting a clip must not make the project look newer (History order,
+    # retention sweep): keep the file's mtime, like _mark_clip_published.
+    os.utime(json_files[0], (st_m.st_atime, st_m.st_mtime))
+    mem_clips = ((jobs.get(job_id) or {}).get('result') or {}).get('clips') or []
+    if 0 <= clip_index < len(mem_clips):
+        mem_clips[clip_index]['deleted'] = stamp
+    print(f"🗑️ Clip {clip_index + 1} of {job_id} deleted ({len(removed)} file(s)).")
+    return removed
+
+
+@app.post("/api/clip/{job_id}/{clip_index}/delete")
+async def delete_clip(job_id: str, clip_index: int, request: Request):
+    """The clip card's trash button. Refused while the project is still
+    rendering: the job writes its metadata again when it ends and would bring
+    the clip back."""
+    await _ensure_job_files(job_id, request)
+    job = jobs.get(job_id)
+    if job is not None:
+        await _assert_job_owner(request, job)
+        if job.get('status') in ('queued', 'processing'):
+            raise HTTPException(status_code=409,
+                                detail="Wait until the project has finished rendering to delete a clip.")
+    removed = _delete_clip(job_id, clip_index)
+    return {"deleted": True, "files_removed": len(removed)}
 
 
 @app.post("/api/clip/{job_id}/{clip_index}/restore")
@@ -3727,6 +3791,8 @@ async def download_all_clips(job_id: str, request: Request, niche: Optional[str]
 
     files = []
     for i, clip in enumerate(data.get('shorts', [])):
+        if clip.get('deleted'):
+            continue
         url = None
         if i < len(mem_clips):
             url = (mem_clips[i] or {}).get('video_url')
