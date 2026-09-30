@@ -34,7 +34,8 @@ def run(monkeypatch):
     for name in ("SELECTION_V2", "TITLE_SERIES", "SYNAPSE_PLAYBOOK", "CLEAN_END", "CLIP_MIN_SECONDS",
                  "CLIP_MAX_SECONDS", "CLIP_TARGET_MIN", "CLIP_TARGET_MAX", "CLIP_DEDUPE_OVERLAP",
                  "CLIP_DEDUPE_SECONDS", "CLIP_TARGET_MIN_SECONDS", "CLIP_TARGET_MAX_SECONDS", "NICHE_TOPICS",
-                 "NICHE_WEIGHT", "NICHE_ONLY", "NICHE_CONTEXT", "CLIP_COUNT_FLOOR", "LLM_BASE_URL"):
+                 "NICHE_WEIGHT", "NICHE_ONLY", "NICHE_CONTEXT", "CLIP_COUNT_FLOOR", "HOOK_CHECK", "AUDIO_SIGNALS",
+                 "LLM_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("AI_BRAIN", "gemini")
@@ -42,7 +43,7 @@ def run(monkeypatch):
     monkeypatch.setattr(ai_brain, "EPISODE_BRIEF", {"by": "test"})
     prompts = {"score": [], "detail": []}
 
-    def _run(clips, duration=600):
+    def _run(clips, duration=600, video_path=None):
         def fake_stage(client, model_name, items, build_prompt, schema, key, costs, label):
             prompts[label].append(build_prompt(items))
             if label == "score":
@@ -50,7 +51,7 @@ def run(monkeypatch):
                         for w in items]
             return [dict(c) for c in clips]
         monkeypatch.setattr(main, "_run_stage_split", fake_stage)
-        result = main.get_viral_clips(make_transcript(duration), duration)
+        result = main.get_viral_clips(make_transcript(duration), duration, video_path=video_path)
         return result["shorts"] if result else []
 
     _run.prompts = prompts

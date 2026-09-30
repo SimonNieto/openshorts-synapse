@@ -114,6 +114,27 @@ TARGET_PAYOFF_ADDENDUM = """- THE PAYOFF ENDS THE CLIP: return the payoff — th
   after it. What follows it (agreement, laughter, a new thought) is cut.
 """
 
+# Clip Generator++ (profile: selection.audio_signals -> AUDIO_SIGNALS=1): the
+# scoring windows carry an `audio` object (audio_signals.window_features) and
+# the scoring prompt this note on how to read it. ~25 tokens a window.
+AUDIO_SIGNALS_ADDENDUM = """
+AUDIO CUES: each window has an `audio` object measured on the sound itself,
+which the transcript cannot show. Levels are relative to this episode's usual
+speaking level (1.0).
+- `loud`: the average level. `peak`: the loudest half second. `var`: how much
+  the level moves (0.3 is a flat delivery, 0.6 and more a lively one).
+- `wps`: words per second (this episode's usual rate is {wps:g}). Clearly
+  faster means urgency or excitement.
+- `react`: the level of what is heard BETWEEN the words — laughter, gasps,
+  people talking over each other (0 = no gap). Above ~0.4 the room reacted.
+- `pause`: the longest silence, in seconds. A long pause before a line is how
+  a speaker sets up a punchline or a heavy statement.
+Use them to confirm and to break ties: a window whose text reads strong AND
+whose sound is lively (high `var`, `react` or `peak`) beats the same text
+delivered flat. Never pick a window on its sound alone, and never mark down a
+strong text because it is said calmly.
+"""
+
 FINAL_JUDGE_ADDENDUM = """
 YOU ARE THE FINAL JUDGE: a faster model read the whole video and pre-scored
 these windows (`prescore`, `prescore_reason` in each window). It is a first

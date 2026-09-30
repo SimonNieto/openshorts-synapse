@@ -2105,13 +2105,40 @@ def playbook_detail_rules(max_secs):
             + playbook_niche_rules(detail=True))
 
 
-def get_viral_clips(transcript_result, video_duration):
+def audio_window_cues(video_path, windows, words):
+    """(cues by window id, the prompt note on how to read them) for the
+    scoring pass — audio_signals. ({}, "") when the sound cannot be measured:
+    the scoring then runs on the text alone, never fails for it."""
+    if not video_path:
+        print("   🔊 Audio cues skipped: no source file to listen to — scoring on the text alone.")
+        return {}, ""
+    try:
+        import audio_signals
+        t0 = time.time()
+        cues, usual_rate = audio_signals.for_windows(video_path, windows, words)
+        if not cues:
+            raise RuntimeError("no window could be measured")
+        note = gemini_worker.AUDIO_SIGNALS_ADDENDUM.format(wps=usual_rate)
+        extra = sum(len(json.dumps({"audio": c})) for c in cues.values()) + len(note)
+        text = sum(len(w.get("text") or "") for w in windows) or 1
+        print(f"   🔊 Audio cues on {len(cues)}/{len(windows)} window(s) in {time.time() - t0:.0f}s: "
+              f"about {extra // 4:,} tokens more for the scoring pass (+{extra / text:.0%} of the transcript).")
+        return cues, note
+    except Exception as e:
+        print(f"   🔊 Audio cues skipped ({type(e).__name__}: {str(e)[:120]}) — scoring on the text alone.")
+        return {}, ""
+
+
+def get_viral_clips(transcript_result, video_duration, video_path=None):
     """Two-pass clip selection: score transcript windows, then detail the best.
 
     Windowing gives even coverage on long videos (a single call over the whole
     transcript clusters picks near the start), and the cheap scoring pass keeps
     the expensive detail reasoning focused on the shortlist. Cuts are snapped to
     word boundaries so clips don't start/end mid-word.
+
+    ``video_path``: the source file, for the audio cues of the scoring pass
+    (AUDIO_SIGNALS=1); without it the scoring reads the text alone.
     """
     import ai_brain
     language = str(transcript_result.get('language') or 'unknown')
@@ -2158,13 +2185,25 @@ def get_viral_clips(transcript_result, video_duration):
         # 4096 unless OLLAMA_CONTEXT_LENGTH says otherwise) and 8 windows of
         # transcript do not fit; a silently truncated prompt scores garbage.
         SCORE_BATCH = score_batch_size()
-        def _payload(ws):
-            return [{"id": w["id"], "start": w["start"], "end": w["end"], "text": w["text"]} for w in ws]
+        # What the sound adds to each window (AUDIO_SIGNALS=1, off by
+        # default): scoring only — the detail pass cuts on the words.
+        audio_cues, audio_note = {}, ""
+        if os.environ.get("AUDIO_SIGNALS") == "1":
+            audio_cues, audio_note = audio_window_cues(video_path, windows, words)
+
+        def _payload(ws, audio=False):
+            out = [{"id": w["id"], "start": w["start"], "end": w["end"], "text": w["text"]} for w in ws]
+            if audio:
+                for item in out:
+                    if item["id"] in audio_cues:
+                        item["audio"] = audio_cues[item["id"]]
+            return out
 
         def _score_prompt(ws, ctx=""):
             return gemini_worker.SCORE_PROMPT_TEMPLATE.format(
                 video_duration=video_duration, language=language,
-                windows_json=json.dumps(_payload(ws), ensure_ascii=False)) + playbook_score_rules() + ctx
+                windows_json=json.dumps(_payload(ws, audio=True), ensure_ascii=False)
+            ) + audio_note + playbook_score_rules() + ctx
 
         # The episode brief and the scoring both read the WHOLE transcript:
         # with Claude they are one call, so it is sent (and paid) once. The
@@ -2726,7 +2765,7 @@ if __name__ == '__main__':
             import ai_brain
             # The brief is read inside get_viral_clips (in the same Claude
             # call as the scoring pass when it can).
-            clips_data = get_viral_clips(transcript, duration)
+            clips_data = get_viral_clips(transcript, duration, video_path=input_video)
             episode_brief = ai_brain.EPISODE_BRIEF
         else:
             clips_data = get_visual_clips(input_video, duration)

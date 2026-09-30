@@ -75,6 +75,10 @@ DEFAULT_PROFILE = {
         # image, a "he" nobody has met, no concrete word, the title again) is
         # sent back to the model once. Off: it is only flagged.
         "hook_check": False,
+        # The scoring pass also gets, per window, what the sound adds to the
+        # text (loudness, liveliness, speech rate, reactions between the
+        # words, pauses): audio_signals.py, no extra model, ~25 tokens a window.
+        "audio_signals": False,
     },
     # Which AI runs each step (ai_brain.STAGES): "gemini" or a Claude model.
     # "thinking" = Claude's effort on the two decision steps (clips, B-roll);
@@ -158,6 +162,7 @@ def _selection(raw):
         "niche_context": re.sub(r"\s+", " ", str(raw.get("niche_context") or "")).strip()[:200],
         "min_clips": _int(min_clips, 1, 15, None) if min_clips not in (None, "", 0, "0") else None,
         "hook_check": _bool(raw.get("hook_check")),
+        "audio_signals": _bool(raw.get("audio_signals")),
     }
 
 
@@ -430,4 +435,6 @@ def job_env(profile):
         env["CLIP_COUNT_FLOOR"] = str(sel["min_clips"])
     if sel["hook_check"]:
         env["HOOK_CHECK"] = "1"
+    if sel["audio_signals"]:
+        env["AUDIO_SIGNALS"] = "1"
     return env

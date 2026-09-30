@@ -515,6 +515,20 @@ def hook_sentence(clip: dict, transcript=None) -> str:
     return " ".join(words)
 
 
+def pause_before(clip: dict, transcript=None):
+    """Seconds of silence between the last word before the clip and its
+    first word (None without word timestamps): a line said after a pause is
+    a line the speaker set up."""
+    start = float(clip.get("start", 0))
+    prev_end = None
+    for seg in (transcript or {}).get("segments", []):
+        for w in seg.get("words", []) or []:
+            if w.get("start", 0) >= start - 0.05:
+                return None if prev_end is None else round(max(0.0, w["start"] - prev_end), 2)
+            prev_end = w.get("end", prev_end)
+    return None
+
+
 def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcript=None) -> str:
     """<clip>_playbook.json next to the clip: what the stats need later."""
     check_title(clip, tokens)
@@ -530,6 +544,7 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "topic_bucket": clip.get("topic_bucket") or "other",
         "hook_sentence": hook_sentence(clip, transcript),
         "hook_aligned": bool(clip.get("hook_aligned")),
+        "pause_before": pause_before(clip, transcript),
         # No hook nor sentence start fitted the length band (main._playbook_start).
         "start_mid_sentence": bool(clip.get("start_mid_sentence")),
         # The end was moved earlier (onto a sentence end) to open on the hook.
