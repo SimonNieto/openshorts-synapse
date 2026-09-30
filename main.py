@@ -26,6 +26,7 @@ import hook_grounding
 import layout_picker
 import playbook
 import llm_backend
+import clip_selection
 from clip_selection import (build_transcript_windows, clip_count_targets,
                             clip_duration_bounds, snap_clip_to_words,
                             trim_to_best)
@@ -2146,6 +2147,22 @@ def get_viral_clips(transcript_result, video_duration):
                       f"{str((sc or {}).get('reason') or '')[:90]}")
         except Exception as e:
             print(f"   (windows report skipped: {e})")
+        # Same moment twice (CLIP_DEDUPE_OVERLAP, off by default): once here,
+        # so the count below is of different moments, and once more on the
+        # final cuts, which the hook alignment and clean endings can widen.
+        dedupe = clip_selection.clip_dedupe_settings()
+
+        def _dedupe(clips, when):
+            kept, dropped = clip_selection.dedupe_overlapping(clips, *dedupe)
+            for lost, winner, why in dropped:
+                print(f"   ♻️ Duplicate dropped ({when}): {float(lost.get('start', 0)):.0f}-"
+                      f"{float(lost.get('end', 0)):.0f}s (score {lost.get('predicted_score', '?')}) repeats "
+                      f"{float(winner.get('start', 0)):.0f}-{float(winner.get('end', 0)):.0f}s "
+                      f"(score {winner.get('predicted_score', '?')}): {why}.")
+            return kept
+
+        if dedupe:
+            shorts = _dedupe(shorts, "model's cuts")
         if len(shorts) > max_clips:
             # By score, never by position: the results arrive in transcript
             # order, so slicing kept the earliest clips and silently dropped
@@ -2183,6 +2200,8 @@ def get_viral_clips(transcript_result, video_duration):
                 end_on_sentence(s, words, min_secs, max_secs)
                 fixed += bool(s.get("clean_end"))
             print(f"   ✂️  Clean endings: {fixed}/{len(shorts)} clip(s) moved to a full stop.")
+        if dedupe:
+            shorts = _dedupe(shorts, "final cuts")
 
         # content_niche describes the whole video, not any one clip (see
         # gemini_worker.DetailClipModel) — pull the first non-empty guess out

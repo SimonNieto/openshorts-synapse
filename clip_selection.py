@@ -102,6 +102,84 @@ def trim_to_best(shorts, max_clips):
     return [item for _, item in sorted(best, key=lambda pair: pair[0])]
 
 
+def clip_dedupe_settings():
+    """(max share, max seconds) two clips of one job may have in common, or
+    None when the check is off (the default: ``CLIP_DEDUPE_OVERLAP`` unset or
+    0). The share is of the SHORTER clip (0.2 = 20 %; a value above 1 is read
+    as a percentage); ``CLIP_DEDUPE_SECONDS`` is the absolute limit (default
+    8 s, 0 = no absolute limit)."""
+    import os
+
+    def _read(name, default):
+        try:
+            return float(os.environ.get(name, ""))
+        except ValueError:
+            return default
+
+    share = _read("CLIP_DEDUPE_OVERLAP", 0.0)
+    if share > 1.0:
+        share /= 100.0
+    if share <= 0:
+        return None
+    return min(share, 1.0), max(0.0, _read("CLIP_DEDUPE_SECONDS", 8.0))
+
+
+def _clip_score(clip):
+    try:
+        return float(clip.get("predicted_score") or 0)
+    except (TypeError, ValueError, AttributeError):
+        return 0.0
+
+
+def _same_line(a, b):
+    """Two quoted lines are the same sentence (punctuation and case aside)."""
+    import re
+
+    ta, tb = (re.findall(r"[a-z0-9']+", str(x or "").lower()) for x in (a, b))
+    return len(ta) >= 3 and ta == tb
+
+
+def clips_overlap(a, b, max_share=0.2, max_seconds=8.0):
+    """Why two clips are the same moment twice ("" when they are not): they
+    open on the same ``hook_line``, or the time they share is more than
+    ``max_share`` of the shorter one, or more than ``max_seconds``."""
+    if _same_line(a.get("hook_line"), b.get("hook_line")):
+        return "same hook line"
+    try:
+        a0, a1, b0, b1 = (float(x) for x in (a["start"], a["end"], b["start"], b["end"]))
+    except (KeyError, TypeError, ValueError):
+        return ""
+    shared = min(a1, b1) - max(a0, b0)
+    shorter = min(a1 - a0, b1 - b0)
+    if shared <= 0 or shorter <= 0:
+        return ""
+    if shared / shorter > max_share or (max_seconds > 0 and shared > max_seconds):
+        return f"{shared:.1f}s in common ({shared / shorter:.0%} of the shorter clip)"
+    return ""
+
+
+def dedupe_overlapping(shorts, max_share=0.2, max_seconds=8.0):
+    """Drop the clips that repeat another one (see ``clips_overlap``), keeping
+    the best ``predicted_score`` of each group (ties: the earlier in the
+    list). Returns (kept, dropped): ``kept`` in the original order, ``dropped``
+    as (clip, the clip kept instead, why).
+
+    The scoring windows overlap by 30 s and the detail pass answers window by
+    window, so two neighbouring windows can each return a clip over the same
+    seconds (JRE #2515: 1927-1985 s and 1968-2027 s, 17 s twice) — and the
+    playbook moving a start back onto its hook sentence can widen it."""
+    order = sorted(range(len(shorts)), key=lambda i: (-_clip_score(shorts[i]), i))
+    kept_idx, dropped = [], []
+    for i in order:
+        clash = next(((k, why) for k in kept_idx
+                      for why in [clips_overlap(shorts[k], shorts[i], max_share, max_seconds)] if why), None)
+        if clash:
+            dropped.append((shorts[i], shorts[clash[0]], clash[1]))
+        else:
+            kept_idx.append(i)
+    return [shorts[i] for i in sorted(kept_idx)], dropped
+
+
 def clip_duration_bounds():
     """The clip length band (seconds) the selection prompts and word-snapping
     enforce. ``CLIP_MIN_SECONDS`` / ``CLIP_MAX_SECONDS`` override the classic

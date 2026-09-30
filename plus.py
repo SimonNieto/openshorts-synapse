@@ -50,6 +50,14 @@ DEFAULT_PROFILE = {
              # stats JSON per clip (playbook.py). "playbook_show": the show's name
              # for the credit line (empty = read from the source's file name).
              "playbook": False, "playbook_show": ""},
+    # How the clips are chosen and cut, past the length band. Every default
+    # here is "off": a profile saved without the block behaves as before.
+    "selection": {
+        # Two clips of one job sharing more than this share of the shorter
+        # one (0.2 = 20 %), or more than dedupe_seconds, or opening on the
+        # same sentence: only the best-scoring one is kept. 0 = off.
+        "dedupe_overlap": 0, "dedupe_seconds": 8,
+    },
     # Which AI runs each step (ai_brain.STAGES): "gemini" or a Claude model.
     # "thinking" = Claude's effort on the two decision steps (clips, B-roll);
     # "fresh" = the next run ignores the AI memory (then switches itself off).
@@ -96,6 +104,25 @@ def _brain(raw, broll):
             "thinking_broll": (raw.get("thinking_broll") if raw.get("thinking_broll") in THINKING
                                else raw.get("thinking") if raw.get("thinking") in THINKING else "normal"),
             "fresh": _bool(raw.get("fresh"))}
+
+
+def _float(v, lo, hi, default):
+    try:
+        return max(lo, min(hi, float(v)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _selection(raw):
+    """Sanitized selection block (DEFAULT_PROFILE["selection"])."""
+    raw = raw if isinstance(raw, dict) else {}
+    d = DEFAULT_PROFILE["selection"]
+    share = _float(raw.get("dedupe_overlap"), 0.0, 100.0, d["dedupe_overlap"])
+    return {
+        # 20 and 0.2 both mean 20 %.
+        "dedupe_overlap": round(share / 100.0 if share > 1 else share, 3),
+        "dedupe_seconds": round(_float(raw.get("dedupe_seconds"), 0.0, 60.0, d["dedupe_seconds"]), 1),
+    }
 
 
 def _hold(v):
@@ -200,6 +227,7 @@ def sanitize(raw):
                  "series_name": str(beta.get("series_name") or "").strip()[:40],
                  "playbook": _bool(beta.get("playbook")),
                  "playbook_show": re.sub(r"[\r\n#]", "", str(beta.get("playbook_show") or "")).strip()[:60]},
+        "selection": _selection(raw.get("selection")),
         "brain": _brain(raw.get("brain"), br),
     }
 
@@ -347,4 +375,8 @@ def job_env(profile):
         env["SYNAPSE_PLAYBOOK"] = "1"
         if p["beta"]["playbook_show"]:
             env["PLAYBOOK_SHOW"] = p["beta"]["playbook_show"]
+    sel = p["selection"]
+    if sel["dedupe_overlap"] > 0:
+        env["CLIP_DEDUPE_OVERLAP"] = f"{sel['dedupe_overlap']:g}"
+        env["CLIP_DEDUPE_SECONDS"] = f"{sel['dedupe_seconds']:g}"
     return env

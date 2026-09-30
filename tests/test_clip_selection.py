@@ -6,6 +6,9 @@ import pytest
 from clip_selection import (
     build_transcript_windows,
     clip_count_targets,
+    clip_dedupe_settings,
+    clips_overlap,
+    dedupe_overlapping,
     snap_clip_to_words,
     compact_words,
     lookup_model_prices,
@@ -215,3 +218,85 @@ class TestTrimToBest:
     def test_max_clips_is_never_below_one(self):
         shorts = [self._clip(0, 10), self._clip(50, 20)]
         assert len(trim_to_best(shorts, 0)) == 1
+
+
+class TestDedupeOverlapping:
+    """Two neighbouring scoring windows each returned a clip over the same
+    seconds (JRE #2515, Chase Hughes-001): 1926.9-1985.1 and 1968.3-2026.5."""
+
+    A = {"start": 1926.9, "end": 1985.1, "predicted_score": 75, "hook_line": "I described it as control alt delete."}
+    B = {"start": 1968.3, "end": 2026.5, "predicted_score": 73, "hook_line": "I think separation is the lie."}
+
+    def test_the_real_pair_keeps_the_best_score(self):
+        kept, dropped = dedupe_overlapping([self.A, self.B])
+        assert kept == [self.A]
+        assert dropped[0][0] is self.B and dropped[0][1] is self.A
+        assert "16.8s in common" in dropped[0][2]
+
+    def test_the_real_pair_shares_less_than_30_percent(self):
+        # 16.8 s of 58.2 s = 29 %: a 30 % share alone would let it through,
+        # which is why the default is 20 % of the shorter clip OR 8 s.
+        assert clips_overlap(self.A, self.B, max_share=0.3, max_seconds=0) == ""
+        assert clips_overlap(self.A, self.B, max_share=0.3, max_seconds=8)
+        assert clips_overlap(self.A, self.B, max_share=0.2, max_seconds=0)
+
+    def test_best_score_wins_whatever_the_order(self):
+        better_b = {**self.B, "predicted_score": 90}
+        kept, dropped = dedupe_overlapping([self.A, better_b])
+        assert kept == [better_b] and dropped[0][0] is self.A
+
+    def test_a_tie_keeps_the_earlier_clip(self):
+        tie_b = {**self.B, "predicted_score": 75}
+        assert dedupe_overlapping([self.A, tie_b])[0] == [self.A]
+
+    def test_a_few_shared_seconds_are_not_a_duplicate(self):
+        a = {"start": 100.0, "end": 140.0, "predicted_score": 70}
+        b = {"start": 137.0, "end": 180.0, "predicted_score": 80}   # 3 s = 7.5 %
+        kept, dropped = dedupe_overlapping([a, b])
+        assert kept == [a, b] and dropped == []
+
+    def test_share_is_of_the_shorter_clip(self):
+        long_ = {"start": 0.0, "end": 60.0, "predicted_score": 80}
+        short = {"start": 54.0, "end": 74.0, "predicted_score": 70}  # 6 s = 30 % of 20 s, 10 % of 60 s
+        assert dedupe_overlapping([long_, short])[0] == [long_]
+
+    def test_same_hook_line_is_a_duplicate_even_far_apart(self):
+        a = {"start": 10.0, "end": 40.0, "predicted_score": 60, "hook_line": "Your brain can lie to you."}
+        b = {"start": 900.0, "end": 930.0, "predicted_score": 80, "hook_line": "your brain can lie to you"}
+        kept, dropped = dedupe_overlapping([a, b])
+        assert kept == [b] and dropped[0][2] == "same hook line"
+
+    def test_empty_or_tiny_hook_lines_never_match(self):
+        a = {"start": 10.0, "end": 40.0, "hook_line": ""}
+        b = {"start": 100.0, "end": 140.0, "hook_line": ""}
+        c = {"start": 200.0, "end": 240.0, "hook_line": "Oh yeah."}
+        d = {"start": 300.0, "end": 340.0, "hook_line": "Oh yeah."}
+        assert dedupe_overlapping([a, b, c, d])[0] == [a, b, c, d]
+
+    def test_survivors_keep_their_order_and_three_way_chains_resolve(self):
+        a = {"start": 0.0, "end": 40.0, "predicted_score": 70}
+        b = {"start": 20.0, "end": 60.0, "predicted_score": 90}
+        c = {"start": 50.0, "end": 90.0, "predicted_score": 80}     # overlaps b (10 s), not a
+        far = {"start": 500.0, "end": 530.0, "predicted_score": 10}
+        kept, dropped = dedupe_overlapping([a, b, c, far])
+        assert kept == [b, far] and len(dropped) == 2
+
+    def test_a_clip_without_times_is_left_alone(self):
+        odd = {"predicted_score": 50}
+        assert dedupe_overlapping([self.A, odd])[0] == [self.A, odd]
+
+    def test_off_by_default(self, monkeypatch):
+        monkeypatch.delenv("CLIP_DEDUPE_OVERLAP", raising=False)
+        assert clip_dedupe_settings() is None
+        monkeypatch.setenv("CLIP_DEDUPE_OVERLAP", "0")
+        assert clip_dedupe_settings() is None
+        monkeypatch.setenv("CLIP_DEDUPE_OVERLAP", "garbage")
+        assert clip_dedupe_settings() is None
+
+    def test_settings_from_env(self, monkeypatch):
+        monkeypatch.setenv("CLIP_DEDUPE_OVERLAP", "0.2")
+        monkeypatch.delenv("CLIP_DEDUPE_SECONDS", raising=False)
+        assert clip_dedupe_settings() == (0.2, 8.0)
+        monkeypatch.setenv("CLIP_DEDUPE_OVERLAP", "30")           # a percentage
+        monkeypatch.setenv("CLIP_DEDUPE_SECONDS", "0")
+        assert clip_dedupe_settings() == (0.3, 0.0)
