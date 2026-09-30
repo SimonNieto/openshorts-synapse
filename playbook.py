@@ -285,6 +285,10 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "start_mid_sentence": bool(clip.get("start_mid_sentence")),
         # The end was moved earlier (onto a sentence end) to open on the hook.
         "end_moved_for_hook": bool(clip.get("end_fit_for_hook")),
+        # Target length (main.trim_to_target): cut back after the payoff, or
+        # why the clip stayed over the target ("" when it was not over).
+        "end_moved_for_target": bool(clip.get("end_fit_for_target")),
+        "over_target": clip.get("over_target") or "",
         # No full stop nor pause near the end (main.end_on_sentence).
         "end_mid_sentence": bool(clip.get("end_mid_sentence")),
         "title": clip.get("video_title_for_youtube_short") or "",

@@ -12,7 +12,8 @@ def _env(selection=None, **profile):
     return plus.job_env(raw)
 
 
-NEW_VARS = ("CLIP_DEDUPE_OVERLAP", "CLIP_DEDUPE_SECONDS")
+NEW_VARS = ("CLIP_DEDUPE_OVERLAP", "CLIP_DEDUPE_SECONDS", "CLIP_TARGET_MIN_SECONDS",
+            "CLIP_TARGET_MAX_SECONDS")
 
 
 def test_a_profile_without_the_block_sets_nothing_new():
@@ -33,3 +34,13 @@ def test_dedupe_reaches_the_job():
     # 20 is read as 20 %
     assert _env({"dedupe_overlap": 20})["CLIP_DEDUPE_OVERLAP"] == "0.2"
     assert "CLIP_DEDUPE_OVERLAP" not in _env({"dedupe_overlap": 0})
+
+
+def test_clip_target_reaches_the_job():
+    env = _env({"clip_target": [25, 40]}, clip_min=15, clip_max=60)
+    assert env["CLIP_TARGET_MIN_SECONDS"] == "25" and env["CLIP_TARGET_MAX_SECONDS"] == "40"
+    assert env["CLIP_MIN_SECONDS"] == "15" and env["CLIP_MAX_SECONDS"] == "60", "the band stays the hard limit"
+    assert _env({"clip_target": [40, 25]})["CLIP_TARGET_MIN_SECONDS"] == "25", "given backwards: reordered"
+    for bad in (None, "x", [25], [25, 40, 60], {"a": 1}):
+        env = _env({"clip_target": bad})
+        assert "CLIP_TARGET_MAX_SECONDS" not in env and "CLIP_TARGET_MIN_SECONDS" not in env, bad

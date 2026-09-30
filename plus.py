@@ -57,6 +57,10 @@ DEFAULT_PROFILE = {
         # one (0.2 = 20 %), or more than dedupe_seconds, or opening on the
         # same sentence: only the best-scoring one is kept. 0 = off.
         "dedupe_overlap": 0, "dedupe_seconds": 8,
+        # [low, high] seconds to AIM for inside clip_min..clip_max (the hard
+        # limits): asked for in the prompt, and a clip over it is cut back to
+        # the sentence of its payoff. None = off.
+        "clip_target": None,
     },
     # Which AI runs each step (ai_brain.STAGES): "gemini" or a Claude model.
     # "thinking" = Claude's effort on the two decision steps (clips, B-roll);
@@ -118,10 +122,17 @@ def _selection(raw):
     raw = raw if isinstance(raw, dict) else {}
     d = DEFAULT_PROFILE["selection"]
     share = _float(raw.get("dedupe_overlap"), 0.0, 100.0, d["dedupe_overlap"])
+    target = raw.get("clip_target")
+    try:
+        lo, hi = sorted(max(5, min(180, int(float(v)))) for v in target)
+        target = [lo, hi]
+    except (TypeError, ValueError):
+        target = None
     return {
         # 20 and 0.2 both mean 20 %.
         "dedupe_overlap": round(share / 100.0 if share > 1 else share, 3),
         "dedupe_seconds": round(_float(raw.get("dedupe_seconds"), 0.0, 60.0, d["dedupe_seconds"]), 1),
+        "clip_target": target,
     }
 
 
@@ -379,4 +390,6 @@ def job_env(profile):
     if sel["dedupe_overlap"] > 0:
         env["CLIP_DEDUPE_OVERLAP"] = f"{sel['dedupe_overlap']:g}"
         env["CLIP_DEDUPE_SECONDS"] = f"{sel['dedupe_seconds']:g}"
+    if sel["clip_target"]:
+        env["CLIP_TARGET_MIN_SECONDS"], env["CLIP_TARGET_MAX_SECONDS"] = (str(v) for v in sel["clip_target"])
     return env

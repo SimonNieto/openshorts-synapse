@@ -204,6 +204,51 @@ def clip_duration_bounds():
     return round(lo, 3), round(hi, 3)
 
 
+def clip_target_bounds():
+    """(low, high) seconds the clips should AIM for inside the length band, or
+    None (the default: ``CLIP_TARGET_MAX_SECONDS`` unset). The band of
+    ``clip_duration_bounds`` stays the hard limit; this is what the detail
+    prompt asks for and what main.trim_to_target cuts back to.
+    ``CLIP_TARGET_MIN_SECONDS`` defaults to the band's minimum. A target that
+    reaches the band's maximum is no target at all."""
+    import os
+
+    def _read(name):
+        try:
+            return float(os.environ.get(name, ""))
+        except ValueError:
+            return None
+
+    band_lo, band_hi = clip_duration_bounds()
+    hi = _read("CLIP_TARGET_MAX_SECONDS")
+    if hi is None or hi <= 0:
+        return None
+    lo = _read("CLIP_TARGET_MIN_SECONDS")
+    lo = band_lo if lo is None else min(max(lo, band_lo), band_hi)
+    hi = max(hi, lo)
+    if hi >= band_hi:
+        return None
+    return round(lo, 3), round(hi, 3)
+
+
+def duration_summary(shorts, target=None):
+    """One log line on how long the clips of a job came out — the prompt asks
+    for short clips, this is where it shows whether it got them."""
+    durs = sorted(float(c["end"]) - float(c["start"]) for c in shorts
+                  if c.get("start") is not None and c.get("end") is not None)
+    if not durs:
+        return "no clips"
+    n = len(durs)
+    median = durs[n // 2] if n % 2 else (durs[n // 2 - 1] + durs[n // 2]) / 2
+    line = (f"{n} clip(s), {durs[0]:.0f}-{durs[-1]:.0f}s, median {median:.0f}s, "
+            f"mean {sum(durs) / n:.0f}s")
+    if target:
+        lo, hi = target
+        line += (f"; target {lo:g}-{hi:g}s: {sum(lo <= d <= hi for d in durs)} inside, "
+                 f"{sum(d > hi for d in durs)} over, {sum(d < lo for d in durs)} under")
+    return line
+
+
 def compact_words(words, precision=2):
     """Round word timestamps for prompts — full float precision wastes tokens."""
     return [

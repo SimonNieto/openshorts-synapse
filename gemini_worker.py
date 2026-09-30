@@ -95,6 +95,25 @@ SELECTION V2 (strict):
   15-35 s beats a longer, more complete one.
 """
 
+# Clip Generator++ (profile: selection.clip_target -> CLIP_TARGET_MIN/MAX_SECONDS).
+# "LENGTH IS A CEILING, NOT A TARGET" alone gave 11 clips of 37-59 s in a
+# 15-60 band (JRE #2515): a range to aim for is what the model follows. The
+# second block is added when the schema has `punchline` (selection v2 or the
+# playbook): main.trim_to_target cuts an over-long clip right after it.
+TARGET_LENGTH_ADDENDUM = """
+TARGET LENGTH (strict, wins over the length rules above): aim for {lo:g}-{hi:g}
+seconds. {min_secs:g}-{max_secs:g}s stays the hard limit, but a clip longer than
+{hi:g}s is the exception: only when cutting it shorter would lose the payoff
+itself. A moment that lands in {lo:g}-{hi:g}s and stops beats the same moment
+with 20 more seconds of follow-up. Choose `start` and `end` for that length
+from the beginning — do not pick a long passage and hope it gets trimmed.
+"""
+
+TARGET_PAYOFF_ADDENDUM = """- THE PAYOFF ENDS THE CLIP: return the payoff — the line the clip exists
+  for — VERBATIM (exact transcript words) in `punchline`, and place `end` right
+  after it. What follows it (agreement, laughter, a new thought) is cut.
+"""
+
 FINAL_JUDGE_ADDENDUM = """
 YOU ARE THE FINAL JUDGE: a faster model read the whole video and pre-scored
 these windows (`prescore`, `prescore_reason` in each window). It is a first

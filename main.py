@@ -1963,6 +1963,53 @@ def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.
     clip["end_mid_sentence"] = True
 
 
+def trim_to_target(clip, words, min_secs, target, pauses=False):
+    """A clip longer than the target length (clip_selection.clip_target_bounds)
+    ends on the first sentence end at or after its payoff — the ``punchline``
+    the model quoted — that leaves it at least as long as the target's low
+    end: what follows the payoff is what made it long. True when the end moved.
+
+    Never cuts blind: when the payoff cannot be found in the words, or no
+    sentence ends between it and the current end, the clip keeps its length
+    and says why in ``over_target``. ``pauses``: a pause of _PAUSE_BOUNDARY s
+    ends a sentence too (unpunctuated transcripts, playbook)."""
+    lo, hi = target
+    start, end = float(clip["start"]), float(clip["end"])
+    if end - start <= hi:
+        return False
+    j = _find_line(words, clip.get("punchline"), start, end + 2)
+    if j is None:
+        clip["over_target"] = "payoff not located"
+        return False
+    last = min(len(words) - 1, j + len(_tokens(clip.get("punchline"))) - 1)
+    for k in range(last, len(words)):
+        if words[k]["e"] > end + 0.05:
+            break
+        if not (_ends_sentence(words, k) or (pauses and _pause_after(words, k) >= _PAUSE_BOUNDARY)):
+            continue
+        t = _tail(words, k)
+        if t - start < max(min_secs, lo):
+            continue
+        if t > end - 1.0:
+            break  # the clip already stops there
+        clip["end"] = round(t, 3)
+        clip["end_fit_for_target"] = True
+        clip.pop("over_target", None)
+        return True
+    clip["over_target"] = "payoff needs the length"
+    return False
+
+
+def target_length_rules(target, min_secs, max_secs, payoff=False):
+    """The detail prompt's target-length block ("" without a target).
+    ``payoff``: the schema has ``punchline`` (selection v2 / playbook)."""
+    if not target:
+        return ""
+    return (gemini_worker.TARGET_LENGTH_ADDENDUM.format(lo=target[0], hi=target[1],
+                                                        min_secs=min_secs, max_secs=max_secs)
+            + (gemini_worker.TARGET_PAYOFF_ADDENDUM if payoff else ""))
+
+
 def playbook_score_rules():
     """Synapse Cut playbook: what the scoring prompt gets (off-limits topics)."""
     return gemini_worker.SAFETY_TOPICS_ADDENDUM if playbook.enabled() else ""
@@ -2106,6 +2153,12 @@ def get_viral_clips(transcript_result, video_duration):
         if playbook_on and series_name:
             print("   🧪 Series titles ignored: the Synapse Cut playbook keeps names out of titles.")
             series_name = ""
+        # The length to aim for inside the band (CLIP_TARGET_MIN/MAX_SECONDS,
+        # off by default): asked for in the prompt, then cut back to in code.
+        target_secs = clip_selection.clip_target_bounds()
+        if target_secs:
+            print(f"   🎯 Target length: {target_secs[0]:g}-{target_secs[1]:g}s "
+                  f"(band {min_secs:g}-{max_secs:g}s).")
 
         # Gemini sorted the windows: Claude sees its score and reason and is
         # the final judge (keeps, drops, and says why).
@@ -2134,6 +2187,8 @@ def get_viral_clips(transcript_result, video_duration):
                 prompt += gemini_worker.DETAIL_V2_ADDENDUM
             if series_name:
                 prompt += gemini_worker.SERIES_TITLE_ADDENDUM.replace("{name}", series_name)
+            prompt += target_length_rules(target_secs, min_secs, max_secs,
+                                          payoff=selection_v2 or playbook_on)
             if playbook_on:
                 prompt += playbook_detail_rules(max_secs)
             return prompt + episode_ctx
@@ -2217,10 +2272,22 @@ def get_viral_clips(transcript_result, video_duration):
                     if s.get("start_mid_sentence"):
                         print(f"      ⚠️ {s['start']:.0f}s: starts MID-SENTENCE — no hook or sentence start "
                               f"fits the {min_secs:g}-{max_secs:g}s band (hook_aligned=false).")
+        if target_secs:
+            cut = 0
+            for s in shorts:
+                before = float(s["end"])
+                if trim_to_target(s, words, min_secs, target_secs, pauses=playbook_on):
+                    cut += 1
+                    print(f"      ✂️ {s['start']:.0f}s: {before - s['start']:.0f}s -> {s['end'] - s['start']:.0f}s "
+                          f"(ends on the sentence of its payoff, target {target_secs[1]:g}s).")
+                elif s.get("over_target"):
+                    print(f"      ⏱️ {s['start']:.0f}s: stays {s['end'] - s['start']:.0f}s, over the target "
+                          f"({s['over_target']}).")
+            print(f"   🎯 Target length: {cut}/{len(shorts)} clip(s) cut back after their payoff.")
         if os.environ.get("CLEAN_END") == "1":
             fixed = 0
             for s in shorts:
-                if s.get("end_fit_for_hook"):
+                if s.get("end_fit_for_hook") or s.get("end_fit_for_target"):
                     continue  # already on a sentence end, placed to stay under max
                 end_on_sentence(s, words, min_secs, max_secs, pauses=playbook_on)
                 fixed += bool(s.get("clean_end"))
@@ -2231,6 +2298,7 @@ def get_viral_clips(transcript_result, video_duration):
                           f"pause within reach (unpunctuated transcript).")
         if dedupe:
             shorts = _dedupe(shorts, "final cuts")
+        print(f"   ⏱️ Clip lengths: {clip_selection.duration_summary(shorts, target_secs)}")
 
         # content_niche describes the whole video, not any one clip (see
         # gemini_worker.DetailClipModel) — pull the first non-empty guess out
