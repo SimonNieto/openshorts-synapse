@@ -3,13 +3,13 @@
     {
       "name": "Joe Rogan · natural",
       "upload_profile": "default",
-      "niche": "Joe Rogan podcast clips",
+      "niche": "Joe Rogan podcast",
       "clip_min": 15,
       "clip_max": 60,
-      "target_clips": null,
+      "target_clips": 1,
       "edit_style": "natural",
       "hook_style": "bold",
-      "hook_seconds": 4,
+      "hook_seconds": 3,
       "hook_box": true,
       "clean_ending": true,
       "watermark": "@TheSynapseCut",
@@ -18,18 +18,33 @@
         "look": false,
         "spotlight": false,
         "streaks": false,
-        "reactions": true
+        "reactions": true,
+        "smooth_camera": true
       },
       "music": {
         "enabled": false,
         "mood": "",
-        "volume": 0.22
+        "volume": 0.1
       },
       "broll": {
         "enabled": true,
-        "source": "auto",
-        "style": "photo",
-        "max": 3
+        "source": "local",
+        "engine": "zimage",
+        "planner": "claude",
+        "style": "auto",
+        "max": 6,
+        "mode": "mixed",
+        "real_photos": true,
+        "density": "more",
+        "review": "auto",
+        "layout": "rise",
+        "position": "below",
+        "y": 73.1,
+        "hold": 3.0,
+        "enter": "rise",
+        "zoom": "off",
+        "border": "soft",
+        "size": 27
       },
       "auto_publish": {
         "enabled": false,
@@ -42,11 +57,28 @@
       "beta": {
         "selection_v2": false,
         "series_titles": false,
-        "series_name": "Joe Rogan"
+        "series_name": "Joe Rogan",
+        "playbook": true,
+        "playbook_show": ""
+      },
+      "brain": {
+        "preset": "custom",
+        "stages": {
+          "brief_score": "haiku",
+          "detail": "sonnet",
+          "layout": "haiku",
+          "broll": "sonnet",
+          "image_review": "haiku",
+          "hook": "sonnet",
+          "text": "gemini"
+        },
+        "thinking": "normal",
+        "thinking_broll": "normal",
+        "fresh": false
       },
       "id": "2d73847389ae",
       "created_at": 1790343628.8880663,
-      "updated_at": 1790366924.0831249
+      "updated_at": 1790779204.417755
     }
   ]
 }

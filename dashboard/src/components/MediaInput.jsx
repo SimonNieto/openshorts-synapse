@@ -96,6 +96,11 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
         // Clip Generator++: the profile carries the recipe (the server reads it
         // by id) and its own auto-publish settings.
         if (plusProfile) {
+            // Count, lengths and hook come from the profile: the (now hidden)
+            // fields must not leak a stale value into the job.
+            advanced.targetClips = null;
+            advanced.clipMinSeconds = null;
+            advanced.clipMaxSeconds = null;
             advanced.plusProfileId = plusProfile.id;
             const ap = plusProfile.auto_publish || {};
             advanced.autoPublish = canAutoPublish && ap.enabled
@@ -283,6 +288,12 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                         /* Stacked on a phone: three number fields side by side leaves
                            ~100px each, which crushes both label and value. */
                         <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-2 animate-fade">
+                            {plusProfile ? (
+                                <p className="col-span-1 sm:col-span-3 text-[11px] leading-relaxed text-muted">
+                                    Clip count, clip lengths and hook titles come from the selected
+                                    Clip Generator++ profile (edit them there).
+                                </p>
+                            ) : (<>
                             <div>
                                 <p className="eyebrow mb-1.5">clips to aim for</p>
                                 <input
@@ -317,6 +328,7 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                                 Targets, not guarantees: the AI returns fewer clips when the
                                 material doesn't hold them. Leave blank to let it decide.
                             </p>
+                            </>)}
                             <div className="col-span-1 sm:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-3 sm:pt-1 border-t border-rule">
                                 <span className="text-xs text-ink2">vertical layout</span>
                                 <select
@@ -331,6 +343,7 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                                     <option value="none">Single crop only</option>
                                 </select>
                             </div>
+                            {!plusProfile && (
                             <div className="col-span-1 sm:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-3 sm:pt-1 border-t border-rule">
                                 <label className="flex items-center gap-2 text-xs text-ink2 cursor-pointer select-none">
                                     <input
@@ -356,6 +369,7 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                                     </select>
                                 )}
                             </div>
+                            )}
                         </div>
                     )}
                 </div>

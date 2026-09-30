@@ -136,8 +136,9 @@ def pick(video_path, video_duration):
     """
     if not ENABLED:
         return "none"
+    import ai_brain
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
+    if not api_key and not ai_brain.claude_usable():
         return "none"
 
     model_name = os.environ.get("GEMINI_MODEL") or 'gemini-3.1-flash-lite'
@@ -145,8 +146,6 @@ def pick(video_path, video_duration):
     try:
         # Inside the try on purpose: the contract above is that this never
         # raises, and an unimportable SDK is just one more reason to fall back.
-        from google import genai
-        from google.genai import types as genai_types
         import gemini_worker
 
         frames = sample_frames(video_path)
@@ -154,18 +153,35 @@ def pick(video_path, video_duration):
             print("   ⚠️ No readable frames — keeping the default layout.")
             return "none"
 
-        client = genai.Client(api_key=api_key)
-        parts = [genai_types.Part.from_bytes(data=b, mime_type="image/jpeg")
-                 for b in frames]
-        response = client.models.generate_content(
-            model=model_name,
-            contents=parts + [gemini_worker.LAYOUT_CHOICE_PROMPT],
-            config=genai_types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=gemini_worker.LayoutChoice,
-            ))
-        gemini_worker.raise_if_blocked(response)
-        answer = json.loads(response.text) or {}
+        def gemini():
+            from google import genai
+            from google.genai import types as genai_types
+            import ai_cache
+            if not api_key:
+                raise RuntimeError("no Gemini key")
+            parts = [genai_types.Part.from_bytes(data=b, mime_type="image/jpeg")
+                     for b in frames]
+
+            def call():
+                client = genai.Client(api_key=api_key)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=parts + [gemini_worker.LAYOUT_CHOICE_PROMPT],
+                    config=genai_types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=gemini_worker.LayoutChoice,
+                    ))
+                gemini_worker.raise_if_blocked(response)
+                return json.loads(response.text) or {}
+            # Same source, same frames: the answer is read back on a re-run.
+            return ai_cache.remember(
+                ai_cache.gemini_key(model_name, parts + [gemini_worker.LAYOUT_CHOICE_PROMPT, "LayoutChoice"]), call)
+
+        # A closed-choice frame classification: Gemini first (ai_brain.ROUTES,
+        # cheap), Claude as the fallback.
+        answer, _who = ai_brain.think_frames(
+            "choosing the layout (face crop / screen / split)", gemini_worker.LAYOUT_CHOICE_PROMPT,
+            gemini_worker.LayoutChoice, frames, fallback=gemini, route_key="layout")
     except Exception as e:
         print(f"   ⚠️ Layout choice failed ({e}) — keeping the default layout.")
         return "none"

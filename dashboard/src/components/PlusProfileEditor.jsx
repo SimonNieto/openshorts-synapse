@@ -1,8 +1,36 @@
 import React, { useEffect, useState } from 'react';
-import { FlaskConical, Music, Film, Clock, User, Zap, Trash2, Copy, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { FlaskConical, Music, Film, Clock, User, Zap, Trash2, Copy, Image as ImageIcon, Loader2, Brain, RefreshCw } from 'lucide-react';
 import Modal from './ui/Modal';
 import { loadNicheHistory } from '../lib/nicheHistory';
 import { apiJson } from '../lib/api';
+import BrollCardPreview from './BrollCardPreview';
+
+// The real width of a small B-roll card: the wanted size is cut down to the free band next to the captions
+// (broll.rise_geometry answers, so this never drifts from what the video gets).
+function RealSize({ style, watermark, position, size, y }) {
+    const [g, setG] = useState(null);
+    useEffect(() => {
+        let live = true;
+        const t = setTimeout(() => {
+            apiJson(`/api/plus/broll/geometry?edit_style=${encodeURIComponent(style || 'natural')}&watermark=${watermark ? 1 : 0}`
+                + `&position=${position === 'above' ? 'above' : 'below'}&size=${encodeURIComponent(Number(size) || 28)}`
+                + (y != null ? `&y=${encodeURIComponent(y)}` : ''))
+                .then((d) => { if (live) setG(d); })
+                .catch(() => { if (live) setG(null); });
+        }, 250);
+        return () => { live = false; clearTimeout(t); };
+    }, [style, watermark, position, size, y]);
+    if (!g) return null;
+    return (
+        <span className={`text-xs ${g.limited || g.into_app_zone ? 'text-brass' : 'text-muted'}`}>
+            {g.limited
+                ? `→ really ${g.effective_pct}%: cut by the edge of the screen`
+                : g.into_app_zone
+                    ? `→ ${g.effective_pct}% as asked; it covers the app's buttons area on a phone`
+                    : `→ ${g.effective_pct}% as asked`}
+        </span>
+    );
+}
 
 // What the B-roll test says, in words a user can act on.
 const brollVerdict = (r) => {
@@ -13,7 +41,15 @@ const brollVerdict = (r) => {
         : g.startsWith('billing') ? 'Gemini images: refused on your key (free tier / billing off) — "auto" will use free photos instead'
         : `Gemini images: failed (${g.replace(/^error: /, '').slice(0, 120)})`;
     const free = r.free === 'ok' ? 'free photos: working ✓' : `free photos: ${r.free}`;
-    return `${gem} · ${free}`;
+    const l = r.local || '';
+    const local = l.startsWith('ok') ? `local GPU: working ✓ ${l.slice(2).trim()}`
+        : l === 'offline' ? 'local GPU: ComfyUI not running (start it in Pinokio)'
+        : l ? `local GPU: failed (${l.replace(/^error: /, '').slice(0, 120)})` : '';
+    const c = r.claude || '';
+    const claude = c.startsWith('ok') ? `Claude: working ✓ ${c.slice(2).trim()}`
+        : c === 'not set up' ? 'Claude: not set up (CLAUDE_CODE_OAUTH_TOKEN in .env)'
+        : c ? `Claude: failed (${c.replace(/^error: /, '').slice(0, 120)})` : '';
+    return [claude, local, gem, free].filter(Boolean).join(' · ');
 };
 
 const chip = (active) => `readout px-2.5 py-1.5 rounded-full border transition-colors ${active
@@ -34,6 +70,172 @@ function Toggle({ checked, onChange, label, hint, beta }) {
     );
 }
 
+// --- AI brain: who thinks at each step (plus.py BRAIN_PRESETS / ai_brain.STAGES) ---
+
+const GEMINI_COLOR = '#5b8def';
+const CLAUDE_COLOR = '#d97757';
+const MODELS = [
+    { v: 'gemini', label: 'Gemini', color: GEMINI_COLOR, hint: 'Google Gemini Flash, billed per token on your key — cents per video. Uses none of your Claude plan.' },
+    { v: 'haiku', label: 'Haiku', color: CLAUDE_COLOR, hint: 'Claude Haiku: fast and light, about a third of Sonnet on your plan.' },
+    { v: 'sonnet', label: 'Sonnet', color: CLAUDE_COLOR, hint: 'Claude Sonnet: the default judge.' },
+    { v: 'opus', label: 'Opus', color: CLAUDE_COLOR, hint: 'Claude Opus: the most careful, heaviest on your plan.' },
+];
+const STEPS = [
+    { k: 'brief_score', label: 'read & sort the video', hint: 'Reads the whole transcript once: who talks, the topic, and a score for every stretch. The biggest read of the job.', w: 30 },
+    { k: 'detail', label: 'pick & write the clips', hint: 'Chooses the clips from the shortlist and writes hooks, titles and descriptions. Where the quality shows.', w: 25 },
+    { k: 'broll', label: 'b-roll plan', hint: 'Which moments get an image and what it shows (and the hook of a screen clip, in the same call).', w: 25 },
+    { k: 'image_review', label: 'check b-roll images', hint: 'Scores each image against its idea. On Gemini, the b-roll brain re-checks only the doubtful ones.', w: 8 },
+    { k: 'layout', label: 'framing', hint: 'A few frames of the source: face crop, screen or split screen.', w: 5 },
+    { k: 'hook', label: 'screen hook', hint: 'Rewrites the hook from the frames when the clip is a screen and no Claude b-roll did it.', w: 5 },
+    { k: 'text', label: 'editor text', hint: 'Later, in the clip editor: translate captions, regenerate a clip’s copy.', w: 2 },
+];
+const PRESETS = [
+    { v: 'gemini', label: 'Gemini only', hint: 'No Claude at all. Nothing from your plan; Gemini bills a few cents per video.', claude: 0, gemini: 3 },
+    { v: 'balanced', label: 'Balanced', hint: 'Gemini reads, Claude decides. The default.', claude: 2, gemini: 2 },
+    { v: 'claude', label: 'Claude everywhere', hint: 'Every step on Claude; the light ones on Haiku to spare the plan.', claude: 3, gemini: 0 },
+    { v: 'claude_max', label: 'Claude max', hint: 'Opus picks the clips and plans the b-roll. Best judgment, heaviest on the plan.', claude: 4, gemini: 0 },
+];
+// Fallback copy of plus.py's presets (the server sends the real ones).
+const PRESET_STAGES = {
+    gemini: Object.fromEntries(STEPS.map((s) => [s.k, 'gemini'])),
+    balanced: { brief_score: 'gemini', detail: 'sonnet', layout: 'gemini', broll: 'sonnet', image_review: 'gemini', hook: 'sonnet', text: 'gemini' },
+    claude: { brief_score: 'haiku', detail: 'sonnet', layout: 'haiku', broll: 'sonnet', image_review: 'haiku', hook: 'sonnet', text: 'haiku' },
+    claude_max: { brief_score: 'sonnet', detail: 'opus', layout: 'haiku', broll: 'opus', image_review: 'sonnet', hook: 'sonnet', text: 'haiku' },
+};
+// Rough share of a Claude plan per model, Sonnet = 1 (list prices ratio).
+const PLAN_WEIGHT = { gemini: 0, haiku: 1 / 3, sonnet: 1, opus: 5 / 3 };
+const THINKING_OPTS = [
+    { v: 'light', label: 'light', hint: 'Short thinking: fewest tokens.' },
+    { v: 'normal', label: 'normal', hint: 'Medium thinking.' },
+    { v: 'deep', label: 'deep', hint: 'Thinks longest before choosing: best picks, most tokens on these two steps.' },
+];
+
+function Dots({ n, max = 4, color }) {
+    return (
+        <span className="inline-flex gap-0.5 align-middle">
+            {Array.from({ length: max }, (_, i) => (
+                <span key={i} className="w-1.5 h-1.5 rounded-full" style={{ background: i < n ? color : 'var(--color-rule2, #8883)' }} />
+            ))}
+        </span>
+    );
+}
+
+function ModelSwitch({ value, onChange, noGemini }) {
+    return (
+        <div className="inline-flex rounded-full bg-paper3 p-0.5 shrink-0" role="radiogroup">
+            {MODELS.map((m) => {
+                const on = value === m.v;
+                return (
+                    <button key={m.v} type="button" role="radio" aria-checked={on} title={m.hint + (m.v === 'gemini' && noGemini ? ' (No Gemini key in Settings: Claude runs it instead.)' : '')}
+                        onClick={() => onChange(m.v)}
+                        className={`readout px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 transition-colors ${on ? 'bg-paper text-ink shadow-sm' : 'text-muted hover:text-ink'}`}>
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: m.color, opacity: on ? 1 : 0.45 }} />
+                        {m.label}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
+function BrainSection({ brain, presets, onChange, noGemini }) {
+    const b = brain || {};
+    const presetStages = presets || PRESET_STAGES;
+    const stages = { ...presetStages.balanced, ...(b.stages || presetStages[b.preset] || {}) };
+    const preset = b.preset || 'balanced';
+    const [open, setOpen] = useState(preset === 'custom');
+    const pickPreset = (v) => onChange({ preset: v, stages: { ...presetStages[v] } });
+    const setStage = (k, v) => {
+        const next = { ...stages, [k]: v };
+        const match = Object.keys(presetStages).find((p) => STEPS.every((s) => presetStages[p][s.k] === next[s.k]));
+        onChange({ preset: match || 'custom', stages: next });
+    };
+    const total = STEPS.reduce((a, s) => a + s.w, 0);
+    const planUse = Math.round((STEPS.reduce((a, s) => a + s.w * PLAN_WEIGHT[stages[s.k]], 0) / total) * 100);
+    const onClaude = STEPS.filter((s) => stages[s.k] !== 'gemini');
+    const onGemini = STEPS.length - onClaude.length;
+
+    return (
+        <div className="space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {PRESETS.map((pr) => {
+                    const on = preset === pr.v;
+                    return (
+                        <button key={pr.v} type="button" onClick={() => pickPreset(pr.v)} title={pr.hint}
+                            className={`text-left px-3 py-2.5 rounded-input border transition-colors ${on ? 'border-brass bg-brass/10' : 'border-rule hover:border-rule2 bg-paper'}`}>
+                            <span className="block text-sm text-ink">{pr.label}{pr.v === 'balanced' && <span className="text-brass"> ★</span>}</span>
+                            <span className="block text-[11px] text-muted leading-snug mt-0.5 min-h-[2.2em]">{pr.hint}</span>
+                            <span className="grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1 mt-2 readout text-muted">
+                                <span>claude</span><Dots n={pr.claude} color={CLAUDE_COLOR} />
+                                <span>gemini</span><Dots n={pr.gemini} max={3} color={GEMINI_COLOR} />
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            <div className="rounded-input border border-rule bg-paper">
+                <button type="button" onClick={() => setOpen(!open)}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left">
+                    <span className="text-sm text-ink">
+                        each step {preset === 'custom' && <span className="ml-1.5 readout px-1.5 py-0.5 rounded bg-brass/15 text-brass">custom</span>}
+                    </span>
+                    <span className="readout text-muted">{open ? 'hide' : 'fine-tune'}</span>
+                </button>
+                {open && (
+                    <div className="border-t border-rule divide-y divide-rule">
+                        {STEPS.map((s) => (
+                            <div key={s.k} className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 px-3 py-2">
+                                <span className="min-w-0 flex-1">
+                                    <span className="block text-sm text-ink">{s.label}</span>
+                                    <span className="block text-[11px] text-muted leading-snug">{s.hint}</span>
+                                </span>
+                                <ModelSwitch value={stages[s.k]} onChange={(v) => setStage(s.k, v)} noGemini={noGemini} />
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {[['thinking', 'deep', 'claude thinking: choosing the clips'],
+              ['thinking_broll', 'normal', 'claude thinking: b-roll images']].map(([key, dflt, label]) => (
+                <div key={key} className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <span className="text-xs text-muted">{label}</span>
+                    <div className="inline-flex rounded-full bg-paper3 p-0.5">
+                        {THINKING_OPTS.map((t) => (
+                            <button key={t.v} type="button" title={t.hint} onClick={() => onChange({ [key]: t.v })}
+                                className={`readout px-2.5 py-1 rounded-full transition-colors ${(b[key] || dflt) === t.v ? 'bg-paper text-ink shadow-sm' : 'text-muted hover:text-ink'}`}>
+                                {t.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            ))}
+
+            <div className="rounded-input bg-paper3 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-ink2">
+                        <span className="inline-flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full" style={{ background: CLAUDE_COLOR }} />Claude {onClaude.length} step{onClaude.length === 1 ? '' : 's'}</span>
+                        <span className="text-muted"> · </span>
+                        <span className="inline-flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full" style={{ background: GEMINI_COLOR }} />Gemini {onGemini}</span>
+                    </span>
+                    <span className="readout text-muted">claude plan ≈ {planUse}% of an all-Sonnet run</span>
+                </div>
+                <div className="h-1.5 mt-2 rounded-full bg-paper overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, Math.max(planUse, 2))}%`, background: CLAUDE_COLOR }} />
+                </div>
+                {noGemini && onGemini > 0 && (
+                    <p className="text-[11px] text-warn mt-2">No Gemini key in Settings: the Gemini steps will run on Claude instead.</p>
+                )}
+            </div>
+
+            <Toggle checked={b.fresh} onChange={(v) => onChange({ fresh: v })}
+                label={<span className="inline-flex items-center gap-1.5"><RefreshCw size={12} /> fresh picks on the next run</span>}
+                hint="A video run before normally reuses the AI's earlier answers for free (same clips). Tick this to get new picks on your next run; it switches itself off afterwards." />
+        </div>
+    );
+}
+
 function Section({ icon, title, children }) {
     return (
         <section className="pt-4 border-t border-rule first:border-t-0 first:pt-0">
@@ -47,7 +249,7 @@ function Section({ icon, title, children }) {
  * Edit one Clip Generator++ profile: everything a run of that channel needs.
  * Beta switches change what the AI does and are clearly marked as such.
  */
-export default function PlusProfileEditor({ isOpen, onClose, profile, music = [], accounts = [], geminiApiKey, onSave, onDelete, onDuplicate }) {
+export default function PlusProfileEditor({ isOpen, onClose, profile, music = [], accounts = [], geminiApiKey, brainPresets, onSave, onDelete, onDuplicate }) {
     const [p, setP] = useState(profile);
     const [history] = useState(loadNicheHistory);
     const [brollTest, setBrollTest] = useState(null); // null | 'running' | result
@@ -57,7 +259,7 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
             const headers = { 'Content-Type': 'application/json' };
             if (geminiApiKey) headers['X-Gemini-Key'] = geminiApiKey;
             setBrollTest(await apiJson('/api/plus/broll/test', {
-                method: 'POST', headers, body: JSON.stringify({ style: p?.broll?.style || 'photo' }),
+                method: 'POST', headers, body: JSON.stringify({ style: p?.broll?.style || 'photo', engine: p?.broll?.engine || 'zimage' }),
             }));
         } catch (e) {
             setBrollTest({ gemini: `error: ${e.message}`, free: '?' });
@@ -135,6 +337,11 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                         label="end on a full sentence" hint="Never stops mid-thought: cuts back to the last full stop (drops a dangling “cause…” after the punchline) or runs on to the next one, a few seconds at most." />
                 </Section>
 
+                <Section icon={<Brain size={13} />} title="ai brain — who thinks at each step">
+                    <BrainSection brain={p.brain} presets={brainPresets} noGemini={!geminiApiKey}
+                        onChange={(patch) => setIn('brain', patch)} />
+                </Section>
+
                 <Section icon={<Film size={13} />} title="edit">
                     <div className="flex flex-wrap gap-1.5 mb-2">
                         {[['natural', 'clean: 2-3 plain words, calm reframes at sentence ends (like the big podcast channels)'], ['punchy', '1-2 big glowing words, zooms every 2-3 s'], ['clean', '2-4 words, softer zooms']].map(([v, hint]) => (
@@ -143,6 +350,8 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                     </div>
                     <Toggle checked={p.fx?.smart_framing} onChange={(v) => setIn('fx', { smart_framing: v })}
                         label="smart framing" hint="Zooms centred on the face, tight on the hook and the strongest lines, wide elsewhere — measured, never random." />
+                    <Toggle beta checked={p.fx?.smooth_camera} onChange={(v) => setIn('fx', { smooth_camera: v })}
+                        label="smooth camera" hint="The frame holds and only glides (eased, never more than once every ~2.5 s) when the speaker has really moved; zoom changes glide instead of jumping; shot changes dissolve over ~4 frames; reaction shots are fewer (max 2), a bit longer and fade in and out." />
                     <Toggle checked={p.fx?.look} onChange={(v) => setIn('fx', { look: v })}
                         label="sharp look" hint="Crisper detail, deeper contrast, a faint glow on highlights." />
                     <Toggle checked={p.fx?.spotlight} onChange={(v) => setIn('fx', { spotlight: v })}
@@ -173,11 +382,6 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                         <span className="block text-xs text-muted leading-relaxed mt-1">
                             The first 1.5 s decide the swipe: the bold headline reads at a glance, above the face and far from the captions.
                         </span>
-                        {(p.hook_style || (p.hook_box ? 'classic' : 'none')) !== 'none' && (
-                            <Toggle checked={p.hook_emoji ?? true} onChange={(v) => set({ hook_emoji: v })}
-                                label="add a meaningful emoji"
-                                hint="One emoji at the end of the headline when its words call for it: brain 🧠, death 💀, drugs 💊, AI 🤖, psychedelics 🍄, soldiers / PTSD 🪖, money 💰… None if nothing fits." />
-                        )}
                     </div>
                     <label className="block mt-2">
                         <span className="text-xs text-muted">channel name under the captions (blank = none)</span>
@@ -211,45 +415,172 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                 </Section>
 
                 <Section icon={<ImageIcon size={13} />} title="b-roll images">
-                    <Toggle beta checked={p.broll?.enabled} onChange={(v) => setIn('broll', { enabled: v })}
+                    <Toggle checked={p.broll?.enabled} onChange={(v) => setIn('broll', { enabled: v })}
                         label="images when something concrete is named"
-                        hint="2-4 cutaways of 1.6 s per clip (never on the hook nor the punchline), exactly on the word — the kratom plant, a brain scan, soldiers. The AI picks the moments; clips become a real edit, not a re-upload." />
+                        hint="Several images per clip (choose the amount below), each shown from its word to the end of the sentence (1.5-3 s; big full-screen ones stay under 1.5 s): the kratom plant, a knife, a brain scan, soldiers. The AI picks the moments and the style of each image. Kept clear of the punchline; in the small and full-screen layouts also of the hook. Clips become a real edit, not a re-upload." />
                     {p.broll?.enabled && (
                         <div className="mt-1 space-y-2">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs text-muted w-14">source</span>
-                                {[['auto', 'auto', 'Gemini images, free photos for anything it cannot make (e.g. free tier).'],
-                                    ['gemini', 'Gemini images', 'Generated in the chosen style. Billed per image on your Gemini key.'],
-                                    ['free', 'free photos', 'Real photos from Wikimedia Commons (reusable licences only), credited in the description. Free.']].map(([v, label, hint]) => (
-                                    <button key={v} type="button" title={hint} onClick={() => setIn('broll', { source: v })}
-                                        className={chip((p.broll?.source || 'auto') === v)}>{label}</button>
-                                ))}
-                            </div>
+                            {(
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-xs text-muted w-14">model</span>
+                                    {[['zimage', 'Z-Image Turbo (fast)', '~12 s per image on the RTX 3060 (~45 s for the first one of a job: model load). The default for clips.'],
+                                        ['flux', 'FLUX schnell (quality)', '~25 s per image (~40 s for the first) and heavier on the GPU; for when the images matter most.']].map(([v, label, hint]) => (
+                                        <button key={v} type="button" title={hint} onClick={() => setIn('broll', { engine: v })}
+                                            className={chip((p.broll?.engine || 'zimage') === v)}>{label}</button>
+                                    ))}
+                                </div>
+                            )}
+                            <p className="text-xs text-muted">
+                                <span className="w-14 inline-block">brain</span>
+                                {(() => {
+                                    const v = p.brain?.stages?.broll || 'sonnet';
+                                    return v === 'gemini' ? 'Gemini' : `Claude ${v[0].toUpperCase()}${v.slice(1)}`;
+                                })()} — set under “ai brain” above (b-roll plan).
+                            </p>
                             <div className="flex flex-wrap items-center gap-1.5">
                                 <span className="text-xs text-muted w-14">style</span>
-                                {[['photo', 'documentary photo'], ['neon', 'neon science'], ['drawing', '2D drawing']].map(([v, label]) => (
-                                    <button key={v} type="button" onClick={() => setIn('broll', { style: v })}
+                                {[['auto', 'auto (AI picks)', 'Per image: a real photo for things you can photograph, neon science for the invisible (neurons, molecules, hormones), a drawing for mechanisms, cinematic for drama, vintage for the past, 3D for a clean object, comic for humour, a diagram for a process.'],
+                                    ['photo', 'documentary photo'], ['neon', 'neon science'], ['drawing', '2D drawing'],
+                                    ['cinematic', 'cinematic', 'Dark, contrasted film still with grain: drama, danger, tension.'],
+                                    ['vintage', 'vintage', 'Black and white or sepia archive photo: the past, historical scenes.'],
+                                    ['3d', '3D render', 'Clean studio 3D render: an object, an organ or a machine.'],
+                                    ['comic', 'comic', 'Comic-book illustration: humour, anecdotes, exaggeration.'],
+                                    ['diagram', 'diagram', 'Simple shapes, icons and arrows: processes, flows, cause and effect (no text).']].map(([v, label, hint]) => (
+                                    <button key={v} type="button" title={hint} onClick={() => setIn('broll', { style: v })}
                                         className={chip((p.broll?.style || 'photo') === v)}>{label}</button>
                                 ))}
-                                <label className="flex items-center gap-1.5 text-xs text-muted ml-2">
-                                    max
-                                    <input type="number" min="1" max="4" value={p.broll?.max ?? 3}
-                                        onChange={(e) => setIn('broll', { max: e.target.value })}
-                                        className="input-field text-xs py-1 px-2 w-14" />
-                                    per clip
-                                </label>
                             </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs text-muted w-14">review</span>
+                                {[['auto', 'auto', 'The images are cut into the clip straight away.'],
+                                    ['manual', 'manual', 'The images are prepared but not cut in: on each clip, open "check images" to remove, redo or move them, then cut them in.']].map(([v, label, hint]) => (
+                                    <button key={v} type="button" title={hint} onClick={() => setIn('broll', { review: v })}
+                                        className={chip((p.broll?.review || 'auto') === v)}>{label}</button>
+                                ))}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs text-muted w-14">images</span>
+                                {[['literal', 'literal', 'Shows exactly what is named: salvia = the plant, knife = a knife.'],
+                                    ['mixed', 'mixed', 'Half literal, half the idea behind the words (a mechanism, a consequence, an analogy).'],
+                                    ['concept', 'idea first', 'Shows what the sentence means; literal only when the word itself is the point.']].map(([v, label, hint]) => (
+                                    <button key={v} type="button" title={hint} onClick={() => setIn('broll', { mode: v })}
+                                        className={chip((p.broll?.mode || 'mixed') === v)}>{label}</button>
+                                ))}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs text-muted w-14">amount</span>
+                                {(() => {
+                                    const base = Math.max(1, Math.min(10, Number(p.broll?.max) || 6));
+                                    const counts = {
+                                        less: Math.max(1, Math.floor(base * 0.6 + 0.5)),
+                                        normal: base,
+                                        more: Math.min(12, Math.max(base + 1, Math.floor(base * 1.5 + 0.5))),
+                                    };
+                                    return [['less', 'fewer', 'Only the strongest moments, about one image every 8-10 s, at least 4.5 s apart.'],
+                                        ['normal', 'normal', 'About one image every 4-6 s, at least 3 s apart.'],
+                                        ['more', 'more', 'Every concrete mention, about one image every 3-4 s, at least 2.4 s apart. Images stay short so they can follow each other.']].map(([v, label, hint]) => (
+                                        <button key={v} type="button" title={hint} onClick={() => setIn('broll', { density: v })}
+                                            className={chip((p.broll?.density || 'normal') === v)}>{label} · up to {counts[v]}</button>
+                                    ));
+                                })()}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs text-muted w-14">stays</span>
+                                <button type="button" onClick={() => setIn('broll', { hold: null })}
+                                    title="Each image stays from its word to the end of the sentence (1.5-3 s; 1.2-1.5 s for a big full-screen one)."
+                                    className={chip(p.broll?.hold == null)}>until the end of the sentence</button>
+                                <button type="button" onClick={() => { if (p.broll?.hold == null) setIn('broll', { hold: 2 }); }}
+                                    title="The same time on screen for every image. Two images never overlap: the first leaves a little early if they are close."
+                                    className={chip(p.broll?.hold != null)}>
+                                    fixed{p.broll?.hold != null ? ` · ${Number(p.broll.hold).toFixed(1)} s` : ''}
+                                </button>
+                                {p.broll?.hold != null && (
+                                    <input type="range" min="1" max="4" step="0.1" value={p.broll.hold}
+                                        onChange={(e) => setIn('broll', { hold: Number(e.target.value) })}
+                                        className="w-40 accent-[var(--color-accent)]" />
+                                )}
+                            </div>
+                            {p.broll?.layout === 'rise' && (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-xs text-muted w-14">enters</span>
+                                    {[['rise', 'rises from the edge', 'The small card comes in from the bottom (or the top) edge, growing as it goes.'],
+                                        ['fade', 'fades in', 'The card does not travel: it fades in place and settles a little.']].map(([v, label, hint]) => (
+                                        <button key={v} type="button" title={hint} onClick={() => setIn('broll', { enter: v })}
+                                            className={chip((p.broll?.enter || 'rise') === v)}>{label}</button>
+                                    ))}
+                                </div>
+                            )}
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs text-muted w-14">edge</span>
+                                {[['soft', 'soft', 'A thin, see-through edge and a light shadow.'],
+                                    ['strong', 'strong', 'The previous look: a bright white edge and a heavy shadow.'],
+                                    ['none', 'none', 'No edge and no shadow: the picture alone.']].map(([v, label, hint]) => (
+                                    <button key={v} type="button" title={hint} onClick={() => setIn('broll', { border: v })}
+                                        className={chip((p.broll?.border || 'soft') === v)}>{label}</button>
+                                ))}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs text-muted w-14">zoom out</span>
+                                {[['off', 'none', 'No zoom: the image just fades away.'],
+                                    ['soft', 'soft', 'It swells about 13 % in the last moments, smoothly, then fades.'],
+                                    ['strong', 'strong', 'It swells about 26 % in the last moments, smoothly, then fades.']].map(([v, label, hint]) => (
+                                    <button key={v} type="button" title={hint} onClick={() => setIn('broll', { zoom: v })}
+                                        className={chip((p.broll?.zoom || 'soft') === v)}>{label}</button>
+                                ))}
+                            </div>
+                            <Toggle checked={p.broll?.real_photos} onChange={(v) => setIn('broll', { real_photos: v })}
+                                label="real photos for famous places & flags"
+                                hint="A famous place, landmark, city, country or a flag (the CN Tower, the Eiffel Tower, the flag of France) is a real photo from Wikimedia Commons (CC0 / public domain / CC BY, the credit goes in the description). Everything else stays generated, and so does a place or flag with no good photo. Needs the Claude brain on the B-roll step." />
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs text-muted w-14">show</span>
+                                    {[['rise', 'small, rises from the bottom', 'A small card comes up from the bottom edge, growing as it rises, and stops next to the captions — never on them. The video stays sharp around it.'],
+                                    ['full', 'full screen', 'The image takes the whole frame (tall images) or a big card over the blurred podcast.']].map(([v, label, hint]) => (
+                                    <button key={v} type="button" title={hint} onClick={() => setIn('broll', { layout: v })}
+                                        className={chip((p.broll?.layout || 'full') === v)}>{label}</button>
+                                ))}
+                            </div>
+                            {p.broll?.layout === 'rise' && (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-xs text-muted w-14">where</span>
+                                    {[['below', 'under the captions'], ['above', 'above the captions']].map(([v, label]) => (
+                                        <button key={v} type="button" onClick={() => setIn('broll', { position: v, y: null })}
+                                            className={chip(p.broll?.y == null && (p.broll?.position || 'below') === v)}>{label}</button>
+                                    ))}
+                                    <button type="button" title="Pick the height yourself: drag the card in the preview below, or use its height slider."
+                                        onClick={() => { if (p.broll?.y == null) setIn('broll', { y: 72 }); }}
+                                        className={chip(p.broll?.y != null)}>
+                                        my height{p.broll?.y != null ? ` · ${Math.round(p.broll.y)}%` : ''}
+                                    </button>
+                                    <label className="flex items-center gap-1.5 text-xs text-muted ml-2">
+                                        size
+                                        <input type="number" min="18" max="60" step="2" value={p.broll?.size ?? 28}
+                                            onChange={(e) => setIn('broll', { size: e.target.value })}
+                                            className="input-field text-xs py-1 px-2 w-16" />
+                                        % of the width
+                                    </label>
+                                    <RealSize style={p.edit_style} watermark={(p.watermark || '').trim()}
+                                        position={p.broll?.position || 'below'} size={p.broll?.size ?? 28} y={p.broll?.y ?? null} />
+                                    <div className="w-full">
+                                        <BrollCardPreview style={p.edit_style} watermark={(p.watermark || '').trim()}
+                                            position={p.broll?.position || 'below'} size={p.broll?.size ?? 28}
+                                            y={p.broll?.y ?? null}
+                                            border={p.broll?.border || 'soft'}
+                                            onSize={(v) => setIn('broll', { size: v })}
+                                            onY={(v) => setIn('broll', { y: v })} />
+                                    </div>
+                                </div>
+                            )}
                             <div className="flex flex-wrap items-center gap-2">
                                 <button type="button" onClick={runBrollTest} disabled={brollTest === 'running'}
                                     className="btn-ghost px-3 py-1.5 text-xs inline-flex items-center gap-1.5">
                                     {brollTest === 'running' ? <Loader2 size={12} className="animate-spin" /> : <ImageIcon size={12} />}
-                                    {brollTest === 'running' ? 'testing (~20 s)…' : 'test image sources'}
+                                    {brollTest === 'running' ? 'testing (up to ~1 min)…' : 'test image sources'}
                                 </button>
                                 {brollTest && brollTest !== 'running' && (
                                     <span className="text-xs text-muted leading-relaxed">{brollVerdict(brollTest)}</span>
                                 )}
                             </div>
-                            <p className="text-[11px] text-muted">The style applies to Gemini images; free photos are real photos. The moments are picked with a small Gemini text call (free tier is enough).</p>
+                            <p className="text-[11px] text-muted">The style applies to generated images (local GPU, Gemini); free photos are real photos. The "brain" picks the moments and what each image shows.</p>
                         </div>
                     )}
                 </Section>
@@ -281,6 +612,12 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                     {p.beta?.series_titles && (
                         <input value={p.beta?.series_name || ''} onChange={(e) => setIn('beta', { series_name: e.target.value })}
                             placeholder="speaker / series name, e.g. Joe Rogan" className="input-field text-sm mt-1" />
+                    )}
+                    <Toggle beta checked={p.beta?.playbook} onChange={(v) => setIn('beta', { playbook: v })}
+                        label="Synapse Cut playbook" hint="Question titles, never a name in the title (names go in the description's credit line), opens on the hook sentence, a question to the viewer in the description, one stats JSON per clip. Wins over series titles." />
+                    {p.beta?.playbook && (
+                        <input value={p.beta?.playbook_show || ''} onChange={(e) => setIn('beta', { playbook_show: e.target.value })}
+                            placeholder="show name for the credit line (empty = from the file name)" className="input-field text-sm mt-1" />
                     )}
                 </Section>
             </div>

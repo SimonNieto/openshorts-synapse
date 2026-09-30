@@ -274,6 +274,7 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=frame_bytes * 4)
 
     xs = []
+    targets = []   # where the camera WANTS to be (crop x), before its own smoothing
     frame_number = 0
     current_scene_index = 0
     try:
@@ -299,6 +300,7 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
                 cameraman.current_center_x = orig_w / 2
                 cameraman.target_center_x = orig_w / 2
                 xs.append(None)
+                targets.append(None)
             else:
                 is_scene_start = (
                     current_scene_index < len(scenes_boundaries)
@@ -325,13 +327,124 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
 
                 x1, _y1, _x2, _y2 = cameraman.get_crop_box(force_snap=is_scene_start)
                 xs.append(x1)
+                targets.append(cameraman.target_center_x - cameraman.crop_width / 2)
 
             frame_number += 1
     finally:
         proc.stdout.close()
         proc.wait()
 
-    return xs
+    return xs, targets
+
+
+# --- smooth camera (Clip Generator++ option, SMOOTH_CAMERA=1) ---------------------
+#
+# The v1 cameraman pans at a fixed speed as soon as the face leaves a wide safe
+# zone, and a head that bobs around that edge makes it start and stop; far
+# moves go at 15 px/frame, a whip. An editor instead holds the frame, and when
+# the subject has REALLY moved, glides there once, easing in and out, then
+# holds again. calm_path() replays that on the camera's wanted positions.
+# Measured on a real JRE clip (28-sep-2026): the guest leaning forward and
+# back moved the wanted crop x over 200 px (a third of the crop) and the first
+# version answered with five 0.4 s glides back and forth — worse than the old
+# camera. A talking head is framed ONCE per shot by an editor: a shot whose
+# head stays inside STATIC_BAND of the crop gets one fixed framing, centred on
+# where the head goes; only a head that really travels gets (slow) glides.
+STATIC_BAND = 0.45         # of the crop width: head travel that still fits a fixed frame
+CALM_DEADZONE = 0.20       # of the crop width: closer than this, the frame holds
+CALM_CONFIRM_S = 0.8       # the offset must last this long (a lean is not a move)
+CALM_GAP_S = 4.0           # at least this long between two moves...
+CALM_URGENT = 0.38         # ...unless the face is about to leave the frame
+CALM_URGENT_GAP_S = 1.0
+SOFT_CUT_S = 0.13          # ~4 frames: the last frame of a shot dissolves into the next
+
+
+def _smootherstep(u):
+    return u * u * u * (u * (u * 6 - 15) + 10)
+
+
+def calm_path(targets, fps, crop_w, max_x):
+    """Crop x per frame for one TRACK scene: one fixed framing when the head's
+    travel fits it (the usual talking head); otherwise hold, and one slow eased
+    glide (1.2-1.8 s) when the face has settled elsewhere, never twice within
+    CALM_GAP_S unless it is leaving the frame."""
+    import numpy as np
+    n = len(targets)
+    if not n:
+        return []
+    t = [min(max(v, 0), max_x) for v in targets]
+    # Where the head spends the shot: the densest STATIC_BAND-wide stretch of
+    # its positions. If it holds at least 80 % of the frames, that is the
+    # shot — one fixed framing, no camera move; the rest are stray or brief
+    # detections (a wide shot of the host opened on a wrong YOLO box for
+    # 1 s, 28-sep-2026, and the camera used to start there).
+    ts = np.sort(np.asarray(t, dtype=float))
+    band, j, best = STATIC_BAND * crop_w, 0, (0, ts[0], ts[0])
+    for i in range(n):
+        while ts[i] - ts[j] > band:
+            j += 1
+        if i - j + 1 > best[0]:
+            best = (i - j + 1, ts[j], ts[i])
+    if best[0] >= 0.8 * n:
+        return [int(round((best[1] + best[2]) / 2))] * n
+
+    def settle(i, span):
+        window = sorted(t[i:i + max(1, int(span * fps))])
+        return window[len(window) // 2]
+
+    dz, confirm = CALM_DEADZONE * crop_w, max(1, int(CALM_CONFIRM_S * fps))
+    anchor, out, last_move = settle(0, 0.5), [], -1e9
+    i = 0
+    while i < n:
+        off = abs(t[i] - anchor)
+        if off > dz:
+            j = i
+            while j < n and abs(t[j] - anchor) > dz and j - i < confirm:
+                j += 1
+            since = (i - last_move) / fps
+            urgent = off > CALM_URGENT * crop_w
+            if j - i >= confirm and (since >= CALM_GAP_S or (urgent and since >= CALM_URGENT_GAP_S)):
+                new = settle(i, 0.8)
+                dur = min(1.8, max(1.2, abs(new - anchor) / crop_w * 2.5))
+                m = max(2, int(dur * fps))
+                for k in range(min(m, n - i)):
+                    out.append(anchor + (new - anchor) * _smootherstep((k + 1) / m))
+                i += m
+                anchor, last_move = new, i
+                continue
+        out.append(anchor)
+        i += 1
+    return [int(round(min(max(v, 0), max_x))) for v in out[:n]]
+
+
+def _people_in_general_scenes(input_video, scene_boundaries, strategies, fps, samples=3):
+    """Indexes of GENERAL scenes where the YOLO person detector finds someone
+    in most sampled frames (faces too small or turned away still have a body)."""
+    import cv2
+    import numpy as np
+    import main as m
+    out = []
+    cap = cv2.VideoCapture(input_video)
+    if not cap.isOpened():
+        return out
+    try:
+        for idx, (s_f, e_f) in enumerate(scene_boundaries):
+            if idx >= len(strategies) or strategies[idx] != 'GENERAL' or e_f - s_f < 2:
+                continue
+            hits = seen = 0
+            for f_idx in np.linspace(s_f, e_f - 1, samples):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(f_idx)))
+                ok, frame = cap.read()
+                if not ok or frame.mean() < 16:
+                    continue
+                seen += 1
+                if m.detect_person_yolo(frame):
+                    hits += 1
+            if seen and hits * 2 > seen:
+                out.append(idx)
+    finally:
+        cap.release()
+    return out
 
 
 # --- render -----------------------------------------------------------------
@@ -478,6 +591,19 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     if inset_count:
         print(f"   📹 Camera-inset layout on {inset_count} scene(s)")
 
+    # Smooth camera (Clip Generator++): a GENERAL scene (the whole frame
+    # shrunk into a band over a blurred copy of itself) is kept only when
+    # nobody is in it. A wide shot of the host whose face the detector misses
+    # (small, in profile) came out as a tiny Joe floating in blur (JRE,
+    # 28-sep-2026); with a PERSON in the shot it is tracked like any other —
+    # the tracker already falls back to the YOLO person box without a face.
+    if os.environ.get("SMOOTH_CAMERA", "0") == "1" and not force_strategy and not passthrough:
+        tightened = _people_in_general_scenes(input_video, scene_boundaries, strategies, fps)
+        for idx in tightened:
+            strategies[idx] = 'TRACK'
+        if tightened:
+            print(f"   🎯 Tight framing on {len(tightened)} wide scene(s) with a person (no blurred band)")
+
     # The crop geometry comes from the SOURCE dims only — SmoothedCameraman
     # derives crop_width/crop_height from video_width/video_height and never
     # reads the output pair. So out_w/out_h being the (possibly upscaled)
@@ -485,10 +611,22 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     cameraman = m.SmoothedCameraman(out_w, out_h, orig_w, orig_h, aspect_ratio=aspect_ratio)
     tracker = m.SpeakerTracker(cooldown_frames=30)
 
-    xs = _analyze_trajectory(input_video, scene_boundaries, strategies, fps,
-                             orig_w, orig_h, cameraman, tracker)
+    xs, targets = _analyze_trajectory(input_video, scene_boundaries, strategies, fps,
+                                      orig_w, orig_h, cameraman, tracker)
     if not xs:
         raise RuntimeError("analysis produced no frames")
+    smooth = os.environ.get("SMOOTH_CAMERA", "0") == "1"
+    if smooth:
+        max_x = max(0, orig_w - cameraman.crop_width)
+        calmed = 0
+        for idx, (s_f, e_f) in enumerate(scene_boundaries):
+            e_f = min(e_f, len(xs))
+            if idx < len(strategies) and strategies[idx] == 'TRACK' and e_f > s_f:
+                seg = targets[s_f:e_f]
+                if all(v is not None for v in seg):
+                    xs[s_f:e_f] = calm_path(seg, fps, cameraman.crop_width, max_x)
+                    calmed += 1
+        print(f"   🎥 Smooth camera on {calmed} scene(s), soft cuts between shots")
 
     # Beats are found once per clip; each scene takes the ones inside it.
     beats = []
@@ -575,9 +713,30 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
                     f"scale={out_w}:{out_h},setsar=1[v]"
                 )
 
+            extra_in = []
+            if smooth and segments and dur > SOFT_CUT_S * 2:
+                # Soft cut: the previous shot's last frame dissolves into this
+                # one over ~4 frames. The source cuts hard, so there is no
+                # "after" for the old shot; holding its last frame for 0.13 s
+                # reads as a dissolve and keeps the timeline — and the sound —
+                # exactly where they were.
+                last_png = os.path.join(workdir, f"last_{idx:03d}.png")
+                try:
+                    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-sseof", "-0.3", "-i", segments[-1],
+                                    "-update", "1", last_png], check=True, timeout=120)
+                    k = graph.rfind("[v]")
+                    graph = (graph[:k] + "[vm]" + graph[k + 3:]
+                             + f";[1:v]scale={out_w}:{out_h},format=rgba,"
+                               f"fade=t=out:st=0:d={SOFT_CUT_S}:alpha=1[fo];"
+                               f"[vm][fo]overlay=0:0:eof_action=pass,format=yuv420p[v]")
+                    extra_in = ["-loop", "1", "-framerate", f"{fps:.3f}", "-t", f"{SOFT_CUT_S + 0.05:.2f}",
+                                "-i", last_png]
+                except Exception as e:
+                    print(f"   ⚠️ Soft cut skipped at scene {idx} ({e})")
+
             _run([
                 "ffmpeg", "-y", "-loglevel", "error",
-                "-ss", f"{ss:.4f}", "-t", f"{dur:.4f}", "-i", input_video,
+                "-ss", f"{ss:.4f}", "-t", f"{dur:.4f}", "-i", input_video, *extra_in,
                 "-filter_complex", graph, "-map", "[v]",
                 *video_encode_args(QUALITY_FAST), "-an", seg_path,
             ])

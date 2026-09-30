@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 from pydantic import BaseModel
 from s3_uploader import upload_job_artifacts, list_all_clips, upload_actor_to_s3, list_actor_gallery, upload_video_to_gallery, list_video_gallery
@@ -133,6 +133,15 @@ else:
 async def _user_from_request(request: Request):
     """Load the authenticated cloud user (or None). Cheap indexed lookup."""
     return await get_current_user_optional(request)
+
+
+def _profile_brain(metadata, stage):
+    """The model a Clip Generator++ project's profile chose for ``stage``
+    ("gemini" / "haiku" / "sonnet" / "opus"), or None (the default) — saved
+    in the project's metadata by main.py (plus_profile.brain)."""
+    brain = ((metadata or {}).get('plus_profile') or {}).get('brain') or {}
+    v = brain.get(stage) if isinstance(brain, dict) else None
+    return v if v in ("gemini", "haiku", "sonnet", "opus") else None
 
 
 async def resolve_gemini(request: Request) -> Optional[str]:
@@ -710,6 +719,7 @@ _stopping = False                    # SIGTERM received: report not-ready so the
                                      # proxy stops routing here before the
                                      # listening socket closes
 _running_jobs: set = set()           # job ids with a live subprocess here
+_job_procs: Dict[str, Any] = {}      # job id -> its main.py subprocess (for the stop button)
 
 
 def _manifest_path(job_id):
@@ -890,6 +900,12 @@ def _clear_resume_manifest(job_id):
         print(f"⚠️ Could not clear resume manifest for {job_id}: {e}")
 
 
+# Cloud deploys hand running jobs over to the next instance, so they resume by
+# default there; a self-hosted PC does not (stopping the backend stops the work).
+RESUME_INTERRUPTED_JOBS = os.environ.get(
+    "RESUME_INTERRUPTED_JOBS", "1" if BILLING_ENABLED else "0").lower() in ("1", "true", "yes")
+
+
 def _resume_interrupted_jobs() -> set:
     """Re-enqueue jobs that were mid-processing when the server last stopped.
 
@@ -932,6 +948,13 @@ def _resume_interrupted_jobs() -> set:
             keep_reservations.add(str(m["reservation_id"]))
         if job_id in jobs:
             continue  # already ours (queued, running or recovered)
+        if not RESUME_INTERRUPTED_JOBS:
+            # Self-host: stopping the backend stops the work. The job is NOT
+            # picked up again on the next start (no surprise transcription).
+            print(f"⏹ Job {job_id} was interrupted by a stop — not resumed "
+                  f"(set RESUME_INTERRUPTED_JOBS=1 to resume after a restart).")
+            _clear_resume_manifest(job_id)
+            continue
         if _manifest_busy_elsewhere(m):
             continue  # the other instance is on it; we take over if it goes stale
 
@@ -1931,13 +1954,73 @@ def enqueue_output(out, job_id):
     finally:
         out.close()
 
+def _kill_job_tree(proc):
+    """Stop a job's process AND everything it started (ffmpeg, whisper...).
+    Linux (the container): walk /proc for the descendants; elsewhere kill the
+    process itself."""
+    pids = [proc.pid]
+    try:
+        children: Dict[int, list] = {}
+        for d in os.listdir('/proc'):
+            if d.isdigit():
+                try:
+                    with open(f'/proc/{d}/stat') as f:
+                        ppid = int(f.read().rsplit(')', 1)[1].split()[1])
+                    children.setdefault(ppid, []).append(int(d))
+                except Exception:
+                    pass
+        stack = [proc.pid]
+        while stack:
+            for c in children.get(stack.pop(), []):
+                pids.append(c)
+                stack.append(c)
+    except Exception:
+        pass
+    sig = getattr(signal, 'SIGKILL', signal.SIGTERM)
+    for pid in reversed(pids):
+        try:
+            os.kill(pid, sig)
+        except Exception:
+            pass
+    try:
+        if proc.poll() is None:
+            proc.kill()
+    except Exception:
+        pass
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str, request: Request):
+    """The "stop work" button: kills a running job (transcription, analysis,
+    rendering...) or drops a queued one. Clips already finished stay; the job
+    ends as failed with "Stopped by the user" and any reserved minutes go back."""
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _assert_job_owner(request, job)
+    if job.get('status') not in ('queued', 'processing'):
+        return {"stopped": False, "status": job.get('status')}
+    job['cancelled'] = True
+    job['logs'].append("⏹ Stop requested.")
+    proc = _job_procs.get(job_id)
+    if proc is not None:
+        await asyncio.get_event_loop().run_in_executor(None, _kill_job_tree, proc)
+    else:
+        job['status'] = 'failed'   # still queued: skipped when its turn comes
+        job['logs'].append("⏹ Stopped by the user.")
+    return {"stopped": True}
+
+
 async def run_job(job_id, job_data):
     """Executes the subprocess for a specific job."""
-    
+
     cmd = job_data['cmd']
     env = job_data['env']
     output_dir = job_data['output_dir']
-    
+
+    if jobs[job_id].get('cancelled'):
+        jobs[job_id]['status'] = 'failed'
+        return
     jobs[job_id]['status'] = 'processing'
     jobs[job_id]['started_at'] = time.time()
     jobs[job_id]['logs'].append("Job started by worker.")
@@ -1951,7 +2034,10 @@ async def run_job(job_id, job_data):
             env=env,
             cwd=os.getcwd()
         )
-        
+        _job_procs[job_id] = process
+        if jobs[job_id].get('cancelled'):
+            _kill_job_tree(process)
+
         # We need to capture logs in a thread because Popen isn't async
         t_log = threading.Thread(target=enqueue_output, args=(process.stdout, job_id))
         t_log.daemon = True
@@ -2009,8 +2095,9 @@ async def run_job(job_id, job_data):
                 pass
 
         returncode = process.returncode
-        
-        if returncode == 0:
+        _job_procs.pop(job_id, None)
+
+        if returncode == 0 and not jobs[job_id].get('cancelled'):
             jobs[job_id]['status'] = 'completed'
             jobs[job_id]['logs'].append("Process finished successfully.")
             
@@ -2065,6 +2152,9 @@ async def run_job(job_id, job_data):
             else:
                  jobs[job_id]['status'] = 'failed'
                  jobs[job_id]['logs'].append("No metadata file generated.")
+        elif jobs[job_id].get('cancelled'):
+            jobs[job_id]['status'] = 'failed'
+            jobs[job_id]['logs'].append("⏹ Stopped by the user.")
         else:
             jobs[job_id]['status'] = 'failed'
             jobs[job_id]['logs'].append(_scrub_secrets(f"Process failed with exit code {returncode}"))
@@ -2593,6 +2683,9 @@ async def process_endpoint(
             raise HTTPException(status_code=404, detail="Clip Generator++ profile not found")
         env.update(_plus.job_env(plus_profile))
         print(f"[plus] job={job_id} profile={plus_profile.get('name')}")
+        # "Fresh picks" is for this one run: switch it off now it is taken.
+        if env.get("AI_CACHE_REFRESH") == "1":
+            _plus.consume_fresh(plus_profile.get("id"))
 
     if caption_style:
         try:
@@ -2816,10 +2909,7 @@ async def list_local_projects():
                     "title": clip.get('video_title_for_youtube_short') or f"Clip {i + 1}",
                     "video_url": video_url,
                     "predicted_score": clip.get('predicted_score'),
-                    # Pickers skip published clips; a deleted one must never be
-                    # offered either (its files are gone).
-                    "published": bool(clip.get('published')) or bool(clip.get('deleted')),
-                    "deleted": bool(clip.get('deleted')),
+                    "published": bool(clip.get('published')),
                 })
             projects.append({
                 "job_id": job_id,
@@ -3184,20 +3274,54 @@ async def viral_edit_clip(job_id: str, clip_index: int, req: ViralEditRequest, r
         pristine = clean_path[:-4] + ".pre_fx.mp4"
         if os.path.exists(pristine):
             clean_path = pristine
+        # B-roll is cut in AFTER the motion layer and its images are kept next
+        # to the clip: the pristine copy has none, so they go back on top of
+        # the new motion (older renders baked them into the pristine copy and
+        # kept no image — nothing to re-apply there).
+        # Images still waiting for the user's approval (manual review) are not cut in.
+        br_items = ([it for it in (clip.get('broll') or []) if it.get('image') or it.get('video')]
+                    if clean_path == pristine and not clip.get('broll_pending') else [])
+
+        def with_broll(path):
+            if not br_items:
+                return path
+            import broll as _broll
+            out_b = os.path.join(output_dir, f"brtmp_{ts}_{clean}")
+            try:
+                _broll.overlay_items(path, out_b, br_items, img_dir=output_dir)
+                return out_b
+            except Exception as e:
+                print(f"⚠️ B-roll re-apply failed on restyle ({type(e).__name__}: {e}) — clip kept without it.")
+                return path
+
         if hook and hook.get('text'):
             # motion under the hook, then the hook, then the captions.
             from hooks import add_hook_to_video
             motion = os.path.join(output_dir, f"fxtmp_{ts}_{clean}")
             viral_fx.apply_motion(clean_path, words, req.style, motion, opts=opts)
+            layered = with_broll(motion)
             hooked = os.path.join(output_dir, f"hooked_{ts}_{clean}")
             try:
-                add_hook_to_video(motion, hook['text'], hooked, position=hook.get('position', 'top'),
+                add_hook_to_video(layered, hook['text'], hooked, position=hook.get('position', 'top'),
                                   duration=float(hook.get('duration_seconds') or 5), style=hook.get('style', 'classic'))
             finally:
-                if os.path.exists(motion):
-                    os.remove(motion)
+                for tmp_path in {motion, layered}:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
             out = os.path.join(output_dir, f"subtitled_{ts}_{os.path.basename(hooked)}")
             viral_fx.apply_captions(hooked, words, req.style, out, watermark=watermark, topic=topic)
+        elif no_caps == clean and br_items:
+            # No hook, but B-roll to put back between motion and captions.
+            motion = os.path.join(output_dir, f"fxtmp_{ts}_{clean}")
+            viral_fx.apply_motion(clean_path, words, req.style, motion, opts=opts)
+            layered = with_broll(motion)
+            out = os.path.join(output_dir, f"subtitled_{ts}_{clean}")
+            try:
+                viral_fx.apply_captions(layered, words, req.style, out, watermark=watermark, topic=topic)
+            finally:
+                for tmp_path in {motion, layered}:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
         elif no_caps == clean:
             # No hook: motion + captions in one encode, from the pristine file.
             out = os.path.join(output_dir, f"subtitled_{ts}_{clean}")
@@ -3231,65 +3355,132 @@ async def viral_edit_clip(job_id: str, clip_index: int, req: ViralEditRequest, r
     return {"success": True, "new_video_url": new_url, "style": req.style}
 
 
-def _delete_clip(job_id: str, clip_index: int) -> List[str]:
-    """Delete one clip from its project: its video files are erased (the
-    clean reframe, the pristine pre-edit copy, every hooked_/subtitled_/
-    recut_... derivation) and the entry is stamped ``deleted`` — NOT dropped
-    from ``shorts``: removing it would shift every clip_index the plan, the
-    editor and saved per-clip state rely on (same reason posted clips are
-    only stamped, see _mark_clip_published). Returns the removed file names."""
-    output_dir = os.path.join(OUTPUT_DIR, job_id)
-    json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
-    if not json_files:
-        raise HTTPException(status_code=404, detail="Project not found")
-    base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
-    with open(json_files[0], 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    shorts = data.get('shorts', [])
-    if not 0 <= clip_index < len(shorts):
-        raise HTTPException(status_code=404, detail="Clip not found")
-    clean = f"{base_name}_clip_{clip_index + 1}.mp4"
-    # "*_<clean>" ends exactly with "_clip_<n>.mp4": clip_1 never matches clip_11.
-    candidates = set(glob.glob(os.path.join(output_dir, f"*_{clean}")))
-    candidates.update(os.path.join(output_dir, n) for n in
-                      (clean, clean[:-4] + ".pre_fx.mp4", clean + ".layout.json"))
-    removed = []
-    for path in sorted(candidates):
-        if os.path.isfile(path):
-            try:
-                os.remove(path)
-                removed.append(os.path.basename(path))
-            except OSError as e:
-                print(f"⚠️ Could not delete {path}: {e}")
-    stamp = {"at": time.time(), "files": len(removed)}
-    shorts[clip_index]['deleted'] = stamp
-    st_m = os.stat(json_files[0])
-    with open(json_files[0], 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    # Deleting a clip must not make the project look newer (History order,
-    # retention sweep): keep the file's mtime, like _mark_clip_published.
-    os.utime(json_files[0], (st_m.st_atime, st_m.st_mtime))
-    mem_clips = ((jobs.get(job_id) or {}).get('result') or {}).get('clips') or []
-    if 0 <= clip_index < len(mem_clips):
-        mem_clips[clip_index]['deleted'] = stamp
-    print(f"🗑️ Clip {clip_index + 1} of {job_id} deleted ({len(removed)} file(s)).")
-    return removed
+class BrollApplyRequest(BaseModel):
+    # The images to keep, by file name (as listed in the clip's "broll"), each
+    # with an optional new start time; anything not listed is dropped.
+    items: List[Dict[str, Any]]
+    profile_id: Optional[str] = None
 
 
-@app.post("/api/clip/{job_id}/{clip_index}/delete")
-async def delete_clip(job_id: str, clip_index: int, request: Request):
-    """The clip card's trash button. Refused while the project is still
-    rendering: the job writes its metadata again when it ends and would bring
-    the clip back."""
+class BrollRegenRequest(BaseModel):
+    image: str
+    prompt: str
+    style: Optional[str] = None
+    profile_id: Optional[str] = None
+
+
+async def _broll_clip_ctx(job_id: str, clip_index: int, request: Request):
+    """(job, output_dir, meta_file, meta, clip) of a clip whose B-roll is edited."""
     await _ensure_job_files(job_id, request)
     job = jobs.get(job_id)
-    if job is not None:
-        await _assert_job_owner(request, job)
-        if job.get('status') in ('queued', 'processing'):
-            raise HTTPException(status_code=409,
-                                detail="Wait until the project has finished rendering to delete a clip.")
-    removed = _delete_clip(job_id, clip_index)
-    return {"deleted": True, "files_removed": len(removed)}
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _assert_job_owner(request, job)
+    output_dir = os.path.join(OUTPUT_DIR, job_id)
+    meta_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+    if not meta_files:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+    with open(meta_files[0], 'r') as f:
+        meta = json.load(f)
+    shorts = meta.get('shorts', [])
+    if not (0 <= clip_index < len(shorts)):
+        raise HTTPException(status_code=404, detail="Clip not found")
+    return job, output_dir, meta_files[0], meta, shorts[clip_index]
+
+
+def _save_broll_meta(meta_file: str, meta: dict):
+    st = os.stat(meta_file)
+    with open(meta_file, 'w') as f:
+        json.dump(meta, f, indent=4)
+    try:
+        os.utime(meta_file, (st.st_atime, st.st_mtime))
+    except OSError:
+        pass
+
+
+def _broll_cfg(profile_id: Optional[str]) -> dict:
+    if profile_id and not BILLING_ENABLED:
+        import plus as _plus
+        prof = _plus.get_profile(profile_id)
+        if prof:
+            return dict(_plus.sanitize(prof)["broll"])
+    return {}
+
+
+@app.post("/api/clip/{job_id}/{clip_index}/broll/regenerate")
+async def regenerate_clip_broll(job_id: str, clip_index: int, req: BrollRegenRequest, request: Request):
+    """Manual B-roll review: make one image again from a new prompt / style.
+    The new file sits next to the old one (kept, so nothing is lost)."""
+    import broll as _broll
+    job, output_dir, meta_file, meta, clip = await _broll_clip_ctx(job_id, clip_index, request)
+    name = os.path.basename(req.image)
+    item = next((it for it in (clip.get('broll') or []) if it.get('image') == name), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    prompt = (req.prompt or "").strip()[:400]
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Empty prompt")
+    style = req.style if req.style in _broll.STYLES else (item.get('style') or 'photo')
+    stem = re.sub(r"_r\d+$", "", os.path.splitext(name)[0])
+    new_name = f"{stem}_r{int(time.time())}.jpg"
+    out = os.path.join(output_dir, new_name)
+    cfg = {**_broll_cfg(req.profile_id), "layout": item.get('layout') or "full"}
+    loop = asyncio.get_event_loop()
+    try:
+        _path, source, credit = await loop.run_in_executor(
+            None, lambda: _broll.regenerate_image(prompt, style, out, item.get('query') or "", cfg,
+                                                  os.getenv("GEMINI_API_KEY"), sheet=item.get('sheet')))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image failed: {str(e)[:300]}")
+    item.update(image=new_name, prompt=prompt, source=source,
+                style=style if source in ("local", "gemini") else "photo")
+    item.pop("score", None)
+    _save_broll_meta(meta_file, meta)
+    mem = ((job.get('result') or {}).get('clips') or [])
+    if clip_index < len(mem):
+        mem[clip_index]['broll'] = clip['broll']
+    return {"image": new_name, "item": item}
+
+
+@app.post("/api/clip/{job_id}/{clip_index}/broll/apply")
+async def apply_clip_broll(job_id: str, clip_index: int, req: BrollApplyRequest, request: Request):
+    """Manual B-roll review, last step: keep the listed images (optionally at a
+    new start time / time on screen), drop the others, and rebuild the clip with them cut in
+    (same rebuild as an edit-style change: pristine clip, motion, images,
+    hook, captions)."""
+    job, output_dir, meta_file, meta, clip = await _broll_clip_ctx(job_id, clip_index, request)
+    style = clip.get('edit_style')
+    if not style:
+        raise HTTPException(status_code=400, detail="This clip has no edit style: its images cannot be cut in afterwards.")
+    by_image = {it.get('image'): it for it in (clip.get('broll') or []) if it.get('image')}
+    duration = float(clip.get('end', 0)) - float(clip.get('start', 0))
+    kept = []
+    for want in req.items:
+        base = by_image.get(os.path.basename(str(want.get('image') or '')))
+        if base is None or not os.path.exists(os.path.join(output_dir, base['image'])):
+            continue
+        it = dict(base)
+        try:
+            if want.get('dur') is not None:  # time on screen chosen in the review (render clamps to 1-4 s too)
+                it['dur'] = round(max(1.0, min(4.0, float(want['dur']))), 2)
+        except (TypeError, ValueError):
+            pass
+        try:
+            if want.get('t') is not None and duration > 0:
+                it['t'] = round(max(0.0, min(float(want['t']), duration - float(it.get('dur') or 1.6) - 0.2)), 2)
+        except (TypeError, ValueError):
+            pass
+        kept.append(it)
+    kept.sort(key=lambda it: it.get('t', 0))
+    clip['broll'] = kept
+    clip['broll_pending'] = False
+    _save_broll_meta(meta_file, meta)
+    mem = ((job.get('result') or {}).get('clips') or [])
+    if clip_index < len(mem):
+        mem[clip_index]['broll'] = kept
+        mem[clip_index]['broll_pending'] = False
+    done = await viral_edit_clip(job_id, clip_index, ViralEditRequest(style=style, profile_id=req.profile_id), request)
+    return {**done, "kept": len(kept)}
 
 
 @app.post("/api/clip/{job_id}/{clip_index}/restore")
@@ -3506,6 +3697,11 @@ async def _niche_hashtag_pool(niche: Optional[str]) -> Optional[List[str]]:
 # per clip — the channel's 1-2 identity tags + the ones about THIS clip — and
 # none in the YouTube title.
 PUBLISH_SETTINGS_FILE = "publish_settings.json"
+# Words a niche name carries that say nothing on their own ("Joe Rogan
+# podcast clips" -> the niche tag is #joerogan, not #joeroganpodcastclips).
+_NICHE_FILLER = {'podcast', 'podcasts', 'clip', 'clips', 'shorts', 'short', 'channel', 'video', 'videos',
+                 'highlights', 'moments', 'best', 'the', 'and', 'des', 'les'}
+
 _NO_INFO_HASHTAGS = {
     'shorts', 'short', 'fyp', 'foryou', 'foryoupage', 'pourtoi', 'viral', 'viralvideo', 'trending',
     'reels', 'reel', 'youtubeshorts', 'ytshorts', 'explore', 'explorepage', 'edit', 'edits', 'video',
@@ -3650,6 +3846,14 @@ def _pick_clip_hashtags(clip: dict, pool: Optional[List[str]], niche: Optional[s
     # (#joerogan) or top its pool (#jre) — at most 2.
     for t in [t for i, t in enumerate(useful) if i < 3 or any(w in t.lower() for w in niche_words)][:2]:
         add(t)
+    if not out and niche_words:
+        # No researched pool for this niche: still one tag that says the
+        # channel's niche, spelled from it ("Joe Rogan podcast" -> #joerogan).
+        core = [w for w in niche_words if w not in _NICHE_FILLER]
+        if core:
+            # A name ("joe rogan") glues well; a long description does not
+            # (#neurosciencehumanbehavior): keep its first word then.
+            add("#" + "".join(core if len(core) <= 2 else core[:1]))
     for t in useful:
         if _tag_key(t) in keys:
             add(t)
@@ -3791,8 +3995,6 @@ async def download_all_clips(job_id: str, request: Request, niche: Optional[str]
 
     files = []
     for i, clip in enumerate(data.get('shorts', [])):
-        if clip.get('deleted'):
-            continue
         url = None
         if i < len(mem_clips):
             url = (mem_clips[i] or {}).get('video_url')
@@ -4325,8 +4527,9 @@ async def translate_clip_captions(job_id: str, clip_index: int, req: TranslateCa
         raise HTTPException(status_code=404, detail="Job not found")
     await _assert_job_owner(request, jobs[job_id])
 
+    import ai_brain
     api_key = await resolve_gemini(request)
-    if not api_key and not (llm_backend.active() and not BILLING_ENABLED):
+    if not api_key and not (llm_backend.active() and not BILLING_ENABLED) and not ai_brain.claude_usable():
         raise gemini_missing_error()
 
     output_dir = os.path.join(OUTPUT_DIR, job_id)
@@ -4373,9 +4576,11 @@ async def translate_clip_captions(job_id: str, clip_index: int, req: TranslateCa
 
     import rework
     try:
-        translated = rework.translate_transcript(
-            {"language": source_transcript.get('language'), "segments": narrowed_segments},
-            req.target_language, api_key)
+        # In a thread: a Claude call takes 10-30 s and must not freeze the server.
+        translated = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: rework.translate_transcript(
+                {"language": source_transcript.get('language'), "segments": narrowed_segments},
+                req.target_language, api_key, brain=_profile_brain(data, "text")))
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Translation failed: {e}")
 
@@ -4479,8 +4684,9 @@ async def regenerate_clip_copy(job_id: str, clip_index: int, request: Request,
     job = jobs[job_id]
     await _assert_job_owner(request, job)
 
+    import ai_brain
     api_key = await resolve_gemini(request)
-    if not api_key and not (llm_backend.active() and not BILLING_ENABLED):
+    if not api_key and not (llm_backend.active() and not BILLING_ENABLED) and not ai_brain.claude_usable():
         raise gemini_missing_error()
 
     output_dir = os.path.join(OUTPUT_DIR, job_id)
@@ -4525,11 +4731,33 @@ async def regenerate_clip_copy(job_id: str, clip_index: int, request: Request,
             except Exception as e:
                 print(f"⚠️ Hashtag research failed for niche {req.niche!r} ({e}) — falling back to Gemini's own guess.")
 
+    # Made with the Synapse Cut playbook (main.py saved its credit line and
+    # name list): the new copy follows the same rules.
+    pb = data.get('playbook') if isinstance(data.get('playbook'), dict) else None
     try:
-        new_copy = rework.generate_clip_copy(clip_text, source_transcript.get('language'), api_key,
-                                              hashtag_pool=hashtag_pool)
+        # In a thread: a Claude call takes 10-30 s and must not freeze the server.
+        new_copy = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: rework.generate_clip_copy(clip_text, source_transcript.get('language'), api_key,
+                                                    hashtag_pool=hashtag_pool, brain=_profile_brain(data, "text"),
+                                                    reuse=False, playbook=bool(pb)))
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Copy generation failed: {e}")
+
+    if pb:
+        import playbook
+        for k in ('video_description_for_tiktok', 'video_description_for_instagram'):
+            new_copy[k] = playbook.with_credit(new_copy.get(k), pb.get('credit') or "")
+        tokens = pb.get('name_tokens') or []
+        new_copy['title_has_name'] = bool(playbook.names_in(new_copy.get('video_title_for_youtube_short'), tokens))
+        # Same format check as the job (the clip keeps its 'Why' slot, if it had one).
+        merged = {**clip, **new_copy}
+        new_copy['title_format_ok'] = playbook.check_format(merged)
+        new_copy['title_format_issues'] = merged.get('title_format_issues') or []
+        base = os.path.basename(json_files[0])[:-len("_metadata.json")]
+        try:
+            playbook.update_export(output_dir, f"{base}_clip_{clip_index + 1}.mp4", {**clip, **new_copy}, tokens)
+        except Exception as e:
+            print(f"⚠️ Playbook export not updated ({e}).")
 
     clip.update(new_copy)
     data['shorts'] = clips
@@ -6352,12 +6580,82 @@ async def story_status(job_id: str):
 
 # --- Clip Generator++ (plus.py): channel profiles, music moods, own stats ------
 
+class NotionRegenRequest(BaseModel):
+    prompt: str
+    engine: Optional[str] = None
+
+
+def _notion_guard():
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+@app.get("/api/plus/notions")
+async def plus_list_notions():
+    """The channel's kept pictures of glossary notions (broll.py notion memory)."""
+    _notion_guard()
+    import broll as _broll
+    loop = asyncio.get_event_loop()
+    comfy = await loop.run_in_executor(None, _broll.comfy_available)
+    return {"notions": _broll.notion_list(), "engines": list(_broll.ENGINES), "comfy": bool(comfy)}
+
+
+@app.get("/api/plus/notions/{nid}/image")
+async def plus_notion_image(nid: str):
+    _notion_guard()
+    import broll as _broll
+    try:
+        path = _broll._notion_file(nid)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Picture not found")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
+
+
+@app.post("/api/plus/notions/{nid}/regen")
+async def plus_regen_notion(nid: str, req: NotionRegenRequest):
+    """Make the notion's picture again (edited prompt, chosen model) and keep it
+    as the one the next clips use."""
+    _notion_guard()
+    import broll as _broll
+    loop = asyncio.get_event_loop()
+    try:
+        return {"notion": await loop.run_in_executor(None, _broll.notion_regenerate, nid, req.prompt, req.engine)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image failed: {str(e)[:300]}")
+
+
+@app.post("/api/plus/notions/{nid}/restore")
+async def plus_restore_notion(nid: str):
+    _notion_guard()
+    import broll as _broll
+    try:
+        return {"notion": _broll.notion_restore(nid)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/plus/notions/{nid}")
+async def plus_delete_notion(nid: str):
+    _notion_guard()
+    import broll as _broll
+    try:
+        _broll.notion_delete(nid)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True}
+
 @app.get("/api/plus/profiles")
 async def plus_list_profiles():
     if BILLING_ENABLED:
         raise HTTPException(status_code=404, detail="Not found")
     import plus as _plus
-    return {"profiles": _plus.load_profiles(), "defaults": _plus.DEFAULT_PROFILE,
+    # Sanitized, so a profile saved before a field existed (e.g. the AI brain
+    # block) arrives with its effective values filled in.
+    return {"profiles": [{**p, **_plus.sanitize(p)} for p in _plus.load_profiles()],
+            "defaults": _plus.sanitize(_plus.DEFAULT_PROFILE),
+            "brain_presets": _plus.BRAIN_PRESETS,
             "music": _plus.music_library()}
 
 
@@ -6371,19 +6669,104 @@ async def plus_create_profile(body: dict):
 
 class BrollTestRequest(BaseModel):
     style: Optional[str] = "photo"
+    engine: Optional[str] = "zimage"
 
 
 @app.post("/api/plus/broll/test")
 async def plus_broll_test(req: BrollTestRequest, request: Request):
-    """Clip Generator++ B-roll: can this Gemini key make images (or is it the
-    free tier / billing off), and do free photos come through? One tiny
-    image, one photo search."""
+    """Clip Generator++ B-roll: does the local GPU (ComfyUI) answer, can this
+    Gemini key make images (or is it the free tier / billing off), and do
+    free photos come through? One image per source, one photo search."""
     if BILLING_ENABLED:
         raise HTTPException(status_code=404, detail="Not available")
     import broll
     key = await resolve_gemini(request)
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, broll.test_sources, key, req.style or "photo")
+    return await loop.run_in_executor(None, broll.test_sources, key, req.style or "photo",
+                                      req.engine or "zimage")
+
+
+@app.get("/api/plus/broll/geometry")
+async def plus_broll_geometry(edit_style: str = "natural", watermark: int = 0, position: str = "below", size: int = 28,
+                              y: Optional[float] = None):
+    """The real width of a small B-roll card for this edit style / position (the
+    profile editor shows it next to "size": the free band next to the captions
+    can be narrower than the wanted size)."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import broll as _broll
+    return _broll.rise_geometry(edit_style, bool(watermark), "above" if position == "above" else "below", size,
+                                y_pct=_broll._free_y(y))
+
+
+_PREVIEW_JOB = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_PREVIEW_CLIP = re.compile(r"^(?P<job>[0-9a-f-]{36})_.+_clip_(?P<n>\d+)\.mp4$")
+
+
+def _preview_clip_path(clip: str):
+    """(path, job, file) of a clip id "<job>/<file>" (the plain edited clip: no hook, no captions), or None."""
+    job, _, name = (clip or "").partition("/")
+    if not _PREVIEW_JOB.match(job) or os.path.basename(name) != name:
+        return None
+    m = _PREVIEW_CLIP.match(name)
+    if not m or m.group("job") != job:
+        return None
+    path = os.path.join(OUTPUT_DIR, job, name)
+    return (path, job, name) if os.path.isfile(path) else None
+
+
+@app.get("/api/plus/broll/preview/clips")
+async def plus_preview_clips():
+    """Recent clips of this machine the profile editor can take a frame from, each with one of its own B-roll
+    pictures to show as the sample card."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    jobs = []
+    try:
+        for d in os.listdir(OUTPUT_DIR):
+            p = os.path.join(OUTPUT_DIR, d)
+            if _PREVIEW_JOB.match(d) and os.path.isdir(p):
+                jobs.append((os.path.getmtime(p), d))
+    except OSError:
+        return {"clips": []}
+    out = []
+    for mtime, job in sorted(jobs, reverse=True)[:8]:
+        files = sorted(os.listdir(os.path.join(OUTPUT_DIR, job)))
+        pics = [f for f in files if "_broll_" in f and f.lower().endswith(".jpg")]
+        for name in files:
+            m = _PREVIEW_CLIP.match(name)
+            if not m or m.group("job") != job or name.startswith(("hooked_", "subtitled_")):
+                continue
+            n = m.group("n")
+            pic = next((f for f in pics if f"_clip_{n}_broll_" in f), pics[0] if pics else None)
+            out.append({"id": f"{job}/{name}", "label": f"{time.strftime('%d/%m %H:%M', time.localtime(mtime))} · clip {n}",
+                        "picture": f"/videos/{job}/{pic}" if pic else None})
+        if len(out) >= 24:
+            break
+    return {"clips": out[:24]}
+
+
+@app.get("/api/plus/broll/preview/frame")
+async def plus_preview_frame(clip: str, t: float = 3.0):
+    """One frame (JPEG, 540 px wide) of a plain edited clip, for the editor's live preview."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    found = _preview_clip_path(clip)
+    if not found:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    path = found[0]
+
+    def grab(sec):
+        r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, min(600.0, sec)):.2f}", "-i", path, "-frames:v", "1",
+                            "-vf", "scale=540:-2", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
+                           capture_output=True, timeout=30)
+        return r.stdout
+
+    loop = asyncio.get_event_loop()
+    data = await loop.run_in_executor(None, grab, t) or await loop.run_in_executor(None, grab, 1.0)
+    if not data:
+        raise HTTPException(status_code=404, detail="No frame")
+    return Response(content=data, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
 
 
 @app.put("/api/plus/profiles/{profile_id}")

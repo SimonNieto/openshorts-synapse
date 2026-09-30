@@ -79,7 +79,7 @@ PRESETS = {
     "natural": {"max_words": 3, "max_chars": 16, "size": 64, "zoom_wide": 1.0, "zoom_tight": 1.08,
                 "shot": (6.0, 9.0), "push": 0.015, "shake": 0.0, "dip": False,
                 "grade": "eq=contrast=1.04:saturation=1.05",
-                "vignette": "PI/7", "caption_y": 1250, "key_every": 2, "key_min": 0.6,
+                "vignette": "PI/7", "caption_y": 1180, "key_every": 2, "key_min": 0.6,
                 "accent": "#FFD84D", "sentence_cuts": True,
                 "tight_face": 0.28, "wide_face": 0.22, "zoom_max": 1.18, "tight_min": 1.06, "reframe_step": 0.04},
 }
@@ -266,9 +266,52 @@ def _probe(clip_path):
             "duration": float(probe["format"]["duration"])}
 
 
+MIN_SPEAKER_FACE = 0.06   # face height / frame: smaller is a crowd, a far screen, a photo on a wall
+
+
+def _same_face(a, b):
+    return abs(a[0] - b[0]) < 0.12 and abs(a[1] - b[1]) < 0.12 and 0.6 < a[2] / max(b[2], 1e-6) < 1.65
+
+
+def _speaker_score(d):
+    """The reframe already keeps the active speaker centred: prefer a big face
+    near the middle, eyes in the upper half."""
+    cx, cy, h = d[0], d[1], d[2]
+    return h * max(0.05, 1 - 1.4 * abs(cx - 0.5)) * max(0.2, 1 - 1.5 * max(0.0, abs(cy - 0.4) - 0.15))
+
+
+def pick_speaker(samples, every=0.5):
+    """[(t, cx, cy_eyes, face_h)] from per-sample detections [[(cx, cy, h), ...], ...]:
+    the SPEAKER, not simply the largest face. A face on a monitor behind them,
+    a photo or a head in an image must not steal the framing, so the pick is
+    the face that stays: it follows the same face from sample to sample, and a
+    new face (another speaker after a cut) is only adopted when it is central,
+    big enough and still there on the next sample."""
+    out, prev, miss = [], None, 0
+    for k, dets in enumerate(samples):
+        dets = [d for d in dets if d[2] >= MIN_SPEAKER_FACE]
+        near = [d for d in dets if prev and _same_face(d, prev)]
+        if near:
+            pick = min(near, key=lambda d: abs(d[0] - prev[0]) + abs(d[1] - prev[1]))
+        else:
+            miss += 1
+            if prev and miss < 2:
+                continue            # one blink / occlusion: keep the current speaker
+            nxt = samples[k + 1] if k + 1 < len(samples) else []
+            steady = [d for d in dets if any(_same_face(d, n) for n in nxt) or k + 1 == len(samples)]
+            if not steady:
+                prev = None
+                continue
+            pick = max(steady, key=_speaker_score)
+        prev, miss = pick, 0
+        out.append((k * every, pick[0], pick[1], pick[2]))
+    return out
+
+
 def face_track(clip_path, width, height, every=0.5):
-    """[(t, cx, cy_eyes, face_h)] in 0..1 frame units, the largest face per
-    sample (MediaPipe on 2 fps / 360 px frames piped from ffmpeg: fast)."""
+    """[(t, cx, cy_eyes, face_h)] in 0..1 frame units: the on-screen speaker
+    per sample (see ``pick_speaker``). MediaPipe on 2 fps / 360 px frames
+    piped from ffmpeg: fast."""
     try:
         import numpy as np
         import mediapipe as mp
@@ -281,17 +324,17 @@ def face_track(clip_path, width, height, every=0.5):
          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True)
     raw = proc.stdout
     frame_bytes = sw * sh * 3
-    out = []
+    samples = []
     with mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as det:
         for k in range(len(raw) // frame_bytes):
             img = np.frombuffer(raw[k * frame_bytes:(k + 1) * frame_bytes], dtype=np.uint8).reshape(sh, sw, 3)
             res = det.process(img)
-            if not res.detections:
-                continue
-            best = max(res.detections, key=lambda d: d.location_data.relative_bounding_box.height)
-            b = best.location_data.relative_bounding_box
-            out.append((k * every, b.xmin + b.width / 2, b.ymin + b.height * 0.42, b.height))
-    return out
+            dets = []
+            for d in res.detections or []:
+                b = d.location_data.relative_bounding_box
+                dets.append((b.xmin + b.width / 2, b.ymin + b.height * 0.42, b.height))
+            samples.append(dets)
+    return pick_speaker(samples, every)
 
 
 def loudness_track(clip_path):
@@ -333,11 +376,14 @@ def shot_cuts(words, duration, lo, hi, sentences=False):
 TIGHT_FACE, WIDE_FACE, ZOOM_MAX = 0.34, 0.22, 1.40
 
 
-def plan_shots(words, duration, preset, faces, loud, smart):
-    """Shots with a zoom and a centre. Smart framing: tight on the hook and on
-    the shots that carry the strongest words and the loudest delivery, wide
-    elsewhere; the zoom is sized from the measured face and centred on it (eyes
-    at ~42 % of the frame). Otherwise: plain alternation around the centre."""
+def plan_shots(words, duration, preset, faces, loud, smart, hints=None):
+    """Shots with a zoom and a centre. Smart framing: tight on the hook, on the
+    AI's punchline and on the few shots that carry a strong word said with
+    more energy than usual; wide elsewhere. A shot without a steady speaker
+    face (``faces`` from ``face_track``) is never tight: no zoom beats a zoom
+    on the wrong thing. The zoom is sized from the measured face and centred
+    on it (eyes at ~42 % of the frame). Otherwise: plain alternation around
+    the centre."""
     p = PRESETS[preset]
     cuts = shot_cuts(words, duration, *p["shot"], sentences=bool(p.get("sentence_cuts")))
     bounds = [0.0] + cuts + [duration + 1]
@@ -348,13 +394,18 @@ def plan_shots(words, duration, preset, faces, loud, smart):
         return shots
 
     ref_m = _median([m for _, m in loud], -20.0)
+    punch = (hints or {}).get("punchline_time")
     for sh in shots:
         ws = [w for w in words if sh["a"] <= w["start"] < sh["b"]]
         kw = max([keyword_score(w["text"]) for w in ws] or [0.0])
         ms = [m for t, m in loud if sh["a"] <= t < sh["b"]]
         energy = (max(ms) - ref_m) / 6.0 if ms else 0.0
+        sh["energy"] = energy
         sh["emphasis"] = kw + max(-0.5, min(1.0, energy))
+        sh["punch"] = punch is not None and sh["a"] - 0.3 <= float(punch) < sh["b"]
         fs = [f for f in faces if sh["a"] - 0.25 <= f[0] <= sh["b"] + 0.25]
+        # Steady speaker face on most of the shot (2 samples / s)?
+        sh["face_ok"] = len(fs) >= max(2, 0.6 * (min(sh["b"], duration) - sh["a"]) * 2)
         sh["cx"] = _median([f[1] for f in fs], None)
         sh["cy"] = _median([f[2] for f in fs], None)
         sh["fh"] = _median([f[3] for f in fs], None)
@@ -365,11 +416,14 @@ def plan_shots(words, duration, preset, faces, loud, smart):
             sh["cx"], sh["cy"], sh["fh"] = last
         last = (sh["cx"], sh["cy"], sh["fh"])
 
-    ranked = sorted(sh["emphasis"] for sh in shots)
-    cutoff = ranked[len(ranked) // 2] if ranked else 0
+    # Tight only where it is earned: the hook, the punchline, and the top
+    # third of the rest when the line is also delivered with energy.
+    ranked = sorted((sh["emphasis"] for sh in shots), reverse=True)
+    cutoff = ranked[max(0, len(ranked) // 3 - 1)] if ranked else 0
     run = 0
     for i, sh in enumerate(shots):
-        tight = i == 0 or sh["emphasis"] > cutoff
+        strong = sh["emphasis"] >= cutoff and sh["energy"] > 0.15
+        tight = sh["face_ok"] and (i == 0 or sh["punch"] or strong)
         if tight and run >= 2:          # never three tight shots in a row
             tight = False
         run = run + 1 if tight else 0
@@ -481,29 +535,41 @@ def build_graph(words, info, preset, opts, faces, loud, tmp, ass_path=None, moti
     extra, report, graph = [], {}, []
     cur = "[0:v]"
     if motion:
-        shots = plan_shots(words, duration, preset, faces, loud, bool(opts.get("smart_framing")))
+        shots = plan_shots(words, duration, preset, faces, loud, bool(opts.get("smart_framing")),
+                           hints=opts.get("hints"))
         report["shots"] = [{"a": round(sh["a"], 2), "z": sh["z"], "tight": sh["tight"]} for sh in shots]
-        z_base = _nest(shots, "z")
-        seg_a = _nest([dict(sh, a_=round(sh["a"], 3)) for sh in shots], "a_")
-        seg_len = _nest([dict(sh, l_=round(max(0.5, sh["b"] - sh["a"]), 3)) for sh in shots], "l_")
-        z_expr = f"({z_base})+{p['push']}*(it-({seg_a}))/({seg_len})"
-        cx, cy = _nest(shots, "cx"), _nest(shots, "cy")
-        shake_x = shake_y = "0"
-        if p["shake"]:
-            picked = []
-            for wd in sorted(words, key=lambda w: keyword_score(w["text"]), reverse=True):
-                if keyword_score(wd["text"]) < 0.8:
-                    break
-                if all(abs(wd["start"] - q) > 2.5 for q in picked):
-                    picked.append(wd["start"])
-            wins = _between_sum([(t, t + 0.35) for t in picked])
-            amp = p["shake"]
-            shake_x = f"({amp}*sin(it*53)*({wins}))"
-            shake_y = f"({amp * 0.7}*cos(it*41)*({wins}))"
-        x_expr = f"clip(({cx})*iw-iw/zoom/2,0,iw-iw/zoom)+{shake_x}"
-        y_expr = f"clip(({cy})*ih-ih/zoom*0.42,0,ih-ih/zoom)+{shake_y}"
-        graph.append(f"{cur}zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d=1:s={W}x{H}:fps={fps},"
-                     f"{p['grade']}[g0]")
+        if opts.get("smooth_camera"):
+            # No zoom motion at all: the reframe already holds the speaker's
+            # head, and on a real clip (28-sep-2026) even eased zoom glides
+            # read as jerky — zoompan rounds its window to whole pixels, which
+            # shimmers on any slow zoom. The frame stays as framed; the grade,
+            # vignette, captions and the rest still apply.
+            for sh in shots:
+                sh.update(z=1.0, cx=0.5, cy=0.5, tight=False)
+            report["shots"] = [{"a": round(sh["a"], 2), "z": 1.0, "tight": False} for sh in shots]
+            graph.append(f"{cur}{p['grade']}[g0]")
+        else:
+            z_base = _nest(shots, "z")
+            seg_a = _nest([dict(sh, a_=round(sh["a"], 3)) for sh in shots], "a_")
+            seg_len = _nest([dict(sh, l_=round(max(0.5, sh["b"] - sh["a"]), 3)) for sh in shots], "l_")
+            z_expr = f"({z_base})+{p['push']}*(it-({seg_a}))/({seg_len})"
+            cx, cy = _nest(shots, "cx"), _nest(shots, "cy")
+            shake_x = shake_y = "0"
+            if p["shake"]:
+                picked = []
+                for wd in sorted(words, key=lambda w: keyword_score(w["text"]), reverse=True):
+                    if keyword_score(wd["text"]) < 0.8:
+                        break
+                    if all(abs(wd["start"] - q) > 2.5 for q in picked):
+                        picked.append(wd["start"])
+                wins = _between_sum([(t, t + 0.35) for t in picked])
+                amp = p["shake"]
+                shake_x = f"({amp}*sin(it*53)*({wins}))"
+                shake_y = f"({amp * 0.7}*cos(it*41)*({wins}))"
+            x_expr = f"clip(({cx})*iw-iw/zoom/2,0,iw-iw/zoom)+{shake_x}"
+            y_expr = f"clip(({cy})*ih-ih/zoom*0.42,0,ih-ih/zoom)+{shake_y}"
+            graph.append(f"{cur}zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d=1:s={W}x{H}:fps={fps},"
+                         f"{p['grade']}[g0]")
         cur = "[g0]"
 
         if opts.get("look"):

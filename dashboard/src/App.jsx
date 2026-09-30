@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket } from 'lucide-react';
+import { Square, Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket, Library } from 'lucide-react';
 import KeyInput from './components/KeyInput';
 import MediaInput from './components/MediaInput';
 import McpConnectCard from './components/McpConnectCard';
@@ -7,6 +7,7 @@ import ResultCard from './components/ResultCard';
 import { loadSubtitleProfileStore, activeSubtitleProfileSettings } from './components/SubtitleModal';
 import ProcessingAnimation from './components/ProcessingAnimation';
 import JobProgressBar from './components/JobProgressBar';
+import BrainBadge from './components/BrainBadge';
 // import Gallery from './components/Gallery';
 import ThumbnailStudio from './components/ThumbnailStudio';
 import SaaShortsTab from './components/SaaShortsTab';
@@ -29,6 +30,7 @@ import PublishPlanTab from './components/PublishPlanTab';
 import ViralFinderTab from './components/ViralFinderTab';
 import StoryTab from './components/StoryTab';
 import PlusPanel from './components/PlusPanel';
+import NotionLibrary from './components/NotionLibrary';
 import ProfileMenu from './components/ProfileMenu';
 import Modal from './components/ui/Modal';
 import NichePromptModal from './components/NichePromptModal';
@@ -36,6 +38,7 @@ import { loadNicheHistory, pushNicheHistory, rememberNicheProfile } from './lib/
 import { userTimezone } from './lib/postSlots';
 import { useAuth } from './contexts/AuthContext';
 import { apiFetch, apiJson, QuotaError } from './lib/api';
+import { isKeyLog } from './lib/logFilter';
 import { track } from './lib/analytics';
 
 // Enhanced "Encryption" using XOR + Base64 with a Salt
@@ -299,6 +302,19 @@ function App() {
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [jobId, setJobId] = useState(null);
   const [status, setStatus] = useState('idle'); // idle, processing, complete, error
+  const [stopping, setStopping] = useState(false);
+  const [logMode, setLogMode] = useState('key'); // 'key' = what matters, 'all' = raw pipeline output
+  const handleStopWork = async () => {
+    if (!jobId || !window.confirm('Stop this job now? Clips already finished are kept.')) return;
+    setStopping(true);
+    try {
+      await apiFetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+    } catch (e) {
+      console.error('stop work failed', e);
+    } finally {
+      setTimeout(() => setStopping(false), 3000);
+    }
+  };
   const [results, setResults] = useState(null);
   // Gemini's own niche guess for this video (main.get_viral_clips,
   // gemini_worker.DetailClipModel.content_niche) — a suggestion, never forced:
@@ -336,9 +352,8 @@ function App() {
   // gets posted twice; they stay reachable behind a "show posted" toggle,
   // with a one-click restore in case a platform rejected one.
   const [showPosted, setShowPosted] = useState(false);
-  const postedCount = rankedClips.filter(({ clip }) => clip?.published && !clip?.deleted).length;
-  // Deleted clips (trash button) are gone for good: never shown again.
-  const visibleClips = rankedClips.filter(({ clip }) => !clip?.deleted && (showPosted || !clip?.published));
+  const postedCount = rankedClips.filter(({ clip }) => clip?.published).length;
+  const visibleClips = rankedClips.filter(({ clip }) => showPosted || !clip?.published);
   // Bulk subtitles: apply one style to every clip of the job (triggered from
   // within a clip's subtitle modal via "apply to all").
   const [bulkSub, setBulkSub] = useState({ running: false, current: 0, total: 0, errors: 0 });
@@ -539,7 +554,6 @@ function App() {
     setBulkSub({ running: true, current: 0, total, errors: 0 });
     let errors = 0;
     for (let i = 0; i < total; i++) {
-      if (clips[i]?.deleted) continue;
       setBulkSub({ running: true, current: i + 1, total, errors });
       try {
         const res = await apiFetch('/api/subtitle', {
@@ -609,7 +623,7 @@ function App() {
       title: c.video_title_for_youtube_short || `Clip ${index + 1}`,
       video_url: c.video_url,
       predicted_score: c.predicted_score,
-      published: !!c.published || !!c.deleted,
+      published: !!c.published,
     })),
   } : null), [jobId, results]);
 
@@ -946,9 +960,15 @@ function App() {
 
   const tutorialLock = tutorialPhase === 'intro' || tutorialPhase === 'coach' || tutorialPhase === 'celebrate';
 
+  // Self-host opt-in (dashboard/.env.local: VITE_HIDE_CLASSIC_CLIPGEN=1): only
+  // Clip Generator++ is shown. The classic tab's code stays; every path that
+  // lands on it (reopened project, "back" from another tool) goes to ++ instead.
+  const hideClassic = !billingEnabled && import.meta.env.VITE_HIDE_CLASSIC_CLIPGEN === '1';
+
   useEffect(() => {
     if (tutorialLock && activeTab !== 'dashboard') setActiveTab('dashboard');
-  }, [tutorialLock, activeTab]);
+    else if (hideClassic && !tutorialLock && activeTab === 'dashboard') setActiveTab('plus');
+  }, [tutorialLock, activeTab, hideClassic]);
 
   useEffect(() => {
     if (tutorialPhase === 'coach' && status === 'complete' && (results?.clips?.length > 0)) {
@@ -1178,10 +1198,10 @@ function App() {
   // drawer, and the bottom tab bar. `short` is the tab-bar label — the full one
   // wraps to two lines in a 5-up bar on a 360px phone.
   const navItems = [
-    { id: 'dashboard', ord: '01', icon: LayoutDashboard, label: 'Clip Generator', short: 'clips', primary: true },
+    ...(hideClassic ? [] : [{ id: 'dashboard', ord: '01', icon: LayoutDashboard, label: 'Clip Generator', short: 'clips', primary: true }]),
     // Clip Generator++: the same generator driven by saved channel profiles
     // (plus.py). Self-host only; the classic tab above is untouched.
-    ...(!billingEnabled ? [{ id: 'plus', ord: '01+', icon: Rocket, label: 'Clip Generator++', short: 'clips++' }] : []),
+    ...(!billingEnabled ? [{ id: 'plus', ord: '01+', icon: Rocket, label: 'Clip Generator++', short: 'clips++', primary: hideClassic }] : []),
     { id: 'saasshorts', ord: '02', icon: Sparkles, label: 'AI Shorts', short: 'ai shorts', byok: true, primary: true },
     { id: 'ai-agent', ord: '03', icon: Bot, label: 'AI Agent', short: 'agent', byok: true },
     { id: 'ugc-gallery', ord: '04', icon: LayoutGrid, label: 'UGC Gallery', short: 'gallery', primary: true },
@@ -1192,8 +1212,10 @@ function App() {
     { id: 'reworker', ord: '07', icon: Eraser, label: 'Viral Clip Reworker', short: 'reworker', byok: true },
     ...(!billingEnabled ? [{ id: 'publish-plan', ord: '08', icon: Calendar, label: 'Publish Plan', short: 'plan' }] : []),
     ...(!billingEnabled ? [{ id: 'viral-finder', ord: '09', icon: Flame, label: 'Viral Finder', short: 'finder' }] : []),
-    ...(!billingEnabled ? [{ id: 'story', ord: '10', icon: Clapperboard, label: 'Story Channel', short: 'story' }] : []),
-    { id: 'settings', ord: billingEnabled ? '08' : '11', icon: Settings, label: 'Settings', short: 'settings' },
+    // Clip Generator++: the kept pictures of glossary notions (broll.py notion memory).
+    ...(!billingEnabled ? [{ id: 'notions', ord: '10', icon: Library, label: 'Notion pictures', short: 'notions' }] : []),
+    ...(!billingEnabled ? [{ id: 'story', ord: '11', icon: Clapperboard, label: 'Story Channel', short: 'story' }] : []),
+    { id: 'settings', ord: billingEnabled ? '08' : '12', icon: Settings, label: 'Settings', short: 'settings' },
   ];
   const activeNav = navItems.find((n) => n.id === activeTab);
 
@@ -2132,6 +2154,12 @@ function App() {
             </div>
           )}
 
+          {activeTab === 'notions' && !billingEnabled && (
+            <div className="h-full overflow-y-auto custom-scrollbar">
+              <NotionLibrary />
+            </div>
+          )}
+
           {activeTab === 'publish-plan' && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
               <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-8">
@@ -2261,15 +2289,28 @@ function App() {
                     <Activity className={`text-brass ${status === 'processing' ? 'animate-pulse' : ''}`} size={18} />
                     Live Analysis
                   </h2>
-                  <span className={status === 'processing' ? 'badge-brass' :
-                    status === 'complete' ? 'badge-ok' :
-                      'badge-danger'
-                    }>
-                    {status.toUpperCase()}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {status === 'processing' && jobId && (
+                      <button type="button" onClick={handleStopWork} disabled={stopping}
+                        className="btn-quiet px-2.5 py-1 text-xs inline-flex items-center gap-1.5 text-red-400"
+                        title="Stops the job now (transcription, analysis, rendering). Clips already finished stay.">
+                        <Square size={12} />
+                        {stopping ? 'stopping…' : 'stop work'}
+                      </button>
+                    )}
+                    <span className={status === 'processing' ? 'badge-brass' :
+                      status === 'complete' ? 'badge-ok' :
+                        'badge-danger'
+                      }>
+                      {status.toUpperCase()}
+                    </span>
+                  </div>
                 </div>
 
                 {status === 'processing' && <JobProgressBar progress={jobProgress} />}
+
+                {/* Who is thinking right now (ai_brain.py: Claude first, Gemini as fallback). */}
+                {status === 'processing' && <BrainBadge logs={logs} />}
 
                 {/* Video Preview */}
                 {processingMedia && (
@@ -2291,7 +2332,7 @@ function App() {
                   <div className="sm:hidden mb-3 flex items-start gap-2 text-xs text-ink2 min-w-0">
                     <Loader2 size={14} className="animate-spin text-brass shrink-0 mt-px" />
                     <span className="min-w-0 leading-snug break-words">
-                      {logs.length ? logs[logs.length - 1] : 'starting up…'}
+                      {logs.length ? (logs.filter(isKeyLog).slice(-1)[0] || logs[logs.length - 1]) : 'starting up…'}
                     </span>
                   </div>
                 )}
@@ -2317,14 +2358,25 @@ function App() {
                     </span>
                     <span className="flex items-center gap-2 text-muted">
                       {!logsVisible && logs.length > 0 && (
-                        <span className="readout normal-case">{logs.length}</span>
+                        <span className="readout normal-case">{logs.filter(isKeyLog).length}</span>
                       )}
                       <ChevronDown size={16} className={logsVisible ? '' : 'rotate-180'} />
                     </span>
                   </button>
                   {logsVisible && (
                     <div className="flex-1 p-3.5 sm:p-4 overflow-y-auto font-mono text-[11px] sm:text-xs space-y-1.5 custom-scrollbar text-muted break-words">
-                      {logs.map((log, i) => (
+                      <div className="flex items-center gap-1.5 pb-1 font-sans">
+                        {[['key', 'key info'], ['all', 'all logs']].map(([v, label]) => (
+                          <button key={v} type="button" onClick={() => setLogMode(v)}
+                            className={`readout px-2.5 py-0.5 rounded-full transition-colors ${logMode === v ? 'bg-paper3 text-ink' : 'text-muted hover:text-ink'}`}>
+                            {label}
+                          </button>
+                        ))}
+                        <span className="readout normal-case text-muted opacity-60">
+                          {logMode === 'key' ? `${logs.filter(isKeyLog).length} of ${logs.length}` : logs.length}
+                        </span>
+                      </div>
+                      {(logMode === 'key' ? logs.filter(isKeyLog) : logs).map((log, i) => (
                         <div key={i} className={`flex gap-2 ${log.toLowerCase().includes('error') ? 'text-danger' : 'text-muted'}`}>
                           <span className="text-muted opacity-50 shrink-0 hidden sm:inline">{new Date().toLocaleTimeString()}</span>
                           <span className="min-w-0 break-words">{log}</span>
@@ -2516,8 +2568,6 @@ function App() {
                           clipCount={results.clips.length}
                           bulkProgress={bulkSub}
                           onPublished={refreshResults}
-                          onDeleted={refreshResults}
-                          canDelete={status !== 'processing'}
                         />
                         </div>
                       ))}

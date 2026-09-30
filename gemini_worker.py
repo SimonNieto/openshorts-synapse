@@ -44,6 +44,9 @@ class DetailClipModel(BaseModel):
     # put a video-level field; main.get_viral_clips picks the first non-empty
     # one across all returned clips and drops the field from what gets saved.
     content_niche: str = ""
+    # Final-judge mode (a faster model pre-scored the windows): one sentence on
+    # why this moment beat the others. Saved with the clip, never shown.
+    why_chosen: str = ""
 
 
 class DetailResponse(BaseModel):
@@ -61,6 +64,17 @@ class DetailClipModelV2(DetailClipModel):
 
 class DetailResponseV2(BaseModel):
     shorts: List[DetailClipModelV2]
+
+
+# Clip Generator++ BETA "Synapse Cut playbook" (SYNAPSE_PLAYBOOK=1): the V2
+# fields (hook_line drives the start, main.align_hook_and_punchline) + the
+# topic family of the moment, for the channel's stats (playbook.py).
+class DetailClipModelPlaybook(DetailClipModelV2):
+    topic_bucket: str = ""
+
+
+class DetailResponsePlaybook(BaseModel):
+    shorts: List[DetailClipModelPlaybook]
 
 
 DETAIL_V2_ADDENDUM = """
@@ -81,6 +95,15 @@ SELECTION V2 (strict):
   15-35 s beats a longer, more complete one.
 """
 
+FINAL_JUDGE_ADDENDUM = """
+YOU ARE THE FINAL JUDGE: a faster model read the whole video and pre-scored
+these windows (`prescore`, `prescore_reason` in each window). It is a first
+sort, not a verdict — trust your own reading of the text over its score, and
+leave out a window that does not hold a strong clip that stands alone, even if
+it scored high. For every clip you keep, fill `why_chosen`: one sentence on why
+this moment beats the others (the hook, the payoff, why a cold viewer stays).
+"""
+
 SERIES_TITLE_ADDENDUM = """
 SERIES TITLES (strict): write `video_title_for_youtube_short` as a recognisable
 series title, max 60 characters, in one of these shapes:
@@ -88,6 +111,85 @@ series title, max 60 characters, in one of these shapes:
 - "{name} Exposes <everyday thing>!"
 - "{name}'s Brutal Take On <topic>"
 then add 1-2 fitting emojis at the end. The topic names THIS moment, concretely.
+"""
+
+# Clip Generator++ BETA "Synapse Cut playbook" — every place that writes a
+# title or an on-screen hook appends this (detail pass, hook grounding, the
+# B-roll planner's hook, regenerate-copy). Measured on the channel: the same
+# clip got 7,100 views as "Can a brain tumor make you a killer?" and 1,300
+# as "The Brain Tumor That Made a Murderer"; titles with the guest's name
+# ("Huberman Explains") did worse.
+QUESTION_TITLE_ADDENDUM = """
+SYNAPSE CUT PLAYBOOK — TITLE AND HOOK (strict, wins over any other title or hook rule above):
+- `video_title_for_youtube_short` is ONE question a curious viewer would ask
+  about this moment, max 60 characters, ending with "?". It names the concrete
+  thing of the clip. Never a statement, never a label ("The Brain Tumor That
+  Made a Murderer" is wrong).
+- THE TITLE MUST START WITH Can, Is, Does, Are, Do, Will or Should — a closed
+  question that creates a doubt: the viewer must guess yes or no and watch to
+  find out:
+  "Can X make you Y?", "Is X actually Y?", "Does X really Y?"
+  ("Can a brain tumor make you a killer?", "Does cannabis really cause
+  psychosis?", "Is frustration a sign you should quit?").
+  "Why..." is allowed for at most 1 in 3 of the clips you return (none when you
+  return fewer than 3). "How..." and "What..." titles are FORBIDDEN.
+- NAME THE SUBJECT: the title says what the clip is about in plain words —
+  never "this show", "one show", "this guy", "he", "they". "How did this show
+  sell out Madison Square Garden twice?" is wrong; "Can a small comedy show
+  really sell out Madison Square Garden?" is right.
+- THE QUESTION NEVER CONTAINS ITS OWN ANSWER: "Why does frustration mean your
+  brain is learning?" gives the answer away (frustration = learning); "Is
+  frustration a sign you should quit?" keeps it for the clip.
+- NO NAMES in the title or the hook: not the guest, not the host, not the
+  podcast, not any expert ("Huberman explains...", "Rogan on..." are wrong).
+  Say "a neuroscientist" or "a doctor" only if the role IS the hook; usually
+  say nothing. Names belong to the description only.
+- SENSITIVE WORDS: never write "suicide", "suicidal", "kill myself/yourself",
+  "self-harm", "cutting" or any other explicit word for suicide or self-injury in
+  the title or the hook. Say it soberly instead ("his darkest moment", "when the
+  pain gets too loud", "a mental health crisis").
+- DRUGS (any substance, psychedelic, kratom, alcohol, medication): the angle is
+  always educational or preventive — what it does to the brain or the body, the
+  risk, what people don't know. Never make it sound fun or cool, never how to get,
+  dose or use it. "Is kratom really as harmless as people think?" is right; "The
+  high nobody talks about" is wrong.
+- TRUE TO THE CLIP: the question is one this clip actually answers or explores.
+  No fake claims, no promise the clip does not keep.
+- `viral_hook_text` (on-screen, max 10 words) follows the same rules: no name,
+  same word limits; it may be the title's question or a sharper version of it.
+"""
+
+# Detail pass only (with QUESTION_TITLE_ADDENDUM): the start is cut on
+# hook_line (main.align_hook_and_punchline, without the V2 punchline end),
+# the description gets a closing question (the credit line with the names is
+# added in code, playbook.prepare), topic_bucket feeds the stats.
+PLAYBOOK_DETAIL_ADDENDUM = """
+SYNAPSE CUT PLAYBOOK — CUT, DESCRIPTIONS, TOPIC:
+- THE OPENING LINE IS THE HOOK: the clip starts EXACTLY on a sentence that works
+  when heard cold — a bold claim, a confession, a surprising fact, a "you"
+  statement, or a question. Never on "so", "um", "yeah", "and", "I mean", "you
+  know", a greeting, or the middle of a thought. Return that sentence VERBATIM
+  (exact transcript words) in `hook_line`.
+- `start` IS THE MOMENT `hook_line` BEGINS — never after it (a start placed after
+  the hook opens the clip mid-sentence). If the clip then runs over
+  {max_secs}s, end it earlier on a complete sentence; never start later to
+  save time.
+- DESCRIPTIONS (TikTok + Instagram): 1-2 sentences that tease the payoff
+  without spoiling it, then ONE short question to the viewer that invites a
+  comment ("Would you have noticed the signs?"), then 3-5 hashtags. Do not
+  write a "clip from..." or credit line: it is added automatically. Names of
+  the guest / host may appear in the description, never in the title.
+- `topic_bucket`: exactly one of brain_danger, substances,
+  psychosis_mental_illness, crime_dark, medical_mystery, mind_psychology,
+  self_improvement, science_other.
+"""
+
+# regenerate-copy (rework.COPY_PROMPT) with the playbook on: same description
+# shape as the detail pass.
+PLAYBOOK_COPY_ADDENDUM = """
+SYNAPSE CUT PLAYBOOK — DESCRIPTIONS: 1-2 sentences that tease the payoff, then
+ONE short question to the viewer that invites a comment, then the hashtags. No
+"clip from..." or credit line: it is added automatically.
 """
 
 

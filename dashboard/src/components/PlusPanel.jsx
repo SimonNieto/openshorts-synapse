@@ -26,6 +26,8 @@ const recap = (p) => [
     p.watermark && `“${p.watermark}”`,
     p.auto_publish?.enabled && 'auto-publish',
     (p.beta?.selection_v2 || p.beta?.series_titles) && 'beta',
+    ({ gemini: 'gemini only', balanced: 'gemini + claude', claude: 'claude everywhere', claude_max: 'claude max', custom: 'custom brain' })[p.brain?.preset || 'balanced'],
+    p.brain?.fresh && 'fresh picks',
 ].filter(Boolean).join(' · ');
 
 function StatsTable({ title, rows }) {
@@ -125,6 +127,7 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
     const [profiles, setProfiles] = useState(null);
     const [defaults, setDefaults] = useState(null);
     const [music, setMusic] = useState([]);
+    const [brainPresets, setBrainPresets] = useState(null);
     const [selectedId, setSelectedId] = useState(() => { try { return localStorage.getItem(SELECTED_KEY) || ''; } catch { return ''; } });
     const [editing, setEditing] = useState(null);
     const [error, setError] = useState('');
@@ -140,6 +143,7 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
             setProfiles(d.profiles || []);
             setDefaults(d.defaults);
             setMusic(d.music || []);
+            setBrainPresets(d.brain_presets || null);
         } catch {
             setError('Could not load the profiles.');
         }
@@ -226,6 +230,7 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
                 music={music}
                 accounts={accounts}
                 geminiApiKey={geminiApiKey}
+                brainPresets={brainPresets}
                 onClose={() => setEditing(null)}
                 onSave={save}
                 onDelete={remove}

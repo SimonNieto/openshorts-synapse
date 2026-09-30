@@ -236,69 +236,18 @@ def _accent_words(words):
     return {i for _, i in scored[:2 if len(words) >= 5 else 1]}
 
 
-# One emoji that ADDS meaning to a headline, picked from its own words (first
-# match wins, in reading order). Nothing matches -> no emoji: a random one is
-# noise. Deliberately a fixed table, not the model: same input, same output.
-TOPIC_EMOJI = [
-    (("brain", "brains", "neuro", "neuroscience", "mind", "memory", "dopamine", "neuroplasticity"), "\U0001F9E0"),
-    (("death", "die", "dies", "dying", "dead", "deadly", "kill", "kills", "killer", "murder", "murderer", "fatal"), "\U0001F480"),
-    (("ai", "robot", "robots", "agents", "chatgpt", "openai"), "\U0001F916"),
-    (("psychedelic", "psychedelics", "mushroom", "mushrooms", "psilocybin", "ibogaine", "dmt", "lsd", "ayahuasca"), "\U0001F344"),
-    (("drug", "drugs", "pill", "pills", "kratom", "opioid", "opioids", "pharma", "medication", "edibles", "mdma", "peptides"), "\U0001F48A"),
-    (("soldier", "soldiers", "military", "army", "veteran", "veterans", "ptsd", "war"), "\U0001FA96"),
-    (("doctor", "doctors", "hospital", "surgery", "surgeon", "medical", "emergency", "clinical"), "\U0001F3E5"),
-    (("cancer", "tumor", "tumour", "virus", "disease", "infection"), "\U0001F9A0"),
-    (("money", "cash", "rich", "dollar", "dollars", "million", "millions", "billion", "billionaire", "price", "salary"), "\U0001F4B0"),
-    (("jiu-jitsu", "jiujitsu", "bjj", "mma", "ufc", "martial", "karate", "fight", "fighting", "fighter"), "\U0001F94B"),
-    (("sleep", "insomnia", "tired", "dreams", "dream"), "\U0001F634"),
-    (("stress", "anxiety", "panic", "fear", "phobia", "scared"), "\U0001F630"),
-    (("secret", "secretly", "hidden", "truth", "exposed", "lie", "lies"), "\U0001F92B"),
-    (("science", "scientists", "scientist", "study", "research", "lab"), "\U0001F52C"),
-    (("alien", "aliens", "ufo", "ufos"), "\U0001F47D"),
-    (("gym", "muscle", "workout", "strength", "fitness", "testosterone"), "\U0001F4AA"),
-    (("alcohol", "drinking", "beer", "wine", "hangover"), "\U0001F37A"),
-    (("danger", "dangerous", "warning", "toxic", "risk", "deadliest"), "\u26A0\uFE0F"),
-    (("learn", "learning", "school", "frustration", "education"), "\U0001F4DA"),
-    (("food", "diet", "sugar", "eat", "eating", "breakfast", "fasting"), "\U0001F37D\uFE0F"),
-    (("fire", "burn", "burning", "explosion"), "\U0001F525"),
-]
-
-
-def add_topic_emoji(text):
-    """The headline + one emoji at the end when one of its words calls for
-    it; unchanged when it already has an emoji or nothing fits."""
-    text = (text or "").strip()
-    if not text or _EMOJI_RE.search(text):
-        return text
-    for word in re.findall(r"[a-z0-9'-]+", text.lower()):
-        for keys, emoji in TOPIC_EMOJI:
-            if word in keys or word.rstrip("s") in keys:
-                return f"{text} {emoji}"
-    return text
-
-
 def create_bold_hook_image(text, video_width, output_image_path, font_scale=1.0):
     """The "bold" hook as a transparent PNG: one line if it fits at >= ~8.5%
     of the frame width (big enough to read at a glance), else two balanced
-    lines. Emojis are drawn in colour (Noto Color Emoji), never outlined.
-    Returns (path, w, h)."""
-    text = re.sub(r"\s+", " ", (text or "")).strip().upper()
+    lines. Returns (path, w, h)."""
+    text = re.sub(r"\s+", " ", _EMOJI_RE.sub("", text or "")).strip().upper()
     words = text.split() or [""]
     font_path = _bold_font_path()
     max_w = int(video_width * 0.92)
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    has_emoji = bool(_EMOJI_RE.search(text))
-    emoji_fonts = {}
-
-    def efont(font):
-        if not has_emoji:
-            return None
-        if font.size not in emoji_fonts:
-            emoji_fonts[font.size] = _load_emoji_font(font.size)
-        return emoji_fonts[font.size]
 
     def width(line_words, font):
-        return _measure_width(probe, " ".join(line_words), font, efont(font))
+        return probe.textlength(" ".join(line_words), font=font)
 
     lines, font = None, None
     hi = int(video_width * 0.115 * font_scale)
@@ -317,7 +266,6 @@ def create_bold_hook_image(text, video_width, output_image_path, font_scale=1.0)
                 break
     lines = [l for l in lines if l]
     size = font.size
-    ef = efont(font)
     accents = _accent_words(words)
     stroke = max(4, size // 9)
     ascent, descent = font.getmetrics()
@@ -333,45 +281,23 @@ def create_bold_hook_image(text, video_width, output_image_path, font_scale=1.0)
     halo = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    emojis = []   # (x, y, rgba) pasted last, above everything
     hd, sd, d = ImageDraw.Draw(halo), ImageDraw.Draw(shadow), ImageDraw.Draw(img)
     idx, y = 0, pad
     for line in lines:
         x = (w - width(line, font)) / 2
         for word in line:
             fill = BOLD_ACCENT if idx in accents else (255, 255, 255)
-            for is_emoji, chunk in _split_emoji_runs(word + " "):
-                if is_emoji and ef:
-                    scale = _emoji_scale(font, ef) * 1.05
-                    rgba = _render_emoji_chunk(chunk, ef, scale, fill)
-                    if rgba is not None:
-                        # Centre the glyph on the capitals' height.
-                        cap_mid = y + ascent - size * 0.36
-                        emojis.append((int(x), int(cap_mid - rgba.height * 0.42), rgba))
-                        x += rgba.width + size * 0.04
-                    continue
-                if not chunk:
-                    continue
-                if chunk.strip():
-                    hd.text((x, y), chunk, font=font, fill=(0, 0, 0, 150),
-                            stroke_width=stroke * 3, stroke_fill=(0, 0, 0, 150))
-                    sd.text((x, y + size * 0.07), chunk, font=font, fill=(0, 0, 0, 170),
-                            stroke_width=stroke, stroke_fill=(0, 0, 0, 170))
-                    d.text((x, y), chunk, font=font, fill=fill, stroke_width=stroke, stroke_fill=(0, 0, 0))
-                x += probe.textlength(chunk, font=font)
+            hd.text((x, y), word, font=font, fill=(0, 0, 0, 150),
+                    stroke_width=stroke * 3, stroke_fill=(0, 0, 0, 150))
+            sd.text((x, y + size * 0.07), word, font=font, fill=(0, 0, 0, 170),
+                    stroke_width=stroke, stroke_fill=(0, 0, 0, 170))
+            d.text((x, y), word, font=font, fill=fill, stroke_width=stroke, stroke_fill=(0, 0, 0))
+            x += probe.textlength(word + " ", font=font)
             idx += 1
         y += line_h + gap
     out = halo.filter(ImageFilter.GaussianBlur(max(6, size // 5)))
     out.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(max(3, size // 14))))
     out.alpha_composite(img)
-    for ex, ey, rgba in emojis:
-        # a soft shadow under the emoji, like the letters have
-        sh = Image.new("RGBA", rgba.size, (0, 0, 0, 0))
-        sh.putalpha(rgba.getchannel("A").point(lambda v: int(v * 0.55)))
-        blurred = Image.new("RGBA", out.size, (0, 0, 0, 0))
-        blurred.alpha_composite(sh, (max(0, ex), max(0, ey + int(size * 0.06))))
-        out.alpha_composite(blurred.filter(ImageFilter.GaussianBlur(max(3, size // 14))))
-        out.alpha_composite(rgba, (max(0, ex), max(0, ey)))
     out.save(output_image_path)
     return output_image_path, w, h
 

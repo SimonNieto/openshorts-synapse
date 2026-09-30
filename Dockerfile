@@ -80,6 +80,20 @@ ENV NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
 # Latest yt-dlp (nightly — it updates frequently) plus its helper plugin.
 RUN pip install --upgrade --pre --no-cache-dir "yt-dlp[default]" bgutil-ytdlp-pot-provider
 
+# Optional (--build-arg CLAUDE_CODE=1): Claude Code CLI, so self-hosters can
+# run small text calls (B-roll planning) on their own Claude plan with
+# `claude -p` + CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`). Anthropic's
+# signed apt repository, stable channel; apt verifies the package signature.
+ARG CLAUDE_CODE=0
+RUN if [ "$CLAUDE_CODE" = "1" ]; then \
+      install -d -m 0755 /etc/apt/keyrings \
+      && curl -fsSL https://downloads.claude.ai/keys/claude-code.asc -o /etc/apt/keyrings/claude-code.asc \
+      && echo "deb [signed-by=/etc/apt/keyrings/claude-code.asc] https://downloads.claude.ai/claude-code/apt/stable stable main" \
+         > /etc/apt/sources.list.d/claude-code.list \
+      && apt-get update && apt-get install -y --no-install-recommends claude-code \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
+
 # Copy application code
 COPY . .
 

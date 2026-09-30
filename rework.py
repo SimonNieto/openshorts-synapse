@@ -295,7 +295,23 @@ def erase_regions_legacy(input_path: str, output_path: str, boxes: list, radius:
                 os.remove(leftover)
 
 
-def _generate_json_with_fallback(prompt: str, schema, api_key: str, model: Optional[str] = None) -> dict:
+def _generate_json_with_fallback(prompt: str, schema, api_key: str, model: Optional[str] = None,
+                                 stage: str = "writing text", brain: Optional[str] = None,
+                                 reuse: bool = True) -> dict:
+    """Mechanical text (translation, copy): on the project profile's choice
+    (``brain``: "gemini" or a Claude model; default the "text" stage's), the
+    other provider when it fails. ``reuse=False`` for a "regenerate" click:
+    the user wants a NEW answer, never the remembered one."""
+    import ai_brain
+    data, _who = ai_brain.think(stage, prompt, schema,
+                                fallback=lambda: _gemini_json_with_fallback(prompt, schema, api_key, model, reuse),
+                                route_key="text", has_key=bool(api_key or os.environ.get("GEMINI_API_KEY")),
+                                brain=brain, reuse=reuse)
+    return data
+
+
+def _gemini_json_with_fallback(prompt: str, schema, api_key: str, model: Optional[str] = None,
+                               reuse: bool = True) -> dict:
     """Shared retry/fallback policy for every text-only Gemini call in this
     module (clip copy, caption translation): 3 attempts on the primary model
     with backoff on transient errors, then one attempt on flash-lite before
@@ -316,6 +332,8 @@ def _generate_json_with_fallback(prompt: str, schema, api_key: str, model: Optio
     import gemini_worker
     import time
 
+    if not api_key:
+        raise RuntimeError("Claude is unavailable and no Gemini key is set")
     client = genai.Client(api_key=api_key)
     primary_model = model or os.environ.get("GEMINI_MODEL_THUMBNAIL") or "gemini-3.7-flash"
     config = genai_types.GenerateContentConfig(
@@ -343,7 +361,13 @@ def _generate_json_with_fallback(prompt: str, schema, api_key: str, model: Optio
                 time.sleep(wait)
 
     try:
-        return _call(primary_model, max_attempts=3)
+        import ai_cache
+        key = ai_cache.gemini_key(primary_model, [prompt, getattr(schema, "__name__", str(schema))])
+        if reuse:
+            return ai_cache.remember(key, lambda: _call(primary_model, max_attempts=3))
+        data = _call(primary_model, max_attempts=3)
+        ai_cache.put_answer(key, data)
+        return data
     except gemini_worker.GeminiBlockedError:
         raise
     except Exception as e:
@@ -411,7 +435,8 @@ topic, don't just paste the whole list: {hashtags}
 
 
 def generate_clip_copy(transcript_text: str, language: str, api_key: str, model: Optional[str] = None,
-                        hashtag_pool: Optional[list] = None) -> dict:
+                        hashtag_pool: Optional[list] = None, brain: Optional[str] = None,
+                        reuse: bool = True, playbook: bool = False) -> dict:
     """One text-only Gemini call for the hook + title + descriptions a normal
     generated clip gets from main.py's DetailClipModel — no frames needed,
     unlike hook_grounding.py, since we already have the clip's own words.
@@ -422,13 +447,20 @@ def generate_clip_copy(transcript_text: str, language: str, api_key: str, model:
     ``hashtag_pool``: real hashtags researched from top Shorts in the
     channel's niche (niche_hashtags.py). When given, the model picks from
     these instead of inventing plausible-looking ones from training data.
+
+    ``playbook``: the project was made with the Synapse Cut playbook — same
+    question-title / no-name / description rules as its detail pass.
     """
     hashtag_guidance = (
         HASHTAG_POOL_GUIDANCE.format(hashtags=" ".join(hashtag_pool))
         if hashtag_pool else "")
     prompt = COPY_PROMPT.format(language=language or "unknown", transcript=(transcript_text or "")[:4000],
                                  hashtag_guidance=hashtag_guidance)
-    data = _generate_json_with_fallback(prompt, ClipCopy, api_key, model)
+    if playbook:
+        import gemini_worker
+        prompt += gemini_worker.QUESTION_TITLE_ADDENDUM + gemini_worker.PLAYBOOK_COPY_ADDENDUM
+    data = _generate_json_with_fallback(prompt, ClipCopy, api_key, model, brain=brain, reuse=reuse,
+                                        stage="writing the hook, title and descriptions")
     return {
         "viral_hook_text": str(data.get("viral_hook_text") or "").strip(),
         "video_title_for_youtube_short": str(data.get("video_title_for_youtube_short") or "").strip()[:100],
@@ -502,7 +534,7 @@ Return JSON: {{"translations": ["<line 1 translation>", "<line 2 translation>", 
 
 
 def translate_transcript(transcript: dict, target_language: str, api_key: str,
-                          model: Optional[str] = None) -> dict:
+                          model: Optional[str] = None, brain: Optional[str] = None) -> dict:
     """Translate a transcript's TEXT ONLY for burning captions in a different
     language than the spoken audio (e.g. an English video, French captions) —
     distinct from translate.py's ElevenLabs dubbing, which replaces the voice
@@ -522,7 +554,8 @@ def translate_transcript(transcript: dict, target_language: str, api_key: str,
 
     numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
     prompt = TRANSLATE_PROMPT.format(target_language=target_language, count=len(texts), numbered_lines=numbered)
-    data = _generate_json_with_fallback(prompt, _Translations, api_key, model)
+    data = _generate_json_with_fallback(prompt, _Translations, api_key, model, brain=brain,
+                                        stage="translating the captions")
     translations = data.get("translations") or []
     if len(translations) != len(segs):
         raise ValueError(f"expected {len(segs)} translated lines, got {len(translations)}")

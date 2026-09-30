@@ -31,7 +31,11 @@ import tempfile
 FPS = 5
 WIDTH = 480
 MIN_SHOT = 1.2          # s: shorter shots are flashes / B-roll, not usable
-REACT_LEN = 0.9         # s: length of one cutaway
+# Smooth camera (profile option, SMOOTH_CAMERA=1): fewer, a bit longer
+# cutaways that dissolve in and out (~4 frames) instead of flashing.
+SMOOTH = os.environ.get("SMOOTH_CAMERA", "0") == "1"
+REACT_LEN = 1.2 if SMOOTH else 0.9   # s: length of one cutaway
+REACT_FADE = 0.13       # s: dissolve in and out, smooth camera only
 FACE_MIN_H = 0.18       # dominant face height (fraction of frame) — a close shot
 
 
@@ -202,7 +206,11 @@ def find_reactions(src, clip_start, clip_end, words_abs, pad=60.0, log=print):
 def insertion_points(words_rel, duration, punchline_time=None, max_n=None):
     """Clip-relative times just after a line lands."""
     from viral_fx import keyword_score
-    max_n = max_n or max(1, min(3, int(duration // 12)))
+    if SMOOTH:
+        max_n = max_n or max(1, min(2, int(duration // 18)))
+    else:
+        max_n = max_n or max(1, min(3, int(duration // 12)))
+    gap = 12 if SMOOTH else 6
     ends = []
     sent = []
     for w in words_rel:
@@ -219,7 +227,7 @@ def insertion_points(words_rel, duration, punchline_time=None, max_n=None):
     for t, _ in sorted(ends, key=lambda e: -e[1]):
         if len(picks) >= max_n:
             break
-        if 2.0 <= t <= duration - 1.5 - REACT_LEN and all(abs(t - q) >= 6 for q in picks):
+        if 2.0 <= t <= duration - 1.5 - REACT_LEN and all(abs(t - q) >= gap for q in picks):
             picks.append(t)
     return sorted(p + 0.08 for p in picks if 2.0 <= p <= duration - 1.5 - REACT_LEN)[:max_n]
 
@@ -295,7 +303,14 @@ def add_reactions(src, clip_path, clip_start, clip_end, transcript, out_path,
             if r.returncode != 0:
                 raise RuntimeError(r.stderr[-400:])
             inputs += ["-itsoffset", f"{t:.3f}", "-i", seg]
-            graph.append(f"{cur}[{k + 1}:v]overlay=0:0:eof_action=pass:enable='between(t,{t:.3f},{t + c['dur']:.3f})'[o{k}]")
+            src_label = f"[{k + 1}:v]"
+            if SMOOTH:
+                # Both pictures exist during the fade (the speaker's shot runs
+                # underneath), so this is a true dissolve, in and out.
+                graph.append(f"{src_label}format=rgba,fade=t=in:st={t:.3f}:d={REACT_FADE}:alpha=1,"
+                             f"fade=t=out:st={t + c['dur'] - REACT_FADE:.3f}:d={REACT_FADE}:alpha=1[rf{k}]")
+                src_label = f"[rf{k}]"
+            graph.append(f"{cur}{src_label}overlay=0:0:eof_action=pass:enable='between(t,{t:.3f},{t + c['dur']:.3f})'[o{k}]")
             cur = f"[o{k}]"
         graph.append(f"{cur}format=yuv420p[v]")
         r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", clip_path, *inputs,

@@ -16,8 +16,6 @@ import re
 import time
 import uuid
 
-import channel_copy
-
 PROFILE_FILE = "clip_profiles.json"
 MUSIC_DIR = os.environ.get("PLUS_MUSIC_DIR") or "music"
 AUDIO_EXT = (".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac")
@@ -34,22 +32,86 @@ DEFAULT_PROFILE = {
     # "classic" (the white serif card of the classic Clip Generator).
     "hook_style": "bold",
     "hook_seconds": 4,
-    "hook_emoji": True,    # one meaningful emoji at the end of the headline
     "hook_box": True,
     # End every clip on a full stop (never on a dangling "cause...").
     "clean_ending": True,
     "watermark": "",
-    "fx": {"smart_framing": True, "look": False, "spotlight": False, "streaks": False, "reactions": False},
+    "fx": {"smart_framing": True, "look": False, "spotlight": False, "streaks": False, "reactions": False,
+           "smooth_camera": False},
     "music": {"enabled": False, "mood": "", "volume": 0.22},
     # BETA: 2-4 image cutaways when something concrete is named (broll.py).
-    "broll": {"enabled": False, "source": "auto", "style": "photo", "max": 3},
+    "broll": {"enabled": False, "source": "local", "engine": "zimage", "planner": "gemini", "style": "photo",
+              "max": 6, "mode": "mixed", "density": "normal", "real_photos": False, "review": "auto", "layout": "full", "position": "below", "y": None, "size": 28,
+              "hold": None, "enter": "rise", "zoom": "soft", "border": "soft"},
     "auto_publish": {"enabled": False, "platforms": ["tiktok", "instagram", "youtube"]},
-    "beta": {"selection_v2": False, "series_titles": False, "series_name": ""},
-    # BETA: the channel's publishing voice (channel_copy.py) — titles and
-    # descriptions written for this channel, footer + hashtags + tags on
-    # every post to its account.
-    "copy": dict(channel_copy.DEFAULT_COPY),
+    "beta": {"selection_v2": False, "series_titles": False, "series_name": "",
+             # Synapse Cut playbook: question titles without names, starts on the
+             # hook sentence, credit line + question in the descriptions, one
+             # stats JSON per clip (playbook.py). "playbook_show": the show's name
+             # for the credit line (empty = read from the source's file name).
+             "playbook": False, "playbook_show": ""},
+    # Which AI runs each step (ai_brain.STAGES): "gemini" or a Claude model.
+    # "thinking" = Claude's effort on the two decision steps (clips, B-roll);
+    # "fresh" = the next run ignores the AI memory (then switches itself off).
+    "brain": {"preset": "balanced", "stages": None, "thinking": "deep", "thinking_broll": "normal", "fresh": False},
 }
+
+BRAIN_STAGES = ("brief_score", "detail", "layout", "broll", "image_review", "hook", "text")
+BRAIN_CHOICES = ("gemini", "haiku", "sonnet", "opus")
+BRAIN_PRESETS = {
+    # No Claude at all: every step on Gemini (billed per token, cheap).
+    "gemini": {k: "gemini" for k in BRAIN_STAGES},
+    # "Gemini reads, Claude decides" — the default.
+    "balanced": {"brief_score": "gemini", "detail": "sonnet", "layout": "gemini", "broll": "sonnet",
+                 "image_review": "gemini", "hook": "sonnet", "text": "gemini"},
+    # Claude everywhere, the light steps on Haiku (a fraction of the plan's usage).
+    "claude": {"brief_score": "haiku", "detail": "sonnet", "layout": "haiku", "broll": "sonnet",
+               "image_review": "haiku", "hook": "sonnet", "text": "haiku"},
+    # Claude everywhere, Opus on the two decisions.
+    "claude_max": {"brief_score": "sonnet", "detail": "opus", "layout": "haiku", "broll": "opus",
+                   "image_review": "sonnet", "hook": "sonnet", "text": "haiku"},
+}
+THINKING = {"light": "low", "normal": "medium", "deep": "high"}
+
+
+def _brain(raw, broll):
+    """Sanitized brain block. Profiles saved before it existed: the balanced
+    preset, with the B-roll step on whatever brain the B-roll section had."""
+    legacy = not isinstance(raw, dict) or not raw
+    raw = {} if legacy else raw
+    preset = raw.get("preset") if raw.get("preset") in (*BRAIN_PRESETS, "custom") else "balanced"
+    if preset == "custom":
+        stages = dict(BRAIN_PRESETS["balanced"])
+        for k, v in (raw.get("stages") or {}).items():
+            if k in stages and v in BRAIN_CHOICES:
+                stages[k] = v
+    else:
+        stages = dict(BRAIN_PRESETS[preset])
+    if legacy:
+        stages["broll"] = "sonnet" if (broll or {}).get("planner") == "claude" else "gemini"
+        preset = "balanced" if stages == BRAIN_PRESETS["balanced"] else "custom"
+    return {"preset": preset, "stages": stages,
+            "thinking": raw.get("thinking") if raw.get("thinking") in THINKING else "deep",
+            # B-roll's own level; profiles saved before it followed "thinking".
+            "thinking_broll": (raw.get("thinking_broll") if raw.get("thinking_broll") in THINKING
+                               else raw.get("thinking") if raw.get("thinking") in THINKING else "normal"),
+            "fresh": _bool(raw.get("fresh"))}
+
+
+def _hold(v):
+    try:
+        h = float(v)
+    except (TypeError, ValueError):
+        return None
+    return round(min(4.0, max(1.0, h)), 1) if h > 0 else None
+
+
+def _free_y(v):
+    try:
+        y = float(v)
+    except (TypeError, ValueError):
+        return None
+    return round(y, 1) if 3.0 <= y <= 97.0 else None
 
 
 def _bool(v):
@@ -98,7 +160,6 @@ def sanitize(raw):
         "edit_style": raw.get("edit_style") if raw.get("edit_style") in ("natural", "punchy", "clean") else "natural",
         "hook_style": hook_style,
         "hook_seconds": _int(raw.get("hook_seconds"), 2, 10, d["hook_seconds"]),
-        "hook_emoji": _bool(raw.get("hook_emoji", True)),
         "hook_box": hook_style != "none",
         "clean_ending": _bool(raw.get("clean_ending", True)),
         "watermark": re.sub(r"[^\w .@&'-]", "", str(raw.get("watermark") or ""))[:30],
@@ -107,16 +168,39 @@ def sanitize(raw):
                   "mood": str(music.get("mood") or "").strip().strip("/\\")[:60],
                   "volume": max(0.05, min(0.6, vol))},
         "broll": {"enabled": _bool(br.get("enabled")),
-                  "source": br.get("source") if br.get("source") in ("auto", "gemini", "free") else "auto",
-                  "style": br.get("style") if br.get("style") in ("photo", "neon", "drawing") else "photo",
-                  "max": _int(br.get("max"), 1, 4, 3)},
+                  "source": "local",
+                  "engine": br.get("engine") if br.get("engine") in ("zimage", "flux") else "zimage",
+                  "planner": br.get("planner") if br.get("planner") in ("gemini", "claude") else "gemini",
+                  "style": br.get("style") if br.get("style") in ("auto", "photo", "neon", "drawing", "cinematic", "vintage", "3d", "comic", "diagram") else "photo",
+                  "max": _int(br.get("max"), 1, 10, 6),
+                  "mode": br.get("mode") if br.get("mode") in ("literal", "mixed", "concept") else "mixed",
+                  # Claude may mark identifiable places / objects: a real photo (Openverse, CC0 / CC BY) instead of a generated image.
+                  "real_photos": _bool(br.get("real_photos")),
+                  # How many images per clip, relative to "max": fewer / normal / more (broll.DENSITY).
+                  "density": br.get("density") if br.get("density") in ("less", "normal", "more") else "normal",
+                  # "manual": the images are prepared but only cut in once you approve them.
+                  "review": br.get("review") if br.get("review") in ("auto", "manual") else "auto",
+                  "layout": br.get("layout") if br.get("layout") in ("rise", "full") else "full",
+                  "position": br.get("position") if br.get("position") in ("below", "above") else "below",
+                  # A height chosen by the user (the small card's centre, % from the top of the frame): wins over "position".
+                  "y": _free_y(br.get("y")),
+                  # How long each image stays (None = until the end of its sentence, else 1-4 s), how the small card
+                  # comes in ("rise" from the edge / "fade") and the zoom just before it leaves (off / soft / strong).
+                  "hold": _hold(br.get("hold")),
+                  "enter": br.get("enter") if br.get("enter") in ("rise", "fade") else "rise",
+                  "zoom": br.get("zoom") if br.get("zoom") in ("off", "soft", "strong") else "soft",
+                  # The edge and shadow around the pictures: soft (thin, see-through edge), strong (the old white edge), none.
+                  "border": br.get("border") if br.get("border") in ("soft", "strong", "none") else "soft",
+                  "size": _int(br.get("size"), 18, 60, 28)},
         "auto_publish": {"enabled": _bool(ap.get("enabled")),
                          "platforms": [p for p in (ap.get("platforms") or []) if p in ("tiktok", "instagram", "youtube")]
                          or ["tiktok", "instagram", "youtube"]},
         "beta": {"selection_v2": _bool(beta.get("selection_v2")),
                  "series_titles": _bool(beta.get("series_titles")),
-                 "series_name": str(beta.get("series_name") or "").strip()[:40]},
-        "copy": channel_copy.sanitize(raw.get("copy")),
+                 "series_name": str(beta.get("series_name") or "").strip()[:40],
+                 "playbook": _bool(beta.get("playbook")),
+                 "playbook_show": re.sub(r"[\r\n#]", "", str(beta.get("playbook_show") or "")).strip()[:60]},
+        "brain": _brain(raw.get("brain"), br),
     }
 
 
@@ -152,6 +236,18 @@ def upsert(raw, profile_id=None):
     profiles.append(created)
     save_profiles(profiles)
     return created
+
+
+def consume_fresh(profile_id):
+    """The "fresh picks" switch is for ONE run: switch it off once a job has
+    taken it."""
+    profiles = load_profiles()
+    for p in profiles:
+        if p.get("id") == profile_id and (p.get("brain") or {}).get("fresh"):
+            p["brain"]["fresh"] = False
+            save_profiles(profiles)
+            return True
+    return False
 
 
 def delete(profile_id):
@@ -206,47 +302,49 @@ def job_env(profile):
         "CLEAN_END": "1" if p["clean_ending"] else "0",
         "CLIP_MIN_SECONDS": str(p["clip_min"]),
         "CLIP_MAX_SECONDS": str(p["clip_max"]),
-        "PLUS_PROFILE_JSON": json.dumps({"id": profile.get("id"), "name": p["name"]}),
+        # The niche and upload profile travel with the project: publishing
+        # picks the niche's hashtag pool from it (otherwise it fell back to
+        # Gemini's guessed niche, which has no researched pool).
+        "PLUS_PROFILE_JSON": json.dumps({"id": profile.get("id"), "name": p["name"],
+                                         "niche": p.get("niche") or None,
+                                         "upload_profile": p.get("upload_profile") or None,
+                                         # The editor's later text calls (translate,
+                                         # regenerate) follow the profile too.
+                                         "brain": {"text": p["brain"]["stages"]["text"]}}),
     }
+    # Who thinks at each step (ai_brain.choice reads BRAIN_<STAGE>).
+    for k, v in p["brain"]["stages"].items():
+        env[f"BRAIN_{k.upper()}"] = v
+    env["CLAUDE_EFFORT_DETAIL"] = THINKING[p["brain"]["thinking"]]
+    env["CLAUDE_EFFORT_BROLL"] = THINKING[p["brain"]["thinking_broll"]]
+    if p["brain"]["fresh"]:
+        env["AI_CACHE_REFRESH"] = "1"
     if p["hook_style"] != "none":
         env["AUTO_HOOK_STYLE"] = p["hook_style"]
         env["AUTO_HOOK_SECONDS"] = str(p["hook_seconds"])
-        env["AUTO_HOOK_EMOJI"] = "1" if p["hook_emoji"] else "0"
     if p["target_clips"]:
         env["CLIP_TARGET_MIN"] = env["CLIP_TARGET_MAX"] = str(p["target_clips"])
     if p["fx"].get("reactions"):
         env["PLUS_REACTIONS"] = "1"
+    if p["fx"].get("smooth_camera"):
+        # Read by reframe_v2 (calm tracking + soft cuts); the zoom glides come
+        # through PLUS_FX_JSON like every other fx option.
+        env["SMOOTH_CAMERA"] = "1"
     if p["music"]["enabled"]:
         env["PLUS_MUSIC_MOOD"] = p["music"]["mood"]
         env["PLUS_MUSIC_VOLUME"] = str(p["music"]["volume"])
         env["PLUS_MUSIC_ON"] = "1"
     if p["broll"]["enabled"]:
-        env["PLUS_BROLL_JSON"] = json.dumps(p["broll"])
+        # The B-roll planner is the brain's "broll" step.
+        env["PLUS_BROLL_JSON"] = json.dumps({**p["broll"],
+                                             "planner": "gemini" if p["brain"]["stages"]["broll"] == "gemini"
+                                             else "claude"})
     if p["beta"]["selection_v2"]:
         env["SELECTION_V2"] = "1"
     if p["beta"]["series_titles"] and p["beta"]["series_name"]:
         env["TITLE_SERIES"] = p["beta"]["series_name"]
-    if p["copy"]["enabled"]:
-        env["CHANNEL_COPY_JSON"] = channel_copy.to_env(p["copy"])
+    if p["beta"]["playbook"]:
+        env["SYNAPSE_PLAYBOOK"] = "1"
+        if p["beta"]["playbook_show"]:
+            env["PLAYBOOK_SHOW"] = p["beta"]["playbook_show"]
     return env
-
-
-def copy_for(account=None, niche=None, profile_id=None):
-    """The active channel copy for a post or a clip: the job's own profile
-    first, else the profile that publishes to this Upload-Post account, else
-    the one with this niche. None when no profile has it switched on."""
-    profiles = load_profiles()
-    candidates = []
-    if profile_id:
-        candidates += [p for p in profiles if p.get("id") == profile_id]
-    acc = (account or "").strip().lower()
-    if acc:
-        candidates += [p for p in profiles if (p.get("upload_profile") or "").strip().lower() == acc]
-    key = (niche or "").strip().lower()
-    if key:
-        candidates += [p for p in profiles if (p.get("niche") or "").strip().lower() == key]
-    for p in candidates:
-        c = channel_copy.active(p.get("copy"))
-        if c:
-            return c
-    return None

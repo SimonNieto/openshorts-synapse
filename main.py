@@ -24,6 +24,7 @@ from google.genai import types as genai_types
 import gemini_worker
 import hook_grounding
 import layout_picker
+import playbook
 import llm_backend
 from clip_selection import (build_transcript_windows, clip_count_targets,
                             clip_duration_bounds, snap_clip_to_words,
@@ -1157,11 +1158,6 @@ def auto_hook_clip(clip_path, clip):
     if not text:
         return None
     style = os.environ.get("AUTO_HOOK_STYLE", "classic")
-    if os.environ.get("AUTO_HOOK_EMOJI") == "1":
-        # Clip Generator++: one emoji at the end when the headline's own words
-        # call for one (hooks.TOPIC_EMOJI) — never a random one.
-        from hooks import add_topic_emoji
-        text = add_topic_emoji(text)
     try:
         seconds = float(os.environ.get("AUTO_HOOK_SECONDS", "5"))
     except ValueError:
@@ -1566,6 +1562,63 @@ def _run_gemini_stage(client, model_name, prompt, schema):
     retry policy is shared because a local server has the same failure
     shapes (connection refused while the model loads, a truncated body,
     a 5xx from a busy vLLM)."""
+    # The profile says who runs this stage (ai_brain.choice: BRAIN_BRIEF_SCORE
+    # for scoring, BRAIN_DETAIL for the clips); the other provider is the
+    # fallback — also for the rest of the job once Claude hits its limit.
+    import ai_brain
+    name = getattr(schema, "__name__", "")
+    scoring = name.startswith("Score")
+    stage_key = "brief_score" if scoring else "detail"
+    stage = ("choosing the moments — 1/2 scoring the whole video" if scoring
+             else "choosing the moments — 2/2 cutting the clips, hooks and titles")
+    gemini_first = (not llm_backend.active() and client is not None
+                    and ai_brain.route(stage_key, has_key=True) == "gemini")
+
+    def _claude():
+        # Scoring only ranks windows 0-100: low effort. The detail pass is
+        # where the clips are decided and written: the profile's thinking depth.
+        effort = ((os.environ.get("CLAUDE_EFFORT_SCORE") or "low") if scoring
+                  else (os.environ.get("CLAUDE_EFFORT_DETAIL") or "high"))
+        data, _who = ai_brain.think(stage, prompt, schema, timeout=1200 if not scoring else 900,
+                                    effort=effort, route_key=stage_key)
+        u = ai_brain.LAST_USAGE or {}
+        return data, {"input_tokens": u.get("input_tokens", 0), "output_tokens": u.get("output_tokens", 0),
+                      "total_cost": 0.0,  # the subscription, not billed per token
+                      "model": f"claude-{ai_brain.stage_model(stage_key)} (subscription)"}
+
+    if ai_brain.claude_usable() and not gemini_first:
+        try:
+            return _claude()
+        except Exception as e:
+            print(f"⚠️ Claude could not do this stage ({str(e)[:160]}) — Gemini takes it.")
+            ai_brain.say("Gemini — Claude unavailable", stage)
+    elif gemini_first:
+        ai_brain.say(f"Gemini · {model_name}", stage)
+    try:
+        return _gemini_stage_call(client, model_name, prompt, schema)
+    except gemini_worker.GeminiBlockedError:
+        raise  # _run_stage_split bisects the batch
+    except Exception as e:
+        if not (gemini_first and ai_brain.claude_usable()):
+            raise
+        print(f"⚠️ Gemini could not do this stage ({str(e)[:160]}) — Claude takes it.")
+        return _claude()
+
+
+def _gemini_stage_call(client, model_name, prompt, schema):
+    """The Gemini / local-model side of _run_gemini_stage (retries, model
+    switch on overload). A Gemini answer is kept in ai_cache: the same
+    question on a re-run is read back for $0."""
+    import ai_cache
+    cache_key = None
+    if not llm_backend.active():
+        cache_key = ai_cache.gemini_key(model_name, [prompt, getattr(schema, "__name__", str(schema))])
+        hit = ai_cache.get_answer(cache_key)
+        if hit is not None:
+            print("   ♻️ Gemini: same question as before — answer reused, $0")
+            return hit, {"input_tokens": 0, "output_tokens": 0, "total_cost": 0.0, "model": f"{model_name} (reused)"}
+    if client is None and not llm_backend.active():
+        raise RuntimeError("Claude is unavailable and no GEMINI_API_KEY is set for the fallback")
     use_local = llm_backend.active()
     config = None if use_local else genai_types.GenerateContentConfig(
         response_mime_type="application/json",
@@ -1597,6 +1650,8 @@ def _run_gemini_stage(client, model_name, prompt, schema):
             else:
                 parsed = gemini_worker._parse_json_response_text(
                     gemini_worker._get_response_text(response))
+            if cache_key:
+                ai_cache.put_answer(cache_key, parsed)
             return parsed, gemini_worker._calculate_cost_analysis(response, current_model)
         except gemini_worker.GeminiBlockedError:
             raise  # deterministic policy block — never retry
@@ -1661,7 +1716,11 @@ def score_batch_size():
             return max(1, int(raw))
         except ValueError:
             pass
-    return 3 if llm_backend.active() else 8
+    if llm_backend.active():
+        return 3
+    import ai_brain
+    # Claude reads long prompts well; bigger batches = fewer (slow) CLI calls.
+    return 16 if ai_brain.claude_usable() else 8
 
 
 # Spoken fillers a clip must never open on (selection v2).
@@ -1686,27 +1745,138 @@ def _find_line(words, line, lo, hi):
     return None
 
 
-def align_hook_and_punchline(clip, words, min_secs, max_secs):
+_SENTENCE_END = re.compile(r"[.!?…][\"'”’)\]]*$")
+# Whisper sometimes leaves long stretches unpunctuated: there, a pause this
+# long after a word also counts as the end of a sentence (playbook cuts only).
+_PAUSE_BOUNDARY = 0.7
+# How far before the model's start the playbook looks for its hook_line: the
+# test jobs of 30-sep-2026 had it 5.4, 13.1 and 16.0 s before (old window: 4 s).
+PLAYBOOK_HOOK_LOOKBACK = 20.0
+
+
+def _ends_sentence(words, i):
+    return bool(_SENTENCE_END.search((words[i].get("w") or "").strip()))
+
+
+def _tail(words, i):
+    """Where to cut after word ``i``: half the pause after it (max 0.45 s) —
+    and nothing when the next word starts right away, so it cannot leak in."""
+    nxt = words[i + 1]["s"] if i + 1 < len(words) else words[i]["e"] + 1.0
+    gap = nxt - words[i]["e"]
+    if gap > 0.06:
+        return words[i]["e"] + min(0.45, gap / 2)
+    # Timestamps touching / overlapping: stop just before the next word.
+    return max(words[i]["s"] + 0.15, nxt - 0.02)
+
+
+def _is_boundary(words, i):
+    """A sentence ends after word ``i``: a full stop, or a long pause."""
+    if _ends_sentence(words, i):
+        return True
+    return i + 1 < len(words) and words[i + 1]["s"] - words[i]["e"] >= _PAUSE_BOUNDARY
+
+
+def _opens_sentence(words, i):
+    return i == 0 or _is_boundary(words, i - 1)
+
+
+_FILLER_PAIRS = {("i", "mean"), ("you", "know")}
+
+
+def _playbook_filler(words, k):
+    """How many words of filler open at ``k`` (0, 1, or 2 for a pair)."""
+    def bare(j):
+        return re.sub(r"[^a-z']", "", words[j]["w"].lower()) if j < len(words) else ""
+    if (bare(k), bare(k + 1)) in _FILLER_PAIRS:
+        return 2
+    return 1 if bare(k) in _OPENING_FILLERS - {"i", "you", "know", "mean"} else 0
+
+
+def _cut_from(words, i, end, min_secs, max_secs):
+    """(start, end, end_moved) for a clip opening on word ``i``: when that
+    makes it longer than ``max_secs``, the end moves EARLIER onto the last
+    sentence end that fits. None when no sentence end fits the band."""
+    start = max(0.0, words[i]["s"] - 0.08)
+    if end - start < min_secs:
+        return None
+    if end - start <= max_secs:
+        return start, end, False
+    best = None
+    for k in range(i, len(words)):
+        if words[k]["e"] > end + 0.05:
+            break
+        if _is_boundary(words, k):
+            t = _tail(words, k)
+            if min_secs <= t - start <= max_secs:
+                best = t
+    return (start, best, True) if best is not None else None
+
+
+def _playbook_start(clip, words, start, end, min_secs, max_secs):
+    """Synapse Cut playbook: the clip opens on its hook_line, looked for up to
+    PLAYBOOK_HOOK_LOOKBACK s before the model's start; else at least on the
+    start of a sentence (the one it cut into, else the next one). Never keeps
+    a mid-sentence start silently: flags ``start_mid_sentence`` instead."""
+    clip["hook_aligned"] = False
+    i = _find_line(words, clip.get("hook_line"), start - PLAYBOOK_HOOK_LOOKBACK, start + 12)
+    cut = _cut_from(words, i, end, min_secs, max_secs) if i is not None else None
+    if cut:
+        clip["hook_aligned"] = True
+    else:
+        k0 = next((j for j, w in enumerate(words) if w["s"] >= start - 0.05), None)
+        if k0 is not None and not _opens_sentence(words, k0):
+            back = [j for j in range(k0 - 1, -1, -1) if words[j]["s"] >= start - PLAYBOOK_HOOK_LOOKBACK]
+            ahead = [j for j in range(k0 + 1, len(words)) if words[j]["s"] <= start + 12]
+            for j in back + ahead:
+                if _opens_sentence(words, j):
+                    cut = _cut_from(words, j, end, min_secs, max_secs)
+                    if cut:
+                        break
+            if not cut:
+                clip["start_mid_sentence"] = True
+    if cut:
+        start, end, moved = cut
+        if moved:
+            # Already on a sentence end: CLEAN_END must not push it past max.
+            clip["end_fit_for_hook"] = True
+    return start, end
+
+
+def align_hook_and_punchline(clip, words, min_secs, max_secs, punchline=True, playbook=False):
     """Selection v2: start ON the verbatim hook sentence Gemini quoted, never
     on a filler; end shortly after the verbatim punchline. Keeps Gemini's cut
     whenever the quote can't be found or the result would break the length
-    band. Stores punchline_time (clip-relative) for the edit layer."""
+    band. Stores punchline_time (clip-relative) for the edit layer.
+    ``punchline=False``: the start only, the end stays the model's (and
+    CLEAN_END's). ``playbook``: the start is found by _playbook_start."""
     start, end = float(clip["start"]), float(clip["end"])
-    i = _find_line(words, clip.get("hook_line"), start - 4, start + 12)
-    if i is not None and end - (words[i]["s"] - 0.08) >= min_secs:
-        start = max(0.0, words[i]["s"] - 0.08)
-        clip["hook_aligned"] = True
+    if playbook:
+        start, end = _playbook_start(clip, words, start, end, min_secs, max_secs)
+    else:
+        i = _find_line(words, clip.get("hook_line"), start - 4, start + 12)
+        if i is not None and end - (words[i]["s"] - 0.08) >= min_secs:
+            start = max(0.0, words[i]["s"] - 0.08)
+            clip["hook_aligned"] = True
     # Never open on a filler ("so", "um", "yeah, and"...), hook found or not.
     k = next((j for j, w in enumerate(words) if w["s"] >= start - 0.05), None)
     skipped = 0
-    while (k is not None and k < len(words) - 1 and skipped < 3
+    if playbook:
+        # "I" / "you" / "know" / "mean" only as "I mean" / "you know": alone
+        # they are the sentence ("I wish I had..." must not open on "wish").
+        while k is not None and k < len(words) - 1 and skipped < 3:
+            n = _playbook_filler(words, k)
+            if not n or k + n >= len(words) or end - words[k + n]["s"] < min_secs:
+                break
+            k += n
+            skipped += n
+    while (not playbook and k is not None and k < len(words) - 1 and skipped < 3
            and re.sub(r"[^a-z']", "", words[k]["w"].lower()) in _OPENING_FILLERS
            and end - words[k + 1]["s"] >= min_secs):
         k += 1
         skipped += 1
     if skipped:
         start = max(0.0, words[k]["s"] - 0.08)
-    j = _find_line(words, clip.get("punchline"), start, end + 2)
+    j = _find_line(words, clip.get("punchline"), start, end + 2) if punchline else None
     if j is not None:
         n = len(_tokens(clip.get("punchline")))
         last = words[min(len(words) - 1, j + n - 1)]
@@ -1715,9 +1885,6 @@ def align_hook_and_punchline(clip, words, min_secs, max_secs):
         if min_secs <= new_end - start <= max_secs and new_end < end + 2:
             end = new_end
     clip["start"], clip["end"] = round(start, 3), round(end, 3)
-
-
-_SENTENCE_END = re.compile(r"[.!?…][\"'”’)\]]*$")
 
 
 def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.0):
@@ -1734,17 +1901,10 @@ def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.
         return
 
     def ends_sentence(i):
-        return bool(_SENTENCE_END.search((words[i].get("w") or "").strip()))
+        return _ends_sentence(words, i)
 
     def tail(i):
-        # Half the pause after the word (max 0.45 s) — and nothing when the
-        # next word starts right away, so it cannot leak into the clip.
-        nxt = words[i + 1]["s"] if i + 1 < len(words) else words[i]["e"] + 1.0
-        gap = nxt - words[i]["e"]
-        if gap > 0.06:
-            return words[i]["e"] + min(0.45, gap / 2)
-        # Timestamps touching / overlapping: stop just before the next word.
-        return max(words[i]["s"] + 0.15, nxt - 0.02)
+        return _tail(words, i)
 
     last = inside[-1]
     if ends_sentence(last):
@@ -1785,6 +1945,7 @@ def get_viral_clips(transcript_result, video_duration):
     the expensive detail reasoning focused on the shortlist. Cuts are snapped to
     word boundaries so clips don't start/end mid-word.
     """
+    import ai_brain
     language = str(transcript_result.get('language') or 'unknown')
     if llm_backend.active():
         # Self-hosted text model: no Google key needed for this stage.
@@ -1792,15 +1953,18 @@ def get_viral_clips(transcript_result, video_duration):
         model_name = llm_backend.model_name()
         print(f"\U0001f916  Analyzing with local LLM at {llm_backend.base_url()} (2-pass: score → detail)...")
     else:
-        print("\U0001f916  Analyzing with Gemini (2-pass: score → detail)...")
         api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            print("❌ Error: GEMINI_API_KEY not found in environment variables "
-                  "(set it, or point LLM_BASE_URL at an OpenAI-compatible server).")
+        if not api_key and not ai_brain.claude_usable():
+            print("❌ Error: neither Claude (CLAUDE_CODE_OAUTH_TOKEN) nor GEMINI_API_KEY is available "
+                  "(or point LLM_BASE_URL at an OpenAI-compatible server).")
             return None
-        client = genai.Client(api_key=api_key)
+        # Gemini stays ready as the fallback when Claude is the brain.
+        client = genai.Client(api_key=api_key) if api_key else None
         model_name = os.environ.get("GEMINI_MODEL") or 'gemini-3.1-flash-lite'
-    print(f"\U0001f916  Model: {model_name} | language: {language}")
+        brain = (f"Claude {ai_brain.claude_model()} (Gemini {model_name} as fallback)"
+                 if ai_brain.claude_usable() else f"Gemini {model_name}")
+        print(f"\U0001f916  Analyzing with {brain} (2-pass: score → detail)...")
+    print(f"\U0001f916  language: {language}")
 
     # Full word list — ground truth for snapping cut points.
     words = []
@@ -1829,20 +1993,60 @@ def get_viral_clips(transcript_result, video_duration):
         def _payload(ws):
             return [{"id": w["id"], "start": w["start"], "end": w["end"], "text": w["text"]} for w in ws]
 
-        def _score_prompt(ws):
+        def _score_prompt(ws, ctx=""):
             return gemini_worker.SCORE_PROMPT_TEMPLATE.format(
                 video_duration=video_duration, language=language,
-                windows_json=json.dumps(_payload(ws), ensure_ascii=False))
+                windows_json=json.dumps(_payload(ws), ensure_ascii=False)) + ctx
 
-        for b in range(0, len(windows), SCORE_BATCH):
-            scored.extend(_run_stage_split(
-                client, model_name, windows[b:b + SCORE_BATCH], _score_prompt,
-                gemini_worker.ScoreResponse, "windows", costs, "score"))
+        # The episode brief and the scoring both read the WHOLE transcript:
+        # with Claude they are one call, so it is sent (and paid) once. The
+        # windows keep the same share of picks as the batches had (3 per batch).
+        combined = None
+        if ai_brain.EPISODE_BRIEF is None:
+            # Coverage: ask for the best ~40% of the windows (at least 3 per
+            # batch) instead of 3 per batch, so a good moment without an
+            # obvious hook still gets scored and reaches the detail pass.
+            picks = min(len(windows), max(3 * -(-len(windows) // SCORE_BATCH),
+                                          -(-len(windows) * 4 // 10)))
+            all_windows = _score_prompt(windows).replace(
+                "Choose up to 3 windows from this batch.", f"Choose up to {picks} windows.")
+            combined = ai_brain.brief_and_scores(transcript_result, all_windows,
+                                                 gemini_worker.ScoredWindowModel)
+            if combined is not None:
+                scored = combined[1]
+                if combined[2]:
+                    costs.append(combined[2])
+                print(f"   📖+🎯 Brief and scoring in one read of the transcript "
+                      f"({combined[0].get('by')}): {len(scored)} window(s) scored.")
+            else:
+                ai_brain.episode_brief(transcript_result)
+
+        if combined is None:
+            episode_ctx = ai_brain.episode_context()
+            for b in range(0, len(windows), SCORE_BATCH):
+                scored.extend(_run_stage_split(
+                    client, model_name, windows[b:b + SCORE_BATCH], lambda ws: _score_prompt(ws, episode_ctx),
+                    gemini_worker.ScoreResponse, "windows", costs, "score"))
+        episode_ctx = ai_brain.episode_context()
 
         # Shortlist the top windows; scale with duration so long videos surface
         # more candidates without exploding the detail call.
         scored.sort(key=lambda w: w.get("score", 0), reverse=True)
-        target = max(3, min(10, int(video_duration // 90) + 2))
+        target = max(3, min(15, int(video_duration // 90) + 2))
+        if combined is not None and combined[0].get("by") == "gemini":
+            # Gemini sorted the windows and Claude only sees what it kept: a
+            # wider shortlist so a great moment Gemini under-scored still
+            # reaches Claude (the clip count band does not change past 8).
+            target = min(15, max(target, round(target * 1.5)))
+            # ...but no wider than the clip count needs: the judge reads
+            # (and Claude bills) every window sent, so ask for what is
+            # wanted (the profile's clip count, else the usual floor) plus
+            # the same number again as margin for the judge to drop weak ones.
+            try:
+                wanted = int(os.environ.get("CLIP_TARGET_MAX") or 0) or clip_count_targets(target)[0]
+            except ValueError:
+                wanted = clip_count_targets(target)[0]
+            target = max(3, min(target, wanted + max(3, wanted)))
         by_id = {w["id"]: w for w in windows}
         shortlist = [by_id[w["id"]] for w in scored[:target] if w.get("id") in by_id]
         if not shortlist:
@@ -1855,6 +2059,25 @@ def get_viral_clips(transcript_result, video_duration):
         # Clip Generator++ BETA switches (off = the classic prompt, byte for byte).
         selection_v2 = os.environ.get("SELECTION_V2") == "1"
         series_name = (os.environ.get("TITLE_SERIES") or "").strip()
+        # Synapse Cut playbook: question titles without names — the series
+        # titles ("Joe Rogan On ...") say the opposite, so the playbook wins.
+        playbook_on = playbook.enabled()
+        if playbook_on and series_name:
+            print("   🧪 Series titles ignored: the Synapse Cut playbook keeps names out of titles.")
+            series_name = ""
+
+        # Gemini sorted the windows: Claude sees its score and reason and is
+        # the final judge (keeps, drops, and says why).
+        judge = combined is not None and combined[0].get("by") == "gemini"
+        pre = {w.get("id"): w for w in scored} if judge else {}
+
+        def _detail_payload(ws):
+            out = _payload(ws)
+            if judge:
+                for w in out:
+                    p = pre.get(w["id"]) or {}
+                    w["prescore"], w["prescore_reason"] = p.get("score"), p.get("reason") or ""
+            return out
 
         def _detail_prompt(ws):
             # A split batch keeps the full clip-count band: a short list can
@@ -1863,19 +2086,52 @@ def get_viral_clips(transcript_result, video_duration):
                 video_duration=video_duration, language=language,
                 min_clips=min_clips, max_clips=max_clips,
                 min_secs=min_secs, max_secs=max_secs,
-                windows_json=json.dumps(_payload(ws), ensure_ascii=False))
+                windows_json=json.dumps(_detail_payload(ws), ensure_ascii=False))
+            if judge:
+                prompt += gemini_worker.FINAL_JUDGE_ADDENDUM
             if selection_v2:
                 prompt += gemini_worker.DETAIL_V2_ADDENDUM
             if series_name:
                 prompt += gemini_worker.SERIES_TITLE_ADDENDUM.replace("{name}", series_name)
-            return prompt
+            if playbook_on:
+                prompt += (gemini_worker.QUESTION_TITLE_ADDENDUM
+                           + gemini_worker.PLAYBOOK_DETAIL_ADDENDUM.replace("{max_secs}", f"{max_secs:g}"))
+            return prompt + episode_ctx
 
-        detail_schema = gemini_worker.DetailResponseV2 if selection_v2 else gemini_worker.DetailResponse
-        if selection_v2 or series_name:
+        if playbook_on:
+            detail_schema = gemini_worker.DetailResponsePlaybook
+        else:
+            detail_schema = gemini_worker.DetailResponseV2 if selection_v2 else gemini_worker.DetailResponse
+        if selection_v2 or series_name or playbook_on:
             print(f"   🧪 Beta: selection v2={'on' if selection_v2 else 'off'}"
-                  f"{f', series titles ({series_name})' if series_name else ''}")
+                  f"{f', series titles ({series_name})' if series_name else ''}"
+                  f"{', Synapse Cut playbook' if playbook_on else ''}")
         shorts = _run_stage_split(client, model_name, shortlist, _detail_prompt,
                                   detail_schema, "shorts", costs, "detail")
+        if judge:
+            print(f"   ⚖️ Final judge kept {len(shorts)} clip(s) from {len(shortlist)} pre-scored window(s):")
+            for s in shorts:
+                if s.get("why_chosen"):
+                    print(f"      • {s.get('start', 0):.0f}s: {str(s['why_chosen'])[:160]}")
+        # Which windows were looked at, and which turned into clips: so a good
+        # passage that was left out can be found and checked by ear.
+        try:
+            def _mmss(x):
+                x = int(x)
+                return f"{x // 60}:{x % 60:02d}"
+            score_of = {w.get("id"): w for w in scored}
+            sent = {w["id"] for w in shortlist}
+            used = {c.get("source_window_id") for c in shorts}
+            print(f"   📋 Windows report ({len(windows)} windows; * = became a clip, > = read by the detail pass, "
+                  f"- = not scored):")
+            for w in windows:
+                sc = score_of.get(w["id"])
+                mark = "*" if w["id"] in used else (">" if w["id"] in sent else " ")
+                print(f"      {mark} {_mmss(w['start'])}-{_mmss(w['end'])}  "
+                      f"{sc.get('score', '?') if sc else '-':>3}  "
+                      f"{str((sc or {}).get('reason') or '')[:90]}")
+        except Exception as e:
+            print(f"   (windows report skipped: {e})")
         if len(shorts) > max_clips:
             # By score, never by position: the results arrive in transcript
             # order, so slicing kept the earliest clips and silently dropped
@@ -1889,12 +2145,27 @@ def get_viral_clips(transcript_result, video_duration):
             ns, ne = snap_clip_to_words(s.get("start", 0), s.get("end", 0), words, video_duration,
                                         min_duration=min_secs, max_duration=max_secs)
             s["start"], s["end"] = ns, ne
-        if selection_v2:
+        if selection_v2 or playbook_on:
+            # The playbook opens on the hook sentence too, but keeps its own
+            # end (no V2 punchline rule, no V2 topic preferences).
             for s in shorts:
-                align_hook_and_punchline(s, words, min_secs, max_secs)
+                align_hook_and_punchline(s, words, min_secs, max_secs, punchline=selection_v2,
+                                         playbook=playbook_on)
+            if playbook_on:
+                print(f"   🪝 Playbook: {sum(bool(s.get('hook_aligned')) for s in shorts)}/{len(shorts)} "
+                      f"clip(s) start on their hook sentence.")
+                for s in shorts:
+                    if s.get("end_fit_for_hook"):
+                        print(f"      ✂️ {s['start']:.0f}s: end moved to {s['end']:.1f}s (a sentence end) "
+                              f"to open on the hook and stay under {max_secs:g}s.")
+                    if s.get("start_mid_sentence"):
+                        print(f"      ⚠️ {s['start']:.0f}s: starts MID-SENTENCE — no hook or sentence start "
+                              f"fits the {min_secs:g}-{max_secs:g}s band (hook_aligned=false).")
         if os.environ.get("CLEAN_END") == "1":
             fixed = 0
             for s in shorts:
+                if s.get("end_fit_for_hook"):
+                    continue  # already on a sentence end, placed to stay under max
                 end_on_sentence(s, words, min_secs, max_secs)
                 fixed += bool(s.get("clean_end"))
             print(f"   ✂️  Clean endings: {fixed}/{len(shorts)} clip(s) moved to a full stop.")
@@ -1911,13 +2182,17 @@ def get_viral_clips(transcript_result, video_duration):
         # Aggregate cost across both passes.
         cost_analysis = None
         if costs:
+            # Who actually answered (Claude, or Gemini as its fallback).
+            used = sorted({str(c.get("model") or model_name) for c in costs})
             cost_analysis = {
                 "input_tokens": sum(c.get("input_tokens", 0) for c in costs),
                 "output_tokens": sum(c.get("output_tokens", 0) for c in costs),
                 "total_cost": sum(c.get("total_cost", 0) for c in costs),
-                "model": model_name,
+                "model": " + ".join(used),
             }
-            print(f"\U0001f4b0 Total cost ({model_name}, 2-pass, {len(costs)} calls): ${cost_analysis['total_cost']:.6f}")
+            print(f"\U0001f4b0 Selection ({cost_analysis['model']}, 2-pass, {len(costs)} calls): "
+                  f"{cost_analysis['input_tokens']:,} tokens read, {cost_analysis['output_tokens']:,} written, "
+                  f"${cost_analysis['total_cost']:.6f} billed")
 
         if not shorts:
             print("⚠️ 2-pass returned no clips.")
@@ -2066,6 +2341,13 @@ if __name__ == '__main__':
     output_format = args.format
 
     script_start_time = time.time()
+    if os.environ.get("PLUS_BROLL_JSON"):
+        # B-roll images are made on the local GPU only: better to stop now
+        # than after the download, the transcription and Claude's picks.
+        import broll as _broll_pre
+        if not _broll_pre.comfy_available():
+            print(f"❌ ComfyUI is not reachable at {_broll_pre._comfy_url()} — start it in Pinokio. Job stopped.")
+            sys.exit(1)
     
     def _ensure_dir(path: str) -> str:
         """Create directory if missing and return the same path."""
@@ -2175,9 +2457,21 @@ if __name__ == '__main__':
                 print(f"♻️ Reusing the transcript from the interrupted run "
                       f"({len(transcript['segments'])} segments) — skipping transcription.")
         if transcript is None:
+            # Same video processed before: the very same words, so every Claude
+            # question built from them is answered from ai_cache for 0 tokens.
+            import ai_cache
+            transcript = ai_cache.get_transcript(input_video)
+            if transcript is not None:
+                print(f"♻️ This video was transcribed before ({len(transcript['segments'])} segments) — "
+                      f"reusing it (set AI_CACHE=0 to redo everything).")
+        if transcript is None:
             try:
+                import ai_brain
+                import ai_cache
+                ai_brain.say("Whisper · local GPU", "transcribing the audio")
                 transcript = transcribe_video(input_video)
                 save_transcript_checkpoint(output_dir, transcript, input_video, duration)
+                ai_cache.put_transcript(input_video, transcript)
             except NoAudioError as e:
                 print(f"🔇 {e} — switching to visual analysis.")
 
@@ -2189,9 +2483,17 @@ if __name__ == '__main__':
                   f"switching to visual analysis.")
             transcript = None
 
-        # 4. Gemini Analysis (transcript-driven, or vision for silent videos)
+        # 4. Analysis (transcript-driven, or vision for silent videos). First
+        # the episode brief — one read of the whole transcript (who talks, the
+        # topic, a visual glossary, the stories told) that the clip picker and
+        # the B-roll planner then work from (ai_brain.py: Claude first).
+        episode_brief = None
         if transcript is not None:
+            import ai_brain
+            # The brief is read inside get_viral_clips (in the same Claude
+            # call as the scoring pass when it can).
             clips_data = get_viral_clips(transcript, duration)
+            episode_brief = ai_brain.EPISODE_BRIEF
         else:
             clips_data = get_visual_clips(input_video, duration)
 
@@ -2207,6 +2509,8 @@ if __name__ == '__main__':
             # Save metadata. Silent videos have no transcript → no subtitles,
             # which is correct (there's no speech to caption).
             clips_data['transcript'] = transcript or {"language": "none", "segments": []}
+            if episode_brief:
+                clips_data['episode_brief'] = episode_brief
             # The clip editor's re-render path needs to find the source video
             # again and reproduce the render settings, so record both. The
             # basename is enough — the file sits in the job dir (URL jobs with
@@ -2216,9 +2520,27 @@ if __name__ == '__main__':
             if os.environ.get("PLUS_PROFILE_JSON"):
                 try:
                     clips_data['plus_profile'] = json.loads(os.environ["PLUS_PROFILE_JSON"])
+                    # The profile's niche is the project's niche (hashtags at
+                    # publish time), not whatever Gemini guessed from the video.
+                    for key in ('niche', 'upload_profile'):
+                        if clips_data['plus_profile'].get(key) and not clips_data.get(key):
+                            clips_data[key] = clips_data['plus_profile'][key]
                 except ValueError:
                     pass
             clips_data['output_format'] = output_format
+            # Synapse Cut playbook: credit line (show, episode, guest) at the
+            # top of every description, moment ids, first title name check.
+            # Kept in the metadata so regenerate-copy (app.py) does the same.
+            playbook_tokens = None
+            if playbook.enabled():
+                show = (os.environ.get("PLAYBOOK_SHOW") or "").strip()
+                playbook_tokens = playbook.prepare(clips_data['shorts'], clips_data['source_video'],
+                                                   episode_brief, show)
+                clips_data['playbook'] = {
+                    "credit": playbook.credit_line(clips_data['source_video'], episode_brief, show),
+                    "name_tokens": playbook_tokens,
+                }
+                print(f"   📝 Playbook credit: {clips_data['playbook']['credit']}")
             metadata_file = os.path.join(output_dir, f"{video_title}_metadata.json")
             with open(metadata_file, 'w') as f:
                 json.dump(clips_data, f, indent=2)
@@ -2227,7 +2549,11 @@ if __name__ == '__main__':
             # 5. Process clips in parallel: each worker cuts + renders one
             # clip. Renders are mostly ffmpeg subprocesses (parallelize well);
             # detector inference is serialized internally via DETECT_LOCK.
+            comfy_down = threading.Event()
+
             def _process_one_clip(i, clip):
+                if comfy_down.is_set():
+                    return False
                 start = clip['start']
                 end = clip['end']
                 print(f"\n🎬 Processing Clip {i+1}: {start}s - {end}s")
@@ -2288,25 +2614,6 @@ if __name__ == '__main__':
                                 clip['reactions'] = rep
                         except Exception as e:
                             print(f"   ⚠️ Reactions failed ({type(e).__name__}: {e}) — clip kept without them.")
-                    # B-roll images (Clip Generator++ beta): cut in BEFORE the
-                    # edit style, so the pristine copy keeps them on a restyle.
-                    if success and os.environ.get("PLUS_BROLL_JSON") and transcript:
-                        try:
-                            import broll as _broll
-                            br_tmp = os.path.join(output_dir, f"brtmp_{i + 1}_{int(time.time())}.mp4")
-                            br = _broll.add_broll(clip_final_path, br_tmp, clip, transcript, start, end,
-                                                  json.loads(os.environ["PLUS_BROLL_JSON"]),
-                                                  api_key=os.getenv("GEMINI_API_KEY"))
-                            if br:
-                                os.replace(br_tmp, clip_final_path)
-                                clip['broll'] = br["items"]
-                                if br["credits"]:
-                                    clip['broll_credits'] = br["credits"]
-                                print(f"   🖼️ B-roll: {len(br['items'])} image(s) "
-                                      f"({', '.join(sorted(set(br['sources'])))}) at "
-                                      f"{', '.join(str(x['t']) + 's ' + x['anchor'] for x in br['items'])}")
-                        except Exception as e:
-                            print(f"   ⚠️ B-roll failed ({type(e).__name__}: {e}) — clip kept without it.")
                     # Viral edit style (EDIT_STYLE=punchy|clean): the motion
                     # layer (jump zooms, shake, grade) goes INTO the canonical,
                     # under the hook, so the hook text is never zoomed or cut;
@@ -2336,15 +2643,53 @@ if __name__ == '__main__':
                                   f"({len(report.get('shots', []))} shots, spotlight {report.get('spotlight', [])})")
                         except Exception as e:
                             print(f"   ⚠️ Edit style failed ({type(e).__name__}: {e}) — plain clip kept.")
+                    # B-roll images (Clip Generator++ beta): cut in AFTER the
+                    # edit style — the face tracking of the zooms must never
+                    # see a head in a B-roll image, and a small card must not
+                    # be zoomed off its spot. The images stay next to the clip
+                    # so a restyle (app.py) re-cuts them on the new edit.
+                    import layout_ranges as _layouts
+                    if success and os.environ.get("PLUS_BROLL_JSON") and transcript:
+                        try:
+                            import broll as _broll
+                            # A screen clip: the B-roll planner (Claude) rewrites
+                            # the hook from the frames in its own call — the clip
+                            # goes to Claude once instead of twice.
+                            clip['layout_ranges'] = _layouts.read(clip_final_path)
+                            br_tmp = os.path.join(output_dir, f"brtmp_{i + 1}_{int(time.time())}.mp4")
+                            br = _broll.add_broll(clip_final_path, br_tmp, clip, transcript, start, end,
+                                                  json.loads(os.environ["PLUS_BROLL_JSON"]),
+                                                  api_key=os.getenv("GEMINI_API_KEY"), keep_dir=output_dir,
+                                                  keep_prefix=os.path.basename(clip_final_path)[:-4] + "_",
+                                                  ground_hook=hook_grounding.wanted(clip['layout_ranges'], end - start))
+                            if br:
+                                if br.get("pending"):
+                                    # Manual review: the clip stays as it is; the
+                                    # images wait for the user's approval.
+                                    clip['broll_pending'] = True
+                                else:
+                                    os.replace(br_tmp, clip_final_path)
+                                clip['broll'] = br["items"]
+                                if br["credits"]:
+                                    clip['broll_credits'] = br["credits"]
+                                print(f"   🖼️ B-roll: {len(br['items'])} image(s) "
+                                      f"({', '.join(sorted(set(br['sources'])))}) at "
+                                      f"{', '.join(str(x['t']) + 's ' + x['anchor'] for x in br['items'])}")
+                        except Exception as e:
+                            if type(e).__name__ == "ComfyDown":
+                                comfy_down.set()
+                                raise
+                            print(f"   ⚠️ B-roll failed ({type(e).__name__}: {e}) — clip kept without it.")
                     deliver_path = clip_final_path
                     # Which stretches were stacked (SPLIT): captions go on the
                     # seam there, and /api/subtitle needs it again later.
-                    import layout_ranges as _layouts
                     clip['layout_ranges'] = _layouts.read(clip_final_path)
                     # The hook was written from the transcript alone. When the
                     # render put this clip's meaning on the screen, rewrite hook
-                    # and title from three of its frames BEFORE burning them.
-                    if success and hook_grounding.wanted(clip['layout_ranges'], end - start):
+                    # and title from three of its frames BEFORE burning them
+                    # (unless the B-roll planner already did it in its call).
+                    if (success and 'hook_grounding' not in clip
+                            and hook_grounding.wanted(clip['layout_ranges'], end - start)):
                         hook_grounding.reground(clip_final_path, clip, transcript, start, end)
                     if success and os.environ.get("AUTO_HOOK") == "1":
                         hooked = auto_hook_clip(clip_final_path, clip)
@@ -2361,6 +2706,18 @@ if __name__ == '__main__':
                                 deliver_path, transcript, start, end,
                                 split_ranges=_layouts.split_ranges(clip['layout_ranges']),
                                 output_format=output_format)
+                        if playbook_tokens is not None:
+                            # After hook grounding / the B-roll planner: the
+                            # title here is the one that ships.
+                            try:
+                                p = playbook.export_clip(clip, output_dir, clip_filename,
+                                                         playbook_tokens, transcript)
+                                flag = " ⚠️ name in title" if clip.get('title_has_name') else ""
+                                if not clip.get('title_format_ok'):
+                                    flag += f" ⚠️ title format ({'; '.join(clip.get('title_format_issues') or [])})"
+                                print(f"   📊 Playbook export: {os.path.basename(p)}{flag}")
+                            except Exception as e:
+                                print(f"   ⚠️ Playbook export failed ({type(e).__name__}: {e}).")
                         print(f"   ✅ Clip {i+1} ready: {clip_final_path}")
                         # Hand the API the file to actually serve for this clip.
                         # Without it the status poller guesses the clean reframe
@@ -2389,9 +2746,19 @@ if __name__ == '__main__':
                     except Exception as e:
                         print(f"   ❌ Clip {i+1} failed: {type(e).__name__}: {e}")
 
+            if comfy_down.is_set():
+                print("❌ ComfyUI stopped answering — job stopped (B-roll images are made only on the local GPU).")
+                sys.exit(1)
+            # B-roll "local": every clip is done, let ComfyUI drop its models
+            # from RAM too (FLUX holds ~17 GB) until the next job needs them.
+            if any(f'"source": "{s}"' in os.environ.get("PLUS_BROLL_JSON", "") for s in ("local", "auto")):
+                import broll as _broll
+                _broll.comfy_release(full=True)
+
             # Persist per-clip render results added by the workers (auto_hook)
             # so the editor can see what is already burned into each clip.
-            if any('auto_hook' in c or 'hook_grounding' in c for c in shorts):
+            if any('auto_hook' in c or 'hook_grounding' in c or 'broll' in c or 'title_has_name' in c
+                   for c in shorts):
                 with open(metadata_file, 'w') as f:
                     json.dump(clips_data, f, indent=2)
 
@@ -2405,3 +2772,9 @@ if __name__ == '__main__':
 
     total_time = time.time() - script_start_time
     print(f"\n⏱️  Total execution time: {total_time:.2f}s")
+    import ai_brain
+    import ai_cache
+    if ai_brain.USAGE["calls"] or ai_cache.HITS["answers"]:
+        print(f"🧠 Claude for this job: {ai_brain.USAGE['input_tokens']:,} tokens read, "
+              f"{ai_brain.USAGE['output_tokens']:,} written in {ai_brain.USAGE['calls']} call(s); "
+              f"{ai_cache.HITS['answers']} answer(s) reused from the cache for 0 tokens.")

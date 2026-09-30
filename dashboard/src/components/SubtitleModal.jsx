@@ -23,8 +23,6 @@ export const FONT_OPTIONS = [
     { value: 'Helvetica', label: 'Helvetica' },
     { value: 'Georgia', label: 'Georgia' },
     { value: 'Courier New', label: 'Courier New' },
-    // The dashboard's mono face (fonts/JetBrainsMono-Medium.ttf server-side).
-    { value: 'JetBrains Mono', label: 'JetBrains Mono' },
 ];
 
 export const COLOR_PRESETS = [

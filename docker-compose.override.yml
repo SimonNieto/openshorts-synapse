@@ -1,0 +1,25 @@
+# PC fixe (RTX 3060 12 Go) — picked up automatically by `docker compose up`.
+# GPU image (cuBLAS/cuDNN for faster-whisper, NVENC for ffmpeg) + a persistent
+# cache for the Whisper model so it is not re-downloaded on every recreate.
+services:
+  backend:
+    build:
+      context: .
+      args:
+        GPU: "1"
+        CLAUDE_CODE: "1"   # B-roll planned by Claude on the user's subscription
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video]
+    volumes:
+      - hf-cache:/app/.cache/huggingface
+    extra_hosts:
+      # ComfyUI (Pinokio) on the Windows host — B-roll "local" source.
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  hf-cache:

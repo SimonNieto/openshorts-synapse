@@ -27,6 +27,7 @@ from typing import Optional
 SCREEN_LAYOUTS = {"screencast", "wide", "inset"}
 FRAMES = int(os.environ.get("HOOK_GROUNDING_FRAMES", "3"))
 WIDTH = int(os.environ.get("HOOK_GROUNDING_WIDTH", "1024"))
+MAX_EDGE = int(os.environ.get("HOOK_GROUNDING_MAX_EDGE", "1280"))
 # Ignore a blip: the screen stretches must cover this share of the clip.
 MIN_SHARE = float(os.environ.get("HOOK_GROUNDING_MIN_SHARE", "0.25"))
 
@@ -111,7 +112,13 @@ def frames_at(video_path, times, width=None):
             if not ok:
                 continue
             h, w = frame.shape[:2]
-            scaled = cv2.resize(frame, (width, max(2, int(h * width / w))),
+            tw = width
+            if h * tw / w > MAX_EDGE:
+                # A vertical clip: 1024 px wide was 1024x1820, which Claude
+                # shrinks anyway; 720x1280 keeps the text legible for ~20%
+                # fewer image tokens.
+                tw = int(w * MAX_EDGE / h)
+            scaled = cv2.resize(frame, (tw, max(2, int(h * tw / w))),
                                 interpolation=cv2.INTER_AREA)
             ok, buf = cv2.imencode(".jpg", scaled, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok:
@@ -122,64 +129,105 @@ def frames_at(video_path, times, width=None):
 
 
 def _ask_gemini(frames, prompt, api_key):
-    """One vision call; returns the parsed dict. Split out so tests can stub it."""
-    from google import genai
-    from google.genai import types as genai_types
+    """One vision call; returns the parsed dict. Split out so tests can stub it.
+    Claude first (ai_brain), this Gemini call as the fallback."""
+    import ai_brain
     import gemini_worker
 
-    client = genai.Client(api_key=api_key)
+    def gemini():
+        return _gemini_call(frames, prompt, api_key)
+
+    answer, _who = ai_brain.think_frames("rewriting the hook from what is on screen", prompt,
+                                         gemini_worker.GroundedHook, frames, fallback=gemini, route_key="hook")
+    return answer
+
+
+def _gemini_call(frames, prompt, api_key):
+    from google import genai
+    from google.genai import types as genai_types
+    import ai_cache
+    import gemini_worker
+
+    if not api_key:
+        raise RuntimeError("no Gemini key")
     model_name = os.environ.get("GEMINI_MODEL") or "gemini-3.1-flash-lite"
     parts = [genai_types.Part.from_bytes(data=b, mime_type="image/jpeg") for b in frames]
-    response = client.models.generate_content(
-        model=model_name,
-        contents=parts + [prompt],
-        config=genai_types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=gemini_worker.GroundedHook,
-        ))
-    gemini_worker.raise_if_blocked(response)
-    return json.loads(response.text) or {}
+
+    def call():
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=parts + [prompt],
+            config=genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=gemini_worker.GroundedHook,
+            ))
+        gemini_worker.raise_if_blocked(response)
+        return json.loads(response.text) or {}
+    return ai_cache.remember(ai_cache.gemini_key(model_name, parts + [prompt, "GroundedHook"]), call)
 
 
 def reground(clip_path, clip, transcript, start, end) -> Optional[dict]:
     """Rewrite ``clip['viral_hook_text']`` / ``video_title_for_youtube_short``
     in place from the clip's frames. Returns what changed (also stored under
     ``clip['hook_grounding']``), or None when skipped or failed."""
+    import ai_brain
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        print("   🪝 Hook grounding skipped: needs a Gemini key (frames), "
+    if not api_key and not ai_brain.claude_usable():
+        print("   🪝 Hook grounding skipped: needs Claude or a Gemini key (frames), "
               "keeping the transcript hook.")
         return None
     try:
-        import gemini_worker
-
-        times = sample_times(clip.get("layout_ranges"), float(end) - float(start))
-        frames = frames_at(clip_path, times)
-        if not frames:
+        req = request(clip_path, clip, transcript, start, end)
+        if not req:
             return None
-        language = str((transcript or {}).get("language") or "unknown")
-        prompt = gemini_worker.GROUNDED_HOOK_PROMPT.format(
-            language=language,
-            current_hook=clip.get("viral_hook_text") or "",
-            current_title=clip.get("video_title_for_youtube_short") or "",
-            transcript=clip_words(transcript, start, end)[:4000] or "(no speech)")
-        answer = _ask_gemini(frames, prompt, api_key)
-        hook = str(answer.get("viral_hook_text") or "").strip()
-        title = str(answer.get("video_title_for_youtube_short") or "").strip()
-        if not hook:
-            return None
-        before = {"viral_hook_text": clip.get("viral_hook_text"),
-                  "video_title_for_youtube_short": clip.get("video_title_for_youtube_short")}
-        clip["viral_hook_text"] = hook
-        if title:
-            clip["video_title_for_youtube_short"] = title[:100]
-        clip["hook_grounding"] = {
-            "on_screen": str(answer.get("on_screen") or "")[:200],
-            "before": before,
-            "frames": len(frames),
-        }
-        print(f"   🪝 Hook regrounded on screen ({clip['hook_grounding']['on_screen'][:60]}): {hook}")
-        return clip["hook_grounding"]
+        frames, prompt = req
+        return apply(clip, _ask_gemini(frames, prompt, api_key), len(frames))
     except Exception as e:
         print(f"   ⚠️ Hook grounding failed ({type(e).__name__}: {e}) — keeping the transcript hook.")
         return None
+
+
+def request(clip_path, clip, transcript, start, end):
+    """(frames as JPEG bytes, prompt) for this clip, or None without frames.
+    Also used by the B-roll planner, which answers it in its own Claude call
+    (the clip is then sent to Claude once, not twice)."""
+    import gemini_worker
+
+    times = sample_times(clip.get("layout_ranges"), float(end) - float(start))
+    frames = frames_at(clip_path, times)
+    if not frames:
+        return None
+    language = str((transcript or {}).get("language") or "unknown")
+    prompt = gemini_worker.GROUNDED_HOOK_PROMPT.format(
+        language=language,
+        current_hook=clip.get("viral_hook_text") or "",
+        current_title=clip.get("video_title_for_youtube_short") or "",
+        transcript=clip_words(transcript, start, end)[:4000] or "(no speech)")
+    import playbook
+    if playbook.enabled():
+        # Same title / hook rules as the detail pass (reground and the
+        # B-roll planner's hook both come through here).
+        prompt += gemini_worker.QUESTION_TITLE_ADDENDUM
+    return frames, prompt
+
+
+def apply(clip, answer, n_frames) -> Optional[dict]:
+    """Write the grounded hook / title into ``clip``; what changed, or None."""
+    answer = answer or {}
+    hook = str(answer.get("viral_hook_text") or "").strip()
+    title = str(answer.get("video_title_for_youtube_short") or "").strip()
+    if not hook:
+        return None
+    before = {"viral_hook_text": clip.get("viral_hook_text"),
+              "video_title_for_youtube_short": clip.get("video_title_for_youtube_short")}
+    clip["viral_hook_text"] = hook
+    if title:
+        clip["video_title_for_youtube_short"] = title[:100]
+    clip["hook_grounding"] = {
+        "on_screen": str(answer.get("on_screen") or "")[:200],
+        "before": before,
+        "frames": n_frames,
+    }
+    print(f"   🪝 Hook regrounded on screen ({clip['hook_grounding']['on_screen'][:60]}): {hook}")
+    return clip["hook_grounding"]

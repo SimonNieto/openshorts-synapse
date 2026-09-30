@@ -113,6 +113,7 @@ def _detect_transnetv2(video_path):
     # downstream expects PySceneDetect's exclusive ends.
     raw = model.predictions_to_scenes(single_frame_pred.numpy(), threshold=threshold)
     bounds = [(int(s), int(e) + 1) for s, e in raw]
+    bounds = _add_colour_cuts(bounds, frames)
 
     # cv2's frame count can differ by a few frames from what ffmpeg decodes;
     # downstream loops run to the decoder's count, so cover the gap.
@@ -126,6 +127,36 @@ def _detect_transnetv2(video_path):
                   for s, e in bounds]
     print(f"   🎬 Scene engine: TransNetV2 — {len(scene_list)} scenes")
     return scene_list, fps
+
+
+# Second opinion on hard cuts: the colour distribution of two consecutive
+# frames (Bhattacharyya distance of 8x8x8 RGB histograms, on the same 48x27
+# frames TransNetV2 reads). On a JRE clip (28-sep-2026) TransNetV2 returned a
+# single scene for a 37 s clip that has three cuts to the host and back; the
+# same cuts measure 0.64-0.69 here against at most 0.06 inside a shot. A cut
+# the network misses is a cut the tracker then PANS across, so either signal
+# is enough to cut.
+COLOUR_CUT = float(os.environ.get("SCENE_COLOUR_CUT", "0.55"))
+
+
+def _add_colour_cuts(bounds, frames):
+    if COLOUR_CUT <= 0 or len(frames) < 2 or not bounds:
+        return bounds
+    hists = []
+    for f in frames:
+        h = cv2.calcHist([f], [0, 1, 2], None, [8, 8, 8], [0, 256] * 3).flatten().astype("float32")
+        hists.append(h / (h.sum() + 1e-9))
+    starts = {s for s, _ in bounds}
+    extra = 0
+    for i in range(1, len(hists)):
+        if i not in starts and cv2.compareHist(hists[i - 1], hists[i], cv2.HISTCMP_BHATTACHARYYA) >= COLOUR_CUT:
+            starts.add(i)
+            extra += 1
+    if not extra:
+        return bounds
+    edges = sorted(starts | {bounds[-1][1]})
+    print(f"   🎨 Colour check added {extra} cut(s) the network missed")
+    return [(a, b) for a, b in zip(edges, edges[1:]) if b > a]
 
 
 def _merge_short_scenes(bounds, fps, min_sec):
