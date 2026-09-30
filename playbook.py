@@ -181,6 +181,44 @@ def check_format(clip: dict) -> bool:
     return not problems
 
 
+# The on-screen hook must ADD to the title (a stake, a tension, a promise),
+# not say it again: "Should you be afraid of testosterone therapy?" under the
+# title "Should men be afraid of testosterone therapy as they age?" wastes the
+# first seconds. Words that carry no subject are left out of the comparison.
+_HOOK_STOPWORDS = set("""a an the and or but of to in on at for from by with about as into than then
+is are was were be been being am do does did done can could will would should shall may might must
+have has had not no yes so if it its it's this that these those there here what why how when who which
+you your you're yours we our us i me my he him his she her they them their one ones just really
+actually even ever more most very much many some any all every only also still too like get got
+gets make makes made""".split())
+HOOK_OVERLAP_MAX = 0.5
+
+
+def _sig_words(text: str) -> set:
+    out = set()
+    for w in re.findall(r"[a-zà-ÿ0-9']+", (text or "").lower()):
+        w = re.sub(r"'s$", "", w).strip("'")
+        if len(w) < 3 or w in _HOOK_STOPWORDS:
+            continue
+        out.add(w[:-1] if len(w) > 4 and w.endswith("s") else w)   # therapies ~ therapie, doctors ~ doctor
+    return out
+
+
+def hook_overlap(title: str, hook: str) -> float:
+    """Share of the hook's significant words that are also in the title."""
+    h = _sig_words(hook)
+    return len(h & _sig_words(title)) / len(h) if h else 0.0
+
+
+def check_hook(clip: dict) -> bool:
+    """Sets clip['hook_repeats_title']; True when the hook says the title again
+    (HOOK_OVERLAP_MAX or more of its significant words)."""
+    share = hook_overlap(clip.get("video_title_for_youtube_short"), clip.get("viral_hook_text"))
+    clip["hook_repeats_title"] = share >= HOOK_OVERLAP_MAX
+    clip["hook_title_overlap"] = round(share, 2)
+    return clip["hook_repeats_title"]
+
+
 def moment_id(source_video: str, start, end) -> str:
     key = f"{episode_title(source_video)}|{float(start):.1f}|{float(end):.1f}"
     return "m_" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
@@ -206,6 +244,9 @@ def prepare(shorts, source_video, brief=None, show="", series_name=""):
         if not check_format(c):
             print(f"   ⚠️ Playbook: title format of the clip at {float(c.get('start', 0)):.0f}s "
                   f"({'; '.join(c['title_format_issues'])}): {c.get('video_title_for_youtube_short')}")
+        if check_hook(c):
+            print(f"   ⚠️ Playbook: the on-screen hook of the clip at {float(c.get('start', 0)):.0f}s repeats "
+                  f"the title ({c['hook_title_overlap']:.0%} of its words): {c.get('viral_hook_text')}")
     return tokens
 
 
@@ -229,6 +270,7 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
     """<clip>_playbook.json next to the clip: what the stats need later."""
     check_title(clip, tokens)
     check_format(clip)
+    check_hook(clip)
     start, end = float(clip.get("start", 0)), float(clip.get("end", 0))
     data = {
         "moment_id": clip.get("moment_id"),
@@ -249,6 +291,8 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "title_format_ok": bool(clip.get("title_format_ok")),
         "title_format_issues": clip.get("title_format_issues") or [],
         "on_screen_hook": clip.get("viral_hook_text") or "",
+        "hook_repeats_title": bool(clip.get("hook_repeats_title")),
+        "hook_title_overlap": clip.get("hook_title_overlap", 0.0),
         "score": clip.get("predicted_score"),
     }
     path = os.path.join(output_dir, os.path.splitext(clip_filename)[0] + "_playbook.json")
@@ -264,6 +308,7 @@ def update_export(output_dir: str, clip_filename: str, clip: dict, tokens) -> No
         return
     check_title(clip, tokens)
     check_format(clip)
+    check_hook(clip)
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
     data.update({"title": clip.get("video_title_for_youtube_short") or "",
@@ -271,6 +316,8 @@ def update_export(output_dir: str, clip_filename: str, clip: dict, tokens) -> No
                  "title_names": clip.get("title_names") or [],
                  "title_format_ok": bool(clip.get("title_format_ok")),
                  "title_format_issues": clip.get("title_format_issues") or [],
-                 "on_screen_hook": clip.get("viral_hook_text") or ""})
+                 "on_screen_hook": clip.get("viral_hook_text") or "",
+                 "hook_repeats_title": bool(clip.get("hook_repeats_title")),
+                 "hook_title_overlap": clip.get("hook_title_overlap", 0.0)})
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)

@@ -1937,6 +1937,21 @@ def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.
             return
 
 
+def playbook_score_rules():
+    """Synapse Cut playbook: what the scoring prompt gets (off-limits topics)."""
+    return gemini_worker.SAFETY_TOPICS_ADDENDUM if playbook.enabled() else ""
+
+
+def playbook_detail_rules(max_secs):
+    """Synapse Cut playbook: what the clip-choice prompt gets (titles + hook,
+    cut + descriptions, off-limits topics)."""
+    if not playbook.enabled():
+        return ""
+    return (gemini_worker.QUESTION_TITLE_ADDENDUM
+            + gemini_worker.PLAYBOOK_DETAIL_ADDENDUM.replace("{max_secs}", f"{max_secs:g}")
+            + gemini_worker.SAFETY_TOPICS_ADDENDUM)
+
+
 def get_viral_clips(transcript_result, video_duration):
     """Two-pass clip selection: score transcript windows, then detail the best.
 
@@ -1996,7 +2011,7 @@ def get_viral_clips(transcript_result, video_duration):
         def _score_prompt(ws, ctx=""):
             return gemini_worker.SCORE_PROMPT_TEMPLATE.format(
                 video_duration=video_duration, language=language,
-                windows_json=json.dumps(_payload(ws), ensure_ascii=False)) + ctx
+                windows_json=json.dumps(_payload(ws), ensure_ascii=False)) + playbook_score_rules() + ctx
 
         # The episode brief and the scoring both read the WHOLE transcript:
         # with Claude they are one call, so it is sent (and paid) once. The
@@ -2094,8 +2109,7 @@ def get_viral_clips(transcript_result, video_duration):
             if series_name:
                 prompt += gemini_worker.SERIES_TITLE_ADDENDUM.replace("{name}", series_name)
             if playbook_on:
-                prompt += (gemini_worker.QUESTION_TITLE_ADDENDUM
-                           + gemini_worker.PLAYBOOK_DETAIL_ADDENDUM.replace("{max_secs}", f"{max_secs:g}"))
+                prompt += playbook_detail_rules(max_secs)
             return prompt + episode_ctx
 
         if playbook_on:
@@ -2715,6 +2729,8 @@ if __name__ == '__main__':
                                 flag = " ⚠️ name in title" if clip.get('title_has_name') else ""
                                 if not clip.get('title_format_ok'):
                                     flag += f" ⚠️ title format ({'; '.join(clip.get('title_format_issues') or [])})"
+                                if clip.get('hook_repeats_title'):
+                                    flag += f" ⚠️ hook repeats the title ({clip.get('viral_hook_text')})"
                                 print(f"   📊 Playbook export: {os.path.basename(p)}{flag}")
                             except Exception as e:
                                 print(f"   ⚠️ Playbook export failed ({type(e).__name__}: {e}).")

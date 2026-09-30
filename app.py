@@ -4753,6 +4753,8 @@ async def regenerate_clip_copy(job_id: str, clip_index: int, request: Request,
         merged = {**clip, **new_copy}
         new_copy['title_format_ok'] = playbook.check_format(merged)
         new_copy['title_format_issues'] = merged.get('title_format_issues') or []
+        new_copy['hook_repeats_title'] = playbook.check_hook(merged)
+        new_copy['hook_title_overlap'] = merged.get('hook_title_overlap', 0.0)
         base = os.path.basename(json_files[0])[:-len("_metadata.json")]
         try:
             playbook.update_export(output_dir, f"{base}_clip_{clip_index + 1}.mp4", {**clip, **new_copy}, tokens)

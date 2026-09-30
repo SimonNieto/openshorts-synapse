@@ -155,8 +155,26 @@ SYNAPSE CUT PLAYBOOK — TITLE AND HOOK (strict, wins over any other title or ho
   high nobody talks about" is wrong.
 - TRUE TO THE CLIP: the question is one this clip actually answers or explores.
   No fake claims, no promise the clip does not keep.
-- `viral_hook_text` (on-screen, max 10 words) follows the same rules: no name,
-  same word limits; it may be the title's question or a sharper version of it.
+- `viral_hook_text` (the on-screen hook) NEVER REPHRASES THE TITLE: it adds what
+  the title does not say — a stake, a tension or a promise. Max 8 words. Not a
+  question (the title already is one). No name. Same sensitive-word and drug
+  rules as the title. Title "Should men be afraid of testosterone therapy?" ->
+  hook "Most doctors won't tell you this." (not "Should you be afraid of
+  testosterone therapy?", which only repeats the title).
+"""
+
+# Clip Generator++ BETA "Synapse Cut playbook" — added to the SCORING prompt
+# (brief + scoring pass) and to the clip choice: the channel stays off topics
+# that divide its young, general audience, however well they would perform.
+SAFETY_TOPICS_ADDENDUM = """
+SYNAPSE CUT PLAYBOOK — OFF-LIMITS TOPICS (strict): leave out every moment CENTRED
+on politics (parties, politicians, government, left vs right), abortion,
+religion (faith, God, churches, religious debates), elections or voting, or guns
+and weapons (gun laws, firearms, shootings) — even when it is divisive, funny or
+likely to go viral. When scoring, give such a window 0-10 and do not pick it;
+when choosing clips, never return one: pick another moment. A passing mention
+inside a moment about the brain, psychology, substances or mental health is
+fine — the moment itself must not be ABOUT these topics.
 """
 
 # Detail pass only (with QUESTION_TITLE_ADDENDUM): the start is cut on
