@@ -56,12 +56,13 @@ class TestLongWordWrap:
 
 
 class TestHookStyles:
-    """The 6 styles are a contract shared with the frontend (HookModal's
-    picker and HookOverlay's HOOK_LOOKS must mirror these keys)."""
+    """The styles are a contract shared with the frontend (HookModal's
+    picker and HookOverlay's HOOK_LOOKS must mirror these keys). "bold" is
+    Clip Generator++'s headline (hooks.create_bold_hook_image)."""
 
     def test_expected_style_names(self):
         assert set(HOOK_STYLES) == {
-            "classic", "dark", "yellow", "red", "outline", "outline_yellow",
+            "classic", "dark", "yellow", "red", "outline", "outline_yellow", "bold",
         }
 
     def test_boxed_styles_have_opaque_box_and_shadow(self):
