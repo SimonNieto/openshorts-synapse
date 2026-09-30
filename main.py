@@ -1750,6 +1750,9 @@ _SENTENCE_END = re.compile(r"[.!?…][\"'”’)\]]*$")
 # Whisper sometimes leaves long stretches unpunctuated: there, a pause this
 # long after a word also counts as the end of a sentence (playbook cuts only).
 _PAUSE_BOUNDARY = 0.7
+# A breath: the second-best place to end a clip when a stretch has neither a
+# full stop nor a real pause (end_on_sentence, playbook only).
+_SOFT_PAUSE = 0.35
 # How far before the model's start the playbook looks for its hook_line: the
 # test jobs of 30-sep-2026 had it 5.4, 13.1 and 16.0 s before (old window: 4 s).
 PLAYBOOK_HOOK_LOOKBACK = 20.0
@@ -1768,6 +1771,11 @@ def _tail(words, i):
         return words[i]["e"] + min(0.45, gap / 2)
     # Timestamps touching / overlapping: stop just before the next word.
     return max(words[i]["s"] + 0.15, nxt - 0.02)
+
+
+def _pause_after(words, i):
+    """Seconds of silence after word ``i`` (the last word: as long as it gets)."""
+    return words[i + 1]["s"] - words[i]["e"] if i + 1 < len(words) else float("inf")
 
 
 def _is_boundary(words, i):
@@ -1888,54 +1896,71 @@ def align_hook_and_punchline(clip, words, min_secs, max_secs, punchline=True, pl
     clip["start"], clip["end"] = round(start, 3), round(end, 3)
 
 
-def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.0):
+def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.0, pauses=False):
     """Clip Generator++ (CLEAN_END=1): never stop mid-thought. If the last
     word heard is not the end of a sentence, cut back to the last full stop
     when it is at most ``max_trim`` s earlier (drops a dangling "cause..." after
     the punchline), else run on to the next full stop when it is at most
     ``max_extend`` s later. Keeps the cut when neither exists or the length
     band would break (a little over max is accepted: a clean ending is worth
-    more than the exact length)."""
+    more than the exact length).
+
+    ``pauses`` (Synapse Cut playbook): Whisper leaves long stretches without a
+    single full stop (JRE #2515, Chase Hughes-001: 203 of 516 segments, half
+    the running time), where the search above finds nothing and the clip
+    ended on "...he's also been into". There, a pause of _PAUSE_BOUNDARY s
+    after a word ends a sentence too, then a shorter breath (_SOFT_PAUSE);
+    a cut that still stops mid-thought is flagged ``end_mid_sentence``
+    instead of passing silently."""
     start, end = float(clip["start"]), float(clip["end"])
     inside = [i for i, w in enumerate(words) if w["s"] >= start - 0.05 and w["e"] <= end + 0.05]
     if not inside:
         return
 
-    def ends_sentence(i):
-        return _ends_sentence(words, i)
-
     def tail(i):
         return _tail(words, i)
 
     last = inside[-1]
-    if ends_sentence(last):
-        return
-    for i in reversed(inside[:-1]):
-        if end - words[i]["e"] > max_trim:
-            break
-        if ends_sentence(i):
-            if tail(i) - start >= min_secs:
+
+    def move(ends_sentence):
+        """True when the clip ends on a sentence (already, or once moved)."""
+        if ends_sentence(last):
+            return True
+        for i in reversed(inside[:-1]):
+            if end - words[i]["e"] > max_trim:
+                break
+            if ends_sentence(i):
+                if tail(i) - start >= min_secs:
+                    clip["end"] = round(tail(i), 3)
+                    clip["clean_end"] = "trimmed"
+                    return True
+                break
+        for i in range(last + 1, len(words)):
+            if words[i]["e"] - end > max_extend:
+                break
+            if ends_sentence(i):
+                if tail(i) - start <= max_secs + 3:
+                    clip["end"] = round(tail(i), 3)
+                    clip["clean_end"] = "extended"
+                    return True
+                break
+        # Last resort: a longer run-on sentence — go back up to twice as far.
+        for i in reversed(inside[:-1]):
+            if end - words[i]["e"] > 2 * max_trim:
+                break
+            if ends_sentence(i) and tail(i) - start >= min_secs:
                 clip["end"] = round(tail(i), 3)
                 clip["clean_end"] = "trimmed"
-                return
-            break
-    for i in range(last + 1, len(words)):
-        if words[i]["e"] - end > max_extend:
-            break
-        if ends_sentence(i):
-            if tail(i) - start <= max_secs + 3:
-                clip["end"] = round(tail(i), 3)
-                clip["clean_end"] = "extended"
-                return
-            break
-    # Last resort: a longer run-on sentence — go back up to twice as far.
-    for i in reversed(inside[:-1]):
-        if end - words[i]["e"] > 2 * max_trim:
-            break
-        if ends_sentence(i) and tail(i) - start >= min_secs:
-            clip["end"] = round(tail(i), 3)
-            clip["clean_end"] = "trimmed"
+                return True
+        return False
+
+    if not pauses:
+        move(lambda i: _ends_sentence(words, i))
+        return
+    for pause in (_PAUSE_BOUNDARY, _SOFT_PAUSE):
+        if move(lambda i: _ends_sentence(words, i) or _pause_after(words, i) >= pause):
             return
+    clip["end_mid_sentence"] = True
 
 
 def playbook_score_rules():
@@ -2197,9 +2222,13 @@ def get_viral_clips(transcript_result, video_duration):
             for s in shorts:
                 if s.get("end_fit_for_hook"):
                     continue  # already on a sentence end, placed to stay under max
-                end_on_sentence(s, words, min_secs, max_secs)
+                end_on_sentence(s, words, min_secs, max_secs, pauses=playbook_on)
                 fixed += bool(s.get("clean_end"))
             print(f"   ✂️  Clean endings: {fixed}/{len(shorts)} clip(s) moved to a full stop.")
+            for s in shorts:
+                if s.get("end_mid_sentence"):
+                    print(f"      ⚠️ {s['start']:.0f}s: ends MID-SENTENCE at {s['end']:.1f}s — no full stop nor "
+                          f"pause within reach (unpunctuated transcript).")
         if dedupe:
             shorts = _dedupe(shorts, "final cuts")
 
