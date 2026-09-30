@@ -281,13 +281,188 @@ def hook_overlap(title: str, hook: str) -> float:
     return len(h & _sig_words(title)) / len(h) if h else 0.0
 
 
+# --- is the on-screen hook understood cold? ------------------------------------
+# The hook is read in the first seconds, before a word is heard and without
+# the title. "The quit room has no one in it." and "Your brain wakes up with
+# one labeled folder." (JRE #2515) quote the speaker's image and mean nothing
+# to someone who has not watched the clip. Plain word lists, no AI: a miss
+# costs one retry (main.retry_unclear_hooks), never the clip.
+HOOK_MAX_WORDS = 8
+_NUMBER_WORDS = set("""two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen
+sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred hundreds
+thousand thousands million millions billion billions half double twice triple percent""".split())
+# Someone / something the viewer has not met.
+_HOOK_PRONOUNS = set("he she him her his hers they them their theirs".split())
+_HOOK_OPEN_PRONOUNS = _HOOK_PRONOUNS | set("it this that these those".split())
+# Words that carry no picture: not what "a concrete noun" means.
+_HOOK_WEAK = set("""thing things stuff way ways time times life world reality everything nothing something
+anything truth lie lies secret secrets reason reasons moment moments part parts kind kinds people person nobody
+everyone everybody someone somebody anyone chance fact facts idea ideas point real whole exact same single
+ever never always forever before after again straight completely entire entirely literally simply exactly
+gave give gives tell tells told talk talks said says want wants need needs take takes took come comes coming
+came goes going gone went happen happens happened change changes changed know knows knew think thinks thought
+look looks seem seems mean means keep keeps stop stops start starts watch wait believe expect expected realize
+understand first last next only most more less best worst good great little long hard true""".split())
+# The mind (or a life) as an object: images that need the clip to be understood.
+_HOOK_FIGURATIVE = set("""room folder file door gate switch button wall cage prison trap monster demon ghost
+storm ocean journey mask mirror puppet machine engine fuel battery software hardware reboot reset fractal
+matrix simulation autopilot thermostat iceberg maze labyrinth rollercoaster volcano script rabbit""".split())
+
+
+def _hook_words(hook: str) -> list:
+    return [w.strip("'’-") for w in re.findall(r"[A-Za-zÀ-ÿ0-9$%'’-]+", (hook or "").lower()) if w.strip("'’-")]
+
+
+def _singular(word: str) -> str:
+    return word[:-1] if len(word) > 4 and word.endswith("s") else word
+
+
+def hook_problems(hook: str) -> list:
+    """What keeps an on-screen hook from being understood cold ([] when
+    nothing does, or when there is no hook)."""
+    words = _hook_words(hook)
+    if not words:
+        return []
+    out = []
+    if len(words) > HOOK_MAX_WORDS:
+        out.append(f"{len(words)} words (max {HOOK_MAX_WORDS})")
+    if words[0] in _HOOK_OPEN_PRONOUNS:
+        out.append(f"opens on '{words[0]}', which points at nothing the viewer has seen")
+    else:
+        who = next((w for w in words if w in _HOOK_PRONOUNS), None)
+        if who:
+            out.append(f"'{who}' is someone the viewer has not met")
+    image = next((w for w in words if _singular(w) in _HOOK_FIGURATIVE), None)
+    if image:
+        out.append(f"an image ('{image}') instead of the thing itself")
+    number = any(re.search(r"\d", w) or w in _NUMBER_WORDS for w in words)
+    concrete = any(len(w) >= 4 and w not in _HOOK_STOPWORDS and w not in _HOOK_WEAK
+                   and w not in _HOOK_OPEN_PRONOUNS and _singular(w) not in _HOOK_FIGURATIVE
+                   for w in words)
+    if not number and not concrete:
+        out.append("no concrete noun or number")
+    return out
+
+
+def hook_check_enabled() -> bool:
+    """HOOK_CHECK=1 (profile: selection.hook_check): an unclear hook gets one
+    rewrite by the model. The check itself always runs with the playbook."""
+    return os.environ.get("HOOK_CHECK") == "1"
+
+
 def check_hook(clip: dict) -> bool:
-    """Sets clip['hook_repeats_title']; True when the hook says the title again
-    (HOOK_OVERLAP_MAX or more of its significant words)."""
+    """Sets clip['hook_repeats_title'] (the hook says the title again:
+    HOOK_OVERLAP_MAX or more of its significant words) and
+    clip['hook_clear'] / clip['hook_problems'] (hook_problems). Returns True
+    when the hook repeats the title."""
     share = hook_overlap(clip.get("video_title_for_youtube_short"), clip.get("viral_hook_text"))
     clip["hook_repeats_title"] = share >= HOOK_OVERLAP_MAX
     clip["hook_title_overlap"] = round(share, 2)
+    clip["hook_problems"] = hook_problems(clip.get("viral_hook_text"))
+    clip["hook_clear"] = not clip["hook_problems"]
     return clip["hook_repeats_title"]
+
+
+_HOOK_REPEAT = "says the title again"
+
+
+def hook_issues(clip: dict) -> list:
+    """Everything wrong with the clip's hook: check_hook's two verdicts."""
+    repeats = check_hook(clip)
+    return clip["hook_problems"] + ([_HOOK_REPEAT] if repeats else [])
+
+
+def _hook_rank(issues) -> tuple:
+    """Lower is better. Clarity first: a hook read without the title that
+    says it again still tells the viewer what the clip is about; one that
+    cannot be understood tells nothing."""
+    return len([i for i in issues if i != _HOOK_REPEAT]), _HOOK_REPEAT in issues
+
+
+def opening_sentences(clip: dict, transcript=None, n: int = 2, max_words: int = 60) -> str:
+    """The first ``n`` sentences heard in the clip (what a rewritten hook
+    must stay true to)."""
+    start, end = float(clip.get("start", 0)), float(clip.get("end", 0))
+    words, sentences = [], 0
+    for seg in (transcript or {}).get("segments", []):
+        for w in seg.get("words", []) or []:
+            if w.get("start", 0) < start - 0.05:
+                continue
+            if w.get("start", 0) >= end or len(words) >= max_words:
+                return " ".join(words)
+            words.append(str(w.get("word", "")).strip())
+            if re.search(r"[.!?…]$", words[-1]):
+                sentences += 1
+                if sentences >= n:
+                    return " ".join(words)
+    return " ".join(words)
+
+
+HOOK_RETRY_PROMPT = """
+You fix the on-screen hooks of short video clips. The hook is the big text a
+viewer reads in the first 3 seconds, BEFORE hearing a word and WITHOUT reading
+the title: it has to be understood cold, on its own.
+
+For each clip below you get its title, the first sentences heard, its current
+hook and what is wrong with it. Write ONE better hook per clip:
+- max {max_words} words, in {language};
+- it names the concrete thing the clip is about (the substance, the organ, the
+  illness, the number, the act) in plain words: someone who reads only these
+  words knows the subject;
+- no metaphor and no image that needs the clip to be understood ("The quit
+  room has no one in it." and "One labeled folder." are wrong);
+- no "he", "she", "they", "it" or "this" pointing at someone or something the
+  viewer has not met;
+- a statement, not a question. It adds a stake, a tension or a promise: it may
+  share the subject with the title but never says the title again;
+- no name of a person or a show; never an explicit word for suicide or
+  self-harm; a drug is shown from its risk, never as fun;
+- true to the clip: nothing the opening does not support.
+
+CLIPS_JSON:
+{clips}
+
+Return only: {{"hooks": [{{"id": <clip id>, "viral_hook_text": "<max {max_words} words>"}}]}}
+"""
+
+HOOK_RETRY_SCHEMA = {
+    "type": "object",
+    "properties": {"hooks": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"id": {"type": "integer"}, "viral_hook_text": {"type": "string"}},
+        "required": ["id", "viral_hook_text"]}}},
+    "required": ["hooks"],
+}
+
+
+def hook_retry_prompt(items, language: str = "en") -> str:
+    """``items``: [{"id", "title", "opening", "hook", "problems"}]."""
+    return HOOK_RETRY_PROMPT.format(max_words=HOOK_MAX_WORDS, language=language or "en",
+                                    clips=json.dumps(items, ensure_ascii=False, indent=1))
+
+
+def apply_hook_retry(clip: dict, new_hook: str) -> bool:
+    """Take the rewritten hook when it is better than the current one
+    (_hook_rank of their hook_issues); what happened is kept in
+    clip['hook_check']. True when the hook changed."""
+    old = (clip.get("viral_hook_text") or "").strip()
+    before = hook_issues(clip)
+    new_hook = re.sub(r"\s+", " ", str(new_hook or "")).strip()
+    record = {"retried": True, "before": old, "issues_before": before}
+    if not new_hook or new_hook == old:
+        clip["hook_check"] = {**record, "kept": "no new hook"}
+        return False
+    trial = {"video_title_for_youtube_short": clip.get("video_title_for_youtube_short"),
+             "viral_hook_text": new_hook}
+    after = hook_issues(trial)
+    if _hook_rank(after) >= _hook_rank(before):
+        clip["hook_check"] = {**record, "kept": "the new hook was no better", "rejected": new_hook,
+                              "issues_rejected": after}
+        return False
+    clip["viral_hook_text"] = new_hook
+    check_hook(clip)
+    clip["hook_check"] = record
+    return True
 
 
 def moment_id(source_video: str, start, end) -> str:
@@ -318,6 +493,9 @@ def prepare(shorts, source_video, brief=None, show="", series_name=""):
         if check_hook(c):
             print(f"   ⚠️ Playbook: the on-screen hook of the clip at {float(c.get('start', 0)):.0f}s repeats "
                   f"the title ({c['hook_title_overlap']:.0%} of its words): {c.get('viral_hook_text')}")
+        if c.get("hook_problems"):
+            print(f"   ⚠️ Playbook: the on-screen hook of the clip at {float(c.get('start', 0)):.0f}s is not "
+                  f"clear on its own ({'; '.join(c['hook_problems'])}): {c.get('viral_hook_text')}")
     return tokens
 
 
@@ -370,6 +548,11 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "on_screen_hook": clip.get("viral_hook_text") or "",
         "hook_repeats_title": bool(clip.get("hook_repeats_title")),
         "hook_title_overlap": clip.get("hook_title_overlap", 0.0),
+        # Understood without the title nor the sound (hook_problems); the hook
+        # it replaced when the model was asked again (apply_hook_retry).
+        "hook_clear": bool(clip.get("hook_clear")),
+        "hook_problems": clip.get("hook_problems") or [],
+        "hook_before_retry": (clip.get("hook_check") or {}).get("before") or "",
         "score": clip.get("predicted_score"),
         # Outside the profile's niche_topics: the score above lost the niche
         # weight, score_raw is what the model gave (apply_niche).
@@ -399,6 +582,8 @@ def update_export(output_dir: str, clip_filename: str, clip: dict, tokens) -> No
                  "title_format_issues": clip.get("title_format_issues") or [],
                  "on_screen_hook": clip.get("viral_hook_text") or "",
                  "hook_repeats_title": bool(clip.get("hook_repeats_title")),
-                 "hook_title_overlap": clip.get("hook_title_overlap", 0.0)})
+                 "hook_title_overlap": clip.get("hook_title_overlap", 0.0),
+                 "hook_clear": bool(clip.get("hook_clear")),
+                 "hook_problems": clip.get("hook_problems") or []})
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)

@@ -71,6 +71,10 @@ DEFAULT_PROFILE = {
         # floor, 6 for a long source). With a niche, a source that is mostly
         # off niche should be allowed to give 2 clips, not be padded to 6.
         "min_clips": None,
+        # Playbook: an on-screen hook that is not understood on its own (an
+        # image, a "he" nobody has met, no concrete word, the title again) is
+        # sent back to the model once. Off: it is only flagged.
+        "hook_check": False,
     },
     # Which AI runs each step (ai_brain.STAGES): "gemini" or a Claude model.
     # "thinking" = Claude's effort on the two decision steps (clips, B-roll);
@@ -153,6 +157,7 @@ def _selection(raw):
         "niche_only": _bool(raw.get("niche_only")),
         "niche_context": re.sub(r"\s+", " ", str(raw.get("niche_context") or "")).strip()[:200],
         "min_clips": _int(min_clips, 1, 15, None) if min_clips not in (None, "", 0, "0") else None,
+        "hook_check": _bool(raw.get("hook_check")),
     }
 
 
@@ -423,4 +428,6 @@ def job_env(profile):
         # The floor of the clip-choice prompt only; target_clips (above)
         # fixes the count and wins.
         env["CLIP_COUNT_FLOOR"] = str(sel["min_clips"])
+    if sel["hook_check"]:
+        env["HOOK_CHECK"] = "1"
     return env

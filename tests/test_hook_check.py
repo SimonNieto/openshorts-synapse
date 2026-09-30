@@ -1,0 +1,201 @@
+"""Is the on-screen hook understood cold? (playbook.hook_problems, and the one
+retry of main.retry_unclear_hooks with selection.hook_check / HOOK_CHECK=1.)
+
+The hooks are the 11 of JRE #2515 (Chase Hughes-001). The viewer reads them
+before hearing a word and without the title."""
+import json
+
+import pytest
+
+import playbook
+import plus
+
+CLEAR = [
+    "Five and a half hours straight.",
+    "A galaxy might share its shape with DNA.",
+    "Every single fight ended the exact same way.",
+    "The whole world is lonelier than ever before.",
+    "Most doctors won't tell you this.",
+    "97% of people miss this.",
+]
+UNCLEAR = {
+    "The quit room has no one in it.": "an image ('room')",
+    "Your brain wakes up with one labeled folder.": "an image ('folder')",
+    "He asked one question thirty-nine times straight.": "opens on 'he'",
+    "She prayed to fix his heart and brain.": "opens on 'she'",
+    "It might go on forever, fractal inside fractal.": "opens on 'it'",
+    "Nobody gave him a real chance to win.": "'him' is someone the viewer has not met",
+    "His opponent was left completely unrecognizable.": "opens on 'his'",
+    "This changes everything you know.": "no concrete noun or number",
+    "Nobody ever tells you the real truth about the thing.": "10 words (max 8)",
+}
+
+
+class TestHookProblems:
+    def test_clear_hooks_pass(self):
+        for hook in CLEAR:
+            assert playbook.hook_problems(hook) == [], hook
+
+    def test_unclear_hooks_say_why(self):
+        for hook, why in UNCLEAR.items():
+            problems = playbook.hook_problems(hook)
+            assert any(why in p for p in problems), (hook, problems)
+
+    def test_a_number_or_a_concrete_word_is_enough(self):
+        assert playbook.hook_problems("Only three percent survive.") == []
+        assert playbook.hook_problems("Kratom hits the same receptors.") == []
+        assert "no concrete noun or number" in playbook.hook_problems("Nobody saw that coming.")[-1]
+
+    def test_no_hook_nothing_to_say(self):
+        assert playbook.hook_problems("") == [] and playbook.hook_problems(None) == []
+
+    def test_check_hook_keeps_its_verdict_and_adds_clarity(self):
+        c = {"video_title_for_youtube_short": "Can psychedelics really reboot your entire identity?",
+             "viral_hook_text": "Your brain wakes up with one labeled folder."}
+        assert playbook.check_hook(c) is False, "still returns 'repeats the title'"
+        assert c["hook_clear"] is False and "folder" in c["hook_problems"][0]
+        assert playbook.hook_issues(c) == c["hook_problems"]
+        c = {"video_title_for_youtube_short": "Can stress rewire your brain?",
+             "viral_hook_text": "Stress can rewire your brain."}
+        assert playbook.check_hook(c) is True and c["hook_clear"] is True
+        assert playbook.hook_issues(c) == ["says the title again"]
+
+
+class TestRetryPieces:
+    TRANSCRIPT = {"language": "en", "segments": [{"words": [
+        {"word": w, "start": 100 + i * 0.4, "end": 100 + i * 0.4 + 0.3} for i, w in enumerate(
+            "Before that. Psilocybin quiets the default mode network. Your sense of self goes offline. "
+            "Then it comes back.".split())]}]}
+
+    def test_opening_is_the_first_two_sentences_of_the_clip(self):
+        clip = {"start": 100.8, "end": 140.0}
+        assert playbook.opening_sentences(clip, self.TRANSCRIPT) == \
+            "Psilocybin quiets the default mode network. Your sense of self goes offline."
+        assert playbook.opening_sentences(clip, None) == ""
+        assert playbook.opening_sentences({"start": 100.8, "end": 102.0}, self.TRANSCRIPT) == "Psilocybin quiets the"
+
+    def test_prompt_is_filled(self):
+        prompt = playbook.hook_retry_prompt([{"id": 0, "title": "T?", "opening": "O.", "hook": "H", "problems": ["p"]}], "en")
+        assert "max 8 words, in en" in prompt and '"opening": "O."' in prompt
+        assert '{"hooks": [{"id": <clip id>, "viral_hook_text": "<max 8 words>"}]}' in prompt
+
+    def test_a_better_hook_is_taken(self):
+        c = {"video_title_for_youtube_short": "Can psychedelics really reboot your entire identity?",
+             "viral_hook_text": "Your brain wakes up with one labeled folder."}
+        assert playbook.apply_hook_retry(c, " Psilocybin switches off   your sense of self. ") is True
+        assert c["viral_hook_text"] == "Psilocybin switches off your sense of self."
+        assert c["hook_clear"] is True and c["hook_problems"] == []
+        assert c["hook_check"]["before"] == "Your brain wakes up with one labeled folder."
+        assert c["hook_check"]["retried"] is True
+
+    def test_a_hook_that_is_no_better_is_refused(self):
+        title = "Can psychedelics really reboot your entire identity?"
+        old = "Your brain wakes up with one labeled folder."
+        for new in ("It opens a door in your mind.", "Can psychedelics really reboot your identity?", "", None, old):
+            c = {"video_title_for_youtube_short": title, "viral_hook_text": old}
+            assert playbook.apply_hook_retry(c, new) is False, new
+            assert c["viral_hook_text"] == old and c["hook_check"]["kept"], new
+            assert c["hook_clear"] is False
+
+    def test_clear_beats_unclear_even_when_it_says_the_title_again(self):
+        # Real answer on JRE #2515: the viewer reads the hook without the title.
+        c = {"video_title_for_youtube_short": "Does a prayer really shape a DMT experience?",
+             "viral_hook_text": "She prayed to fix his heart and brain."}
+        assert playbook.apply_hook_retry(c, "A prayer changed a brutal DMT surgery experience") is True
+        assert c["hook_clear"] is True and c["hook_repeats_title"] is True
+        # ...but a clear hook is never traded for a clear one that repeats the title
+        c = {"video_title_for_youtube_short": "Does a prayer really shape a DMT experience?",
+             "viral_hook_text": "One prayer before 5 grams."}
+        assert playbook.apply_hook_retry(c, "A prayer changed a brutal DMT surgery experience") is False
+
+    def test_export_and_update_carry_the_verdict(self, tmp_path):
+        c = {"start": 0.0, "end": 30.0, "video_title_for_youtube_short": "Can psychedelics reboot your identity?",
+             "viral_hook_text": "Your brain wakes up with one labeled folder."}
+        out = json.load(open(playbook.export_clip(c, str(tmp_path), "x_clip_1.mp4", []), encoding="utf-8"))
+        assert out["hook_clear"] is False and out["hook_problems"] and out["hook_before_retry"] == ""
+        playbook.apply_hook_retry(c, "Psilocybin switches off your sense of self.")
+        out = json.load(open(playbook.export_clip(c, str(tmp_path), "x_clip_1.mp4", []), encoding="utf-8"))
+        assert out["hook_clear"] is True and out["hook_before_retry"].startswith("Your brain wakes up")
+        playbook.update_export(str(tmp_path), "x_clip_1.mp4", {**c, "viral_hook_text": "It is a trap."}, [])
+        out = json.load(open(tmp_path / "x_clip_1_playbook.json", encoding="utf-8"))
+        assert out["hook_clear"] is False and out["on_screen_hook"] == "It is a trap."
+
+
+def test_profile_switch():
+    assert "HOOK_CHECK" not in plus.job_env({"name": "t"})
+    assert plus.job_env({"name": "t", "selection": {"hook_check": True}})["HOOK_CHECK"] == "1"
+    assert playbook.hook_check_enabled() is False
+
+
+# --- the retry itself (needs main) -------------------------------------------------------
+
+main = pytest.importorskip("main")
+
+
+def _shorts():
+    return [
+        {"start": 100.8, "end": 140.0, "video_title_for_youtube_short": "Can psychedelics really reboot your identity?",
+         "viral_hook_text": "Your brain wakes up with one labeled folder."},
+        {"start": 300.0, "end": 330.0, "video_title_for_youtube_short": "Is kratom really harmless?",
+         "viral_hook_text": "Kratom hits the same receptors as opioids."},
+        {"start": 500.0, "end": 530.0, "video_title_for_youtube_short": "Can a fighter come back from that?",
+         "viral_hook_text": "His opponent was left completely unrecognizable."},
+        {"start": 700.0, "end": 730.0, "video_title_for_youtube_short": "Is there a hook?", "viral_hook_text": ""},
+    ]
+
+
+class TestRetryUnclearHooks:
+    def test_one_call_for_every_unclear_hook_and_only_those(self, capsys):
+        shorts, prompts = _shorts(), []
+
+        def ask(prompt):
+            prompts.append(prompt)
+            return {"hooks": [{"id": 0, "viral_hook_text": "Psilocybin switches off your sense of self."},
+                              {"id": 2, "viral_hook_text": "It was a bloodbath."}]}
+
+        assert main.retry_unclear_hooks(shorts, TestRetryPieces.TRANSCRIPT, ask=ask) == 1
+        assert len(prompts) == 1
+        assert "labeled folder" in prompts[0] and "unrecognizable" in prompts[0]
+        assert "Kratom" not in prompts[0], "a clear hook is not sent"
+        assert "Psilocybin quiets the default mode network." in prompts[0], "the clip's opening goes with it"
+        assert shorts[0]["viral_hook_text"] == "Psilocybin switches off your sense of self."
+        assert shorts[2]["viral_hook_text"] == "His opponent was left completely unrecognizable.", "no better: kept"
+        assert "hook_check" not in shorts[1] and "hook_check" not in shorts[3]
+        out = capsys.readouterr().out
+        assert "Hook check: 1/2 unclear hook(s) rewritten" in out and "Hook rewritten" in out
+
+    def test_never_asks_twice_about_the_same_hook(self):
+        shorts, calls = _shorts(), []
+
+        def ask(prompt):
+            calls.append(prompt)
+            return {"hooks": []}
+
+        main.retry_unclear_hooks(shorts, None, ask=ask)
+        main.retry_unclear_hooks(shorts, None, ask=ask)
+        assert len(calls) == 1
+        # hook grounding wrote a new hook: that one is checked
+        shorts[0]["viral_hook_text"] = "It opens a door."
+        main.retry_unclear_hooks(shorts, None, ask=ask)
+        assert len(calls) == 2 and "It opens a door." in calls[1] and "unrecognizable" not in calls[1]
+
+    def test_nothing_unclear_no_call(self):
+        def ask(prompt):
+            raise AssertionError("no call expected")
+        assert main.retry_unclear_hooks([_shorts()[1]], None, ask=ask) == 0
+
+    def test_a_failed_call_keeps_the_hooks(self, capsys):
+        shorts = _shorts()
+
+        def ask(prompt):
+            raise RuntimeError("model down")
+
+        assert main.retry_unclear_hooks(shorts, None, ask=ask) == 0
+        assert shorts[0]["viral_hook_text"].endswith("labeled folder.")
+        assert "the rewrite failed" in capsys.readouterr().out
+
+    def test_a_malformed_answer_keeps_the_hooks(self):
+        for answer in (None, {}, {"hooks": None}, {"hooks": ["x", {"id": "zero"}, {"viral_hook_text": "y"}]}):
+            shorts = _shorts()
+            assert main.retry_unclear_hooks(shorts, None, ask=lambda p, a=answer: a) == 0
+            assert shorts[0]["viral_hook_text"].endswith("labeled folder.")

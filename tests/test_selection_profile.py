@@ -14,7 +14,7 @@ def _env(selection=None, **profile):
 
 NEW_VARS = ("CLIP_DEDUPE_OVERLAP", "CLIP_DEDUPE_SECONDS", "CLIP_TARGET_MIN_SECONDS",
             "CLIP_TARGET_MAX_SECONDS", "NICHE_TOPICS", "NICHE_WEIGHT", "NICHE_ONLY", "NICHE_CONTEXT",
-            "CLIP_COUNT_FLOOR")
+            "CLIP_COUNT_FLOOR", "HOOK_CHECK")
 
 
 def test_a_profile_without_the_block_sets_nothing_new():

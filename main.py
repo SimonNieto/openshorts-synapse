@@ -2010,6 +2010,68 @@ def target_length_rules(target, min_secs, max_secs, payoff=False):
             + (gemini_worker.TARGET_PAYOFF_ADDENDUM if payoff else ""))
 
 
+def _ask_hook_retry(prompt):
+    """The hook rewrite: one text call on the profile's "hook" brain, the
+    other provider as the fallback."""
+    import ai_brain
+
+    def gemini():
+        return ai_brain.gemini_json([prompt])[0]
+
+    data, _who = ai_brain.think("rewriting the hooks a cold viewer would not understand", prompt,
+                                playbook.HOOK_RETRY_SCHEMA, fallback=gemini, route_key="hook")
+    return data
+
+
+def retry_unclear_hooks(shorts, transcript, ask=None):
+    """Synapse Cut playbook + HOOK_CHECK=1: the on-screen hooks that fail
+    playbook.hook_issues (an image, a "he" nobody has met, no concrete word,
+    the title said again) are sent back to the model ONCE, all in one call,
+    each with its title and the first two sentences of its clip. A new hook
+    is taken only when it has fewer issues. Returns how many hooks changed.
+
+    Called again after hook grounding rewrote a hook from the frames: a hook
+    already checked is not asked about twice. Never raises — a hook problem
+    must never cost the clip."""
+    todo = []
+    for i, c in enumerate(shorts):
+        hook = (c.get("viral_hook_text") or "").strip()
+        if not hook or (c.get("hook_check") or {}).get("checked") == hook:
+            continue
+        issues = playbook.hook_issues(c)
+        if issues:
+            todo.append((i, hook, issues))
+    if not todo:
+        return 0
+    items = [{"id": i, "title": shorts[i].get("video_title_for_youtube_short") or "",
+              "opening": playbook.opening_sentences(shorts[i], transcript),
+              "hook": hook, "problems": issues} for i, hook, issues in todo]
+    language = str((transcript or {}).get("language") or "en")
+    try:
+        answer = (ask or _ask_hook_retry)(playbook.hook_retry_prompt(items, language)) or {}
+        new = {}
+        for h in answer.get("hooks") or []:
+            try:
+                new[int(h.get("id"))] = h.get("viral_hook_text")
+            except (AttributeError, TypeError, ValueError):
+                continue
+    except Exception as e:
+        print(f"   ⚠️ Hook check: the rewrite failed ({type(e).__name__}: {str(e)[:160]}) — "
+              f"keeping the {len(todo)} hook(s) as they are.")
+        return 0
+    changed = 0
+    for i, hook, issues in todo:
+        c = shorts[i]
+        if playbook.apply_hook_retry(c, new.get(i)):
+            changed += 1
+            print(f"   🪝 Hook rewritten ({'; '.join(issues)}): \"{hook}\" -> \"{c['viral_hook_text']}\"")
+        else:
+            print(f"   🪝 Hook kept, {c['hook_check'].get('kept')} ({'; '.join(issues)}): \"{hook}\"")
+        c["hook_check"]["checked"] = c.get("viral_hook_text")
+    print(f"   🪝 Hook check: {changed}/{len(todo)} unclear hook(s) rewritten.")
+    return changed
+
+
 def playbook_niche_rules(detail=False):
     """Synapse Cut playbook + a niche (NICHE_TOPICS): what the channel IS
     about, for the scoring prompt or (``detail``) the clip-choice prompt.
@@ -2708,6 +2770,8 @@ if __name__ == '__main__':
                 show = (os.environ.get("PLAYBOOK_SHOW") or "").strip()
                 playbook_tokens = playbook.prepare(clips_data['shorts'], clips_data['source_video'],
                                                    episode_brief, show)
+                if playbook.hook_check_enabled():
+                    retry_unclear_hooks(clips_data['shorts'], transcript)
                 clips_data['playbook'] = {
                     "credit": playbook.credit_line(clips_data['source_video'], episode_brief, show),
                     "name_tokens": playbook_tokens,
@@ -2863,6 +2927,11 @@ if __name__ == '__main__':
                     if (success and 'hook_grounding' not in clip
                             and hook_grounding.wanted(clip['layout_ranges'], end - start)):
                         hook_grounding.reground(clip_final_path, clip, transcript, start, end)
+                    # A hook rewritten from the frames (here or by the B-roll
+                    # planner) gets the same clarity check as the first one.
+                    if (success and playbook_tokens is not None and 'hook_grounding' in clip
+                            and playbook.hook_check_enabled()):
+                        retry_unclear_hooks([clip], transcript)
                     if success and os.environ.get("AUTO_HOOK") == "1":
                         hooked = auto_hook_clip(clip_final_path, clip)
                         if hooked:
