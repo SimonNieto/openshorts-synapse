@@ -19,7 +19,30 @@ import re
 # topic_bucket values the detail pass may use (stats group by them; phase 2
 # will weight the scoring with them). Anything else is stored as "other".
 TOPIC_BUCKETS = ("brain_danger", "substances", "psychosis_mental_illness", "crime_dark",
-                 "medical_mystery", "mind_psychology", "self_improvement", "science_other", "other")
+                 "medical_mystery", "mind_psychology", "self_improvement", "science_other",
+                 # Moments outside a brain / mind channel. Offered to the model only
+                 # with a niche filter (NICHE_DETAIL_ADDENDUM): without a place to put
+                 # a fight recap it filed it under science_other or self_improvement.
+                 "sports_combat", "entertainment", "business_money", "other")
+
+# What each bucket means, in the words the niche sentence of the prompts uses.
+BUCKET_LABELS = {
+    "brain_danger": "what damages or threatens the brain (injury, tumors, disease, the toll of addiction)",
+    "substances": "drugs, alcohol, psychedelics and medication: what they do to the brain and the body",
+    "psychosis_mental_illness": "psychosis and mental illness",
+    "crime_dark": "the psychology behind crime and dark behaviour",
+    "medical_mystery": "strange medical and neurological cases",
+    "mind_psychology": "how the mind works: psychology, perception, memory, consciousness",
+    "self_improvement": "discipline, habits, focus and tools for mental health",
+    "science_other": "other science",
+    "sports_combat": "sport and combat sports",
+    "entertainment": "show business, comedy and celebrities",
+    "business_money": "business and money",
+}
+# Points an off-niche clip loses by default. The detail pass scores the clips
+# of a job within ~10 points of each other (72-83 on JRE #2515): 15 puts an
+# off-niche clip under every on-niche one without erasing the score.
+NICHE_WEIGHT = 15
 
 # Words of a show / episode title that are not part of a person's name.
 _NOT_NAMES = set("""the a an and of with on in at for to from by ep episode experience podcast show radio
@@ -33,6 +56,54 @@ CREDIT_TAIL = "All rights to the original creators."
 
 def enabled() -> bool:
     return os.environ.get("SYNAPSE_PLAYBOOK") == "1"
+
+
+def niche_settings():
+    """The channel's positive topic list, or None when there is none (the
+    default). ``NICHE_TOPICS``: comma-separated TOPIC_BUCKETS the channel is
+    about; ``NICHE_WEIGHT``: points a clip outside them loses;
+    ``NICHE_ONLY=1``: such a clip is dropped instead; ``NICHE_CONTEXT``: one
+    sentence on the channel, put before the topics in the prompts."""
+    topics = [t for t in (x.strip() for x in (os.environ.get("NICHE_TOPICS") or "").split(","))
+              if t in TOPIC_BUCKETS and t != "other"]
+    if not topics:
+        return None
+    try:
+        weight = max(0.0, float(os.environ.get("NICHE_WEIGHT", "")))
+    except ValueError:
+        weight = float(NICHE_WEIGHT)
+    return {"topics": topics, "weight": weight, "only": os.environ.get("NICHE_ONLY") == "1",
+            "context": (os.environ.get("NICHE_CONTEXT") or "").strip()}
+
+
+def niche_sentence(settings) -> str:
+    """'<the channel in one sentence> — a; b; c' for the prompts."""
+    topics = "; ".join(BUCKET_LABELS.get(t, t.replace("_", " ")) for t in settings["topics"])
+    return f"{settings['context'].rstrip('.')} — {topics}" if settings.get("context") else topics
+
+
+def apply_niche(shorts, settings):
+    """(kept, dropped). A clip whose ``topic_bucket`` is outside the niche is
+    marked ``off_niche`` and either dropped (``only``) or loses ``weight``
+    points of ``predicted_score`` — the score every later ranking reads
+    (trim_to_best, auto-publish, the dashboard); the model's own score stays
+    in ``predicted_score_raw``."""
+    kept, dropped = [], []
+    for c in shorts:
+        bucket = c.get("topic_bucket") if c.get("topic_bucket") in TOPIC_BUCKETS else "other"
+        if bucket in settings["topics"]:
+            kept.append(c)
+            continue
+        c["off_niche"] = True
+        if settings["only"]:
+            dropped.append(c)
+            continue
+        raw = c.get("predicted_score")
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool) and "predicted_score_raw" not in c:
+            c["predicted_score_raw"] = raw
+            c["predicted_score"] = max(0, int(round(raw - settings["weight"])))
+        kept.append(c)
+    return kept, dropped
 
 
 def episode_title(source_video: str) -> str:
@@ -300,6 +371,10 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "hook_repeats_title": bool(clip.get("hook_repeats_title")),
         "hook_title_overlap": clip.get("hook_title_overlap", 0.0),
         "score": clip.get("predicted_score"),
+        # Outside the profile's niche_topics: the score above lost the niche
+        # weight, score_raw is what the model gave (apply_niche).
+        "off_niche": bool(clip.get("off_niche")),
+        "score_raw": clip.get("predicted_score_raw", clip.get("predicted_score")),
     }
     path = os.path.join(output_dir, os.path.splitext(clip_filename)[0] + "_playbook.json")
     with open(path, "w", encoding="utf-8") as f:

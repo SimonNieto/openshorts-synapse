@@ -196,6 +196,39 @@ inside a moment about the brain, psychology, substances or mental health is
 fine — the moment itself must not be ABOUT these topics.
 """
 
+# Clip Generator++ BETA "Synapse Cut playbook" + a niche (profile:
+# selection.niche_topics). The playbook only said what the channel stays OFF;
+# nothing said what it is ABOUT, and 4 of the 11 clips of JRE #2515 were UFC
+# recaps on a neuroscience channel. {niche} is playbook.niche_sentence(),
+# {policy} one of the two lines below (niche_only, or a score weight).
+NICHE_SCORE_ADDENDUM = """
+SYNAPSE CUT PLAYBOOK — THE CHANNEL'S NICHE: this channel is about {niche}.
+Its viewers come for that and nothing else. Score a window by how strong a
+moment it holds ON THAT NICHE. A window about anything else (sport results and
+fight recaps, show business, comedy bits, money, tech, small talk) {policy}
+A moment from another field counts only when its point IS the niche (what a
+knockout does to the brain, how a champion's mind handles fear).
+"""
+NICHE_SCORE_ONLY = "gets 0-30 however entertaining it is, and is not picked."
+NICHE_SCORE_WEIGHT = "loses about {weight:g} points, however entertaining it is."
+
+NICHE_DETAIL_ADDENDUM = """
+SYNAPSE CUT PLAYBOOK — THE CHANNEL'S NICHE: this channel is about {niche}.
+- {policy}
+  This overrides the HOW MANY rule above: returning fewer clips than asked, or
+  skipping most windows, is right when the rest is off niche. Never pad with an
+  off-niche clip.
+- `topic_bucket` also accepts, for a moment outside the niche: sports_combat,
+  entertainment, business_money, other. Label by what the clip is ABOUT, not
+  by the angle that would make it fit: a fight recap is sports_combat even
+  when the fighter shows grit; a comedian's career story is entertainment even
+  when it mentions discipline.
+"""
+NICHE_DETAIL_ONLY = ("Return clips on that niche ONLY. A candidate window about anything else yields "
+                     "NOTHING, however strong the moment.")
+NICHE_DETAIL_WEIGHT = ("Strongly prefer clips on that niche. A moment outside it is returned only when "
+                       "it is exceptional.")
+
 # Detail pass only (with QUESTION_TITLE_ADDENDUM): the start is cut on
 # hook_line (main.align_hook_and_punchline, without the V2 punchline end),
 # the description gets a closing question (the credit line with the names is

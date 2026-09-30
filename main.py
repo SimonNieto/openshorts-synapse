@@ -2010,19 +2010,37 @@ def target_length_rules(target, min_secs, max_secs, payoff=False):
             + (gemini_worker.TARGET_PAYOFF_ADDENDUM if payoff else ""))
 
 
+def playbook_niche_rules(detail=False):
+    """Synapse Cut playbook + a niche (NICHE_TOPICS): what the channel IS
+    about, for the scoring prompt or (``detail``) the clip-choice prompt.
+    "" without a niche."""
+    niche = playbook.niche_settings()
+    if not niche:
+        return ""
+    sentence = playbook.niche_sentence(niche)
+    if detail:
+        policy = gemini_worker.NICHE_DETAIL_ONLY if niche["only"] else gemini_worker.NICHE_DETAIL_WEIGHT
+        return gemini_worker.NICHE_DETAIL_ADDENDUM.format(niche=sentence, policy=policy)
+    policy = (gemini_worker.NICHE_SCORE_ONLY if niche["only"]
+              else gemini_worker.NICHE_SCORE_WEIGHT.format(weight=niche["weight"]))
+    return gemini_worker.NICHE_SCORE_ADDENDUM.format(niche=sentence, policy=policy)
+
+
 def playbook_score_rules():
-    """Synapse Cut playbook: what the scoring prompt gets (off-limits topics)."""
-    return gemini_worker.SAFETY_TOPICS_ADDENDUM if playbook.enabled() else ""
+    """Synapse Cut playbook: what the scoring prompt gets (off-limits topics,
+    and the channel's niche when the profile has one)."""
+    return gemini_worker.SAFETY_TOPICS_ADDENDUM + playbook_niche_rules() if playbook.enabled() else ""
 
 
 def playbook_detail_rules(max_secs):
     """Synapse Cut playbook: what the clip-choice prompt gets (titles + hook,
-    cut + descriptions, off-limits topics)."""
+    cut + descriptions, off-limits topics, the niche when there is one)."""
     if not playbook.enabled():
         return ""
     return (gemini_worker.QUESTION_TITLE_ADDENDUM
             + gemini_worker.PLAYBOOK_DETAIL_ADDENDUM.replace("{max_secs}", f"{max_secs:g}")
-            + gemini_worker.SAFETY_TOPICS_ADDENDUM)
+            + gemini_worker.SAFETY_TOPICS_ADDENDUM
+            + playbook_niche_rules(detail=True))
 
 
 def get_viral_clips(transcript_result, video_duration):
@@ -2143,6 +2161,9 @@ def get_viral_clips(transcript_result, video_duration):
 
         # --- Pass 2: detailed clip extraction on the shortlist ---
         min_clips, max_clips = clip_count_targets(len(shortlist))
+        count_floor = clip_selection.clip_count_floor()
+        if count_floor:
+            min_clips = min(count_floor, max_clips)
 
         # Clip Generator++ BETA switches (off = the classic prompt, byte for byte).
         selection_v2 = os.environ.get("SELECTION_V2") == "1"
@@ -2227,6 +2248,27 @@ def get_viral_clips(transcript_result, video_duration):
                       f"{str((sc or {}).get('reason') or '')[:90]}")
         except Exception as e:
             print(f"   (windows report skipped: {e})")
+        # The channel's niche (NICHE_TOPICS, playbook only): a clip whose
+        # topic_bucket is outside it is dropped or loses points, before the
+        # count below picks the best ones.
+        niche = playbook.niche_settings()
+        if niche and not playbook_on:
+            print("   🧭 Niche topics ignored: they need the Synapse Cut playbook (it asks for topic_bucket).")
+        elif niche:
+            shorts, off_niche = playbook.apply_niche(shorts, niche)
+            for s in off_niche:
+                print(f"   🧭 Off-niche clip dropped: {float(s.get('start', 0)):.0f}s "
+                      f"[{s.get('topic_bucket') or 'other'}] {s.get('video_title_for_youtube_short')}")
+            for s in shorts:
+                if s.get("off_niche"):
+                    print(f"   🧭 Off-niche clip kept with -{niche['weight']:g} points: "
+                          f"{float(s.get('start', 0)):.0f}s [{s.get('topic_bucket') or 'other'}] "
+                          f"score {s.get('predicted_score_raw')} -> {s.get('predicted_score')}")
+            print(f"   🧭 Niche ({', '.join(niche['topics'])}): {len(shorts) - sum(bool(s.get('off_niche')) for s in shorts)} "
+                  f"clip(s) on niche, {len(off_niche)} dropped.")
+            if not shorts and off_niche:
+                print("⚠️ Every clip the model returned was off niche: nothing to cut from this source "
+                      "(niche_only is on in the profile).")
         # Same moment twice (CLIP_DEDUPE_OVERLAP, off by default): once here,
         # so the count below is of different moments, and once more on the
         # final cuts, which the hook alignment and clean endings can widen.

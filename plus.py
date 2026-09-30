@@ -61,6 +61,16 @@ DEFAULT_PROFILE = {
         # limits): asked for in the prompt, and a clip over it is cut back to
         # the sentence of its payoff. None = off.
         "clip_target": None,
+        # What the channel is about (needs the playbook, which asks the model
+        # for each clip's topic_bucket): the playbook.TOPIC_BUCKETS it covers.
+        # Said in the scoring and clip-choice prompts; a clip outside them
+        # loses niche_weight points of score, or is dropped with niche_only.
+        # niche_context: one sentence on the channel, optional. [] = off.
+        "niche_topics": [], "niche_weight": 15, "niche_only": False, "niche_context": "",
+        # The fewest clips the clip-choice prompt asks for (None = the usual
+        # floor, 6 for a long source). With a niche, a source that is mostly
+        # off niche should be allowed to give 2 clips, not be padded to 6.
+        "min_clips": None,
     },
     # Which AI runs each step (ai_brain.STAGES): "gemini" or a Claude model.
     # "thinking" = Claude's effort on the two decision steps (clips, B-roll);
@@ -128,11 +138,21 @@ def _selection(raw):
         target = [lo, hi]
     except (TypeError, ValueError):
         target = None
+    import playbook
+    topics = raw.get("niche_topics")
+    topics = [t for t in (topics if isinstance(topics, (list, tuple)) else [])
+              if t in playbook.TOPIC_BUCKETS and t != "other"]
+    min_clips = raw.get("min_clips")
     return {
         # 20 and 0.2 both mean 20 %.
         "dedupe_overlap": round(share / 100.0 if share > 1 else share, 3),
         "dedupe_seconds": round(_float(raw.get("dedupe_seconds"), 0.0, 60.0, d["dedupe_seconds"]), 1),
         "clip_target": target,
+        "niche_topics": list(dict.fromkeys(topics)),
+        "niche_weight": round(_float(raw.get("niche_weight"), 0.0, 100.0, d["niche_weight"]), 1),
+        "niche_only": _bool(raw.get("niche_only")),
+        "niche_context": re.sub(r"\s+", " ", str(raw.get("niche_context") or "")).strip()[:200],
+        "min_clips": _int(min_clips, 1, 15, None) if min_clips not in (None, "", 0, "0") else None,
     }
 
 
@@ -392,4 +412,15 @@ def job_env(profile):
         env["CLIP_DEDUPE_SECONDS"] = f"{sel['dedupe_seconds']:g}"
     if sel["clip_target"]:
         env["CLIP_TARGET_MIN_SECONDS"], env["CLIP_TARGET_MAX_SECONDS"] = (str(v) for v in sel["clip_target"])
+    if sel["niche_topics"]:
+        env["NICHE_TOPICS"] = ",".join(sel["niche_topics"])
+        env["NICHE_WEIGHT"] = f"{sel['niche_weight']:g}"
+        if sel["niche_only"]:
+            env["NICHE_ONLY"] = "1"
+        if sel["niche_context"]:
+            env["NICHE_CONTEXT"] = sel["niche_context"]
+    if sel["min_clips"] and not p["target_clips"]:
+        # The floor of the clip-choice prompt only; target_clips (above)
+        # fixes the count and wins.
+        env["CLIP_COUNT_FLOOR"] = str(sel["min_clips"])
     return env

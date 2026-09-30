@@ -67,6 +67,23 @@ def clip_count_targets(n_windows):
     return low, max(low, high)
 
 
+def clip_count_floor():
+    """``CLIP_COUNT_FLOOR``: the fewest clips the detail prompt asks for, in
+    place of clip_count_targets' floor (None when unset — the default).
+
+    That floor exists because a lone clip was the usual answer; with a niche
+    filter it turns into padding: asked for 6 clips from 36 minutes of which
+    10 were on topic, the model filled the rest with fight recaps. Unlike
+    CLIP_TARGET_MIN it leaves the ceiling and the shortlist size alone."""
+    import os
+
+    try:
+        floor = int(os.environ.get("CLIP_COUNT_FLOOR", ""))
+    except ValueError:
+        return None
+    return floor if floor >= 1 else None
+
+
 def trim_to_best(shorts, max_clips):
     """Cut an over-long detail-pass result down to ``max_clips`` BY SCORE.
 

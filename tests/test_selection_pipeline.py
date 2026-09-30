@@ -33,7 +33,8 @@ def run(monkeypatch):
     ``run.prompts`` collects the prompts built for each stage."""
     for name in ("SELECTION_V2", "TITLE_SERIES", "SYNAPSE_PLAYBOOK", "CLEAN_END", "CLIP_MIN_SECONDS",
                  "CLIP_MAX_SECONDS", "CLIP_TARGET_MIN", "CLIP_TARGET_MAX", "CLIP_DEDUPE_OVERLAP",
-                 "CLIP_DEDUPE_SECONDS", "CLIP_TARGET_MIN_SECONDS", "CLIP_TARGET_MAX_SECONDS", "LLM_BASE_URL"):
+                 "CLIP_DEDUPE_SECONDS", "CLIP_TARGET_MIN_SECONDS", "CLIP_TARGET_MAX_SECONDS", "NICHE_TOPICS",
+                 "NICHE_WEIGHT", "NICHE_ONLY", "NICHE_CONTEXT", "CLIP_COUNT_FLOOR", "LLM_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("AI_BRAIN", "gemini")
