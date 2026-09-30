@@ -6821,6 +6821,9 @@ def _plus_clip_meta(cache, job_id, clip_index):
         "niche": data.get("niche"),
         "title": c.get("video_title_for_youtube_short"),
         "hook_line": c.get("hook_line"),
+        # Synapse Cut playbook clips only (None otherwise).
+        "topic_bucket": c.get("topic_bucket"),
+        "hook_aligned": c.get("hook_aligned"),
     }
 
 
@@ -6832,6 +6835,7 @@ async def plus_stats(request: Request, users: Optional[str] = None, days: int = 
     user's channels, so each new batch learns from the last ones."""
     if BILLING_ENABLED:
         raise HTTPException(status_code=404, detail="Not found")
+    import stats_ingest
     api_key, _ = await resolve_upload_post(request, None)
     if not api_key:
         raise HTTPException(status_code=400, detail="Missing Upload-Post key")
@@ -6896,10 +6900,13 @@ async def plus_stats(request: Request, users: Optional[str] = None, days: int = 
             k = keyfn(p)
             if k is None:
                 continue
-            g = out.setdefault(str(k), {"posts": 0, "views": 0})
+            g = out.setdefault(str(k), {"posts": 0, "views": 0, "all": []})
             g["posts"] += 1
             g["views"] += p["views"]
-        return sorted(({"key": k, "posts": g["posts"], "avg_views": round(g["views"] / g["posts"])}
+            g["all"].append(p["views"])
+        # The median next to the mean: one viral short moves a mean a long way.
+        return sorted(({"key": k, "posts": g["posts"], "avg_views": round(g["views"] / g["posts"]),
+                        "median_views": round(stats_ingest.median(g["all"]))}
                        for k, g in out.items()), key=lambda x: -x["avg_views"])
 
     def dur_bucket(p):
@@ -6925,7 +6932,14 @@ async def plus_stats(request: Request, users: Optional[str] = None, days: int = 
             "hour": group(lambda p: f"{p['hour']}h" if p.get("hour") else None),
             "ai_score": group(score_bucket),
             "account": group(lambda p: p.get("account")),
+            # What the Synapse Cut playbook recorded for each clip.
+            "topic": group(lambda p: p.get("topic_bucket")),
+            "title_form": group(lambda p: stats_ingest.title_form(p["title"]) if p.get("title") else None),
+            "hook_aligned": group(lambda p: None if p.get("hook_aligned") is None
+                                  else ("yes" if p["hook_aligned"] else "no")),
         },
+        # Does a higher AI score go with more views? (rank correlation)
+        "score_vs_views": stats_ingest.score_correlation(ours, field="predicted_score"),
         "sample_fields": sorted((raw_rows[0][1] or {}).keys())[:40] if raw_rows else [],
     }
 

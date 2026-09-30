@@ -100,6 +100,9 @@ function PlusStats({ uploadPostKey, accounts }) {
                         <StatsTable title="by posting hour" rows={g.hour} />
                         <StatsTable title="by AI viral score" rows={g.ai_score} />
                         <StatsTable title="by account" rows={g.account} />
+                        <StatsTable title="by topic" rows={g.topic} />
+                        <StatsTable title="by title shape" rows={g.title_form} />
+                        <StatsTable title="opens on its hook sentence" rows={g.hook_aligned} />
                     </div>
                     <div>
                         <p className="eyebrow mb-1.5">your best shorts</p>
