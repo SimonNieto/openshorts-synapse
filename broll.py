@@ -445,6 +445,8 @@ light (a real source with a direction and a quality, not flat, not a glow), the 
 around it, readable at the size it is shown), the coherence of palette and light with the other images of the
 set, the artefacts (hands, faces, lettering, melted objects), the stock or AI-cliché feel, the legibility at its
 size. 5 = a still a magazine would print, 4 = good, 3 = correct but flat, 2 or 1 = artefacts, stock or unreadable.
+A face, when one shows, must be natural and in focus with normal eyes, teeth and hands;
+a deformed, waxy or doubled face scores look 2 at most.
 For each image, by "file": "seen", "score" 1-5 (5 = instantly clear and on point, 4 = good, 3 = acceptable, 2 or 1 =
 weak, wrong or confusing), "look" 1-5, "problem" (a few words, empty if none) and "better_prompt": an English image
 prompt that would fix it (one clear scene, one main subject, no text) - empty when the score is 4 or 5 AND the
@@ -923,6 +925,17 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
 # composition for its frame, lens, light, palette, material, mood. 80-120 words,
 # stated in the positive (at cfg 1.0 a negation does nothing).
 ART_MIN_WORDS, ART_MAX_WORDS = 40, 220   # an answer outside this is not a prompt: the editor's draft stays
+# Where a clear, natural face may show (plus.BROLL["faces"]): never (every person anonymous, face turned away),
+# hero (the full-screen picture only: a look, a gesture, a posture is often THE picture), always. Nobody real
+# and recognisable in any mode; the other guardrails (counts, lettering, brands, crowds) stay.
+FACE_MODES = ("never", "hero", "always")
+FACE_TEXT = {
+    "never": "FACES: People stay anonymous on every picture (turned away, in shadow, small in the frame).",
+    "hero": "FACES: a clear, natural face with a real expression is welcome on the HERO and only there: a look, a\n"
+            "  gesture, a posture is often the picture. On the cards keep people anonymous (turned away, in shadow, small).",
+    "always": "FACES: a clear, natural face with a real expression is welcome on every picture: a look, a gesture, a\n"
+              "  posture is often the picture.",
+}
 ART_SYSTEM = "You are a director of photography for a documentary channel. You answer only with the requested JSON."
 ART_PROMPT = """You are the director of photography of a short-form documentary channel. The editor has chosen the
 moments of this clip that get a picture and what each one must show; you write the prompt the image model will
@@ -964,8 +977,8 @@ RULES
 - {cliche}
   When the editor's draft or a glossary line is one of these clichés, keep its subject and shoot it as a real
   thing at its true scale in a real place.
-- Nothing written anywhere in the scene (signs, screens, pages and labels show plain surfaces). Nobody real and
-  recognisable.
+- Nothing written anywhere in the scene (signs, screens, pages and labels show plain surfaces).
+- {faces} Nobody real and recognisable, ever.
 
 Return JSON: {{"prompts": [{{"k": 0, "prompt": "..."}}, ...]}} with the "k" of every picture above."""
 ART_SCHEMA = {
@@ -1046,7 +1059,7 @@ def _art_glossary(moments, clip_text):
 
 
 def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, style="photo", clip_text="",
-                family=None):
+                family=None, faces="never"):
     """The art director's request for the whole set of one clip. ``family``: None (historical layouts: the
     STYLES are the notes), "auto" (the director chooses one) or a FAMILIES name (fixed)."""
     sheet = next((m.get("sheet") for m in moments if m.get("sheet")), None)
@@ -1072,7 +1085,8 @@ def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, s
     return ART_PROMPT.format(house=house or "cinematic documentary photograph", sheet=sheet_txt, cliche=CLICHE_RULE,
                              family=family_text(family),
                              title=clip.get("video_title_for_youtube_short") or "-", thesis=thesis,
-                             glossary=_art_glossary(moments, clip_text), moments="\n".join(lines))
+                             glossary=_art_glossary(moments, clip_text), moments="\n".join(lines),
+                             faces=FACE_TEXT.get(faces, FACE_TEXT["never"]))
 
 
 def _cut_at_sentence(text, limit):
@@ -1111,13 +1125,13 @@ def _apply_art(moments, data):
 
 
 def direct_art(moments, clip, house, mixed=True, rise=False, auto_style=True, style="photo", clip_text="",
-               family=None):
+               family=None, faces="never"):
     """The second call of the brain: one prompt per picture of the set, in the channel's look. Runs on the
     brain's ``broll_art`` step (a Claude model, or Gemini). Any failure leaves the editor's prompts in place."""
     import ai_brain
     if not moments:
         return 0
-    prompt = _art_prompt(moments, clip, house, mixed, rise, auto_style, style, clip_text, family)
+    prompt = _art_prompt(moments, clip, house, mixed, rise, auto_style, style, clip_text, family, faces)
     try:
         if ai_brain.route("broll_art") == "gemini":
             ai_brain.say(f"Gemini · {TEXT_MODEL}", "B-roll: art direction of the set")
@@ -1322,9 +1336,11 @@ _GENERIC = {"iphone": "smartphone", "ipad": "tablet", "coca-cola": "cola bottle"
 GUARD_MAX = 3
 
 
-def guardrails(prompt):
+def guardrails(prompt, faces=False):
     """(prompt, extra): the prompt with brand names swapped for generic ones, and
-    the positive sentences to add at its end for the pitfalls this prompt holds."""
+    the positive sentences to add at its end for the pitfalls this prompt holds.
+    ``faces``: a clear face is allowed on this picture (people stay anonymous:
+    nobody real or recognisable)."""
     def generic(m):
         return _GENERIC.get(m.group(1).lower(), m.group(0))
     had_brand = bool(_BRAND_RE.search(prompt))
@@ -1344,9 +1360,12 @@ def guardrails(prompt):
     if _HANDS_RE.search(prompt):
         extra.append("Hands are seen from the side or partly out of frame, in a simple natural pose.")
     if _CROWD_RE.search(prompt):
-        extra.append("The figures are seen from behind or at a distance, as simple silhouettes.")
+        extra.append("The group is seen as a whole, the nearest faces natural and anonymous, nobody recognisable."
+                     if faces else "The figures are seen from behind or at a distance, as simple silhouettes.")
     elif _PERSON_RE.search(prompt):
-        extra.append("An anonymous person, face turned away, in shadow or small in the frame.")
+        extra.append("An anonymous person, nobody real or recognisable, the face natural, in focus and lit by the "
+                     "scene's light." if faces else
+                     "An anonymous person, face turned away, in shadow or small in the frame.")
     return prompt, " ".join(extra[:GUARD_MAX])
 
 
@@ -1664,13 +1683,13 @@ def _graph(engine, text, seed, width=768, height=1344, steps=None):
     return out
 
 
-def _image_text(prompt, style, look="", house="", art=False, family=None):
+def _image_text(prompt, style, look="", house="", art=False, family=None, faces=False):
     """The full prompt sent to the image model: the scene (with its guardrails), the channel's house look
     (profile broll.house_look, the same sentence in every image of every clip), this clip's style sheet, the
     style's own description (or, in the mixed layout, the clip's style ``family``) and the common rules.
     ``art``: the scene is the art director's prompt, which already states the look, the frame and the light:
     only the guardrails, the family and the hard rules follow it."""
-    prompt, guard = guardrails(prompt) if os.environ.get("BROLL_GUARDRAILS", "1") != "0" else (prompt, "")
+    prompt, guard = guardrails(prompt, faces) if os.environ.get("BROLL_GUARDRAILS", "1") != "0" else (prompt, "")
     fam = FAMILIES.get(family) if family else None
     if art:
         return " ".join(p for p in (prompt, guard, fam, ART_RULES) if p)
@@ -1681,7 +1700,7 @@ def _image_text(prompt, style, look="", house="", art=False, family=None):
 
 
 def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", art=False,
-                family=None, seed=None, steps=None):
+                family=None, seed=None, steps=None, faces=False):
     """One 9:16 image from ComfyUI. Measured on an RTX 3060 (ComfyUI on
     PyTorch cu130 — the int8 kernels need it): Z-Image Turbo ~12 s per
     image, FLUX.1 schnell ~25 s; the first call of a job also loads the
@@ -1691,7 +1710,7 @@ def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768
     import random
     import uuid
     import httpx
-    text = _image_text(prompt, style, look, house, art, family)
+    text = _image_text(prompt, style, look, house, art, family, faces)
     seed = random.randint(0, 2 ** 48) if seed is None else int(seed)
     graph = _graph(engine if engine in ENGINES else "zimage", text, seed, *size, steps=steps)
     base = _comfy_url()
@@ -2352,6 +2371,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             head = max(HEAD_FREE, float(os.environ.get("AUTO_HOOK_SECONDS") or 0) + 0.3)
         except ValueError:
             pass
+    face_mode = cfg.get("faces") if cfg.get("faces") in FACE_MODES else "never"
     gpu = [0.0]      # seconds spent waiting for ComfyUI, for the clip's log line
     seeds = {}       # picture path -> the seed it was made with (kept in its item)
 
@@ -2363,13 +2383,14 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         answering raises ComfyDown: images are made nowhere else."""
         size = _gen_size(layout if layout is not None else ("rise" if rise else "full"), hero_res)
         steps = HERO_STEPS if layout == "hero" and HERO_STEPS > 0 else None
+        faces = face_mode == "always" or (face_mode == "hero" and layout == "hero")
         last = None
         for attempt in range(2):
             t0 = time.time()
             seed = random.randint(0, 2 ** 48)
             try:
                 got = local_image(prompt, m_style, raw, engine=engine, size=size, look=look_text(sheet, m_style),
-                                  house=house, art=art, family=family, seed=seed, steps=steps)
+                                  house=house, art=art, family=family, seed=seed, steps=steps, faces=faces)
                 seeds[got] = seed
                 return got, "local", None
             except Exception as e:
@@ -2455,7 +2476,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # The second call: the prompts of the whole set, in the channel's look (the editor's drafts stay
             # when it fails).
             direct_art(moments, clip, house, mixed=mixed, rise=rise, auto_style=auto_style, style=style,
-                       clip_text=" ".join(w["text"] for w in words), family=family)
+                       clip_text=" ".join(w["text"] for w in words), family=family, faces=face_mode)
         if mixed:
             if family == "auto":
                 family = next((m.get("family") for m in moments if m.get("family") in FAMILIES), FAMILY_DEFAULT)
@@ -2653,9 +2674,11 @@ def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, 
     house = str(cfg.get("house_look") or "").strip() if cfg.get("layout") in ("hero", "card", "mixed") else ""
     try:
         art = bool(art) and len(str(prompt).split()) >= ART_MIN_WORDS
+        mode = cfg.get("faces") if cfg.get("faces") in FACE_MODES else "never"
+        faces = mode == "always" or (mode == "hero" and cfg.get("layout") == "hero")
         return local_image(prompt, style, out_path, engine=engine, size=size, look=look_text(sheet, style),
                            house=house, art=art, family=family if family in FAMILIES else None, seed=seed,
-                           steps=steps), "local", None
+                           steps=steps, faces=faces), "local", None
     finally:
         comfy_release()
 
