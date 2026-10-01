@@ -285,8 +285,8 @@ class TestAddBroll:
         assert broll.HERO_DUR_MIN <= heroes[0]["dur"] <= broll.HERO_DUR_MAX
         assert heroes[0]["gen"] == [896, 1600] and "enter" not in heroes[0]
         cards = [it for it in items if it["layout"] != "hero"]
-        assert cards and all(it["layout"] == "rise" and it["gen"] == list(broll.RISE_GEN) for it in cards)
-        assert sorted(made) == sorted([(896, 1600)] + [broll.RISE_GEN] * len(cards))
+        assert cards and all(it["layout"] == "card" and it["gen"] == list(broll.CARD_GEN) for it in cards)
+        assert sorted(made) == sorted([(896, 1600)] + [broll.CARD_GEN] * len(cards))
         for a, b in zip(items, items[1:]):
             assert a["t"] + a["dur"] <= b["t"] - 0.24
         assert cut and cut[0] == items
@@ -334,3 +334,142 @@ class TestPlannerPrompt:
         assert seen["prompt"].startswith(plain) and "HERO IMAGE" in seen["prompt"]
         assert seen["schema"]["properties"]["moments"]["items"]["properties"]["hero"] == {"type": "boolean"}
         assert "hero" not in broll.PLAN_SCHEMA["properties"]["moments"]["items"]["properties"]
+
+
+# --- chantier C: the wide cards of the "mixed" layout -------------------------------------
+
+class TestCardGeometry:
+    def test_a_wide_card_above_the_head_stays_in_its_band(self):
+        g = broll.rise_geometry("natural", True, "top", 60, aspect=0.625)
+        b = g["box"]
+        assert g["effective_pct"] == 60 and not g["limited"] and not g["into_app_zone"]
+        assert b["y"] >= int(1920 * broll.TOP_BAND[0]) and b["y"] + b["h"] <= int(1920 * broll.TOP_BAND[1])
+        assert abs(b["h"] / b["w"] - 0.625) < 0.01
+
+    def test_the_band_above_the_head_limits_a_card_taller_than_it(self):
+        g = broll.rise_geometry("natural", True, "top", 60, aspect=1.0)      # a 60 % square does not fit above the head
+        assert g["limited"] and g["box"]["y"] + g["box"]["h"] <= int(1920 * broll.TOP_BAND[1])
+
+    def test_the_historical_positions_are_unchanged(self):
+        assert broll.rise_geometry("natural", True, "below", 28)["box"] == {"x": 389, "y": 1274, "w": 302, "h": 302}
+        assert broll.rise_geometry("natural", True, "above", 27)["box"] == {"x": 394, "y": 818, "w": 291, "h": 291}
+        above = broll.rise_geometry("natural", True, "above", 27)["box"]
+        assert above["y"] + above["h"] <= broll._caption_band(1920, "natural", True)[0]
+
+    def test_the_premium_edge(self):
+        w, rim, shade, blur = broll._border("premium", 3, 0)
+        assert (w, rim, shade, blur) == (1, 30, 60, 2.0)
+        assert broll._border("soft", 3, 0) == (2, 110, 85, 1.0)
+
+
+class TestCardDurations:
+    def test_mixed_cards_last_from_two_point_two_to_three_and_a_half_seconds(self):
+        words = _words(TEXT)
+        idx = {w["text"]: i for i, w in enumerate(words)}
+
+        def mk(a):
+            return {"anchor": a, "time": words[idx[a]]["start"], "image_prompt": a}
+
+        data = {"moments": [mk("soldiers"), mk("marched"), mk("drill"), mk("sergeant")]}
+        legacy = broll._parse_moments(data, words, 6, [], 4.0)
+        prem = broll._parse_moments(data, words, 6, [], 4.0, (broll.CARD_DUR_MIN, broll.CARD_DUR_MAX))
+        assert all(broll.DUR_MIN <= m["dur"] <= broll.DUR_MAX for m in legacy)
+        assert all(broll.CARD_DUR_MIN <= m["dur"] <= broll.CARD_DUR_MAX for m in prem)
+        assert any(p["dur"] > l["dur"] for p, l in zip(prem, legacy))      # a short clause: the higher floor lifts it
+
+
+class TestPremiumCardFrames:
+    def _render(self, **kw):
+        tmp = tempfile.mkdtemp(prefix="card_")
+        src = os.path.join(tmp, "s.jpg")
+        Image.new("RGB", (576, 360), (120, 90, 60)).save(src, quality=95)
+        folder = os.path.join(tmp, "f")
+        os.makedirs(folder)
+        return broll._rise_frames(src, folder, 20, 2.4, 540, 960, 60, "top", **kw), folder
+
+    def test_fades_in_while_rising_a_few_pixels_and_fades_out(self):
+        (pattern, x, motion), folder = self._render(look="premium", border="premium")
+        ys, ye, drift, cvh, rise_s = motion
+        assert ys - ye == broll.CARD_RISE_PX and rise_s == broll.CARD_IN     # no travel from the edge of the screen
+        frames = sorted(f for f in os.listdir(folder) if f.endswith(".png"))
+        a0 = Image.open(os.path.join(folder, frames[0])).getchannel("A").getextrema()[1]
+        a_mid = Image.open(os.path.join(folder, frames[len(frames) // 2])).getchannel("A").getextrema()[1]
+        a_last = Image.open(os.path.join(folder, frames[-1])).getchannel("A").getextrema()[1]
+        assert a0 < 40 and a_mid == 255 and a_last < 120
+
+    def test_the_historical_card_still_comes_from_the_edge(self):
+        (pattern, x, motion), folder = self._render()
+        assert len(motion) == 4 and motion[0] < 0            # from the top edge: the card lands in the upper half
+
+    def test_a_label_in_the_corner_when_asked(self):
+        (_, _, _), plain = self._render(look="premium", border="premium")
+        (_, _, _), labelled = self._render(look="premium", border="premium", label="dopamine")
+        a = Image.open(os.path.join(plain, "c024.png")).convert("L")
+        b = Image.open(os.path.join(labelled, "c024.png")).convert("L")
+        assert a.size == b.size and a.tobytes() != b.tobytes()
+        W, H = a.size
+        assert a.crop((0, 0, W, H // 2)).tobytes() == b.crop((0, 0, W, H // 2)).tobytes()   # only the lower part changed
+
+
+class TestMixedCards:
+    def test_profile_keys(self):
+        d = plus.sanitize({})["broll"]
+        assert (d["card_position"], d["card_size"], d["label"]) == ("top", 60, False)
+        b = plus.sanitize({"broll": {"card_position": "below", "card_size": 99, "label": "1"}})["broll"]
+        assert (b["card_position"], b["card_size"], b["label"]) == ("below", 64, True)
+        assert plus.sanitize({"broll": {"card_position": "left"}})["broll"]["card_position"] == "top"
+        assert plus.sanitize({"broll": {"position": "top"}})["broll"]["position"] == "top"
+
+    def test_mixed_cards_are_wide_premium_and_above_the_head(self, monkeypatch):
+        made = []
+
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look=""):
+            Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
+            made.append(tuple(size))
+            return out_path
+
+        monkeypatch.setattr(broll, "comfy_available", lambda timeout=3: True)
+        monkeypatch.setattr(broll, "claude_ready", lambda: True)
+        monkeypatch.setattr(broll, "_frame_sheets", lambda *a, **k: [])
+        monkeypatch.setattr(broll, "local_image", fake_image)
+        monkeypatch.setattr(broll, "review_images", lambda cands, words: [{"score": 5} for _ in cands])
+        monkeypatch.setattr(broll, "overlay_items", lambda *a, **k: None)
+        tr = _transcript(TEXT)
+        words = [{"text": w["word"].strip(), "start": w["start"], "end": w["end"]} for w in tr["segments"][0]["words"]]
+        idx = {w["text"]: i for i, w in enumerate(words)}
+        data = {"moments": [{"anchor": a, "time": words[idx[a]]["start"], "image_prompt": a, "subject": s, "role": r, "shot": sh}
+                            for a, s, r, sh in (("soldiers", "soldiers", "example", "wide"),
+                                                ("marched", "night march", "example", "close"),
+                                                ("sergeant", "sergeant", "consequence", "medium"))]}
+        seen = {}
+
+        def fake_plan(clip, words_, n, avoid, *a, **k):
+            seen.update(k)
+            return broll._parse_moments(data, words_, n, avoid, broll.DENSITY["normal"]["gap"], k.get("dur_range"))
+
+        monkeypatch.setattr(broll, "plan_with_claude", fake_plan)
+        # y 73.1 is the rise layout's "my height" (the user's saved profile has one): a card ignores it
+        cfg = {"planner": "claude", "layout": "mixed", "style": "photo", "max": 4, "label": True, "y": 73.1}
+        rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1, cfg)
+        assert seen["dur_range"] == (broll.CARD_DUR_MIN, broll.CARD_DUR_MAX)
+        cards = [it for it in rep["items"] if it["layout"] == "card"]
+        assert len(cards) == 2 and (1152, 720) in made
+        for it in cards:
+            assert it["look"] == "premium" and it["border"] == "premium" and it["position"] == "top" and it["size"] == 60
+            assert it["gen"] == [1152, 720] and broll.CARD_DUR_MIN <= it["dur"] <= broll.CARD_DUR_MAX + 0.01
+            assert "y" not in it
+        assert [it["label"] for it in cards] == ["soldiers", "night march"]
+        hero = [it for it in rep["items"] if it["layout"] == "hero"][0]
+        assert "label" not in hero and "look" not in hero
+
+    def test_the_rise_layout_keeps_its_historical_rise_time(self, monkeypatch):
+        import viral_fx
+        monkeypatch.setattr(viral_fx, "_probe", lambda p: {"w": 108, "h": 192, "fps": 10, "duration": 8.0})
+        cap = _Captured()
+        monkeypatch.setattr(broll.subprocess, "run", cap)
+        tmp = tempfile.mkdtemp(prefix="ov_")
+        src = os.path.join(tmp, "s.jpg")
+        Image.new("RGB", (256, 256), (90, 60, 30)).save(src)
+        broll.overlay_items("clip.mp4", "out.mp4", [{"t": 2.0, "dur": 1.9, "layout": "rise", "size": 28, "_img": src}])
+        graph = cap.cmds[-1][cap.cmds[-1].index("-filter_complex") + 1]
+        assert f"/{broll.RISE_IN}" in graph

@@ -45,7 +45,8 @@ DEFAULT_PROFILE = {
     # BETA: 2-4 image cutaways when something concrete is named (broll.py).
     "broll": {"enabled": False, "source": "local", "engine": "zimage", "planner": "gemini", "style": "photo",
               "max": 6, "mode": "mixed", "density": "normal", "real_photos": False, "review": "auto", "layout": "full", "position": "below", "y": None, "size": 28,
-              "hold": None, "enter": "rise", "zoom": "soft", "border": "soft", "hero_res": "std"},
+              "hold": None, "enter": "rise", "zoom": "soft", "border": "soft", "hero_res": "std",
+              "card_position": "top", "card_size": 60, "label": False},
     "auto_publish": {"enabled": False, "platforms": ["tiktok", "instagram", "youtube"]},
     "beta": {
              # Synapse Cut playbook: question titles without names, starts on the
@@ -261,7 +262,13 @@ def sanitize(raw):
                   "layout": br.get("layout") if br.get("layout") in ("rise", "full", "mixed") else "full",
                   # Size of the hero image: "std" 896x1600 (~16 s on an RTX 3060), "high" 1024x1792 (~23 s).
                   "hero_res": br.get("hero_res") if br.get("hero_res") in ("std", "high") else "std",
-                  "position": br.get("position") if br.get("position") in ("below", "above") else "below",
+                  # The wide 16:10 cards of the "mixed" layout: where (above the head by default: with the natural
+                  # captions on the chin there is no room between face and captions), how wide (18-64 %), and an
+                  # optional small-caps keyword in their corner.
+                  "card_position": br.get("card_position") if br.get("card_position") in ("top", "above", "below") else "top",
+                  "card_size": _int(br.get("card_size"), 18, 64, 60),
+                  "label": _bool(br.get("label")),
+                  "position": br.get("position") if br.get("position") in ("below", "above", "top") else "below",
                   # A height chosen by the user (the small card's centre, % from the top of the frame): wins over "position".
                   "y": _free_y(br.get("y")),
                   # How long each image stays (None = until the end of its sentence, else 1-4 s), how the small card

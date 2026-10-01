@@ -128,6 +128,20 @@ HERO_PUSH = _knob("BROLL_HERO_PUSH", 1.06)          # push-in over the time on s
 HERO_VIGNETTE = _knob("BROLL_HERO_VIGNETTE", 0.30)  # darkening at the corners (0-1): keeps the eye in the middle
 HERO_GRADIENT = _knob("BROLL_HERO_GRADIENT", 0.45)  # darkening at the very bottom (0-1): the captions stay readable on a bright picture
 HERO_GRAIN = _knob("BROLL_HERO_GRAIN", 5.0)         # film grain, sigma in 8-bit levels: hides the upscale and the AI smoothness
+# The small cards of the "mixed" layout: landscape 16:10 pictures made in that
+# ratio (1152x720: 8.6 s on the 3060), wide (profile broll.card_size, 60 % of the
+# frame), in the free band ABOVE the speaker's head by default (broll.card_position
+# "top": with the natural captions on the chin there is no room between the face
+# and the captions, and under them a wide card runs into the app's buttons).
+CARD_GEN = (1152, 720)
+CARD_SIZE = 60
+CARD_DUR_MIN, CARD_DUR_MAX = 2.2, 3.5       # to the end of the clause, never a flash, never a poster
+CARD_IN = _knob("BROLL_CARD_IN", 0.35)      # s: fades in while rising CARD_RISE_PX (not from the edge of the screen)
+CARD_RISE_PX = 12
+CARD_OUT = _knob("BROLL_CARD_OUT", 0.25)    # s: fades out, shrinking CARD_OUT_SHRINK
+CARD_OUT_SHRINK = 0.02
+CARD_PUSH = _knob("BROLL_CARD_PUSH", 1.03)  # push-in inside the card over its time on screen
+TOP_BAND = (0.05, 0.34)                     # of the height: above the head of a tracked speaker (crown at ~0.34 H)
 HERO_RULE = """HERO IMAGE: one image of the set may be shown FULL SCREEN for about 3 s instead of small: the most VISUAL
 moment of the clip — a concrete scene (an example, a consequence, a place, an action), shot wide or medium, never a
 diagram, never in the hook's first seconds, never on the punchline. Mark it "hero": true (one at most) and make its
@@ -507,27 +521,29 @@ def _key_index(words, i, n):
     return best
 
 
-def _moment_dur(words, i, t, duration):
+def _moment_dur(words, i, t, duration, lo=DUR_MIN, hi=DUR_MAX):
     """How long the image stays: from its word to the end of the sentence (or of
-    the clause, once it has lasted DUR_MIN), so it goes away when the voice moves
-    on to something else. Clamped to DUR_MIN..DUR_MAX and to the clip's end."""
+    the clause, once it has lasted ``lo``), so it goes away when the voice moves
+    on to something else. Clamped to lo..hi and to the clip's end."""
     end = words[i]["end"]
     for j in range(i, len(words)):
         end = words[j]["end"]
         text = words[j]["text"]
-        if end - t >= DUR_MAX:
+        if end - t >= hi:
             break
-        if re.search(r"[.!?;:…]$", text) or (re.search(r",$", text) and end - t >= DUR_MIN):
+        if re.search(r"[.!?;:…]$", text) or (re.search(r",$", text) and end - t >= lo):
             break
-    dur = max(DUR_MIN, min(DUR_MAX, end - t + DUR_TAIL))
-    return round(min(dur, max(DUR_MIN, duration - 1.0 - t)), 2)
+    dur = max(lo, min(hi, end - t + DUR_TAIL))
+    return round(min(dur, max(lo, duration - 1.0 - t)), 2)
 
 
-def _parse_moments(data, words, n, avoid, gap=MIN_GAP):
+def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None):
     """The planner's answer -> moments that land on a real spoken word, in
     the allowed window, spaced out. Anything that does not check out is
-    dropped, whoever the planner was."""
+    dropped, whoever the planner was. ``dur_range``: (min, max) s on screen
+    (the "mixed" layout's cards stay longer than the historical ones)."""
     duration = words[-1]["end"]
+    lo, hi = dur_range or (DUR_MIN, DUR_MAX)
     moments = []
     sheet = _clean_sheet((data or {}).get("style_sheet"))
     for m in (data or {}).get("moments") or []:
@@ -556,17 +572,17 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP):
                         "notion": str(m.get("notion") or "")[:80],
                         "real_photo": bool(m.get("real_photo")) and bool(str(m.get("search_query") or "").strip()),
                         "hero": bool(m.get("hero")),
-                        "dur": _moment_dur(words, k, t, duration),
+                        "dur": _moment_dur(words, k, t, duration, lo, hi),
                         "sheet": sheet,
                         "score": 1.0})
     kept = _space(moments, n, gap)
     for a, b in zip(kept, kept[1:]):
         # never run into the next image
-        a["dur"] = round(max(DUR_MIN, min(a["dur"], b["t"] - a["t"] - DUR_NEXT_GAP)), 2)
+        a["dur"] = round(max(lo, min(a["dur"], b["t"] - a["t"] - DUR_NEXT_GAP)), 2)
     return kept
 
 
-def plan_with_gemini(clip, words, n, avoid, api_key, auto_style=False):
+def plan_with_gemini(clip, words, n, avoid, api_key, auto_style=False, dur_range=None):
     from google import genai
     from google.genai import types
     prompt = _plan_prompt(clip, words, n, avoid, auto_style)
@@ -584,7 +600,7 @@ def plan_with_gemini(clip, words, n, avoid, api_key, auto_style=False):
             time.sleep(4 * (attempt + 1))
     else:
         raise RuntimeError(f"moment planning failed: {last}")
-    return _parse_moments(data, words, n, avoid)
+    return _parse_moments(data, words, n, avoid, dur_range=dur_range)
 
 
 # --- Claude (the user's subscription, through Claude Code) -----------------------
@@ -695,7 +711,8 @@ def apply_notions(moments, brief, clip_text):
 
 
 def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, start=0.0, end=None,
-                     sheets=None, ground=None, mode="mixed", real_photos=False, density="normal", hero=False):
+                     sheets=None, ground=None, mode="mixed", real_photos=False, density="normal", hero=False,
+                     dur_range=None):
     """Claude reads the clip, the conversation around it and (``sheets``) what
     is on screen, and places images that carry the IDEA being said.
     ``ground``: hook_grounding.request()'s (frames, prompt) — the hook is
@@ -754,7 +771,7 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     if ground:
         import hook_grounding
         hook_grounding.apply(clip, (data or {}).get("hook"), len(ground[0]))
-    moments = _parse_moments(data, words, n, avoid, DENSITY[density]["gap"])
+    moments = _parse_moments(data, words, n, avoid, DENSITY[density]["gap"], dur_range)
     apply_notions(moments, ai_brain.EPISODE_BRIEF, f"{before} {clip_text} {after}")
     thesis = str((data or {}).get("thesis") or "")[:300]
     if thesis:
@@ -1026,6 +1043,8 @@ def _gen_size(layout, hero_res="std"):
         return RISE_GEN
     if layout == "hero":
         return HERO_GEN.get(hero_res) or HERO_GEN["std"]
+    if layout == "card":
+        return CARD_GEN
     return (768, 1344)
 
 
@@ -1465,13 +1484,16 @@ BORDERS = {
     "strong": {"edge": 1.0, "rim": (235, 225), "shade": (185, 175), "blur": (0.7, 0.6)},
     "soft": {"edge": 0.6, "rim": (110, 100), "shade": (85, 80), "blur": (1.0, 0.9)},
     "none": {"edge": 0.0, "rim": (0, 0), "shade": (0, 0), "blur": (0.7, 0.6)},
+    # The "mixed" layout's cards: a 1 px edge at 12 % (a hint of a rim, not a sticker's white border) and a wider,
+    # softer shadow (twice the blur, alpha 60), with more room around the card for it.
+    "premium": {"edge": 0.0, "px": 1, "rim": (30, 30), "shade": (60, 60), "blur": (2.0, 2.0), "pad": 4},
 }
 
 
 def _border(name, edge_px, idx):
     """(edge width px, edge alpha, shadow alpha, shadow blur factor) for a border style; idx 0 = small card, 1 = big."""
     b = BORDERS.get(name) or BORDERS["soft"]
-    w = 0 if not b["edge"] else max(2, int(round(edge_px * b["edge"])))
+    w = b.get("px") or (0 if not b["edge"] else max(2, int(round(edge_px * b["edge"]))))
     return w, b["rim"][idx], b["shade"][idx], b["blur"][idx]
 ENTER_MODES = ("rise", "fade")
 
@@ -1669,11 +1691,16 @@ def _rise_box(cap_top, cap_bottom, position, size_pct, aspect, W=1080, H=1920, y
     if position == "above":
         band_top, band_bottom = int(H * 0.12), cap_top - gap
         ch_max = band_bottom - int(H * RISE_HARD_TOP)
+    elif position == "top":
+        # Above the speaker's head (the crown of a tracked face sits at ~0.34 H): the one wide free zone of a
+        # podcast frame once the hook is gone. The band is the limit here: lower would be on the hair.
+        band_top, band_bottom = int(H * TOP_BAND[0]), int(H * TOP_BAND[1])
+        ch_max = band_bottom - band_top
     else:
         band_top, band_bottom = cap_bottom + gap, int(H * PLATFORM_UI)
         ch_max = int(H * RISE_HARD_BOTTOM) - band_top
     pad = max(8, int(W * 0.016)) * 2
-    wanted = int(W * max(18, min(60, int(size_pct))) / 100)
+    wanted = int(W * max(18, min(64, int(size_pct))) / 100)
     cw = wanted
     if y_pct is not None:
         ch_max = int(H * RISE_HARD_BOTTOM) - int(H * RISE_HARD_TOP)
@@ -1684,6 +1711,8 @@ def _rise_box(cap_top, cap_bottom, position, size_pct, aspect, W=1080, H=1920, y
         y_end = min(max(H * float(y_pct) / 100, H * RISE_HARD_TOP + ch / 2), H * RISE_HARD_BOTTOM - ch / 2)
     elif position == "above":
         y_end = band_bottom - ch / 2                   # card bottom just above the captions
+    elif position == "top":
+        y_end = (band_top + band_bottom) / 2           # centred in the band above the head
     else:
         y_end = max((band_top + band_bottom) / 2, band_top + ch / 2)
     return {"cw": cw, "ch": ch, "wanted": wanted, "y_end": y_end, "band_top": band_top, "band_bottom": band_bottom,
@@ -1706,12 +1735,55 @@ def rise_geometry(edit_style, watermark, position, size_pct, W=1080, H=1920, asp
             "hard_top": int(H * RISE_HARD_TOP), "hard_bottom": int(H * RISE_HARD_BOTTOM), "W": W, "H": H}
 
 
+def _font(size):
+    """A bold sans for the little texts drawn on a card: the channel's premium font when it is in fonts/, else
+    the system's Liberation Sans Bold, else PIL's default."""
+    from PIL import ImageFont
+    here = os.path.dirname(os.path.abspath(__file__))
+    for path in (os.path.join(here, "fonts", "Montserrat-ExtraBold.ttf"),
+                 "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"):
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _label_card(card, text, cw, ch):
+    """A one-word label in small capitals, bottom-left of a card, on a dark pill (profile broll.label)."""
+    text = re.sub(r"\s+", " ", str(text or "")).strip().upper()[:26]
+    if not text:
+        return
+    size = max(13, int(cw * 0.04))
+    font = _font(size)
+    d = ImageDraw.Draw(card)
+    spacing = size * 0.12
+    widths = [d.textlength(ch_, font=font) for ch_ in text]
+    tw = sum(widths) + spacing * (len(text) - 1)
+    m = int(cw * 0.035)
+    px, py = int(size * 0.7), int(size * 0.45)
+    x0, y1 = m, ch - m
+    y0 = y1 - size - 2 * py
+    d.rounded_rectangle((x0, y0, x0 + tw + 2 * px, y1), radius=int(size * 0.5), fill=(0, 0, 0, 150))
+    x = x0 + px
+    for ch_, w in zip(text, widths):
+        d.text((x, y0 + py), ch_, fill=(255, 255, 255, 235), font=font)
+        x += w + spacing
+
+
 def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=None, enter="rise", zoom="soft",
-                 border="soft"):
+                 border="soft", look=None, label=None):
     """PNG sequence of the rising card, drawn in a fixed canvas; the canvas
     itself moves up through the overlay's ``y`` expression. Returns
-    (pattern, x, motion) where motion = (y_start, y_end, drift, canvas_h)
-    for the canvas centre."""
+    (pattern, x, motion) where motion = (y_start, y_end, drift, canvas_h[,
+    rise_s]) for the canvas centre.
+
+    ``look="premium"`` (the "mixed" layout's cards): a landscape card with a
+    3 % radius that fades in while rising CARD_RISE_PX over CARD_IN s (no
+    travel from the edge of the screen), pushes in CARD_PUSH while it stays,
+    and fades out over CARD_OUT s shrinking CARD_OUT_SHRINK. ``label``: a
+    small-caps word drawn in its corner."""
+    prem = look == "premium"
     img = Image.open(src).convert("RGB")
     img = ImageEnhance.Contrast(img).enhance(1.07)
     img = ImageEnhance.Color(img).enhance(1.08)
@@ -1719,11 +1791,11 @@ def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=
     iw, ih = img.size
     cap_top, cap_bottom = _caption_band(H)
     shadow = max(8, int(W * 0.016))
-    pad = shadow * 2
-    aspect = min(max(ih / iw, 0.75), 1.25)
+    pad = shadow * int((BORDERS.get(border) or BORDERS["soft"]).get("pad", 2))
+    aspect = min(max(ih / iw, 0.6 if prem else 0.75), 1.25)
     box = _rise_box(cap_top, cap_bottom, position, size_pct, aspect, W, H, y_pct)
     cw, ch, y_end = box["cw"], box["ch"], box["y_end"]
-    radius = int(cw * 0.07)
+    radius = int(cw * (0.03 if prem else 0.07))
     edge, rim_a, shade_a, blur_k = _border(border, max(3, W // 360), 0)
     uw, uh = cw + 2 * pad, ch + 2 * pad              # card + its shadow margin
     zk = _zoom_k(zoom)
@@ -1745,7 +1817,7 @@ def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=
     n = max(2, int(round(dur * fps)))
     for f in range(n):
         t = f / fps
-        zoom = _push_in(f, n, zmax)
+        zoom = (1.0 + (CARD_PUSH - 1.0) * f / max(1, n - 1)) if prem else _push_in(f, n, zmax)
         vw, vh = cw * zmax / zoom, ch * zmax / zoom
         x0, y0 = (big.width - vw) / 2, (big.height - vh) / 2
         photo = big.crop((int(x0), int(y0), int(x0 + vw), int(y0 + vh))).resize((cw, ch), Image.BILINEAR)
@@ -1753,24 +1825,34 @@ def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=
         card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
         card.paste(photo, (0, 0), mask)
         card.alpha_composite(rim)
+        if label:
+            _label_card(card, label, cw, ch)
         unit.alpha_composite(card, (pad, pad))
-        fade = _rise_out()
-        q = _ease(max(0.0, (t - (dur - fade)) / fade))               # 0 -> 1 on the way out
-        if enter == "fade":
-            s_in, a_in = 0.94 + 0.06 * _ease(t / 0.3), _ease(t / 0.3)      # no travel: it just appears, settling a little
+        if prem:
+            q = _ease(max(0.0, (t - (dur - CARD_OUT)) / CARD_OUT))    # 0 -> 1 on the way out
+            s = 1.0 - CARD_OUT_SHRINK * q
+            alpha = _ease(t / CARD_IN) * (1.0 - q)
         else:
-            s_in, a_in = 0.3 + 0.7 * _entry_ease(t / RISE_IN), min(1.0, t / 0.06)
-        s = s_in * _exit_scale(t, dur, fade, 0.07 * zk, 0.06 * zk, shrink=0.18)
-        alpha = a_in * (1.0 - q)
+            fade = _rise_out()
+            q = _ease(max(0.0, (t - (dur - fade)) / fade))               # 0 -> 1 on the way out
+            if enter == "fade":
+                s_in, a_in = 0.94 + 0.06 * _ease(t / 0.3), _ease(t / 0.3)      # no travel: it just appears, settling a little
+            else:
+                s_in, a_in = 0.3 + 0.7 * _entry_ease(t / RISE_IN), min(1.0, t / 0.06)
+            s = s_in * _exit_scale(t, dur, fade, 0.07 * zk, 0.06 * zk, shrink=0.18)
+            alpha = a_in * (1.0 - q)
         sw, sh = max(1, int(uw * s)), max(1, int(uh * s))
         frame = Image.new("RGBA", (cvw, cvh), (0, 0, 0, 0))
         frame.alpha_composite(unit.resize((sw, sh), Image.BILINEAR), ((cvw - sw) // 2, (cvh - sh) // 2))
         if alpha < 0.999:
             frame.putalpha(frame.getchannel("A").point(lambda v, a=alpha: int(v * a)))
         frame.save(os.path.join(folder, f"c{f:03d}.png"), compress_level=1)
+    if prem:
+        # No travel from the edge: it settles CARD_RISE_PX up while it fades in.
+        return os.path.join(folder, "c%03d.png"), (W - cvw) // 2, (y_end + CARD_RISE_PX, y_end, 0, cvh, CARD_IN)
     # small, just outside the edge nearest to where it lands: the bottom one, or the top one for a card placed
     # in the upper half
-    y_start = -ch * 0.3 / 2 if y_pct is not None and y_end < H / 2 else H + ch * 0.3 / 2
+    y_start = -ch * 0.3 / 2 if (y_pct is not None or position == "top") and y_end < H / 2 else H + ch * 0.3 / 2
     if enter == "fade":
         y_start = y_end                                # it does not travel
     # No drift once it has landed: overlay positions snap to even pixels, so a
@@ -1860,10 +1942,14 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     used_local = True
 
     def item_layout(m):
-        """Which family of picture this moment gets: hero / small card, or the profile's single layout."""
+        """Which family of picture this moment gets: hero / wide card, or the profile's single layout."""
         if mixed:
-            return "hero" if m.get("hero") else "rise"
+            return "hero" if m.get("hero") else "card"
         return "rise" if rise else "full"
+
+    card_size = int(cfg.get("card_size") or CARD_SIZE)
+    card_position = cfg.get("card_position") if cfg.get("card_position") in ("top", "above", "below") else "top"
+    dur_range = (CARD_DUR_MIN, CARD_DUR_MAX) if mixed else None
 
     def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None):
         """(path, "local", None) from ComfyUI; raises ComfyDown when it fails."""
@@ -1901,7 +1987,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                                                ground=ground,
                                                mode=cfg.get("mode") or "mixed",
                                                real_photos=bool(cfg.get("real_photos")), density=density,
-                                               hero=mixed)
+                                               hero=mixed, dur_range=dur_range)
                     planner = "claude"
                     if not moments:
                         print("   ℹ️ B-roll: Claude found no moment where an image would add meaning — none added.")
@@ -1915,7 +2001,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             try:
                 import ai_brain
                 ai_brain.say("Gemini — Claude unavailable", "B-roll: choosing the images")
-                moments = plan_with_gemini(clip, words, n, avoid, api_key, auto_style)
+                moments = plan_with_gemini(clip, words, n, avoid, api_key, auto_style, dur_range=dur_range)
                 planner = "gemini"
             except Exception as e:
                 print(f"   ⚠️ B-roll planning via Gemini failed ({e}) — local pick instead.")
@@ -2014,7 +2100,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     "idea": m.get("idea") or "", "role": m.get("role"), "query": m["query"], "prompt": m["prompt"],
                     "source": c["source"],
                     "style": c["style"] if c["source"] in ("local", "gemini") else "photo",
-                    "layout": "hero" if hero else ("full" if big else "rise"), "_img": c["file"]}
+                    "layout": "hero" if hero else ("full" if big else ("card" if mixed else "rise")), "_img": c["file"]}
             if mixed:
                 # The size the picture was made at: a manual redo asks for the same one.
                 item["gen"] = list(_gen_size(c["layout"], hero_res))
@@ -2028,11 +2114,19 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 item["score"] = c["score"]
             item["zoom"] = cfg.get("zoom") if cfg.get("zoom") in ZOOM_LEVELS else "soft"
             item["border"] = cfg.get("border") if cfg.get("border") in BORDERS else "soft"
+            if mixed and item["border"] == "soft":
+                item["border"] = "premium"             # the profile's default edge, in the premium drawing
             if not big and not hero:
                 item["enter"] = cfg.get("enter") if cfg.get("enter") in ENTER_MODES else "rise"
-                item.update(size=size_pct, position="above" if cfg.get("position") == "above" else "below")
-                if _free_y(cfg.get("y")) is not None:
-                    item["y"] = _free_y(cfg.get("y"))
+                if mixed:
+                    # Placed by card_position alone: the rise layout's "my height" (y) is not a card setting.
+                    item.update(look="premium", size=card_size, position=card_position)
+                    if cfg.get("label"):
+                        item["label"] = m.get("subject") or m.get("key") or m["anchor"]
+                else:
+                    item.update(size=size_pct, position="above" if cfg.get("position") == "above" else "below")
+                    if _free_y(cfg.get("y")) is not None:
+                        item["y"] = _free_y(cfg.get("y"))
             if keep_dir:
                 # Kept next to the clip: a later restyle re-cuts the same images.
                 name = f"{keep_prefix}broll_{c['k']}.jpg"
@@ -2103,7 +2197,7 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
             src = it.get("_img") or (os.path.join(img_dir, it["image"]) if img_dir and it.get("image") else None)
             if not src or not os.path.exists(src):
                 continue
-            rise = it.get("layout") == "rise"
+            rise = it.get("layout") in ("rise", "card")
             hero = it.get("layout") == "hero"
             try:
                 dur = float(it.get("dur") or (RISE_DUR if rise else SEG_DUR))
@@ -2118,7 +2212,8 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                                                   it.get("position") or "below", _free_y(it.get("y")),
                                                   it.get("enter") if it.get("enter") in ENTER_MODES else "rise",
                                                   it.get("zoom") if it.get("zoom") in ZOOM_LEVELS else "soft",
-                                                  it.get("border") if it.get("border") in BORDERS else "soft")
+                                                  it.get("border") if it.get("border") in BORDERS else "soft",
+                                                  look=it.get("look"), label=it.get("label"))
                 layers.append({"t": it["t"], "dur": dur, "rise": True, "pattern": pattern, "x": x, "y": motion})
             else:
                 pattern, x, y, _full = _card_frames(src, folder, fps, dur, w, h,
@@ -2143,11 +2238,12 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
             inputs += ["-itsoffset", f"{ly['t']:.3f}", "-framerate", str(fps), "-i", ly["pattern"]]
             win = f"between(t,{ly['t']:.3f},{ly['t'] + ly['dur']:.3f})"
             if ly["rise"]:
-                ys, ye, drift, cvh = ly["y"]
-                # Canvas centre: eases up from under the frame (cubic), then
-                # drifts up ``drift`` px while on screen (0: it stays put).
-                y = (f"'{ys:.1f}+({ye:.1f}-{ys:.1f})*(1-pow(1-clip((t-{ly['t']:.3f})/{RISE_IN},0,1),3))"
-                     f"-{drift}*clip((t-{ly['t']:.3f}-{RISE_IN})/{ly['dur'] - RISE_IN:.3f},0,1)-{cvh / 2:.1f}'")
+                ys, ye, drift, cvh = ly["y"][:4]
+                rise_s = ly["y"][4] if len(ly["y"]) > 4 else RISE_IN
+                # Canvas centre: eases up from under the frame (cubic; a premium card only rises a few px while
+                # it fades in), then drifts up ``drift`` px while on screen (0: it stays put).
+                y = (f"'{ys:.1f}+({ye:.1f}-{ys:.1f})*(1-pow(1-clip((t-{ly['t']:.3f})/{rise_s},0,1),3))"
+                     f"-{drift}*clip((t-{ly['t']:.3f}-{rise_s})/{ly['dur'] - rise_s:.3f},0,1)-{cvh / 2:.1f}'")
                 graph.append(f"{cur}[{k + 1}:v]overlay=x={ly['x']}:y={y}:eval=frame:eof_action=pass:"
                              f"enable='{win}'[b{k}]")
             else:
