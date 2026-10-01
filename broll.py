@@ -254,6 +254,7 @@ PLAN_SCHEMA = {
     "properties": {
         "thesis": {"type": "string"},
         "arc": {"type": "string"},
+        "visual_argument": {"type": "string"},
         "style_sheet": {"type": "object", "properties": {k: {"type": "string"} for k in
                         ("palette", "light", "era", "camera", "mood", "cast")}},
         "moments": {"type": "array", "items": {
@@ -326,6 +327,11 @@ CLICHE_RULE = ("NEVER THE AI CLICHÉ. These pictures are what every generator dr
 - THE INVISIBLE, PHOTOGRAPHED: a neuron, a cell, a molecule, a hormone is shown as a real micrograph or a lab
   photograph in real light (stained tissue under the microscope, a petri dish on the bench, a printed model on a
   desk), never as glowing lines on a dark void.""")
+# A picture that would do for any clip about the same noun is not the picture: the editor and the reviewer apply
+# the same test, the episode's world (its bible) and the sentence's specifics are where the right one comes from.
+SPECIFIC_RULE = ("SPECIFICITY TEST: if the same picture would do for any other clip about the same noun (a generic brain, "
+                 "a generic pill, a generic crowd), it is not the picture: take it from the world of THIS episode (its "
+                 "places, objects, people, era — the bible's WORLD when given) and the specifics of THIS sentence.")
 # The channel's latest pictures (recent_subjects): the editor is told what was just shown so a batch of clips does
 # not open on the same picture three times.
 RECENT_RULE = ("ALREADY SHOWN by the channel in its latest clips — find another picture of the idea, never one of these "
@@ -355,7 +361,10 @@ images. {frame}
 FIRST understand the clip inside its episode (the EPISODE BRIEF below: who talks, what the episode is about, the
 visual glossary, the real stories told). Then write:
 - "thesis": in one sentence, what the viewer must take away from THIS clip;
-- "arc": setup -> claim -> payoff of the clip, in a few words each.
+- "arc": setup -> claim -> payoff of the clip, in a few words each;
+- "visual_argument": the ONE thing a viewer must SEE to believe the thesis, in one sentence: a scene, an object at
+  its real scale, a gesture — the hero usually shows it. Then plan the set as a documentary sequence that builds
+  that argument (where we are, the case, the mechanism, the consequence): no two images make the same point.
 Also write "style_sheet": ONE visual direction for the whole set of images of this clip, so they look shot by the
 same person on the same day, in plain words a few words long each: "palette" (the 2-4 dominant colours), "light"
 (kind and direction of the light), "era" (the period the story is in, or "present day"), "camera" (lens, angle,
@@ -380,6 +389,7 @@ same way).
 {grounding}
 {set_rule}
 {cliche_rule}
+{specific_rule}
 {recent}Never: something already visible in the video (look at the frame sheets), a named real person,
 a brand (use a generic equivalent), an abstraction nobody can draw. Aim for {n} images; return fewer only when the clip
 truly has nothing concrete to show.
@@ -392,7 +402,8 @@ For each image give:
   water", not "two") is spoken, so choose words whose key word is the one that shows the thing;
 - "time": the second the anchor is spoken (from the markers);
 - "said": the sentence (about 8-15 words, verbatim) this image illustrates;
-- "idea": one short sentence — what the viewer should get from this image;
+- "idea": what this image PROVES or makes felt for the thesis, in one sentence a picture editor would write
+  ("the ordeal was real: a dented canteen was all they had"), never what it depicts;
 - "subject": the main thing seen, 1-3 words ("brain", "patient in bed", "implant") — two images never share it;
 - "shot": wide | medium | close | macro | schematic;
 - "notion": only when the image is simply THE usual picture of a notion of the brief's glossary (VISUAL GLOSSARY or
@@ -436,6 +447,9 @@ A picture that looks frightening, menacing or cold for a sympathetic subject (a 
 death) - a dark silhouette, glowing eyes, a faceless figure - scores 2 at most, even if it shows the idea.
 SOUND-OFF TEST: from the picture alone, would a viewer who then hears the quoted words link them within a second? If
 the link needs explaining, 3 at most.
+SPECIFICITY TEST: a picture that would do for any other clip about the same noun (a generic brain, a generic pill, a
+generic crowd) scores 3 at most; its better_prompt takes the thing from this episode's world and this sentence's
+specifics (the place, the object at its scale, the gesture, the era).
 WRONG FACTS: the wrong organ, tool, animal or place (lungs for a throat, a random building for a named landmark), or
 a key detail that contradicts what is said, scores 2 at most — however pretty.
 STOCK OR CLICHÉ: a picture that reads as AI stock on a science channel — """ + "; ".join(CLICHES) + """ — scores 3 at
@@ -887,7 +901,7 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
                   title=title or "-",
                   hook=clip.get("viral_hook_text") or "-", before=before or "-", after=after or "-",
                   brief=brief or "(no brief for this video)", bible=_bible_block(), text=_numbered_text(words)[:6000],
-                  grounding=GROUNDING_RULE, set_rule=SET_RULE, cliche_rule=CLICHE_RULE,
+                  grounding=GROUNDING_RULE, set_rule=SET_RULE, cliche_rule=CLICHE_RULE, specific_rule=SPECIFIC_RULE,
                   recent=(RECENT_RULE.format("; ".join(recent)) + "\n") if recent else "",
                   pace=pace_of[density]["pace"], names=pace_of[density]["names"],
                   gap=gap)
@@ -934,6 +948,9 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     thesis = str((data or {}).get("thesis") or "")[:300]
     if thesis:
         print(f"   💡 Clip thesis: {thesis}")
+    argument = re.sub(r"\s+", " ", str((data or {}).get("visual_argument") or "")).strip()[:300]
+    if argument:
+        print(f"   👁️ Visual argument: {argument}")
     cast = str(((data or {}).get("style_sheet") or {}).get("cast") or "")[:200]
     if cast:
         print(f"   🎭 Recurring subject: {cast}")
@@ -942,6 +959,7 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
         print(f"   🎞️ Sequence: {' -> '.join(subjects)}")
     for m in moments:
         m["thesis"] = thesis
+        m["argument"] = argument
     return moments
 
 
@@ -971,7 +989,7 @@ paint from, for EVERY picture of the set at once, so they look shot by one photo
 
 THE CHANNEL'S LOOK (every picture of every clip, it always wins): {house}
 {family}{bible}THIS CLIP'S STYLE SHEET (the editor's; keep what agrees with the channel's look): {sheet}
-THE CLIP: title "{title}"; thesis: {thesis}
+THE CLIP: title "{title}"; thesis: {thesis}{argument}
 {glossary}
 THE PICTURES, in the order they are seen:
 {moments}
@@ -1093,6 +1111,7 @@ def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, s
     sheet = next((m.get("sheet") for m in moments if m.get("sheet")), None)
     sheet_txt = "; ".join(f"{k}: {v}" for k, v in (sheet or {}).items()) or "none"
     thesis = next((m.get("thesis") for m in moments if m.get("thesis")), "") or "-"
+    argument = next((m.get("argument") for m in moments if m.get("argument")), "")
     lines = []
     for k, m in enumerate(moments):
         m_style = (m.get("style") or "photo") if auto_style else style
@@ -1116,6 +1135,8 @@ def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, s
     return ART_PROMPT.format(house=house or "cinematic documentary photograph", sheet=sheet_txt, cliche=CLICHE_RULE,
                              family=family_text(family), bible=_bible_block(),
                              title=clip.get("video_title_for_youtube_short") or "-", thesis=thesis,
+                             argument=(f"; the visual argument (what the viewer must SEE to believe it, the hero's job): "
+                                       f"{argument}") if argument else "",
                              glossary=_art_glossary(moments, clip_text), moments="\n".join(lines),
                              faces=FACE_TEXT.get(faces, FACE_TEXT["never"]))
 

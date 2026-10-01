@@ -593,6 +593,7 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
         exact = next((s for _n, s in cands if it.get("prompt") and s["text"].startswith(it["prompt"][:60])), None)
         it["sent"] = exact or (cands[0][1] if cands else None)
     thesis = next((m.get("thesis") for m in w.moments if m.get("thesis")), "")
+    argument = next((m.get("argument") for m in w.moments if m.get("argument")), "")
     sheet = next((m.get("sheet") for m in w.moments if m.get("sheet")), None)
     kept = {it["k"] for it in items if it.get("k") is not None}
     dropped = []
@@ -604,7 +605,7 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
                         "scores": [r.get("score") for r in rs], "problem": (rs[-1].get("problem") if rs else "") or ""})
     return {"job": os.path.basename(job_dir), "clip": n, "version": version, "overrides": over,
             "duration": round(end - start, 2), "title": clip.get("video_title_for_youtube_short") or "",
-            "hook": clip.get("viral_hook_text") or "", "thesis": thesis, "sheet": sheet,
+            "hook": clip.get("viral_hook_text") or "", "thesis": thesis, "argument": argument, "sheet": sheet,
             "sequence": [m.get("subject") for m in w.moments if m.get("subject")],
             "planner": (rep or {}).get("planner"), "moments": w.moments, "items": items, "reviews": w.reviews,
             "sent": w.sent, "dropped": dropped, "seconds": seconds, "usage": usage, "images_made": w.images,
@@ -669,6 +670,8 @@ def _board(res, out_path):
     head += block(f_b, f"TITLE  {res.get('title') or '-'}", _C_HEAD, BOARD_W - 2 * M)
     head += block(f_t, f"HOOK  {res.get('hook') or '-'}", _C_BODY, BOARD_W - 2 * M)
     head += block(f_t, f"THESIS  {res.get('thesis') or '-'}", _C_BODY, BOARD_W - 2 * M)
+    if res.get("argument"):
+        head += block(f_t, f"ARGUMENT  {res['argument']}", _C_LABEL, BOARD_W - 2 * M)
     if res.get("sheet"):
         head += block(f_t, "LOOK  " + "; ".join(f"{k}: {v}" for k, v in res["sheet"].items()), _C_BODY, BOARD_W - 2 * M)
     if res.get("sequence"):
