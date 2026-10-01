@@ -241,10 +241,13 @@ def insertion_points(words_rel, duration, punchline_time=None, max_n=None):
 
 
 def add_reactions(src, clip_path, clip_start, clip_end, transcript, out_path,
-                  punchline_time=None, log=print):
+                  punchline_time=None, log=print, avoid=()):
     """Insert reaction cutaways into ``clip_path`` (vertical render of
     [clip_start, clip_end] of ``src``). Returns the report, or None when the
-    source offers no usable reaction (nothing written then)."""
+    source offers no usable reaction (nothing written then). ``avoid``:
+    (from, to) source seconds no cutaway may be taken from — the seconds a
+    picture is composited on the feed (screen_inset), which every camera of
+    the programme shows and the clip's own cut has hidden."""
     words_abs = [{"text": (w.get("word") or "").strip(), "start": float(w["start"]), "end": float(w["end"])}
                  for sg in (transcript or {}).get("segments", []) for w in sg.get("words") or []]
     words_rel = [{"text": w["text"], "start": w["start"] - clip_start, "end": w["end"] - clip_start}
@@ -260,6 +263,12 @@ def add_reactions(src, clip_path, clip_start, clip_end, transcript, out_path,
         wider = find_reactions(src, clip_start, clip_end, words_abs, pad=150.0, log=log)
         if len(wider[0]) > len(cands):
             cands, (sw, sh), shots, ref = wider
+    if avoid:
+        before = len(cands)
+        cands = [c for c in cands
+                 if all(c["start"] + c["dur"] <= a or c["start"] >= b for a, b in avoid)]
+        if len(cands) < before:
+            log(f"   👀 Reactions: {before - len(cands)} moment(s) dropped — taken while a picture was on the feed.")
 
     def covering(t_abs):
         return next((s for s in shots if s["start"] <= t_abs < s["end"]), None)

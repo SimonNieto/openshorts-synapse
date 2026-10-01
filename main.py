@@ -3173,8 +3173,11 @@ if __name__ == '__main__':
                         try:
                             import reactions as _react
                             r_tmp = os.path.join(output_dir, f"reacttmp_{i + 1}_{int(time.time())}.mp4")
+                            inset = clip.get('screen_inset') or {}
                             rep = _react.add_reactions(input_video, clip_final_path, start, end, transcript, r_tmp,
-                                                       punchline_time=clip.get("punchline_time"))
+                                                       punchline_time=clip.get("punchline_time"),
+                                                       avoid=[(start + float(inset["t0"]), start + float(inset["t1"]))]
+                                                       if inset else ())
                             if rep:
                                 os.replace(r_tmp, clip_final_path)
                                 clip['reactions'] = rep
