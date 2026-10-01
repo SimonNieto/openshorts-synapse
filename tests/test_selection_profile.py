@@ -14,7 +14,7 @@ def _env(selection=None, **profile):
 
 NEW_VARS = ("CLIP_DEDUPE_OVERLAP", "CLIP_DEDUPE_SECONDS", "CLIP_TARGET_MIN_SECONDS",
             "CLIP_TARGET_MAX_SECONDS", "NICHE_TOPICS", "NICHE_WEIGHT", "NICHE_ONLY", "NICHE_CONTEXT",
-            "CLIP_COUNT_FLOOR", "HOOK_CHECK", "AUDIO_SIGNALS")
+            "CLIP_COUNT_FLOOR", "HOOK_CHECK", "AUDIO_SIGNALS", "TITLE_VARIETY")
 
 
 def test_a_profile_without_the_block_sets_nothing_new():
@@ -76,3 +76,5 @@ def test_min_clips_is_the_prompt_floor_only():
 def test_audio_signals_switch():
     assert _env({"audio_signals": True})["AUDIO_SIGNALS"] == "1"
     assert "AUDIO_SIGNALS" not in _env({"audio_signals": False})
+    assert _env({"title_variety": True})["TITLE_VARIETY"] == "1"
+    assert "TITLE_VARIETY" not in _env({"title_variety": False})

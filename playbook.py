@@ -209,8 +209,10 @@ def _first_word(title: str) -> str:
 
 
 def why_budget(n: int) -> int:
-    """'Why' titles allowed in a batch of n clips: 1 in 3 (so none under 3)."""
-    return n // 3
+    """'Why' titles allowed in a batch of n clips: 1 in 6 (so none under 6).
+    Was 1 in 3 until 1-oct-2026: "Why" is an open question, the closed ones
+    are what the channel's numbers favour."""
+    return n // 6
 
 
 def assign_why_slots(shorts) -> None:
@@ -228,7 +230,7 @@ def title_problems(title: str, why_slot: bool = False) -> list:
     out = []
     if first == "why":
         if not why_slot:
-            out.append("too many 'Why' titles (max 1 in 3)")
+            out.append("too many 'Why' titles (max 1 in 6)")
     elif first not in TITLE_OPENERS:
         out.append(f"starts with '{first or '?'}' (must be Can/Is/Does/Are/Do/Will/Should)")
     if not core.endswith("?"):
@@ -239,6 +241,154 @@ def title_problems(title: str, why_slot: bool = False) -> list:
     if len(core) > TITLE_MAX:
         out.append(f"{len(core)} characters (max {TITLE_MAX})")
     return out
+
+
+# --- the titles of one job, read as a set ----------------------------------------
+# JRE #2515 (1-oct-2026): "DMT" in 4 titles of 6, "really / truly / just /
+# ever" in 4 of 6. Each title passed title_problems; together they read like
+# one short posted four times. Plain word counts, no AI: a miss costs one
+# grouped retitle (main.retitle_repeats), never the clip.
+TITLE_INTENSIFIERS = frozenset("really actually truly just ever even literally seriously".split())
+TITLE_INTENSIFIER_MAX = 1
+
+
+def title_variety_enabled() -> bool:
+    """TITLE_VARIETY=1 (profile: selection.title_variety): the titles of a job
+    are checked as a set and the repeats get one rewrite by the model."""
+    return os.environ.get("TITLE_VARIETY") == "1"
+
+
+def title_keyword_max(n: int) -> int:
+    """How many titles of a batch of n one key word may carry: 2, or a third."""
+    return max(2, n // 3)
+
+
+def _title_keywords(title: str) -> set:
+    return {w for w in _sig_words(title) if w not in TITLE_OPENERS and w not in TITLE_INTENSIFIERS}
+
+
+def _title_intensifier(title: str):
+    return next((w for w in _hook_words(title) if w in TITLE_INTENSIFIERS), None)
+
+
+def title_set_problems(shorts) -> dict:
+    """{index: {"issues": [...], "avoid": [words]}} over the titles of one
+    job: a key word in more than title_keyword_max(n) titles (the extra,
+    lowest-scoring ones are the problem), an intensifier in more than
+    TITLE_INTENSIFIER_MAX titles. {} when the set reads fine."""
+    n = len(shorts)
+    titles = [(i, c.get("video_title_for_youtube_short") or "") for i, c in enumerate(shorts)]
+
+    def score(i):
+        try:
+            return float(shorts[i].get("predicted_score") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    out = {}
+
+    def flag(i, issue, word):
+        rec = out.setdefault(i, {"issues": [], "avoid": []})
+        rec["issues"].append(issue)
+        if word not in rec["avoid"]:
+            rec["avoid"].append(word)
+
+    by_word = {}
+    for i, t in titles:
+        for w in _title_keywords(t):
+            by_word.setdefault(w, []).append(i)
+    cap = title_keyword_max(n)
+    for w, idx in sorted(by_word.items()):
+        if len(idx) <= cap:
+            continue
+        keep = sorted(idx, key=score, reverse=True)[:cap]
+        for i in idx:
+            if i not in keep:
+                flag(i, f"'{w}' is already in {cap} other titles", w)
+    ints = [(i, _title_intensifier(t)) for i, t in titles]
+    ints = [(i, x) for i, x in ints if x]
+    if len(ints) > TITLE_INTENSIFIER_MAX:
+        keep = sorted((i for i, _ in ints), key=score, reverse=True)[:TITLE_INTENSIFIER_MAX]
+        for i, x in ints:
+            if i not in keep:
+                flag(i, f"'{x}' pads the question (one such title per job)", x)
+    return out
+
+
+RETITLE_PROMPT = """
+You fix the titles of short video clips cut from one episode. A title is ONE
+closed question in {language}, max 60 characters, ending with "?", starting
+with Can, Is, Does, Are, Do, Will or Should, that names the concrete thing of
+the clip and never contains its own answer. The clips of one episode are
+posted one after the other: read as a set, their titles must not look like
+the same short posted four times.
+
+For each clip below you get its current title, what is wrong with it, the
+words to leave out (`avoid`), its on-screen hook, the first sentences heard
+and the payoff it ends on. `other_titles` are the episode's titles that stay.
+Write ONE new title per clip:
+- it uses none of the `avoid` words (nor their plural or another form): take
+  another angle on the same moment — the consequence, the person, the
+  mechanism, the number, the risk — rather than naming the thing again;
+- no "really", "actually", "truly", "just", "ever": a plain question is stronger;
+- it is not one of `other_titles` and shares no angle with them;
+- it does not say the on-screen hook again;
+- no name of a person or a show; never an explicit word for suicide or
+  self-harm; a drug is shown from its risk or what it does, never as fun;
+- true to the clip: a question this clip answers or explores.
+
+CLIPS_JSON:
+{clips}
+
+Return only: {{"titles": [{{"id": <clip id>, "video_title_for_youtube_short": "<the question>"}}]}}
+"""
+
+RETITLE_SCHEMA = {
+    "type": "object",
+    "properties": {"titles": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"id": {"type": "integer"}, "video_title_for_youtube_short": {"type": "string"}},
+        "required": ["id", "video_title_for_youtube_short"]}}},
+    "required": ["titles"],
+}
+
+
+def retitle_prompt(items, other_titles, language: str = "en") -> str:
+    """``items``: [{"id", "title", "problems", "avoid", "hook", "opening", "payoff"}]."""
+    return RETITLE_PROMPT.format(language=language or "en",
+                                 clips=json.dumps({"other_titles": list(other_titles), "clips": items},
+                                                  ensure_ascii=False, indent=1))
+
+
+def apply_retitle(clip: dict, new_title: str, tokens, avoid, issues=None) -> bool:
+    """Take the rewritten title when it passes title_problems (its 'Why'
+    slot unchanged), carries no name and none of the ``avoid`` words; what
+    happened is kept in clip['title_check']. True when the title changed."""
+    old = (clip.get("video_title_for_youtube_short") or "").strip()
+    new = re.sub(r"\s+", " ", str(new_title or "")).strip()
+    record = {"retried": True, "before": old, "issues_before": list(issues or [])}
+    if not new or new == old:
+        clip["title_check"] = {**record, "kept": "no new title"}
+        return False
+    problems = title_problems(new, bool(clip.get("why_slot")))
+    if problems:
+        clip["title_check"] = {**record, "kept": f"the new title fails the format ({'; '.join(problems)})",
+                               "rejected": new}
+        return False
+    if names_in(new, tokens or ()):
+        clip["title_check"] = {**record, "kept": "a name in the new title", "rejected": new}
+        return False
+    bad = sorted(set(_hook_words(new)) | _sig_words(new)) if avoid else []
+    stems = {a.rstrip("s") for a in avoid or ()}
+    hit = next((w for w in bad if w in avoid or w.rstrip("s") in stems), None)
+    if hit:
+        clip["title_check"] = {**record, "kept": f"the new title still carries '{hit}'", "rejected": new}
+        return False
+    clip["video_title_for_youtube_short"] = new
+    check_title(clip, tokens or ())
+    check_format(clip)
+    clip["title_check"] = record
+    return True
 
 
 def check_format(clip: dict) -> bool:
@@ -618,6 +768,10 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "title_format_ok": bool(clip.get("title_format_ok")),
         "title_format_issues": clip.get("title_format_issues") or [],
         "on_screen_hook": clip.get("viral_hook_text") or "",
+        # The set check (title_set_problems): the title it replaced when the
+        # model was asked again, or why the repeat stayed (apply_retitle).
+        "title_before_retitle": (clip.get("title_check") or {}).get("before") or "",
+        "title_repeats": (clip.get("title_check") or {}).get("issues_before") or [],
         "hook_repeats_title": bool(clip.get("hook_repeats_title")),
         "hook_title_overlap": clip.get("hook_title_overlap", 0.0),
         # Understood without the title nor the sound (hook_problems); the hook

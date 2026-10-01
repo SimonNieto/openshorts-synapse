@@ -77,6 +77,10 @@ DEFAULT_PROFILE = {
         # text (loudness, liveliness, speech rate, reactions between the
         # words, pauses): audio_signals.py, no extra model, ~25 tokens a window.
         "audio_signals": False,
+        # Playbook: the titles of a job are read as a set (one key word in
+        # two titles at most, one "really / just / ever"), the repeats get one
+        # rewrite by the model (playbook.title_set_problems, main.retitle_repeats).
+        "title_variety": False,
     },
     # Which AI runs each step (ai_brain.STAGES): "gemini" or a Claude model.
     # "thinking" = Claude's effort on the two decision steps (clips, B-roll);
@@ -161,6 +165,7 @@ def _selection(raw):
         "min_clips": _int(min_clips, 1, 15, None) if min_clips not in (None, "", 0, "0") else None,
         "hook_check": _bool(raw.get("hook_check")),
         "audio_signals": _bool(raw.get("audio_signals")),
+        "title_variety": _bool(raw.get("title_variety")),
     }
 
 
@@ -434,4 +439,6 @@ def job_env(profile):
         env["HOOK_CHECK"] = "1"
     if sel["audio_signals"]:
         env["AUDIO_SIGNALS"] = "1"
+    if sel["title_variety"]:
+        env["TITLE_VARIETY"] = "1"
     return env

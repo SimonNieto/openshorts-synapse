@@ -25,7 +25,7 @@ for must in ("question", "NO NAMES", "suicide", "self-harm", "educational or pre
 assert "hook_line" in gw.PLAYBOOK_DETAIL_ADDENDUM and "topic_bucket" in gw.PLAYBOOK_DETAIL_ADDENDUM
 assert "WHAT TRAVELS" not in gw.PLAYBOOK_DETAIL_ADDENDUM, "the playbook must not carry V2's topic preferences"
 for must in ("MUST START WITH Can, Is, Does, Are, Do, Will or Should", "Can X make you Y?", "Is X actually Y?",
-             "Does X really Y?", "1 in 3", "FORBIDDEN", "NAME THE SUBJECT", "OWN ANSWER"):
+             "Does X really Y?", "1 in 6", "FORBIDDEN", "NAME THE SUBJECT", "OWN ANSWER"):
     assert must in t, must
 assert "`start` IS THE MOMENT `hook_line` BEGINS" in gw.PLAYBOOK_DETAIL_ADDENDUM
 assert "{max_secs}" in gw.PLAYBOOK_DETAIL_ADDENDUM, "main.py fills the max length in"
@@ -111,12 +111,17 @@ for title in ("Can a brain tumor make you a killer?", "Is kratom really as harml
 assert playbook.title_problems("Can he really do that?") and playbook.title_problems("Is this guy right?")
 assert playbook.title_problems("Is kratom safe") == ["not a question"]
 assert "characters" in playbook.title_problems("Can " + "a very long title " * 5 + "?")[0]
-# 'Why': 1 in 3 — first one of a 3-clip batch allowed, a second one flagged, none in a batch of 1 or 2
+# 'Why': 1 in 6 — first one of a 6-clip batch allowed, a second one flagged, none in a batch under 6
 batch = [{"video_title_for_youtube_short": t} for t in
-         ("Why do some people hear voices?", "Why does sleep matter?", "Can stress rewire you?")]
+         ("Why do some people hear voices?", "Why does sleep matter?", "Can stress rewire you?",
+          "Is sleep a drug?", "Does fear shrink the brain?", "Can a habit rewire you?")]
 playbook.assign_why_slots(batch)
-assert [playbook.check_format(c) for c in batch] == [True, False, True], batch
+assert [playbook.check_format(c) for c in batch] == [True, False, True, True, True, True], batch
 assert "too many 'Why'" in batch[1]["title_format_issues"][0]
+three = [{"video_title_for_youtube_short": t} for t in
+         ("Why do some people hear voices?", "Can stress rewire you?", "Is sleep a drug?")]
+playbook.assign_why_slots(three)
+assert playbook.check_format(three[0]) is False, "no 'Why' slot under 6 clips"
 solo = [{"video_title_for_youtube_short": "Why do some people hear voices?"}]
 playbook.assign_why_slots(solo)
 assert playbook.check_format(solo[0]) is False

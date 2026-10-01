@@ -214,8 +214,9 @@ SYNAPSE CUT PLAYBOOK — TITLE AND HOOK (strict, wins over any other title or ho
   "Can X make you Y?", "Is X actually Y?", "Does X really Y?"
   ("Can a brain tumor make you a killer?", "Does cannabis really cause
   psychosis?", "Is frustration a sign you should quit?").
-  "Why..." is allowed for at most 1 in 3 of the clips you return (none when you
-  return fewer than 3). "How..." and "What..." titles are FORBIDDEN.
+  "Why..." is allowed for at most 1 in 6 of the clips you return (none when you
+  return fewer than 6): it is an open question, the closed ones are what the
+  channel's numbers favour. "How..." and "What..." titles are FORBIDDEN.
 - NAME THE SUBJECT: the title says what the clip is about in plain words —
   never "this show", "one show", "this guy", "he", "they". "How did this show
   sell out Madison Square Garden twice?" is wrong; "Can a small comedy show
@@ -244,6 +245,24 @@ SYNAPSE CUT PLAYBOOK — TITLE AND HOOK (strict, wins over any other title or ho
   rules as the title. Title "Should men be afraid of testosterone therapy?" ->
   hook "Most doctors won't tell you this." (not "Should you be afraid of
   testosterone therapy?", which only repeats the title).
+"""
+
+# Clip Generator++ (profile: selection.title_variety -> TITLE_VARIETY=1, with
+# the playbook): JRE #2515 (1-oct-2026) came back with "DMT" in 4 titles of 6
+# and "really / truly / just / ever" in 4 of 6 — each title fine alone, the
+# set reading like one short posted four times. Said to the model here;
+# checked in code after the pass (playbook.title_set_problems).
+TITLE_VARIETY_ADDENDUM = """
+TITLES AS A SET (strict): the clips you return are posted one after the other
+on the same channel. Read together, their titles must not look like one short
+posted four times:
+- the same key word (a substance, an organ, a condition, a thing) carries at
+  most TWO titles; the other clips on that subject take another angle — the
+  consequence, the person, the mechanism, the number, the risk;
+- "really", "actually", "truly", "just", "ever" pad a question: at most ONE
+  title of the batch uses one of them, a plain question is stronger;
+- alternate the openers (Can / Is / Does / Are / Do / Will / Should) instead of
+  starting every title the same way.
 """
 
 # Clip Generator++ BETA "Synapse Cut playbook" — added to the SCORING prompt

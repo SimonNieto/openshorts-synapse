@@ -2189,6 +2189,68 @@ def retry_unclear_hooks(shorts, transcript, ask=None):
     return changed
 
 
+def _ask_retitle(prompt):
+    """The title rewrite: one text call on the profile's "detail" brain (the
+    one that wrote the titles), the other provider as the fallback."""
+    import ai_brain
+
+    def gemini():
+        return ai_brain.gemini_json([prompt])[0]
+
+    data, _who = ai_brain.think("rewriting the titles that repeat each other", prompt,
+                                playbook.RETITLE_SCHEMA, fallback=gemini, route_key="detail")
+    return data
+
+
+def retitle_repeats(shorts, transcript, tokens=(), ask=None):
+    """Synapse Cut playbook + TITLE_VARIETY=1: the titles that repeat each
+    other across the job (playbook.title_set_problems: one key word in too
+    many titles, "really / just / ever" in more than one) are sent back to
+    the model ONCE, all in one call, each with the words to leave out, its
+    hook, the first sentences of its clip and its payoff, plus the titles
+    that stay. A new title is taken only when it passes the format, has no
+    name and none of the words to avoid. Returns how many titles changed.
+    Never raises — a title problem must never cost the clip."""
+    problems = playbook.title_set_problems(shorts)
+    if not problems:
+        print(f"   🏷️ Titles: no repeat across the {len(shorts)} title(s).")
+        return 0
+    for i, rec in problems.items():
+        print(f"   ⚠️ Playbook: the title of the clip at {float(shorts[i].get('start', 0)):.0f}s repeats the "
+              f"others ({'; '.join(rec['issues'])}): {shorts[i].get('video_title_for_youtube_short')}")
+    others = [c.get("video_title_for_youtube_short") or "" for i, c in enumerate(shorts) if i not in problems]
+    items = [{"id": i, "title": shorts[i].get("video_title_for_youtube_short") or "",
+              "problems": rec["issues"], "avoid": rec["avoid"],
+              "hook": shorts[i].get("viral_hook_text") or "",
+              "opening": playbook.opening_sentences(shorts[i], transcript),
+              "payoff": str(shorts[i].get("punchline") or "").strip()} for i, rec in problems.items()]
+    language = str((transcript or {}).get("language") or "en")
+    try:
+        answer = (ask or _ask_retitle)(playbook.retitle_prompt(items, others, language)) or {}
+        new = {}
+        for t in answer.get("titles") or []:
+            try:
+                new[int(t.get("id"))] = t.get("video_title_for_youtube_short")
+            except (AttributeError, TypeError, ValueError):
+                continue
+    except Exception as e:
+        print(f"   ⚠️ Titles: the rewrite failed ({type(e).__name__}: {str(e)[:160]}) — "
+              f"keeping the {len(problems)} title(s) as they are.")
+        return 0
+    changed = 0
+    for i, rec in problems.items():
+        c = shorts[i]
+        old = c.get("video_title_for_youtube_short")
+        if playbook.apply_retitle(c, new.get(i), tokens, rec["avoid"], rec["issues"]):
+            changed += 1
+            print(f"   🏷️ Title rewritten ({'; '.join(rec['issues'])}): \"{old}\" -> "
+                  f"\"{c['video_title_for_youtube_short']}\"")
+        else:
+            print(f"   🏷️ Title kept, {c['title_check'].get('kept')} ({'; '.join(rec['issues'])}): \"{old}\"")
+    print(f"   🏷️ Titles: {changed}/{len(problems)} repeated title(s) rewritten.")
+    return changed
+
+
 def playbook_niche_rules(detail=False):
     """Synapse Cut playbook + a niche (NICHE_TOPICS): what the channel IS
     about, for the scoring prompt or (``detail``) the clip-choice prompt.
@@ -2217,6 +2279,7 @@ def playbook_detail_rules(max_secs):
     if not playbook.enabled():
         return ""
     return (gemini_worker.QUESTION_TITLE_ADDENDUM
+            + (gemini_worker.TITLE_VARIETY_ADDENDUM if playbook.title_variety_enabled() else "")
             + gemini_worker.PLAYBOOK_DETAIL_ADDENDUM.replace("{max_secs}", f"{max_secs:g}")
             + gemini_worker.SAFETY_TOPICS_ADDENDUM
             + playbook_niche_rules(detail=True))
@@ -2928,6 +2991,8 @@ if __name__ == '__main__':
                 show = (os.environ.get("PLAYBOOK_SHOW") or "").strip()
                 playbook_tokens = playbook.prepare(clips_data['shorts'], clips_data['source_video'],
                                                    episode_brief, show)
+                if playbook.title_variety_enabled():
+                    retitle_repeats(clips_data['shorts'], transcript, playbook_tokens)
                 if playbook.hook_check_enabled():
                     retry_unclear_hooks(clips_data['shorts'], transcript)
                 clips_data['playbook'] = {
