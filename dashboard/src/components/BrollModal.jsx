@@ -123,6 +123,8 @@ export default function BrollModal({ isOpen, onClose, jobId, index, clip, profil
                         <div className="grow min-w-0 space-y-1.5">
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                                 <span className="text-ink font-medium">“{it.anchor}”</span>
+                                {it.layout === 'hero' && <span className="readout px-1.5 py-0.5 rounded bg-brass/15 text-brass">full screen</span>}
+                                {it.layout === 'card' && <span className="readout px-1.5 py-0.5 rounded bg-paper3 text-ink2">wide card</span>}
                                 <label className="text-muted inline-flex items-center gap-1">
                                     at
                                     <input type="number" step="0.1" min="0" value={it.t}

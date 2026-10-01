@@ -1102,6 +1102,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     {stylePicker && (
                         <div className="col-span-2 flex flex-wrap items-center gap-2 p-2 rounded-input border border-rule bg-paper">
                             <button type="button" onClick={() => handleViralStyle('natural')} className="btn-quiet px-3 py-1.5 text-xs" title="2-3 plain white words, calm reframes at sentence ends — like the big podcast channels">natural</button>
+                            <button type="button" onClick={() => handleViralStyle('premium')} className="btn-quiet px-3 py-1.5 text-xs" title="The natural look set in Montserrat ExtraBold">premium</button>
                             <button type="button" onClick={() => handleViralStyle('punchy')} className="btn-quiet px-3 py-1.5 text-xs" title="1-2 big glowing words, colour key words, zooms + shake, warm grade">punchy</button>
                             <button type="button" onClick={() => handleViralStyle('clean')} className="btn-quiet px-3 py-1.5 text-xs" title="2-4 words, one coloured key word, softer zooms, dips to black">clean</button>
                             <span className="text-[11px] text-muted">replaces this clip's captions</span>

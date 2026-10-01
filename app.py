@@ -6698,15 +6698,20 @@ async def plus_broll_test(req: BrollTestRequest, request: Request):
 
 @app.get("/api/plus/broll/geometry")
 async def plus_broll_geometry(edit_style: str = "natural", watermark: int = 0, position: str = "below", size: int = 28,
-                              y: Optional[float] = None):
+                              y: Optional[float] = None, aspect: float = 1.0):
     """The real width of a small B-roll card for this edit style / position (the
     profile editor shows it next to "size": the free band next to the captions
-    can be narrower than the wanted size)."""
+    can be narrower than the wanted size). ``aspect``: height / width of the
+    picture (1 for the square cards, 0.625 for the wide cards of the mixed layout)."""
     if BILLING_ENABLED:
         raise HTTPException(status_code=404, detail="Not found")
     import broll as _broll
-    return _broll.rise_geometry(edit_style, bool(watermark), "above" if position == "above" else "below", size,
-                                y_pct=_broll._free_y(y))
+    try:
+        aspect = max(0.5, min(2.0, float(aspect)))
+    except (TypeError, ValueError):
+        aspect = 1.0
+    return _broll.rise_geometry(edit_style, bool(watermark), position if position in ("above", "top") else "below", size,
+                                aspect=aspect, y_pct=_broll._free_y(y))
 
 
 _PREVIEW_JOB = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
