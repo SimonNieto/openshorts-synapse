@@ -212,8 +212,9 @@ STYLE_RULE_PREMIUM = """
                 plants, food, animals, tools, events, a scene with action;
   "cinematic" - the same when the moment is dramatic, dark or tense (a night scene, a danger, a fight) - never for
                 a patient, an illness, a disability or a death (use "photo" there);
-  "neon"      - ONLY the microscopic or the invisible: neurons, receptors, molecules, hormones, DNA, cells, brain
-                activity.
+  "neon"      - ONLY the microscopic or the invisible (neurons, receptors, molecules, hormones, DNA, cells, brain
+                activity), and then as a real micrograph or lab photograph in real light on a dark background —
+                never glowing neon lines.
   Nothing else (no drawing, no comic, no diagram, no 3D render, no vintage): the images of a clip are one series
   shot with one camera."""
 PREMIUM_STYLES = ("photo", "cinematic", "neon")
@@ -272,6 +273,33 @@ SET_RULE = """THE SET TELLS THE STORY. The images are seen one after the other: 
   identifiable person) and copy that description word for word into every image_prompt where it appears, so the viewer
   recognises the same person from one image to the next. Leave "cast" empty when nobody recurs."""
 
+
+# What makes a B-roll read as cheap AI stock on a science channel: the pictures
+# every generator draws first. The editor and the art director are told never
+# to ask for them (Claude reads a ban fine; the image model only ever gets
+# positive prompts), the reviewer marks them down, and the brief's glossary is
+# asked for real things instead.
+CLICHES = ("a glowing brain, a brain floating in space or in blue light", "neurons or synapses drawn as neon lines",
+           "a light bulb for an idea", "a handshake", "pills or capsules on a plain white background",
+           "a dark silhouette with glowing eyes", "a holographic screen, a floating interface or a HUD",
+           "a head with gears, puzzle pieces, a maze or a chess board for the mind",
+           "people grinning at the camera like a stock photo", "a DNA helix glowing on black")
+CLICHE_RULE = ("NEVER THE AI CLICHÉ. These pictures are what every generator draws first and what marks a cheap channel; "
+               "none of them, whatever the words: " + "; ".join(CLICHES) + """.
+- A DETAIL THAT TELLS instead: every picture holds one specific, real-world thing at its true scale, as a documentary
+  photographer would find it — the pill bottle on a kitchen counter at 7 am, the patient's hand on the bed rail, the
+  stained slice of tissue on a microscope slide, the worn stairs of the named building, a gesture, a texture in macro.
+- THE CASE BEFORE THE NOTION: when the speaker tells a case, an example, a place or a person, show THAT in its real
+  setting. Show the notion itself only when nothing concrete was said, and then as a real object, instrument or place
+  that embodies it (a lab bench, a scan on a lightbox, an archive print), never as a symbol.
+- THE INVISIBLE, PHOTOGRAPHED: a neuron, a cell, a molecule, a hormone is shown as a real micrograph or a lab
+  photograph in real light (stained tissue under the microscope, a petri dish on the bench, a printed model on a
+  desk), never as glowing lines on a dark void.""")
+# The channel's latest pictures (recent_subjects): the editor is told what was just shown so a batch of clips does
+# not open on the same picture three times.
+RECENT_RULE = ("ALREADY SHOWN by the channel in its latest clips — find another picture of the idea, never one of these "
+               "again: {}.")
+
 CLAUDE_SYSTEM ="You are a meticulous short-form video editor. You answer only with the requested JSON."
 CLAUDE_SYSTEM_VISION = ("You are a meticulous short-form video editor. The images are attached to the request, in "
                         "order, each right after its file name. Answer only with the requested JSON.")
@@ -319,7 +347,8 @@ same way).
 {mode_rule}
 {grounding}
 {set_rule}
-Never: something already visible in the video (look at the frame sheets), a named real person,
+{cliche_rule}
+{recent}Never: something already visible in the video (look at the frame sheets), a named real person,
 a brand (use a generic equivalent), an abstraction nobody can draw. Aim for {n} images; return fewer only when the clip
 truly has nothing concrete to show.
 
@@ -372,6 +401,8 @@ SOUND-OFF TEST: from the picture alone, would a viewer who then hears the quoted
 the link needs explaining, 3 at most.
 WRONG FACTS: the wrong organ, tool, animal or place (lungs for a throat, a random building for a named landmark), or
 a key detail that contradicts what is said, scores 2 at most — however pretty.
+STOCK OR CLICHÉ: a picture that reads as AI stock on a science channel — """ + "; ".join(CLICHES) + """ — scores 3 at
+most, and its better_prompt shows the concrete case or the thing at its real scale instead.
 THE SET: the images are seen in a row. Compare them with each other: when one looks like an earlier one (same main
 subject, same framing, same look), the later one scores 3 at most and its better_prompt shows another side of the
 idea (the person, the object, the effect, another scale).
@@ -776,13 +807,16 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     clip_text = " ".join(w["text"] for w in words)
     brief = ai_brain.brief_for_clip(ai_brain.EPISODE_BRIEF, f"{before} {clip_text} {after}", start,
                                     end if end is not None else start + duration)
+    recent = recent_subjects()
     common = dict(n=n, avoid=avoid_txt, sheets=", ".join(os.path.basename(p) for p in sheets or []) or "none",
                   style_rule=((STYLE_RULE_PREMIUM if hero else STYLE_RULE) if auto_style else ""),
                   mode_rule=MODE_RULES.get(mode, MODE_RULES["mixed"]),
                   title=title or "-",
                   hook=clip.get("viral_hook_text") or "-", before=before or "-", after=after or "-",
                   brief=brief or "(no brief for this video)", text=_numbered_text(words)[:6000],
-                  grounding=GROUNDING_RULE, set_rule=SET_RULE, pace=DENSITY[density]["pace"], names=DENSITY[density]["names"],
+                  grounding=GROUNDING_RULE, set_rule=SET_RULE, cliche_rule=CLICHE_RULE,
+                  recent=(RECENT_RULE.format("; ".join(recent)) + "\n") if recent else "",
+                  pace=DENSITY[density]["pace"], names=DENSITY[density]["names"],
                   gap=gap)
     prompt = CLAUDE_PLAN_PROMPT.format(lo=head, hi=duration - TAIL_FREE - SEG_DUR, **common)
     schema, attach, shots_dir = PLAN_SCHEMA, list(sheets or []), None
@@ -881,6 +915,9 @@ RULES
   when it fights the channel's look, the channel's look wins (a microscopic subject becomes a macro photograph in
   real light, never a glowing illustration).
 - Keep every fact the editor gives, the glossary's way of drawing a notion, and the subject of each picture.
+- {cliche}
+  When the editor's draft or a glossary line is one of these clichés, keep its subject and shoot it as a real
+  thing at its true scale in a real place.
 - Nothing written anywhere in the scene (signs, screens, pages and labels show plain surfaces). Nobody real and
   recognisable.
 
@@ -936,7 +973,7 @@ def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, s
             lines.append(f"  idea: {m['idea']}")
         lines.append(f"  the editor's draft: {m.get('prompt') or '-'}")
         lines.append(f"  style note: {STYLES.get(m_style, STYLES['photo'])}")
-    return ART_PROMPT.format(house=house or "cinematic documentary photograph", sheet=sheet_txt,
+    return ART_PROMPT.format(house=house or "cinematic documentary photograph", sheet=sheet_txt, cliche=CLICHE_RULE,
                              title=clip.get("video_title_for_youtube_short") or "-", thesis=thesis,
                              glossary=_art_glossary(moments, clip_text), moments="\n".join(lines))
 
@@ -1133,7 +1170,8 @@ _BIG_RE = re.compile(r"\b(\d{2,}|dozens|hundreds|thousands|millions?|hundred|tho
 _TEXT_RE = re.compile(r"\b(screens?|monitors?|phones?|smartphones?|laptops?|computers?|tablets?|tv|television|books?|"
                       r"newspapers?|papers?|letters?|signs?|signage|posters?|banners?|labels?|charts?|graphs?|"
                       r"documents?|pages?|tweets?|headlines?|whiteboards?|blackboards?|menus?|tickets?|passports?|"
-                      r"license|dashboards?|spreadsheets?|prescriptions?|notes?|notebooks?)\b", re.I)
+                      r"license|dashboards?|spreadsheets?|prescriptions?|notes?|notebooks?|chalkboards?|equations?|"
+                      r"formulas?)\b", re.I)
 _HANDS_RE = re.compile(r"\b(hands?|fingers?|palms?|thumbs?|fists?|typing|writing|scrubbing|gripping|clutching)\b", re.I)
 _CROWD_RE = re.compile(r"\b(crowd|crowds|people|soldiers|audience|students|athletes|team|teams|group of|patients|"
                        r"surgeons|protesters|workers|children|kids|troops|marching|army)\b", re.I)
@@ -1201,6 +1239,53 @@ def _keep_meaningful(cands):
 
 
 NOTION_MIN_SCORE = 5   # kept and shown in EVERY later clip: only a picture the judge rates perfect
+
+# The subjects of the channel's latest pictures, kept across jobs next to the notion memory: the editor is told
+# them so a batch does not open on the same picture three times. Off with the notion memory (BROLL_NOTION_MEMORY=0).
+RECENT_MAX = 40        # subjects kept
+RECENT_SHOWN = 24      # the latest ones the editor is told
+_RECENT_LOCK = __import__("threading").Lock()
+
+
+def _recent_path():
+    return os.path.join(NOTION_DIR, "_recent.json")
+
+
+def recent_subjects(n=RECENT_SHOWN):
+    """The subjects of the channel's latest B-roll pictures, oldest first, or []."""
+    if os.environ.get("BROLL_NOTION_MEMORY", "1") == "0":
+        return []
+    try:
+        with open(_recent_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return [str(e.get("subject")) for e in data if isinstance(e, dict) and e.get("subject")][-n:]
+    except (OSError, ValueError):
+        return []
+
+
+def remember_subjects(items):
+    """Keep the subjects of the pictures just made for a clip (RECENT_MAX at most, across jobs). Never raises."""
+    if os.environ.get("BROLL_NOTION_MEMORY", "1") == "0":
+        return 0
+    subs = [re.sub(r"\s+", " ", str(it.get("subject") or "")).strip()[:40] for it in items
+            if it.get("subject") and it.get("source") != "screen"]
+    if not subs:
+        return 0
+    with _RECENT_LOCK:
+        try:
+            try:
+                with open(_recent_path(), encoding="utf-8") as f:
+                    data = [e for e in json.load(f) if isinstance(e, dict)]
+            except (OSError, ValueError):
+                data = []
+            when = time.strftime("%Y-%m-%d %H:%M")
+            data = (data + [{"subject": s, "at": when} for s in subs])[-RECENT_MAX:]
+            os.makedirs(NOTION_DIR, exist_ok=True)
+            with open(_recent_path(), "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=0)
+        except OSError:
+            return 0
+    return len(subs)
 
 
 # One kept picture per shape: the small square card, the tall full-frame image,
@@ -2263,7 +2348,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             elif big:
                 dur = round(max(FULL_DUR_MIN, min(FULL_DUR_MAX, dur)), 2)
             item = {"t": round(m["t"], 2), "dur": dur, "anchor": m["anchor"],
-                    "idea": m.get("idea") or "", "role": m.get("role"), "query": m["query"], "prompt": m["prompt"],
+                    "idea": m.get("idea") or "", "role": m.get("role"), "subject": m.get("subject") or "",
+                    "query": m["query"], "prompt": m["prompt"],
                     "source": c["source"],
                     "style": c["style"] if c["source"] in ("local", "gemini") else "photo",
                     "layout": "hero" if hero else ("full" if big else ("card" if mixed else "rise")), "_img": c["file"]}
@@ -2326,6 +2412,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 a["dur"] = round(max(1.0, min(a["dur"], b["t"] - a["t"] - 0.25)), 2)
         if not manual:
             overlay_items(clip_path, out_path, items)
+        remember_subjects(items)
         for it in items:
             it.pop("_img", None)
         duration = words[-1]["end"]

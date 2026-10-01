@@ -436,7 +436,9 @@ write the brief they will use to cut clips and to choose the images that illustr
 - "glossary": the 5-20 key notions a viewer must picture to follow (a brain network, a drug, a device, a
   technique, a place...). For each: "term" (as said in the transcript), "meaning" (one plain sentence) and
   "visual" (ONE concrete picture that shows it at a glance on a phone, always the same way — this is how the
-  channel will draw it every time);
+  channel will draw it every time: a real object, instrument, place or gesture at its true scale, as a
+  documentary photographer would shoot it — never a symbol: no glowing brain, no neon neurons, no light bulb,
+  no floating interface, no pills on white);
 - "stories": the concrete stories and examples told (an event, a case, an experiment, an anecdote): a
   one-line "summary", the "details" that make it specific (place, year, people or kind of people, study,
   numbers — only what is SAID), and "quote": 8-20 words copied EXACTLY from the transcript where it is told;
