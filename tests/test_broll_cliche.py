@@ -64,10 +64,11 @@ class TestTheRules:
             assert c in text
 
     def test_the_reviewer_marks_a_cliché_down(self):
+        # Since the audit of the prohibitions (1-oct-2026 evening) the reviewer rates the rendering, it does not
+        # re-apply the editor's cliché list: a stock feel costs look points, not a veto.
         text = broll.REVIEW_PROMPT.format(frame=broll._review_frame([{"layout": "card"}]), items="- x")
-        assert "STOCK OR CLICHÉ" in text and "scores 3 at" in text
-        for c in broll.CLICHES:
-            assert c in text
+        assert "no stock-photo feel" in text and "STOCK OR CLICHÉ" not in text and "at most" not in text.split("STEP 3")[0]
+        assert not any(c in text for c in broll.CLICHES)
 
     def test_the_brief_asks_for_real_things(self):
         assert "never a symbol" in ai_brain.BRIEF_RULES and "no glowing brain" in ai_brain.BRIEF_RULES

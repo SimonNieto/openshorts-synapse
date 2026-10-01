@@ -177,5 +177,5 @@ class TestTheReviewer:
     def test_the_review_prompt_judges_a_register_on_its_own_terms(self):
         text = broll.REVIEW_PROMPT.format(frame=broll._review_frame([{"layout": "hero"}]), items="- x")
         assert "A picture marked REGISTER below is not a photograph" in text and "never on a real light source" in text
-        assert "STOCK OR CLICHÉ (photo pictures; a REGISTER picture is judged on its own cheap line instead)" in text
-        assert 'that line is what its score and look are rated against first' in text
+        assert "its cheap line is its only stock test" in text
+        assert "rate the sense against it first" in text

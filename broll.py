@@ -535,55 +535,46 @@ REVIEW_FRAME = {
 REVIEW_PROMPT = """{frame}
 while the speaker says the quoted words.
 
-STEP 1 - LOOK FIRST. For every image, before you consider what it was meant to show, write "seen": one plain sentence
+STEP 1 - LOOK FIRST. For every image, before you read what it was meant to show, write "seen": one plain sentence
 of what is really in it - the main subject, HOW MANY of it (count them), the setting, the era or look, any lettering,
 symbol or logo (say if letters are garbled), anything odd (extra fingers, a distorted face). Describe only the pixels.
 
-STEP 2 - THEN JUDGE. Only now read what each image was meant to show and compare it with what you wrote in "seen" (listed in the order they appear on screen):
+STEP 2 - THE SENSE AND THE FACTS, from what you wrote in "seen". The images, in the order they appear on screen:
 {items}
-Judge strictly: does it show the IDEA at a glance at that size? Is it free of text or garbled letters, of deformed
-hands or faces, of anything off-topic or confusing? Fit to the context counts as much as clarity: the image must show
-what the sentence SAYS about the thing (the number, the place, the era, the action, the mood), not only the noun. A
-generic picture of the noun that ignores what was said, or a number / era that does not match, scores 3 at most.
-A picture that looks frightening, menacing or cold for a sympathetic subject (a patient, an illness, a disability, a
-death) - a dark silhouette, glowing eyes, a faceless figure - scores 2 at most, even if it shows the idea.
-SOUND-OFF TEST: from the picture alone, would a viewer who then hears the quoted words link them within a second? If
-the link needs explaining, 3 at most.
-SPECIFICITY TEST: a picture that would do for any other clip about the same noun (a generic brain, a generic pill, a
-generic crowd) scores 3 at most; its better_prompt takes the thing from this episode's world and this sentence's
-specifics (the place, the object at its scale, the gesture, the era).
-WRONG FACTS: the wrong organ, tool, animal or place (lungs for a throat, a random building for a named landmark), or
-a key detail that contradicts what is said, scores 2 at most — however pretty. Judge them against the quoted words
-and the EPISODE FACTS when given, never against your own idea of what is plausible: a surprising scene the speaker
-tells (a cage on a famous lawn) is a true scene, and the picture that shows it is right.
-STOCK OR CLICHÉ (photo pictures; a REGISTER picture is judged on its own cheap line instead): a picture that reads as
-AI stock on a science channel — """ + "; ".join(CLICHES) + """ — scores 3 at
-most, and its better_prompt shows the concrete case or the thing at its real scale instead.
-THE SET: the images are seen in a row. Compare them with each other: when one looks like an earlier one (same main
-subject, same framing, same look), the later one scores 3 at most and its better_prompt shows another side of the
-idea (the person, the object, the effect, another scale).
-STEP 3 - THE LOOK. For each image, "look" 1-5, as a photo editor rates a still for a documentary channel: the
-light (a real source with a direction and a quality, not flat, not a glow), the composition (one subject, air
-around it, readable at the size it is shown), the coherence of palette and light with the other images of the
-set, the artefacts (hands, faces, lettering, melted objects), the stock or AI-cliché feel, the legibility at its
-size. 5 = a still a magazine would print, 4 = good, 3 = correct but flat, 2 or 1 = artefacts, stock or unreadable.
-A face, when one shows, must be natural and in focus with normal eyes, teeth and hands;
-a deformed, waxy or doubled face scores look 2 at most.
-A picture marked REGISTER below is not a photograph: rate its look on its "judge it on" line, on its fidelity to the
-register it names and on its force, never on a real light source; its cheap line replaces the stock test. When a
-picture carries a "judge it on" line, that line is what its score and look are rated against first.
-For each image, by "file": "seen", "score" 1-5 (5 = instantly clear and on point, 4 = good, 3 = acceptable, 2 or 1 =
-weak, wrong or confusing), "look" 1-5, "problem" (a few words, empty if none) and "better_prompt": an English image
-prompt that would fix it (one clear scene, one main subject, no text) - empty when the score is 4 or 5 AND the
-look is 4 or 5. When the image's own prompt is given below as ART-DIRECTED, write better_prompt in that same
-grammar, 80 to 120 words, in this order: subject and action, setting, composition for its frame, lens and point
-of view, light (source, direction, quality), palette and grade, material and detail, mood - keep what worked,
-change what failed, state only what IS in the frame."""
+"score" (THE SENSE, 1-5): does the picture show what the quoted words say - the thing named, with the specifics the
+speaker gives (the number, the place, the era, the action, the mood)? SOUND-OFF TEST: a viewer who sees ONLY the
+picture, then hears the words, links them within a second. 5 = instantly and exactly that; 4 = yes; 3 = the noun but
+not what was said about it, or a link that needs explaining; 2 or 1 = another thing, or nothing to do with the words.
+When a picture carries a "judge it on" line, that line says what must be seen: rate the sense against it first.
+"facts_ok" (true / false): false when the picture states a false fact - the wrong organ, tool, animal or place, a
+number or an era that contradicts the words or the EPISODE FACTS given below. Judge facts against the quoted words and
+the EPISODE FACTS, never against your own idea of what is plausible: a surprising scene the speaker tells (a cage on
+a famous lawn) is a true scene, and the picture that shows it is right.
+THE SET: the pictures are seen in a row. When two DIFFERENT moments show the same subject in the same framing, the
+later one's sense drops a point and its better_prompt shows another side of the idea. Takes of ONE moment (marked
+"take") are not a set: compare them with each other, score each apart, and say in "problem" which take is the better.
+
+STEP 3 - THE LOOK (THE RENDERING, 1-5): is the picture well made for its frame and its kind? For a photograph: a
+real light with a direction and a quality, one subject with air around it, readable at the size it is shown, the
+artefacts (hands, faces, lettering, melted objects), no stock-photo feel, a mood that fits its subject (a patient,
+an illness, a death is shown with dignity, never as a menace). A picture marked REGISTER below is not a photograph:
+rate its look on its "judge it on" line, on its fidelity to the register it names and on its force, never on a real
+light source; its cheap line is its only stock test. 5 = a still a magazine would print, 4 = good, 3 = correct but
+flat, 2 or 1 = artefacts, stock or unreadable. A face, when one shows, must be natural and in focus with normal eyes,
+teeth and hands; a deformed, waxy or doubled face scores look 2 at most.
+
+For each image, by "file": "seen", "score" 1-5, "facts_ok" true / false, "look" 1-5, "problem" (a few words, empty
+if none) and "better_prompt": an English image prompt that would fix it (one clear scene, one main subject, no text)
+- empty when the score and the look are both 4 or 5 and facts_ok is true. When the image's own prompt is given below
+as ART-DIRECTED, write better_prompt in that same grammar, 80 to 120 words, in this order: subject and action,
+setting, composition for its frame, lens and point of view, light (source, direction, quality), palette and grade,
+material and detail, mood - keep what worked, change what failed, state only what IS in the frame."""
 REVIEW_SCHEMA = {
     "type": "object",
     "properties": {"reviews": {"type": "array", "items": {
         "type": "object",
         "properties": {"file": {"type": "string"}, "seen": {"type": "string"}, "score": {"type": "integer"},
+                       "facts_ok": {"type": "boolean"},
                        "look": {"type": "integer"}, "problem": {"type": "string"}, "better_prompt": {"type": "string"}},
         "required": ["file", "seen", "score", "look"]}}},
     "required": ["reviews"],
@@ -1460,9 +1451,7 @@ def review_with_claude(cands, words, model=None, size=512):
     lines = _review_lines(cands, words)
     prompt = REVIEW_PROMPT.format(frame=_review_frame(cands), items="\n".join(lines))
     if thesis:
-        # Judged against the point of the clip, not only the word under it.
-        prompt += (f"\nTHE CLIP'S POINT: {thesis}\nAn image that shows the word but does not help the viewer "
-                   f"get that point scores 3 at most.")
+        prompt += f"\nTHE CLIP'S POINT: {thesis} (context: say in \"problem\" when a picture works against it)."
     prompt += _review_facts(cands)
     prompt += _hero_test(cands)
     # Judged at 512 px (same names): the card is ~300 px wide on screen, and a
@@ -1527,11 +1516,10 @@ def review_with_gemini(cands, words):
     thesis = next((c["m"].get("thesis") for c in cands if c["m"].get("thesis")), "")
     prompt = REVIEW_PROMPT.format(frame=_review_frame(cands), items="\n".join(_review_lines(cands, words)))
     if thesis:
-        prompt += (f"\nTHE CLIP'S POINT: {thesis}\nAn image that shows the word but does not help the viewer "
-                   f"get that point scores 3 at most.")
+        prompt += f"\nTHE CLIP'S POINT: {thesis} (context: say in \"problem\" when a picture works against it)."
     prompt += _review_facts(cands)
     prompt += _hero_test(cands)
-    prompt += '\nReturn only: {"reviews": [{"file": "...", "seen": "...", "score": 1-5, "look": 1-5, "problem": "...", "better_prompt": "..."}]}'
+    prompt += '\nReturn only: {"reviews": [{"file": "...", "seen": "...", "score": 1-5, "facts_ok": true, "look": 1-5, "problem": "...", "better_prompt": "..."}]}'
     parts = []
     for c in cands:
         im = Image.open(c["file"]).convert("RGB")
@@ -1729,8 +1717,10 @@ def _look_ok(c):
 
 
 def _take_review(c, r):
-    """The reviewer's answer onto a candidate: score, look_score (None when not given), problem, better_prompt."""
+    """The reviewer's answer onto a candidate: score (the sense), facts_ok (True unless the judge said false),
+    look_score (None when not given), problem, better_prompt."""
     c["score"] = int(r.get("score") or 3)
+    c["facts_ok"] = r.get("facts_ok") is not False
     look = r.get("look")
     c["look_score"] = int(look) if isinstance(look, (int, float)) and not isinstance(look, bool) and 1 <= int(look) <= 5 else None
     c["problem"] = str(r.get("problem") or "")[:300]
@@ -1738,21 +1728,25 @@ def _take_review(c, r):
     return c
 
 
+def _facts_ok(c):
+    return c.get("facts_ok", True) is not False
+
+
 def _needs_redo(c):
-    return c["score"] <= 3 or not _look_ok(c)
+    return c["score"] <= 3 or not _look_ok(c) or not _facts_ok(c)
 
 
 def _better(c2, c):
-    """The redo beats the first picture: a higher meaning score, or the same with a higher look."""
-    return (c2["score"], c2.get("look_score") or 0) > (c["score"], c.get("look_score") or 0)
+    """The redo beats the first picture: true facts first, then a higher sense, then a higher look."""
+    return (_facts_ok(c2), c2["score"], c2.get("look_score") or 0) > (_facts_ok(c), c["score"], c.get("look_score") or 0)
 
 
 def _keep_meaningful(cands):
-    """The candidates worth showing, in their order: every one scored KEEP_SCORE+ whose look passes
-    (_look_ok), topped up with the best 3s (never below 3, look passing) up to KEEP_FLOOR."""
-    good = [c for c in cands if c["score"] >= KEEP_SCORE and _look_ok(c)]
+    """The candidates worth showing, in their order: every one with true facts, a sense of KEEP_SCORE+ and a look
+    that passes (_look_ok), topped up with the best 3s (never below 3, facts true, look passing) up to KEEP_FLOOR."""
+    good = [c for c in cands if _facts_ok(c) and c["score"] >= KEEP_SCORE and _look_ok(c)]
     if len(good) < KEEP_FLOOR:
-        spare = sorted((c for c in cands if 3 <= c["score"] < KEEP_SCORE and _look_ok(c)), key=lambda c: -c["score"])
+        spare = sorted((c for c in cands if _facts_ok(c) and 3 <= c["score"] < KEEP_SCORE and _look_ok(c)), key=lambda c: -c["score"])
         good += spare[:KEEP_FLOOR - len(good)]
     return [c for c in cands if c in good]
 
@@ -2949,8 +2943,9 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                       f"{f', {redone} redone' if redone else ''}, {len(kept)}/{len(cands)} kept")
                 for c in cands:
                     if c not in kept:
-                        filter_hit("review: dropped", f'Picture "{c["m"]["anchor"]}" dropped by the review (score {c["score"]}, '
-                                                      f'look {c.get("look_score")}): {c.get("problem") or "-"}')
+                        why = "false fact" if not _facts_ok(c) else "sense" if c["score"] < KEEP_SCORE else "look"
+                        filter_hit(f"review: dropped ({why})", f'Picture "{c["m"]["anchor"]}" dropped by the review ({why}: sense '
+                                                               f'{c["score"]}, look {c.get("look_score")}): {c.get("problem") or "-"}')
                 for c in kept:
                     if c["m"].get("notion") and not c.get("reused") and c["score"] >= NOTION_MIN_SCORE and c["style"] in STYLES:
                         if notion_put(c["m"]["notion"], c["style"], engine, c["layout"], c["file"], c["m"]["prompt"],

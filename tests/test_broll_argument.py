@@ -94,7 +94,7 @@ class TestTheArtDirector:
 
 
 class TestTheReviewer:
-    def test_the_reviewer_applies_the_specificity_test(self):
+    def test_the_reviewer_rates_the_sense_with_the_sound_off_test(self):
         text = broll.REVIEW_PROMPT.format(frame=broll._review_frame([{"layout": "card"}]), items="- x")
-        assert "SPECIFICITY TEST: a picture that would do for any other clip about the same noun" in text
-        assert text.index("SOUND-OFF TEST") < text.index("SPECIFICITY TEST") < text.index("WRONG FACTS")
+        assert '"score" (THE SENSE, 1-5)' in text and "SOUND-OFF TEST" in text
+        assert "SPECIFICITY TEST" not in text          # the editor's test, not a veto of the review any more
