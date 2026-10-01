@@ -52,6 +52,9 @@ const brollVerdict = (r) => {
     return [claude, local, gem, free].filter(Boolean).join(' · ');
 };
 
+// What the clip-selection audit (30 sep 2026) recommends for the "aim for" band and the clip floor.
+const REC = { clip_target: [25, 40], min_clips: 2 };
+
 const chip = (active) => `readout px-2.5 py-1.5 rounded-full border transition-colors ${active
     ? 'bg-brass/20 text-brass border-brass/50'
     : 'bg-paper3 text-ink2 border-transparent hover:border-rule2'}`;
@@ -270,6 +273,12 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
 
     const set = (patch) => setP((cur) => ({ ...cur, ...patch }));
     const setIn = (key, patch) => setP((cur) => ({ ...cur, [key]: { ...(cur[key] || {}), ...patch } }));
+    // Length to AIM for (plus.py selection.clip_target): both bounds or nothing.
+    const setTarget = (i, v) => setP((cur) => {
+        const t = [...(cur.selection?.clip_target || ['', ''])];
+        t[i] = v;
+        return { ...cur, selection: { ...(cur.selection || {}), clip_target: t[0] !== '' && t[1] !== '' ? t : (t[0] === '' && t[1] === '' ? null : t) } };
+    });
     const moods = music.length ? music : [];
     const mood = moods.find((m) => m.mood === p.music?.mood);
 
@@ -333,8 +342,25 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                             <input type="number" min="1" max="15" value={p.target_clips ?? ''} onChange={(e) => set({ target_clips: e.target.value || null })} className="input-field text-sm mt-1" /></label>
                     </div>
                     <p className="text-[11px] text-muted mt-1.5">The reference channels' best shorts run 16-33 s.</p>
-                    <Toggle checked={p.clean_ending ?? true} onChange={(v) => set({ clean_ending: v })}
-                        label="end on a full sentence" hint="Never stops mid-thought: cuts back to the last full stop (drops a dangling “cause…” after the punchline) or runs on to the next one, a few seconds at most." />
+                    <div className="grid grid-cols-3 gap-2 mt-2">
+                        <label className="block"><span className="text-xs text-muted">aim for, from (s)</span>
+                            <input type="number" min="5" max="180" value={p.selection?.clip_target?.[0] ?? ''}
+                                onChange={(e) => setTarget(0, e.target.value)} className="input-field text-sm mt-1" placeholder="25" /></label>
+                        <label className="block"><span className="text-xs text-muted">aim for, to (s)</span>
+                            <input type="number" min="5" max="180" value={p.selection?.clip_target?.[1] ?? ''}
+                                onChange={(e) => setTarget(1, e.target.value)} className="input-field text-sm mt-1" placeholder="40" /></label>
+                        <label className="block"><span className="text-xs text-muted">at least (clips)</span>
+                            <input type="number" min="1" max="15" value={p.selection?.min_clips ?? ''}
+                                onChange={(e) => setIn('selection', { min_clips: e.target.value || null })} className="input-field text-sm mt-1" placeholder="2" /></label>
+                    </div>
+                    <p className="text-[11px] text-muted mt-1.5 flex flex-wrap items-center gap-x-2">
+                        <span>Recommended: aim for {REC.clip_target[0]}-{REC.clip_target[1]} s inside the min/max above (a longer clip is cut back to its payoff), at least {REC.min_clips} clips so an off-niche source is not padded.</span>
+                        {(p.selection?.clip_target?.[0] != REC.clip_target[0] || p.selection?.clip_target?.[1] != REC.clip_target[1] || p.selection?.min_clips != REC.min_clips) && (
+                            <button type="button" onClick={() => setIn('selection', { clip_target: [...REC.clip_target], min_clips: REC.min_clips })}
+                                className="readout text-brass hover:underline">use recommended</button>
+                        )}
+                    </p>
+                    <p className="text-[11px] text-muted mt-1.5">Every clip ends on a full sentence: cut back to the last full stop (drops a dangling “cause…” after the punchline) or run on to the next one, a few seconds at most.</p>
                 </Section>
 
                 <Section icon={<Brain size={13} />} title="ai brain — who thinks at each step">
@@ -348,8 +374,6 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                             <button key={v} type="button" title={hint} onClick={() => set({ edit_style: v })} className={chip(p.edit_style === v)}>{v}</button>
                         ))}
                     </div>
-                    <Toggle checked={p.fx?.smart_framing} onChange={(v) => setIn('fx', { smart_framing: v })}
-                        label="smart framing" hint="Zooms centred on the face, tight on the hook and the strongest lines, wide elsewhere — measured, never random." />
                     <Toggle beta checked={p.fx?.smooth_camera} onChange={(v) => setIn('fx', { smooth_camera: v })}
                         label="smooth camera" hint="The frame holds and only glides (eased, never more than once every ~2.5 s) when the speaker has really moved; zoom changes glide instead of jumping; shot changes dissolve over ~4 frames; reaction shots are fewer (max 2), a bit longer and fade in and out." />
                     <Toggle checked={p.fx?.look} onChange={(v) => setIn('fx', { look: v })}
@@ -605,16 +629,8 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                 </Section>
 
                 <Section icon={<FlaskConical size={13} />} title="beta — changes what the AI picks">
-                    <Toggle beta checked={p.beta?.selection_v2} onChange={(v) => setIn('beta', { selection_v2: v })}
-                        label="AI selection v2" hint="Opens exactly on the spoken hook sentence (never 'so, um…'), ends on the punchline, favours relatable / 'exposes' topics. The viral score is kept as is." />
-                    <Toggle beta checked={p.beta?.series_titles} onChange={(v) => setIn('beta', { series_titles: v })}
-                        label="series titles" hint="“Joe Rogan On …”, “… Exposes …!” + 1-2 emojis." />
-                    {p.beta?.series_titles && (
-                        <input value={p.beta?.series_name || ''} onChange={(e) => setIn('beta', { series_name: e.target.value })}
-                            placeholder="speaker / series name, e.g. Joe Rogan" className="input-field text-sm mt-1" />
-                    )}
                     <Toggle beta checked={p.beta?.playbook} onChange={(v) => setIn('beta', { playbook: v })}
-                        label="Synapse Cut playbook" hint="Question titles, never a name in the title (names go in the description's credit line), opens on the hook sentence, a question to the viewer in the description, one stats JSON per clip. Wins over series titles." />
+                        label="Synapse Cut playbook" hint="Question titles, never a name in the title (names go in the description's credit line), opens on the hook sentence, a question to the viewer in the description, one stats JSON per clip." />
                     {p.beta?.playbook && (
                         <input value={p.beta?.playbook_show || ''} onChange={(e) => setIn('beta', { playbook_show: e.target.value })}
                             placeholder="show name for the credit line (empty = from the file name)" className="input-field text-sm mt-1" />

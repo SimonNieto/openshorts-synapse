@@ -14,7 +14,6 @@ const chip = (active) => `px-3 py-2 rounded-input border text-left transition-co
 const recap = (p) => [
     p.edit_style,
     `${p.clip_min}-${p.clip_max}s`,
-    p.fx?.smart_framing && 'smart zoom',
     p.fx?.look && 'sharp',
     p.fx?.spotlight && 'spotlight',
     p.fx?.streaks && 'light line',
@@ -22,10 +21,9 @@ const recap = (p) => [
     p.music?.enabled && 'music',
     p.broll?.enabled && 'b-roll',
     ({ bold: 'bold hook', classic: 'hook box', none: 'no hook' })[p.hook_style || (p.hook_box ? 'classic' : 'none')],
-    p.clean_ending !== false && 'clean endings',
     p.watermark && `“${p.watermark}”`,
     p.auto_publish?.enabled && 'auto-publish',
-    (p.beta?.selection_v2 || p.beta?.series_titles) && 'beta',
+    p.beta?.playbook && 'playbook',
     ({ gemini: 'gemini only', balanced: 'gemini + claude', claude: 'claude everywhere', claude_max: 'claude max', custom: 'custom brain' })[p.brain?.preset || 'balanced'],
     p.brain?.fresh && 'fresh picks',
 ].filter(Boolean).join(' · ');

@@ -33,8 +33,6 @@ DEFAULT_PROFILE = {
     "hook_style": "bold",
     "hook_seconds": 4,
     "hook_box": True,
-    # End every clip on a full stop (never on a dangling "cause...").
-    "clean_ending": True,
     "watermark": "",
     "fx": {"smart_framing": True, "look": False, "spotlight": False, "streaks": False, "reactions": False,
            "smooth_camera": False},
@@ -44,7 +42,7 @@ DEFAULT_PROFILE = {
               "max": 6, "mode": "mixed", "density": "normal", "real_photos": False, "review": "auto", "layout": "full", "position": "below", "y": None, "size": 28,
               "hold": None, "enter": "rise", "zoom": "soft", "border": "soft"},
     "auto_publish": {"enabled": False, "platforms": ["tiktok", "instagram", "youtube"]},
-    "beta": {"selection_v2": False, "series_titles": False, "series_name": "",
+    "beta": {
              # Synapse Cut playbook: question titles without names, starts on the
              # hook sentence, credit line + question in the descriptions, one
              # stats JSON per clip (playbook.py). "playbook_show": the show's name
@@ -229,9 +227,10 @@ def sanitize(raw):
         "hook_style": hook_style,
         "hook_seconds": _int(raw.get("hook_seconds"), 2, 10, d["hook_seconds"]),
         "hook_box": hook_style != "none",
-        "clean_ending": _bool(raw.get("clean_ending", True)),
         "watermark": re.sub(r"[^\w .@&'-]", "", str(raw.get("watermark") or ""))[:30],
-        "fx": {k: _bool(fx.get(k, v)) for k, v in d["fx"].items()},
+        # smart_framing is always on: without it the zooms aim at the middle of the
+        # frame instead of the measured face (viral_fx.plan_shots).
+        "fx": {**{k: _bool(fx.get(k, v)) for k, v in d["fx"].items()}, "smart_framing": True},
         "music": {"enabled": _bool(music.get("enabled")),
                   "mood": str(music.get("mood") or "").strip().strip("/\\")[:60],
                   "volume": max(0.05, min(0.6, vol))},
@@ -263,10 +262,10 @@ def sanitize(raw):
         "auto_publish": {"enabled": _bool(ap.get("enabled")),
                          "platforms": [p for p in (ap.get("platforms") or []) if p in ("tiktok", "instagram", "youtube")]
                          or ["tiktok", "instagram", "youtube"]},
-        "beta": {"selection_v2": _bool(beta.get("selection_v2")),
-                 "series_titles": _bool(beta.get("series_titles")),
-                 "series_name": str(beta.get("series_name") or "").strip()[:40],
-                 "playbook": _bool(beta.get("playbook")),
+        # Selection v2 and series titles (SELECTION_V2 / TITLE_SERIES env) are no
+        # longer profile switches: the playbook opens on the hook sentence itself
+        # and keeps names out of titles.
+        "beta": {"playbook": _bool(beta.get("playbook")),
                  "playbook_show": re.sub(r"[\r\n#]", "", str(beta.get("playbook_show") or "")).strip()[:60]},
         "selection": _selection(raw.get("selection")),
         "brain": _brain(raw.get("brain"), br),
@@ -368,7 +367,9 @@ def job_env(profile):
         "EDIT_STYLE": p["edit_style"],
         "PLUS_FX_JSON": json.dumps({**p["fx"], "watermark": p["watermark"] or None}),
         "AUTO_HOOK": "1" if p["hook_style"] != "none" else "0",
-        "CLEAN_END": "1" if p["clean_ending"] else "0",
+        # Every clip ends on a full stop (main.end_on_sentence); no profile switch:
+        # a clip stopping on a dangling "cause..." is never wanted.
+        "CLEAN_END": "1",
         "CLIP_MIN_SECONDS": str(p["clip_min"]),
         "CLIP_MAX_SECONDS": str(p["clip_max"]),
         # The niche and upload profile travel with the project: publishing
@@ -408,10 +409,6 @@ def job_env(profile):
         env["PLUS_BROLL_JSON"] = json.dumps({**p["broll"],
                                              "planner": "gemini" if p["brain"]["stages"]["broll"] == "gemini"
                                              else "claude"})
-    if p["beta"]["selection_v2"]:
-        env["SELECTION_V2"] = "1"
-    if p["beta"]["series_titles"] and p["beta"]["series_name"]:
-        env["TITLE_SERIES"] = p["beta"]["series_name"]
     if p["beta"]["playbook"]:
         env["SYNAPSE_PLAYBOOK"] = "1"
         if p["beta"]["playbook_show"]:
