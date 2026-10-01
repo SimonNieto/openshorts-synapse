@@ -109,6 +109,13 @@ class TestInTheEditor:
         assert moments[0]["sheet"] == {"palette": "neon pink", "light": "flat", "camera": "fisheye"}
         assert broll._sheet_with_bible(None) is None
 
+    def test_a_long_look_field_is_cut_after_a_clause_never_mid_word(self):
+        text = "deep indigo in the windows, hot amber on the skin, surgical white on the bench, cool blue off the monitor, more"
+        got = broll._short_field(text, 90)
+        assert got == "deep indigo in the windows, hot amber on the skin, surgical white on the bench" and len(got) <= 90
+        assert broll._short_field("short", 90) == "short"
+        assert broll._short_field("a" * 50 + " word " + "b" * 60, 100).endswith("word")
+
     def test_the_mood_of_the_episode_fills_an_empty_one(self, monkeypatch):
         monkeypatch.setattr(ai_brain, "EPISODE_BIBLE", ai_brain._clean_bible(BIBLE_RAW, "claude"))
         sheet = broll._sheet_with_bible({"era": "present day"})

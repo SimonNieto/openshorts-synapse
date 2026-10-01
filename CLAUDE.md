@@ -448,9 +448,11 @@ change: every deploy is a ~5 min build plus a handover.
   `faces` ("hero": a clear face on the full-screen picture only), `house_look`, `grade`, `sfx`. Matters of taste are
   env knobs `BROLL_*` (`_knob`): `BROLL_LOOK_CARD` / `BROLL_LOOK_HERO` (review thresholds), `BROLL_HERO_STEPS`,
   `BROLL_NOTION_VARIANTS`, `BROLL_MIXED_MAX`...
-- The chain per clip: editor (`plan_with_claude`: what, when, why, hero) -> `direct_art` -> ComfyUI (Z-Image) ->
-  review on two axes (`score` meaning, `look_score` look; a hero is judged at 768 px by the `broll` model, redone
-  twice) -> `_keep_meaningful`. The notion memory (`output/_glossary_images`, two variants per notion and house
+- The chain per clip: editor (`plan_with_claude`: thesis, visual argument, what, when, why, three hero concepts
+  and one pick) -> `direct_art` -> ComfyUI (Z-Image; the hero in `HERO_TAKES` takes) -> review on two axes
+  (`score` meaning, `look_score` look; a hero is judged at 768 px by the `broll` model, its takes together, redone
+  twice) -> `_keep_meaningful`. Before the clips, `ai_brain.episode_bible` reads the episode once (world, look,
+  motifs, avoid, hero ideas): every editor and art director of the job reads it. The notion memory (`output/_glossary_images`, two variants per notion and house
   look) and the latest subjects (`_recent.json`) are channel memory: `BROLL_NOTION_MEMORY=0` switches both off.
 - Judge a prompt change by eye, never from the tests alone: `docker exec -w /app openshorts-backend python
   broll_bench.py plan --job <id or prefix> --clips 1,3,5 --versions v3` writes one board per clip and version in

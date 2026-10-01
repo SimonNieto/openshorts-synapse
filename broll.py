@@ -638,6 +638,18 @@ def _bible_block():
     return text + "\n" if text else ""
 
 
+def _short_field(text, limit=160):
+    """``text`` within ``limit`` characters, cut after its last clause (comma or semicolon) when one ends past the
+    half, never mid-word."""
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    end = max(head.rfind(", "), head.rfind("; "))
+    if end < limit // 2:
+        end = head.rfind(" ")
+    return head[:end].rstrip(" ,;") if end > 0 else head
+
+
 def _sheet_with_bible(sheet):
     """The clip's style sheet with the episode's look laid over it (palette, light, camera): the editor keeps
     only the era and the mood of its clip. The sheet as it is without a bible."""
@@ -648,7 +660,7 @@ def _sheet_with_bible(sheet):
     out = dict(sheet or {})
     for k_sheet, k_look in (("palette", "palette"), ("light", "light"), ("camera", "lens")):
         if look.get(k_look):
-            out[k_sheet] = re.sub(r"\s+", " ", look[k_look]).strip(" .")[:120]
+            out[k_sheet] = _short_field(re.sub(r"\s+", " ", look[k_look]).strip(" ."))
     if not out.get("mood") and look.get("mood"):
         out["mood"] = look["mood"][:70]
     return out or None
