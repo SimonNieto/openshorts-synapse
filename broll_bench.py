@@ -409,6 +409,7 @@ VERSIONS = {
     "v4": {},                                 # with the episode's visual bible (J), the visual argument (K), the hero takes (L)
     "v5": {},                                 # the thing named first (audit « sens », 1-oct evening), faces everywhere
     "v6": {},                                 # the episode's registers (vision, cosmos, math...) written by the bible
+    "v7": {},                                 # the prohibitions rebuilt (three verdicts, worth, counted filters, lighter editor)
 }
 BOARD_W = 1500
 THUMB_W, THUMB_H = 420, 300

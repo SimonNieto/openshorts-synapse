@@ -465,9 +465,14 @@ change: every deploy is a ~5 min build plus a handover.
   bible's `avoid` is false facts only (never taste). A register picture is never stored in the notion library;
   a manual redo keeps `item["register"]`.
 - The chain per clip: editor (`plan_with_claude`: thesis, what, when, why, three hero concepts and one pick or
-  none) -> `direct_art` -> ComfyUI (Z-Image; the hero in `HERO_TAKES` takes) -> review on two axes
-  (`score` meaning, `look_score` look; a hero is judged at 768 px by the `broll` model, its takes together, redone
-  twice) -> `_keep_meaningful`. Before the clips, `ai_brain.episode_bible` reads the episode once (world, look,
+  none, a `worth` 1-5 per moment that decides between two that touch) -> `direct_art` -> ComfyUI (Z-Image; the
+  hero in `HERO_TAKES` takes) -> review with three verdicts (`score` the sense 1-5 with the sound-off test,
+  `facts_ok` against the words and the episode's facts, `look_score` the rendering 1-5 on the judge line; no "3 at
+  most" caps since the audit of the prohibitions, 1-oct-2026 evening; takes of one moment are never a "set"; a hero
+  is judged at 768 px by the `broll` model, a doubtful card gets a second look from it, redone twice / once) ->
+  `_keep_meaningful` (facts true, sense >= 4, look passes). Every filter counts its hits (`FILTERS`, `filter_hit`):
+  the parser says why a moment is dropped, the clip's log ends with "Filters this clip: ..." — a filter that does
+  not count cannot be judged (`Claude outputs/audit-interdits-2026-10-01.md`). Before the clips, `ai_brain.episode_bible` reads the episode once (world, look,
   motifs, avoid, hero ideas): every editor and art director of the job reads it. The notion memory (`output/_glossary_images`, two variants per notion and house
   look) is channel memory: `BROLL_NOTION_MEMORY=0` switches it off (the "latest subjects" list, `_recent.json`,
   was removed on 1-oct-2026: it forbade clip after clip what the notion library and CAST want to repeat).
