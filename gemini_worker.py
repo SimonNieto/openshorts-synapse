@@ -110,7 +110,9 @@ from the beginning — do not pick a long passage and hope it gets trimmed.
 The target also wins over STANDS ALONE and "start slightly before the hook":
 when a moment runs long, open LATER, on a later sentence that still stands
 alone, never earlier. One sentence of setup is all a cold viewer needs; the
-payoff stays, the run-up goes.
+payoff stays, the run-up goes. And {lo:g}s is a floor as much as {hi:g}s is a
+ceiling: a clip under {lo:g}s has cut into its setup or its payoff, do not
+go under it to be safe.
 """
 
 # Clip Generator++ (selection.clip_target, playbook): the clips still over

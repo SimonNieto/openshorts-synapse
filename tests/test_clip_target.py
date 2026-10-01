@@ -179,6 +179,7 @@ class TestOpenLaterCandidates:
     def test_rules_say_to_open_later(self):
         rules = main.target_length_rules((25.0, 40.0), 15.0, 60.0)
         assert "open LATER" in rules and "never earlier" in rules
+        assert "25s is a floor as much as 40s is a" in rules and "ceiling" in rules
 
 
 class TestShortenToTarget:
