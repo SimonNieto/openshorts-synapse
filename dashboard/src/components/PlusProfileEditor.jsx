@@ -380,6 +380,8 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                         label="smooth camera" hint="The frame holds and only glides (eased, never more than once every ~2.5 s) when the speaker has really moved; zoom changes glide instead of jumping; shot changes dissolve over ~4 frames; reaction shots are fewer (max 2), a bit longer and fade in and out." />
                     <Toggle checked={p.fx?.look} onChange={(v) => setIn('fx', { look: v })}
                         label="sharp look" hint="Crisper detail, deeper contrast, a faint glow on highlights." />
+                    <Toggle checked={p.fx?.hq_chain} onChange={(v) => setIn('fx', { hq_chain: v })}
+                        label="HQ render chain" hint="Every layer before the captions (reactions, motion, B-roll, hook) is encoded near-lossless and only the delivered file compresses: no more blur and banding in the blacks after five re-encodes. About twice the render time of a clip and a bigger file." />
                     <Toggle checked={p.fx?.spotlight} onChange={(v) => setIn('fx', { spotlight: v })}
                         label="spotlight on punchlines" hint="On the 2-3 strongest lines the edges close in softly around the face for half a second. No flash." />
                     <Toggle checked={p.fx?.streaks} onChange={(v) => setIn('fx', { streaks: v })}
