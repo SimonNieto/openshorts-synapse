@@ -7,10 +7,13 @@ import { apiJson } from '../lib/api';
 // Must mirror broll.py STYLES.
 const STYLE_OPTS = ['photo', 'neon', 'drawing', 'cinematic', 'vintage', '3d', 'comic', 'diagram'];
 // Time on screen: broll.py renders 1-4 s; RISE_DUR / SEG_DUR are its defaults when an item has none.
-const DUR_MIN = 1, DUR_MAX = 4, RISE_DUR = 1.9, SEG_DUR = 1.6;
-const clampDur = (v) => {
+// The picture the source itself showed (source "screen", broll.SCREEN_DUR_MAX) may stay up to 12 s.
+const DUR_MIN = 1, DUR_MAX = 4, SCREEN_DUR_MAX = 12, RISE_DUR = 1.9, SEG_DUR = 1.6;
+const isScreen = (it) => it.source === 'screen';
+const clampDur = (v, it) => {
     const n = Number(String(v).replace(',', '.'));
-    return Number.isFinite(n) ? Math.round(Math.min(DUR_MAX, Math.max(DUR_MIN, n)) * 10) / 10 : 2;
+    const hi = it && isScreen(it) ? SCREEN_DUR_MAX : DUR_MAX;
+    return Number.isFinite(n) ? Math.round(Math.min(hi, Math.max(DUR_MIN, n)) * 10) / 10 : 2;
 };
 
 /**
@@ -39,7 +42,8 @@ export default function BrollModal({ isOpen, onClose, jobId, index, clip, profil
     const setDurAll = () => {
         const d = clampDur(allDur);
         setAllDur(String(d));
-        setItems((list) => list.map((it) => ({ ...it, dur: d })));
+        // The source's own picture keeps its own time: the source decided it, not the review.
+        setItems((list) => list.map((it) => (isScreen(it) ? it : { ...it, dur: d })));
     };
 
     const redo = async (it) => {
@@ -63,7 +67,7 @@ export default function BrollModal({ isOpen, onClose, jobId, index, clip, profil
         setBusy('apply');
         setError(null);
         try {
-            const kept = items.filter((it) => it._keep).map((it) => ({ image: it.image, t: Number(String(it.t).replace(',', '.')), dur: clampDur(it.dur) }));
+            const kept = items.filter((it) => it._keep).map((it) => ({ image: it.image, t: Number(String(it.t).replace(',', '.')), dur: clampDur(it.dur, it) }));
             const data = await apiJson(`/api/clip/${jobId}/${index}/broll/apply`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -122,7 +126,9 @@ export default function BrollModal({ isOpen, onClose, jobId, index, clip, profil
                             className="w-24 h-24 sm:w-28 sm:h-28 object-cover rounded-input bg-paper3 shrink-0" />
                         <div className="grow min-w-0 space-y-1.5">
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                                <span className="text-ink font-medium">“{it.anchor}”</span>
+                                {isScreen(it)
+                                    ? <span className="readout px-1.5 py-0.5 rounded bg-brass/15 text-brass">shown in the source video</span>
+                                    : <span className="text-ink font-medium">“{it.anchor}”</span>}
                                 {it.layout === 'hero' && <span className="readout px-1.5 py-0.5 rounded bg-brass/15 text-brass">full screen</span>}
                                 {it.layout === 'card' && <span className="readout px-1.5 py-0.5 rounded bg-paper3 text-ink2">wide card</span>}
                                 <label className="text-muted inline-flex items-center gap-1">
@@ -134,26 +140,32 @@ export default function BrollModal({ isOpen, onClose, jobId, index, clip, profil
                                 </label>
                                 <label className="text-muted inline-flex items-center gap-1">
                                     for
-                                    <input type="number" step="0.1" min={DUR_MIN} max={DUR_MAX} value={it.dur}
+                                    <input type="number" step="0.1" min={DUR_MIN} max={isScreen(it) ? SCREEN_DUR_MAX : DUR_MAX} value={it.dur}
                                         onChange={(e) => patch(it.image, { dur: e.target.value })}
-                                        onBlur={(e) => patch(it.image, { dur: clampDur(e.target.value) })}
+                                        onBlur={(e) => patch(it.image, { dur: clampDur(e.target.value, it) })}
                                         className="input-field text-xs py-0.5 px-1.5 w-16" />
                                     s
                                 </label>
                                 <span className="text-muted">{it.source}</span>
                             </div>
-                            <textarea rows={2} value={it.prompt || ''} onChange={(e) => patch(it.image, { prompt: e.target.value })}
-                                placeholder="what the image shows"
-                                className="input-field text-xs w-full py-1 px-2 resize-none" />
+                            {!isScreen(it) && (
+                                <textarea rows={2} value={it.prompt || ''} onChange={(e) => patch(it.image, { prompt: e.target.value })}
+                                    placeholder="what the image shows"
+                                    className="input-field text-xs w-full py-1 px-2 resize-none" />
+                            )}
                             <div className="flex flex-wrap items-center gap-2">
-                                <select value={it.style || 'photo'} onChange={(e) => patch(it.image, { style: e.target.value })}
-                                    className="input-field text-xs py-1 px-2">
-                                    {STYLE_OPTS.map((s) => <option key={s} value={s}>{s}</option>)}
-                                </select>
-                                <button type="button" onClick={() => redo(it)} disabled={!!busy} className="btn-quiet px-2.5 py-1 text-xs inline-flex items-center gap-1.5">
-                                    {busy === it.image ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-                                    redo
-                                </button>
+                                {!isScreen(it) && (
+                                    <select value={it.style || 'photo'} onChange={(e) => patch(it.image, { style: e.target.value })}
+                                        className="input-field text-xs py-1 px-2">
+                                        {STYLE_OPTS.map((s) => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                )}
+                                {!isScreen(it) && (
+                                    <button type="button" onClick={() => redo(it)} disabled={!!busy} className="btn-quiet px-2.5 py-1 text-xs inline-flex items-center gap-1.5">
+                                        {busy === it.image ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                                        redo
+                                    </button>
+                                )}
                                 <button type="button" onClick={() => patch(it.image, { _keep: !it._keep })} disabled={!!busy}
                                     className="btn-quiet px-2.5 py-1 text-xs inline-flex items-center gap-1.5">
                                     <Trash2 size={13} />

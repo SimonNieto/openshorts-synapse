@@ -152,6 +152,13 @@ MIXED_MAX = int(_knob("BROLL_MIXED_MAX", 4))     # density "normal" / "more": on
 MIXED_FEW = int(_knob("BROLL_MIXED_FEW", 3))     # density "less": one hero + two cards
 MIXED_GAP = _knob("BROLL_MIXED_GAP", 4.0)
 MIXED_TAIL = 2.0
+
+# A picture the SOURCE put on screen (screen_inset: the producer's inset in a corner of the wide frame), cut
+# out at full resolution and shown as a wide card for as long as the source showed it. Not generated, not
+# reviewed, not graded, and never shorter than the moment it was up for.
+SCREEN_DUR_MIN, SCREEN_DUR_MAX = 1.5, 12.0
+SCREEN_ASPECT_MIN = 0.5    # a side-by-side picture is wider than the generated cards (CARD_GEN is 0.625)
+SCREEN_CARD_SIZE = 86      # % of the width: the viewer must READ this one (labels, two halves); it still fits the band
 # A sound when the hero arrives (profile broll.sfx): a soft whoosh made by assets/sfx/make_sfx.py (ours, no
 # licence), mixed under the voice. -18 dB on a -6 dBFS peak: heard as air moving, never as an effect.
 SFX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "sfx", "whoosh_soft.wav")
@@ -411,8 +418,11 @@ def _numbered_text(words):
     return " ".join(out).strip()
 
 
-def _allowed(t, duration, avoid, head=HEAD_FREE):
-    return head <= t <= duration - TAIL_FREE - SEG_DUR and all(abs(t - a) > 1.2 for a in avoid)
+def _allowed(t, duration, avoid, head=HEAD_FREE, block=()):
+    """``block``: (from, to) stretches of the clip no image may start in (the seconds the source itself shows a
+    picture, already cut in as a card)."""
+    return (head <= t <= duration - TAIL_FREE - SEG_DUR and all(abs(t - a) > 1.2 for a in avoid)
+            and all(not (a <= t <= b) for a, b in block))
 
 
 def _stem(text):
@@ -450,16 +460,18 @@ def hero_dur(m):
     return round(min(HERO_DUR_MAX, max(HERO_DUR_MIN, float(m.get("dur") or 0) + HERO_FADE)), 2)
 
 
-def hero_fits(m, duration, avoid, head=HEAD_FREE):
-    """A hero never runs into the hook's seconds, the last TAIL_FREE s, or within
-    1.2 s of the punchline — on its whole time on screen, not only its first frame."""
+def hero_fits(m, duration, avoid, head=HEAD_FREE, block=()):
+    """A hero never runs into the hook's seconds, the last TAIL_FREE s, within
+    1.2 s of the punchline, or a ``block`` stretch (the source's own picture) —
+    on its whole time on screen, not only its first frame."""
     t, d = m["t"], hero_dur(m)
     if t < head or t + d > duration - TAIL_FREE:
         return False
-    return all(t + d <= a - 1.2 or t >= a + 1.2 for a in avoid)
+    return (all(t + d <= a - 1.2 or t >= a + 1.2 for a in avoid)
+            and all(t + d <= a or t >= b for a, b in block))
 
 
-def pick_hero(moments, duration, avoid, head=HEAD_FREE):
+def pick_hero(moments, duration, avoid, head=HEAD_FREE, block=()):
     """Index of the moment shown full screen, or None: a concrete scene (an example
     or a consequence, a wide or medium shot, a photographic style) that fits the
     timing rules. The planner's own "hero" counts for a lot, a moment in the second
@@ -467,7 +479,7 @@ def pick_hero(moments, duration, avoid, head=HEAD_FREE):
     no moment reads well on a whole phone screen (a diagram, a schematic)."""
     best, best_score = None, 0.0
     for i, m in enumerate(moments):
-        if not hero_fits(m, duration, avoid, head) or m.get("notion"):
+        if not hero_fits(m, duration, avoid, head, block) or m.get("notion"):
             continue
         score = 1.0 + HERO_ROLE.get(m.get("role") or "", 0.0) + HERO_SHOT.get(m.get("shot") or "", 0.5)
         score += HERO_STYLE.get(m.get("style") or "photo", 0.0)
@@ -565,13 +577,14 @@ def _moment_dur(words, i, t, duration, lo=DUR_MIN, hi=DUR_MAX):
     return round(min(dur, max(lo, duration - 1.0 - t)), 2)
 
 
-def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None, head=HEAD_FREE):
+def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None, head=HEAD_FREE, block=()):
     """The planner's answer -> moments that land on a real spoken word, in
     the allowed window, spaced out. Anything that does not check out is
     dropped, whoever the planner was. ``dur_range``: (min, max) s on screen
     (the "mixed" layout's cards stay longer than the historical ones);
     ``tail``: seconds at the end of the clip no image may run into; ``head``:
-    the first seconds left to the face (the hook's)."""
+    the first seconds left to the face (the hook's); ``block``: (from, to)
+    stretches no image may start in or run into (the source's own picture)."""
     duration = words[-1]["end"]
     lo, hi = dur_range or (DUR_MIN, DUR_MAX)
     moments = []
@@ -587,13 +600,18 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None
         n_tok = len(_tokens(m.get("anchor")))
         k = _key_index(words, i, n_tok)
         t = max(0.0, words[k]["start"] - KEY_LEAD)
-        if not _allowed(t, duration, avoid, head):
+        if not _allowed(t, duration, avoid, head, block):
             continue
         dur = _moment_dur(words, k, t, duration, lo, hi)
         if tail:
             dur = round(min(dur, duration - tail - t), 2)
             if dur < lo:
                 continue                       # it would run into the last seconds: the face keeps them
+        for a, _b in block:
+            if t < a:
+                dur = round(min(dur, a - DUR_NEXT_GAP - t), 2)   # it leaves before the source's picture comes up
+        if dur < lo:
+            continue
         moments.append({"t": t, "anchor": " ".join(w["text"] for w in words[i:i + n_tok]),
                         "key": words[k]["text"],
                         "query": str(m.get("search_query") or m.get("anchor"))[:60],
@@ -618,10 +636,10 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None
 
 
 def plan_with_gemini(clip, words, n, avoid, api_key, auto_style=False, dur_range=None, gap=MIN_GAP, tail=None,
-                     head=HEAD_FREE):
+                     head=HEAD_FREE, block=()):
     from google import genai
     from google.genai import types
-    prompt = _plan_prompt(clip, words, n, avoid, auto_style, head)
+    prompt = _plan_prompt(clip, words, n, avoid, auto_style, head) + _block_text(block)
     client = genai.Client(api_key=api_key)
     last = None
     for attempt in range(3):
@@ -636,7 +654,13 @@ def plan_with_gemini(clip, words, n, avoid, api_key, auto_style=False, dur_range
             time.sleep(4 * (attempt + 1))
     else:
         raise RuntimeError(f"moment planning failed: {last}")
-    return _parse_moments(data, words, n, avoid, gap, dur_range, tail, head)
+    return _parse_moments(data, words, n, avoid, gap, dur_range, tail, head, block)
+
+
+def _block_text(block):
+    """One line of the planner's prompt per stretch the source's own picture takes."""
+    return "".join(f"\nNo image between {a:.1f}s and {b:.1f}s: the video itself shows a picture there, already "
+                   f"cut in big, and the viewer must see it alone." for a, b in block)
 
 
 # --- Claude (the user's subscription, through Claude Code) -----------------------
@@ -748,18 +772,20 @@ def apply_notions(moments, brief, clip_text):
 
 def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, start=0.0, end=None,
                      sheets=None, ground=None, mode="mixed", real_photos=False, density="normal", hero=False,
-                     dur_range=None, gap_min=0.0, tail=None, head=HEAD_FREE):
+                     dur_range=None, gap_min=0.0, tail=None, head=HEAD_FREE, block=()):
     """Claude reads the clip, the conversation around it and (``sheets``) what
     is on screen, and places images that carry the IDEA being said.
     ``ground``: hook_grounding.request()'s (frames, prompt) — the hook is
     rewritten from the screen in this same call instead of a second one.
     ``hero``: the "mixed" layout — it may name the one image worth the whole
-    screen. ``gap_min`` / ``tail`` / ``head``: that layout's pace (MIXED_*)."""
+    screen. ``gap_min`` / ``tail`` / ``head``: that layout's pace (MIXED_*).
+    ``block``: the seconds the source's own picture takes (no image there)."""
     import ai_brain
     duration = words[-1]["end"]
     gap = max(DENSITY[density]["gap"], gap_min)
     before, after = _context(transcript, start, end if end is not None else start + duration)
     avoid_txt = (", and not within 1.2 s of " + ", ".join(f"{a:.1f}s" for a in avoid)) if avoid else ""
+    avoid_txt += _block_text(block)
     title = clip.get("video_title_for_youtube_short") or ""
     clip_text = " ".join(w["text"] for w in words)
     brief = ai_brain.brief_for_clip(ai_brain.EPISODE_BRIEF, f"{before} {clip_text} {after}", start,
@@ -810,7 +836,7 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     if ground:
         import hook_grounding
         hook_grounding.apply(clip, (data or {}).get("hook"), len(ground[0]))
-    moments = _parse_moments(data, words, n, avoid, gap, dur_range, tail, head)
+    moments = _parse_moments(data, words, n, avoid, gap, dur_range, tail, head, block)
     apply_notions(moments, ai_brain.EPISODE_BRIEF, f"{before} {clip_text} {after}")
     thesis = str((data or {}).get("thesis") or "")[:300]
     if thesis:
@@ -1771,7 +1797,7 @@ def _rise_box(cap_top, cap_bottom, position, size_pct, aspect, W=1080, H=1920, y
         band_top, band_bottom = cap_bottom + gap, int(H * PLATFORM_UI)
         ch_max = int(H * RISE_HARD_BOTTOM) - band_top
     pad = max(8, int(W * 0.016)) * 2
-    wanted = int(W * max(18, min(64, int(size_pct))) / 100)
+    wanted = int(W * max(18, min(90, int(size_pct))) / 100)   # the profile offers 18-60; SCREEN_CARD_SIZE goes past
     cw = wanted
     if y_pct is not None:
         ch_max = int(H * RISE_HARD_BOTTOM) - int(H * RISE_HARD_TOP)
@@ -1843,7 +1869,7 @@ def _label_card(card, text, cw, ch):
 
 
 def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=None, enter="rise", zoom="soft",
-                 border="soft", look=None, label=None, grade="off"):
+                 border="soft", look=None, label=None, grade="off", min_aspect=None):
     """PNG sequence of the rising card, drawn in a fixed canvas; the canvas
     itself moves up through the overlay's ``y`` expression. Returns
     (pattern, x, motion) where motion = (y_start, y_end, drift, canvas_h[,
@@ -1869,7 +1895,7 @@ def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=
     cap_top, cap_bottom = _caption_band(H)
     shadow = max(8, int(W * 0.016))
     pad = shadow * int((BORDERS.get(border) or BORDERS["soft"]).get("pad", 2))
-    aspect = min(max(ih / iw, 0.6 if prem else 0.75), 1.25)
+    aspect = min(max(ih / iw, min_aspect or (0.6 if prem else 0.75)), 1.25)   # ``min_aspect``: a wider picture (screen_inset)
     box = _rise_box(cap_top, cap_bottom, position, size_pct, aspect, W, H, y_pct)
     cw, ch, y_end = box["cw"], box["ch"], box["y_end"]
     radius = int(cw * (0.03 if prem else 0.07))
@@ -2030,6 +2056,42 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off"):
     return os.path.join(folder, "c%03d.png")
 
 
+def screen_item(inset, img_dir=None):
+    """The B-roll item for the picture the source put on screen (screen_inset.detect + prepare: clip
+    ``screen_inset`` with ``image``, the still next to the clip). A wide card above the head, at the premium
+    drawing, from the second the source showed it for as long as it showed it. None without the still."""
+    if not inset:
+        return None
+    path = inset.get("path") or (os.path.join(img_dir, inset["image"]) if img_dir and inset.get("image") else None)
+    if not path or not os.path.exists(path):
+        return None
+    t0, t1 = float(inset.get("t0") or 0.0), float(inset.get("t1") or 0.0)
+    dur = round(min(SCREEN_DUR_MAX, max(SCREEN_DUR_MIN, t1 - t0)), 2)
+    return {"t": round(t0, 2), "dur": dur, "anchor": "on screen", "idea": "the picture the video itself showed",
+            "role": None, "query": "the picture shown on screen", "prompt": "", "source": "screen", "style": "photo",
+            "layout": "card", "look": "premium", "size": SCREEN_CARD_SIZE, "position": CARD_POSITION,
+            "border": "premium", "image": inset.get("image"), "_img": path}
+
+
+def _block_of(item):
+    """The stretch of the clip a screen item takes, for the planner: a second of lead so a card leaves first."""
+    return [(round(float(item["t"]) - 1.0, 2), round(float(item["t"]) + float(item["dur"]), 2))] if item else []
+
+
+def add_screen_only(clip_path, out_path, inset, img_dir=None, manual=False):
+    """Only the source's own picture, as a card (no B-roll in the profile, or none planned). Same report as
+    add_broll, or None."""
+    item = screen_item(inset, img_dir)
+    if not item:
+        return None
+    if not manual:
+        overlay_items(clip_path, out_path, [item])
+    item.pop("_img", None)
+    print(f"   🖼️ B-roll: the picture the source showed on screen, as a card from {item['t']:.1f}s for "
+          f"{item['dur']:.1f} s" + (" (manual review: not cut in yet)" if manual else ""))
+    return {"items": [item], "credits": [], "planner": "screen", "sources": ["screen"], "pending": manual}
+
+
 class ComfyDown(RuntimeError):
     """The local GPU (ComfyUI) is off or stopped answering: B-roll images are
     made only there, so the whole job stops instead of shipping clips without
@@ -2044,15 +2106,27 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     ``keep_dir``: keep each image there (``<keep_prefix>broll_<k>.jpg``, named
     in its item as ``image``) so a restyle can re-apply them."""
     import viral_fx
+    # "manual" review: the images are kept next to the clip and listed, but
+    # nothing is cut in until the user approves them (app.py .../broll/apply).
+    manual = cfg.get("review") == "manual" and bool(keep_dir)
+    # The picture the source itself showed (screen_inset): one of the cards, placed by the source, not planned.
+    screen = screen_item(clip.get("screen_inset"), keep_dir)
+    block = _block_of(screen)
+
+    def screen_only():
+        return add_screen_only(clip_path, out_path, clip.get("screen_inset"), keep_dir, manual)
+
     words = viral_fx.clip_words(transcript, start, end)
     if len(words) < 10:
-        return None
+        return screen_only()
     if not comfy_available():
         raise ComfyDown(f"ComfyUI not reachable at {_comfy_url()} (start it in Pinokio)")
     density = cfg.get("density") if cfg.get("density") in DENSITY else "normal"
     n = image_count(max(1, min(10, int(cfg.get("max") or 6))), density)
     if cfg.get("layout") == "mixed":
         n = MIXED_FEW if density == "less" else MIXED_MAX      # the premium pace, whatever the profile's max
+    if screen:
+        n = max(1, n - 1)                                      # the source's picture is one of them
     auto_style = cfg.get("style") == "auto"
     style = cfg.get("style") if cfg.get("style") in STYLES else "photo"
     engine = cfg.get("engine") if cfg.get("engine") in ENGINES else "zimage"
@@ -2138,11 +2212,12 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                                                ground=ground,
                                                mode=cfg.get("mode") or "mixed",
                                                real_photos=bool(cfg.get("real_photos")), density=density,
-                                               hero=mixed, dur_range=dur_range, gap_min=gap_min, tail=tail, head=head)
+                                               hero=mixed, dur_range=dur_range, gap_min=gap_min, tail=tail, head=head,
+                                               block=block)
                     planner = "claude"
                     if not moments:
                         print("   ℹ️ B-roll: Claude found no moment where an image would add meaning — none added.")
-                        return None
+                        return screen_only()
                 except Exception as e:
                     print(f"   ⚠️ B-roll planning via Claude failed ({str(e)[:200]}) — Gemini instead.")
             else:
@@ -2153,7 +2228,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 import ai_brain
                 ai_brain.say("Gemini — Claude unavailable", "B-roll: choosing the images")
                 moments = plan_with_gemini(clip, words, n, avoid, api_key, auto_style, dur_range=dur_range,
-                                           gap=max(MIN_GAP, gap_min), tail=tail, head=head)
+                                           gap=max(MIN_GAP, gap_min), tail=tail, head=head, block=block)
                 planner = "gemini"
             except Exception as e:
                 print(f"   ⚠️ B-roll planning via Gemini failed ({e}) — local pick instead.")
@@ -2161,7 +2236,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # The local pick only knows words, not what they mean ("needle" ->
             # the Space Needle): no B-roll beats a wrong one.
             print("   ℹ️ B-roll skipped: moments need the Claude or Gemini planner (not set up or call failed).")
-            return None
+            return screen_only()
         if mixed:
             if auto_style:
                 # One photographic series: whatever the planner picked outside photo / cinematic / neon is a photo.
@@ -2169,7 +2244,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     if m.get("style") not in PREMIUM_STYLES:
                         m["style"] = "photo"
             # The code has the last word on the hero: the planner's pick counts, the timing rules win.
-            k_hero = pick_hero(moments, words[-1]["end"], avoid, head)
+            k_hero = pick_hero(moments, words[-1]["end"], avoid, head, block)
             for i, m in enumerate(moments):
                 m["hero"] = i == k_hero
             if k_hero is None:
@@ -2300,15 +2375,17 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 credits.append(c["credit"])
         if not items:
             print("   ℹ️ B-roll: no image good enough for this clip's moments — clip left without.")
-            return None
-        if _hold(cfg.get("hold")) or mixed:
+            return screen_only()
+        if screen:
+            # The source's own picture takes its place among the cards, at the second the source showed it.
+            items.append(screen)
+            sources.append("screen")
+            items.sort(key=lambda it: float(it["t"]))
+        if _hold(cfg.get("hold")) or mixed or screen:
             # A fixed time on screen (or a hero longer than its sentence): two pictures never overlap, the
             # first one leaves a little early
             for a, b in zip(items, items[1:]):
                 a["dur"] = round(max(1.0, min(a["dur"], b["t"] - a["t"] - 0.25)), 2)
-        # "manual" review: the images are kept next to the clip and listed, but
-        # nothing is cut in until the user approves them (app.py .../broll/apply).
-        manual = cfg.get("review") == "manual" and bool(keep_dir)
         if not manual:
             overlay_items(clip_path, out_path, items)
         for it in items:
@@ -2370,11 +2447,12 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                 continue
             rise = it.get("layout") in ("rise", "card")
             hero = it.get("layout") == "hero"
+            screen = it.get("source") == "screen"      # the source's own picture: up for as long as the source had it
             try:
                 dur = float(it.get("dur") or (RISE_DUR if rise else SEG_DUR))
             except (TypeError, ValueError):
                 dur = RISE_DUR if rise else SEG_DUR
-            dur = max(1.0, min(4.0, dur))
+            dur = max(1.0, min(SCREEN_DUR_MAX if screen else 4.0, dur))
             grade = it.get("grade") if it.get("grade") in GRADES else "off"
             if hero:
                 pattern = _hero_frames(src, folder, fps, dur, w, h, grade=grade)
@@ -2385,7 +2463,8 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                                                   it.get("enter") if it.get("enter") in ENTER_MODES else "rise",
                                                   it.get("zoom") if it.get("zoom") in ZOOM_LEVELS else "soft",
                                                   it.get("border") if it.get("border") in BORDERS else "soft",
-                                                  look=it.get("look"), label=it.get("label"), grade=grade)
+                                                  look=it.get("look"), label=it.get("label"), grade=grade,
+                                                  min_aspect=SCREEN_ASPECT_MIN if screen else None)
                 layers.append({"t": it["t"], "dur": dur, "rise": True, "pattern": pattern, "x": x, "y": motion})
             else:
                 pattern, x, y, _full = _card_frames(src, folder, fps, dur, w, h,

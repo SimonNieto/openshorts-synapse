@@ -3079,6 +3079,24 @@ if __name__ == '__main__':
                     # ffmpeg cut — re-encoding for precision on strict seconds
                     cut_clip(input_video, clip_temp_path, start, end, i + 1)
 
+                    # A picture the source itself put in a corner (the producer's
+                    # inset, JRE style): covered on the cut with the wall behind
+                    # it, so the crop never shows half of it, and kept at full
+                    # resolution for the B-roll to show whole as a card.
+                    import screen_inset
+                    if output_format != "horizontal" and screen_inset.enabled():
+                        try:
+                            found = screen_inset.detect(input_video, start, end)
+                            if found:
+                                name = screen_inset.prepare(input_video, clip_temp_path, found, output_dir,
+                                                            os.path.basename(clip_final_path)[:-4] + "_")
+                                clip['screen_inset'] = {**found, "image": name}
+                                print(f"   🖼️ On screen in the source: {screen_inset.describe(found)} — hidden "
+                                      f"from the crop, shown whole as a card ({name}).")
+                        except Exception as e:
+                            print(f"   ⚠️ On-screen picture check failed ({type(e).__name__}: {e}) — "
+                                  f"clip framed as usual.")
+
                     success = render_clip(clip_temp_path, clip_final_path, output_format)
                     # Layer order: watermark burns into the canonical (so any
                     # later hook replacement, which re-derives from it, keeps
@@ -3192,6 +3210,17 @@ if __name__ == '__main__':
                                 comfy_down.set()
                                 raise
                             print(f"   ⚠️ B-roll failed ({type(e).__name__}: {e}) — clip kept without it.")
+                    elif success and clip.get('screen_inset'):
+                        # No B-roll in this profile: the source's own picture is still shown whole.
+                        try:
+                            import broll as _broll
+                            br_tmp = os.path.join(output_dir, f"brtmp_{i + 1}_{int(time.time())}.mp4")
+                            br = _broll.add_screen_only(clip_final_path, br_tmp, clip['screen_inset'], output_dir)
+                            if br:
+                                os.replace(br_tmp, clip_final_path)
+                                clip['broll'] = br["items"]
+                        except Exception as e:
+                            print(f"   ⚠️ On-screen picture card failed ({type(e).__name__}: {e}) — clip kept without it.")
                     deliver_path = clip_final_path
                     # Which stretches were stacked (SPLIT): captions go on the
                     # seam there, and /api/subtitle needs it again later.

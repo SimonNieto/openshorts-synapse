@@ -3470,7 +3470,10 @@ async def apply_clip_broll(job_id: str, clip_index: int, req: BrollApplyRequest,
         it = dict(base)
         try:
             if want.get('dur') is not None:  # time on screen chosen in the review (render clamps to 1-4 s too)
-                it['dur'] = round(max(1.0, min(4.0, float(want['dur']))), 2)
+                # The source's own picture (source "screen") may stay as long as the source showed it.
+                import broll as _broll
+                hi = _broll.SCREEN_DUR_MAX if it.get('source') == 'screen' else 4.0
+                it['dur'] = round(max(1.0, min(hi, float(want['dur']))), 2)
         except (TypeError, ValueError):
             pass
         try:
