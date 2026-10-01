@@ -536,9 +536,9 @@ STEP 3 - THE LOOK (THE RENDERING, 1-5): is the picture well made for its frame a
 real light with a direction and a quality, one subject with air around it, readable at the size it is shown, the
 artefacts (hands, faces, lettering, melted objects), no stock-photo feel, a mood that fits its subject (a patient,
 an illness, a death is shown with dignity, never as a menace). A picture marked REGISTER below is not a photograph:
-rate its look on its "judge it on" line, on its fidelity to the register it names and on its force, never on a real
-light source; its cheap line is its only stock test. 5 = a still a magazine would print, 4 = good, 3 = correct but
-flat, 2 or 1 = artefacts, stock or unreadable. A face, when one shows, must be natural and in focus with normal eyes,
+rate its look on its "judge it on" line, on its fidelity to the register it names and on its force, and
+never on a real light source; its cheap line is its only stock test. 5 = a still a magazine would print, 4 = good,
+3 = correct but flat, 2 or 1 = artefacts, stock or unreadable. A face, when one shows, must be natural and in focus with normal eyes,
 teeth and hands; a deformed, waxy or doubled face scores look 2 at most.
 
 For each image, by "file": "seen", "score" 1-5, "facts_ok" true / false, "look" 1-5, "problem" (a few words, empty

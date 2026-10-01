@@ -78,7 +78,7 @@ class TestTheCliches:
                   "doorway or threshold glowing", "running through fingers", "seen from behind at a window",
                   "empty corridor", "hourglass"):
             assert c in joined
-        assert "what a clever editor reaches for when nothing concrete was said" in broll.CLICHE_RULE
+        assert "the allegories a clever editor reaches for when nothing concrete was said" in broll.CLICHE_RULE
 
     def test_the_bible_asks_for_things_not_allegories(self):
         assert ai_brain.BIBLE_RULES.count("never an allegory") == 2
