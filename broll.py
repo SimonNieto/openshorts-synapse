@@ -364,38 +364,21 @@ PLAN_SCHEMA = {
 # What makes an image belong to THIS sentence rather than to its noun: the
 # specifics the speaker gives (number, place, era, action, who, mood) and the
 # sense of the sentence, resolved with the brief and the words before.
-GROUNDING_RULE = """STICK TO THE CONTEXT, not to the noun. Before writing an image, read the whole sentence around the
-anchor and the words just before it (resolve "he", "it", "that thing" from them and from the brief), then:
-- keep EVERY specific the speaker gives and put it in the image_prompt: the number or quantity
-  ("two gallons of water" -> two big water jugs, not "water"), the place ("in Toronto" -> the CN Tower skyline), the era
-  ("in the 80s" -> 1980s look), the kind of person, the action, the tone (a danger, a relief, a fight);
-- show what the sentence SAYS about the thing (its state, its effect, its size), not just the thing: "the knife went
-  through the bone" -> a blade against a bone, not a kitchen knife on a table;
-- if the sentence is a claim, a comparison or a story beat, show that beat in one clear scene;
-- "said": the sentence (about 8-15 words, verbatim) the image illustrates. If you cannot tie the image to that sentence,
-  drop the moment.
-- TONE: keep the mood of the story. For a patient, an illness, a disability or a death show warmth and dignity - a
-  person with expressive eyes in soft light, hands, a calmly lit hospital room - never a menacing, horror-like or
-  dehumanised picture (no black silhouette with glowing eyes, no faceless figure in the dark, no harsh shadows on a
-  face). A picture must not frighten unless the story itself is about fear.
-- SOUND-OFF TEST: someone who sees ONLY the picture, then hears "said", must link them within a second. If the link
-  needs an explanation, pick a more telling scene (the concrete case, the action, the effect) or drop the moment.
-- BE CORRECT: an organ, a tool, an animal, a place must be the right one and look right (the throat is not the lungs,
-  a larynx is in the neck); name it precisely in the image_prompt with where it is and what it looks like."""
+GROUNDING_RULE = """STICK TO THE CONTEXT, not to the noun: read the whole sentence around the anchor and the words
+before it (resolve "he", "it", "that thing" from them and from the brief); keep EVERY specific the speaker gives (the
+number, the place, the era, the kind of person, the action, the tone) and show what the sentence SAYS about the thing,
+not just the thing ("the knife went through the bone" -> a blade against a bone). TONE: a patient, an illness, a
+disability, a death is shown with warmth and dignity, never as a menace. BE CORRECT: the right organ, tool, animal
+or place, named precisely. SOUND-OFF TEST, eliminatory: someone who sees ONLY the picture, then hears "said", links
+them within a second - else pick a more telling scene, or no image."""
 
 # The images of a clip are ONE sequence the viewer watches in a row: they must
 # tell the clip's story, not repeat one picture.
-SET_RULE = """THE SET TELLS THE STORY. The images are seen one after the other: together they must follow the arc
-(setup -> claim -> payoff), not repeat one idea.
-- VARIETY: no two images with the same main subject AND look ("subject" of each moment: 1-3 words). Three brains in a
-  row read as one image shown three times: show the brain once, then the patient, the device, the moment it works.
-  Vary the scale too ("shot"): wide scene, medium, close-up, macro, schematic — never the same shot twice in a row.
-- HUMAN CASE FIRST: when the clip follows a person, a patient, a group or a real case (see the STORIES), that case
-  is the thread of the images: prefer showing it (who, where, doing what) over an abstract picture of the notion.
-- CAST: describe that recurring person / place ONCE in "style_sheet"."cast" (age, look, clothes, setting — never a real
-  identifiable person) and copy that description word for word into every image_prompt where it appears, so the viewer
-  recognises the same person from one image to the next. Leave "cast" empty when nobody recurs."""
-
+SET_RULE = """THE SET TELLS THE STORY: seen one after the other, the pictures follow the arc (setup -> claim -> payoff)
+and never show the same subject or the same shot twice in a row ("subject" and "shot" of each moment). HUMAN CASE
+FIRST: when the clip follows a person, a patient or a real case (see the STORIES), that case is the thread of the
+pictures. CAST: describe a recurring person or place ONCE in "style_sheet"."cast" and copy it word for word into every
+image_prompt where it appears (never a real identifiable person); leave "cast" empty when nobody recurs."""
 
 # What makes a B-roll read as cheap AI stock on a science channel: the pictures
 # every generator draws first. The editor and the art director are told never
@@ -412,23 +395,18 @@ CLICHES = ("a glowing brain, a brain floating in space or in blue light", "neuro
            "a hand reaching toward a light", "a doorway or threshold glowing with light",
            "water or sand running through fingers", "a person seen from behind at a window",
            "an empty corridor or a long empty road", "a clock, an hourglass or a crossroads for time or a choice")
-CLICHE_RULE = ("NEVER THE AI CLICHÉ (for a PHOTO picture; a register picture follows its register). These pictures are what "
-               "every generator draws first, what a clever editor reaches "
-               "for when nothing concrete was said, and what marks a cheap channel; none of them, whatever the words: " + "; ".join(CLICHES) + """.
-- A DETAIL THAT TELLS instead: every picture holds one specific, real-world thing at its true scale, as a documentary
-  photographer would find it — the pill bottle on a kitchen counter at 7 am, the patient's hand on the bed rail, the
-  stained slice of tissue on a microscope slide, the worn stairs of the named building, a gesture, a texture in macro.
-- THE CASE BEFORE THE NOTION: when the speaker tells a case, an example, a place or a person, show THAT in its real
-  setting. Show the notion itself only when nothing concrete was said, and then as a real object, instrument or place
-  that embodies it (a lab bench, a scan on a lightbox, an archive print), never as a symbol.
-- THE INVISIBLE, PHOTOGRAPHED: a neuron, a cell, a molecule, a hormone is shown as a real micrograph or a lab
-  photograph in real light (stained tissue under the microscope, a petri dish on the bench, a printed model on a
-  desk), never as glowing lines on a dark void.""")
+CLICHE_RULE = ("NEVER THE AI CLICHÉ (for a PHOTO picture; a register picture follows its register) - the pictures every "
+               "generator draws first, and the allegories a clever editor reaches for when nothing concrete was said: "
+               + "; ".join(CLICHES) + """. A DETAIL THAT TELLS instead: one real thing at its true scale, as a documentary
+photographer finds it (the pill bottle on the counter at 7 am, the patient's hand on the bed rail, the worn stairs of
+the named building). THE CASE BEFORE THE NOTION: the speaker's case in its real setting; the notion itself only when
+nothing concrete was said, and then as a real object, instrument or place. THE INVISIBLE, PHOTOGRAPHED: a neuron, a
+molecule, a hormone as a micrograph or a lab photograph in real light - unless the episode's REGISTERS say how.""")
 # A picture that would do for any clip about the same noun is not the picture: the editor and the reviewer apply
 # the same test, the episode's world (its bible) and the sentence's specifics are where the right one comes from.
 SPECIFIC_RULE = ("SPECIFICITY TEST: if the same picture would do for any other clip about the same noun (a generic brain, "
-                 "a generic pill, a generic crowd), it is not the picture: take it from the world of THIS episode (its "
-                 "places, objects, people, era — the bible's WORLD when given) and the specifics of THIS sentence.")
+                 "a generic pill, a generic crowd), it is not the picture: take it from the world of THIS episode and the "
+                 "specifics of THIS sentence.")
 
 CLAUDE_SYSTEM ="You are a meticulous short-form video editor. You answer only with the requested JSON."
 CLAUDE_SYSTEM_VISION = ("You are a meticulous short-form video editor. The images are attached to the request, in "
