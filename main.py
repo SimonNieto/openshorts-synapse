@@ -1746,6 +1746,18 @@ def _find_line(words, line, lo, hi):
     return None
 
 
+def _find_line_last(words, line, lo, hi):
+    """Like _find_line, the LAST occurrence (the payoff is the last thing said)."""
+    toks = _tokens(line)[:4]
+    if len(toks) < 2:
+        return None
+    wt = [re.sub(r"[^a-z0-9']", "", w["w"].lower()) for w in words]
+    for i in range(len(words) - len(toks), -1, -1):
+        if lo <= words[i]["s"] <= hi and wt[i:i + len(toks)] == toks:
+            return i
+    return None
+
+
 _SENTENCE_END = re.compile(r"[.!?…][\"'”’)\]]*$")
 # Whisper sometimes leaves long stretches unpunctuated: there, a pause this
 # long after a word also counts as the end of a sentence (playbook cuts only).
@@ -1773,16 +1785,37 @@ def _tail(words, i):
     return max(words[i]["s"] + 0.15, nxt - 0.02)
 
 
+# On an unpunctuated stretch Whisper also gives CONTIGUOUS word timestamps
+# (JRE #2515, 1-oct-2026: every gap 0.00 s): the silence is absorbed into the
+# words around it — "yeah" lasting 0.86 s, "and" 1.14 s, "if" 1.08 s — so a
+# pause read as the gap between two words is never seen. A word's time beyond
+# what saying it takes (_SPOKEN_BASE + _SPOKEN_PER_LETTER a letter) counts
+# as silence.
+_SPOKEN_BASE = 0.2
+_SPOKEN_PER_LETTER = 0.07
+
+
+def _stretch(words, i):
+    """Seconds word ``i`` lasts beyond what saying it takes (0 when none)."""
+    w = words[i]
+    letters = len(re.sub(r"[^A-Za-zÀ-ÿ0-9]", "", w.get("w") or ""))
+    return max(0.0, (w["e"] - w["s"]) - (_SPOKEN_BASE + _SPOKEN_PER_LETTER * letters))
+
+
 def _pause_after(words, i):
-    """Seconds of silence after word ``i`` (the last word: as long as it gets)."""
-    return words[i + 1]["s"] - words[i]["e"] if i + 1 < len(words) else float("inf")
+    """Seconds of silence after word ``i`` (the last word: as long as it
+    gets): the gap to the next word, plus the silence absorbed in the two
+    words around it when the timestamps are contiguous (_stretch)."""
+    if i + 1 >= len(words):
+        return float("inf")
+    return words[i + 1]["s"] - words[i]["e"] + _stretch(words, i) + _stretch(words, i + 1)
 
 
 def _is_boundary(words, i):
     """A sentence ends after word ``i``: a full stop, or a long pause."""
     if _ends_sentence(words, i):
         return True
-    return i + 1 < len(words) and words[i + 1]["s"] - words[i]["e"] >= _PAUSE_BOUNDARY
+    return i + 1 < len(words) and _pause_after(words, i) >= _PAUSE_BOUNDARY
 
 
 def _opens_sentence(words, i):
@@ -1959,6 +1992,17 @@ def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.
         return
     for pause in (_PAUSE_BOUNDARY, _SOFT_PAUSE):
         if move(lambda i: _ends_sentence(words, i) or _pause_after(words, i) >= pause):
+            return
+    # Last resort: the payoff the model quoted ends a sentence even when
+    # Whisper wrote no full stop and the speaker ran on without a breath
+    # (JRE #2515: "...anybody that's actually done it and then we'll just").
+    j = _find_line_last(words, clip.get("punchline"), start, end + max_extend)
+    if j is not None:
+        k = min(len(words) - 1, j + len(_tokens(clip.get("punchline"))) - 1)
+        t = _tail(words, k)
+        if abs(t - end) <= max_extend and min_secs <= t - start <= max_secs + 3:
+            clip["end"] = round(t, 3)
+            clip["clean_end"] = "payoff"
             return
     clip["end_mid_sentence"] = True
 
