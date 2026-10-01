@@ -499,20 +499,23 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                                 <span className="text-xs text-muted w-14">amount</span>
                                 {(() => {
                                     const base = Math.max(1, Math.min(10, Number(p.broll?.max) || 6));
-                                    const cap = p.broll?.layout === 'mixed' ? 4 : 12;    // mixed: 1 hero + 3 cards at most (broll.MIXED_MAX)
-                                    const counts = {
-                                        less: Math.min(cap, Math.max(1, Math.floor(base * 0.6 + 0.5))),
-                                        normal: Math.min(cap, base),
-                                        more: Math.min(cap, Math.max(base + 1, Math.floor(base * 1.5 + 0.5))),
+                                    const mixed = p.broll?.layout === 'mixed';
+                                    // mixed: a fixed pace (broll.MIXED_FEW / MIXED_MAX), the profile's max does not apply
+                                    const counts = mixed ? { less: 3, normal: 4, more: 4 } : {
+                                        less: Math.max(1, Math.floor(base * 0.6 + 0.5)),
+                                        normal: base,
+                                        more: Math.min(12, Math.max(base + 1, Math.floor(base * 1.5 + 0.5))),
                                     };
-                                    return [['less', 'fewer', 'Only the strongest moments, about one image every 8-10 s, at least 4.5 s apart.'],
-                                        ['normal', 'normal', 'About one image every 4-6 s, at least 3 s apart.'],
-                                        ['more', 'more', 'Every concrete mention, about one image every 3-4 s, at least 2.4 s apart. Images stay short so they can follow each other.']].map(([v, label, hint]) => (
+                                    const opts = [['less', 'fewer', mixed ? 'One hero and two cards, 4 s apart.' : 'Only the strongest moments, about one image every 8-10 s, at least 4.5 s apart.'],
+                                        ['normal', 'normal', mixed ? 'One hero and three cards, 4 s apart.' : 'About one image every 4-6 s, at least 3 s apart.'],
+                                        ['more', 'more', 'Every concrete mention, about one image every 3-4 s, at least 2.4 s apart. Images stay short so they can follow each other.']];
+                                    return (mixed ? opts.slice(0, 2) : opts).map(([v, label, hint]) => (
                                         <button key={v} type="button" title={hint} onClick={() => setIn('broll', { density: v })}
                                             className={chip((p.broll?.density || 'normal') === v)}>{label} · up to {counts[v]}</button>
                                     ));
                                 })()}
                             </div>
+                            {p.broll?.layout !== 'mixed' && (
                             <div className="flex flex-wrap items-center gap-1.5">
                                 <span className="text-xs text-muted w-14">stays</span>
                                 <button type="button" onClick={() => setIn('broll', { hold: null })}
@@ -529,6 +532,7 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                                         className="w-40 accent-[var(--color-accent)]" />
                                 )}
                             </div>
+                            )}
                             {p.broll?.layout === 'rise' && (
                                 <div className="flex flex-wrap items-center gap-1.5">
                                     <span className="text-xs text-muted w-14">enters</span>
@@ -539,15 +543,17 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                                     ))}
                                 </div>
                             )}
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs text-muted w-14">edge</span>
-                                {[['soft', 'soft', 'A thin, see-through edge and a light shadow.'],
-                                    ['strong', 'strong', 'The previous look: a bright white edge and a heavy shadow.'],
-                                    ['none', 'none', 'No edge and no shadow: the picture alone.']].map(([v, label, hint]) => (
-                                    <button key={v} type="button" title={hint} onClick={() => setIn('broll', { border: v })}
-                                        className={chip((p.broll?.border || 'soft') === v)}>{label}</button>
-                                ))}
-                            </div>
+                            {p.broll?.layout !== 'mixed' && (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-xs text-muted w-14">edge</span>
+                                    {[['soft', 'soft', 'A thin, see-through edge and a light shadow.'],
+                                        ['strong', 'strong', 'The previous look: a bright white edge and a heavy shadow.'],
+                                        ['none', 'none', 'No edge and no shadow: the picture alone.']].map(([v, label, hint]) => (
+                                        <button key={v} type="button" title={hint} onClick={() => setIn('broll', { border: v })}
+                                            className={chip((p.broll?.border || 'soft') === v)}>{label}</button>
+                                    ))}
+                                </div>
+                            )}
                             {p.broll?.layout !== 'mixed' && (
                                 <div className="flex flex-wrap items-center gap-1.5">
                                     <span className="text-xs text-muted w-14">zoom out</span>
@@ -581,29 +587,10 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                                                 className={chip((p.broll?.hero_res || 'std') === v)}>{label}</button>
                                         ))}
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                        <span className="text-xs text-muted w-14">cards</span>
-                                        {[['top', 'above the head', 'In the free band above the speaker (5-34 % of the height), once the hook is gone.'],
-                                            ['above', 'above the captions', 'With the natural captions on the chin this sits on the face: only for a wide framing.'],
-                                            ['below', 'under the captions', 'A wide card there runs into the app\'s buttons zone.']].map(([v, label, hint]) => (
-                                            <button key={v} type="button" title={hint} onClick={() => setIn('broll', { card_position: v })}
-                                                className={chip((p.broll?.card_position || 'top') === v)}>{label}</button>
-                                        ))}
-                                        <label className="flex items-center gap-1.5 text-xs text-muted ml-2">
-                                            width
-                                            <input type="number" min="18" max="64" step="2" value={p.broll?.card_size ?? 60}
-                                                onChange={(e) => setIn('broll', { card_size: e.target.value })}
-                                                className="input-field text-xs py-1 px-2 w-16" />
-                                            % of the width
-                                        </label>
-                                        <RealSize style={p.edit_style} watermark={(p.watermark || '').trim()}
-                                            position={p.broll?.card_position || 'top'} size={p.broll?.card_size ?? 60} y={null} aspect={0.625} />
-                                    </div>
+                                    <p className="text-xs text-muted">cards: wide 16:10 at 60 % of the width, above the head (the one free band of a podcast frame once the hook is gone), each from its word to the end of the sentence (2.2-3.5 s), fade in and out. Fixed, like the hero's 2.5-3.5 s and its slow push-in.</p>
                                     <BrollCardPreview style={p.edit_style} watermark={(p.watermark || '').trim()}
-                                        position={p.broll?.card_position || 'top'} size={p.broll?.card_size ?? 60} y={null}
-                                        border={(p.broll?.border || 'soft') === 'soft' ? 'premium' : (p.broll?.border || 'soft')}
-                                        aspect={0.625} allowY={false}
-                                        onSize={(v) => setIn('broll', { card_size: v })} onY={() => {}} />
+                                        position="top" size={60} y={null} border="premium" aspect={0.625} allowY={false} allowSize={false}
+                                        onSize={() => {}} onY={() => {}} />
                                     <Toggle checked={p.broll?.label} onChange={(v) => setIn('broll', { label: v })}
                                         label="a keyword on each card" hint="The image's subject in small capitals, bottom-left of the card." />
                                     <label className="flex flex-col gap-1 text-xs text-muted">
@@ -624,7 +611,7 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                                     </div>
                                     <Toggle checked={p.broll?.sfx} onChange={(v) => setIn('broll', { sfx: v })}
                                         label="a soft whoosh when the hero arrives" hint="Mixed under the voice at -18 dB (assets/sfx/whoosh_soft.wav); nothing on the cards." />
-                                    <p className="text-[11px] text-muted">In this layout the "auto" style stays photographic (photo / cinematic, neon only for the microscopic), the edge "soft" is the premium one (1 px, wide soft shadow), at most 4 images per clip, 4 s apart, none in the last 2 s.</p>
+                                    <p className="text-[11px] text-muted">In this layout the "auto" style stays photographic (photo / cinematic, neon only for the microscopic); a style chosen above applies to every image instead. Drawing fixed: premium edge, no exit zoom; "fewer" = 3 images, "normal" = 4, 4 s apart, none in the hook's seconds nor in the last 2 s.</p>
                                 </div>
                             )}
                             {p.broll?.layout === 'rise' && (

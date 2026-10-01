@@ -414,10 +414,11 @@ class TestPremiumCardFrames:
 class TestMixedCards:
     def test_profile_keys(self):
         d = plus.sanitize({})["broll"]
-        assert (d["card_position"], d["card_size"], d["label"]) == ("top", 60, False)
-        b = plus.sanitize({"broll": {"card_position": "below", "card_size": 99, "label": "1"}})["broll"]
-        assert (b["card_position"], b["card_size"], b["label"]) == ("below", 64, True)
-        assert plus.sanitize({"broll": {"card_position": "left"}})["broll"]["card_position"] == "top"
+        assert d["label"] is False and plus.sanitize({"broll": {"label": "1"}})["broll"]["label"] is True
+        # the cards' width and place are fixed by design, not profile settings
+        b = plus.sanitize({"broll": {"card_position": "below", "card_size": 99}})["broll"]
+        assert "card_position" not in b and "card_size" not in b
+        assert (broll.CARD_SIZE, broll.CARD_POSITION) == (60, "top")
         assert plus.sanitize({"broll": {"position": "top"}})["broll"]["position"] == "top"
 
     def test_mixed_cards_are_wide_premium_and_above_the_head(self, monkeypatch):
@@ -448,8 +449,10 @@ class TestMixedCards:
             return broll._parse_moments(data, words_, n, avoid, broll.DENSITY["normal"]["gap"], k.get("dur_range"))
 
         monkeypatch.setattr(broll, "plan_with_claude", fake_plan)
-        # y 73.1 is the rise layout's "my height" (the user's saved profile has one): a card ignores it
-        cfg = {"planner": "claude", "layout": "mixed", "style": "photo", "max": 4, "label": True, "y": 73.1}
+        # The rise layout's settings the user's saved profile carries (fixed hold, "my height", a strong edge, an
+        # exit zoom, a card size) do not touch the premium drawing.
+        cfg = {"planner": "claude", "layout": "mixed", "style": "photo", "max": 4, "label": True, "y": 73.1,
+               "hold": 3.0, "border": "strong", "zoom": "strong", "enter": "rise", "size": 27, "position": "below"}
         rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1, cfg)
         assert seen["dur_range"] == (broll.CARD_DUR_MIN, broll.CARD_DUR_MAX)
         cards = [it for it in rep["items"] if it["layout"] == "card"]
@@ -457,10 +460,11 @@ class TestMixedCards:
         for it in cards:
             assert it["look"] == "premium" and it["border"] == "premium" and it["position"] == "top" and it["size"] == 60
             assert it["gen"] == [1152, 720] and broll.CARD_DUR_MIN <= it["dur"] <= broll.CARD_DUR_MAX + 0.01
-            assert "y" not in it
+            assert "y" not in it and "zoom" not in it and "enter" not in it
+        assert {it["dur"] for it in cards} != {3.0}                    # to the end of the sentence, not the fixed hold
         assert [it["label"] for it in cards] == ["soldiers", "night march"]
         hero = [it for it in rep["items"] if it["layout"] == "hero"][0]
-        assert "label" not in hero and "look" not in hero
+        assert "label" not in hero and "look" not in hero and hero["border"] == "premium"
 
     def test_the_rise_layout_keeps_its_historical_rise_time(self, monkeypatch):
         import viral_fx
@@ -517,6 +521,10 @@ class TestPace:
         monkeypatch.setenv("AUTO_HOOK_SECONDS", "6")
         broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, end, {**base, "layout": "mixed"})
         assert (seen["n"], seen["gap_min"], seen["tail"], seen["head"]) == (broll.MIXED_MAX, broll.MIXED_GAP, broll.MIXED_TAIL, 6.3)
+        broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, end, {**base, "layout": "mixed", "density": "less"})
+        assert seen["n"] == broll.MIXED_FEW == 3
+        broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, end, {**base, "layout": "mixed", "max": 1, "density": "normal"})
+        assert seen["n"] == broll.MIXED_MAX                              # the profile's max is a rise / full setting
         broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, end, {**base, "layout": "rise"})
         assert (seen["n"], seen["gap_min"], seen["tail"], seen["head"]) == (broll.image_count(10, "more"), 0.0, None, broll.HEAD_FREE)
 

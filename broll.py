@@ -135,7 +135,10 @@ HERO_GRAIN = _knob("BROLL_HERO_GRAIN", 5.0)         # film grain, sigma in 8-bit
 # "top": with the natural captions on the chin there is no room between the face
 # and the captions, and under them a wide card runs into the app's buttons).
 CARD_GEN = (1152, 720)
-CARD_SIZE = 60
+# Fixed by design, not profile settings (the maintainer's env knobs BROLL_CARD_SIZE / BROLL_CARD_POSITION only):
+# a width and a place that work on a tracked podcast frame, measured, with nothing to get wrong in the editor.
+CARD_SIZE = int(_knob("BROLL_CARD_SIZE", 60))
+CARD_POSITION = os.environ.get("BROLL_CARD_POSITION") if os.environ.get("BROLL_CARD_POSITION") in ("top", "above", "below") else "top"
 CARD_DUR_MIN, CARD_DUR_MAX = 2.2, 3.5       # to the end of the clause, never a flash, never a poster
 CARD_IN = _knob("BROLL_CARD_IN", 0.35)      # s: fades in while rising CARD_RISE_PX (not from the edge of the screen)
 CARD_RISE_PX = 12
@@ -145,7 +148,8 @@ CARD_PUSH = _knob("BROLL_CARD_PUSH", 1.03)  # push-in inside the card over its t
 TOP_BAND = (0.05, 0.34)                     # of the height: above the head of a tracked speaker (crown at ~0.34 H)
 # Pace of the "mixed" layout: few images, far apart (one hero + two or three cards on 30 s), whatever the
 # profile's max / density say; nothing in the hook's seconds nor in the last MIXED_TAIL s.
-MIXED_MAX = int(_knob("BROLL_MIXED_MAX", 4))
+MIXED_MAX = int(_knob("BROLL_MIXED_MAX", 4))     # density "normal" / "more": one hero + three cards
+MIXED_FEW = int(_knob("BROLL_MIXED_FEW", 3))     # density "less": one hero + two cards
 MIXED_GAP = _knob("BROLL_MIXED_GAP", 4.0)
 MIXED_TAIL = 2.0
 # A sound when the hero arrives (profile broll.sfx): a soft whoosh made by assets/sfx/make_sfx.py (ours, no
@@ -2048,7 +2052,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     density = cfg.get("density") if cfg.get("density") in DENSITY else "normal"
     n = image_count(max(1, min(10, int(cfg.get("max") or 6))), density)
     if cfg.get("layout") == "mixed":
-        n = min(n, MIXED_MAX)                  # the premium pace: few images, far apart
+        n = MIXED_FEW if density == "less" else MIXED_MAX      # the premium pace, whatever the profile's max
     auto_style = cfg.get("style") == "auto"
     style = cfg.get("style") if cfg.get("style") in STYLES else "photo"
     engine = cfg.get("engine") if cfg.get("engine") in ENGINES else "zimage"
@@ -2069,8 +2073,6 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             return "hero" if m.get("hero") else "card"
         return "rise" if rise else "full"
 
-    card_size = int(cfg.get("card_size") or CARD_SIZE)
-    card_position = cfg.get("card_position") if cfg.get("card_position") in ("top", "above", "below") else "top"
     dur_range = (CARD_DUR_MIN, CARD_DUR_MAX) if mixed else None
     # One look for the whole chain (mixed): the house sentence in every prompt, one grade on every picture.
     house = str(cfg.get("house_look") or "").strip() if mixed else ""
@@ -2247,8 +2249,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             dur = m.get("dur") or (SEG_DUR if big else RISE_DUR)
             if hero:
                 dur = hero_dur(m)                          # its sentence plus the crossfades, 2.5-3.5 s
-            elif _hold(cfg.get("hold")):
-                dur = _hold(cfg.get("hold"))               # the user's own time on screen
+            elif _hold(cfg.get("hold")) and not mixed:
+                dur = _hold(cfg.get("hold"))               # the user's own time on screen (a mixed card follows its sentence)
             elif big:
                 dur = round(max(FULL_DUR_MIN, min(FULL_DUR_MAX, dur)), 2)
             item = {"t": round(m["t"], 2), "dur": dur, "anchor": m["anchor"],
@@ -2271,18 +2273,19 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     item["reused"] = True
             if c.get("score"):
                 item["score"] = c["score"]
-            item["zoom"] = cfg.get("zoom") if cfg.get("zoom") in ZOOM_LEVELS else "soft"
-            item["border"] = cfg.get("border") if cfg.get("border") in BORDERS else "soft"
-            if mixed and item["border"] == "soft":
-                item["border"] = "premium"             # the profile's default edge, in the premium drawing
-            if not big and not hero:
-                item["enter"] = cfg.get("enter") if cfg.get("enter") in ENTER_MODES else "rise"
-                if mixed:
-                    # Placed by card_position alone: the rise layout's "my height" (y) is not a card setting.
-                    item.update(look="premium", size=card_size, position=card_position)
+            if mixed:
+                # The premium drawing is fixed: premium edge, fade in, no exit zoom, cards CARD_SIZE % wide at
+                # CARD_POSITION. The rise layout's hold / enter / zoom / border / size / position / y do not apply.
+                item["border"] = "premium"
+                if not hero:
+                    item.update(look="premium", size=CARD_SIZE, position=CARD_POSITION)
                     if cfg.get("label"):
                         item["label"] = m.get("subject") or m.get("key") or m["anchor"]
-                else:
+            else:
+                item["zoom"] = cfg.get("zoom") if cfg.get("zoom") in ZOOM_LEVELS else "soft"
+                item["border"] = cfg.get("border") if cfg.get("border") in BORDERS else "soft"
+                if not big:
+                    item["enter"] = cfg.get("enter") if cfg.get("enter") in ENTER_MODES else "rise"
                     item.update(size=size_pct, position="above" if cfg.get("position") == "above" else "below")
                     if _free_y(cfg.get("y")) is not None:
                         item["y"] = _free_y(cfg.get("y"))

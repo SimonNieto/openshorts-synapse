@@ -40,7 +40,7 @@ const EDGE_CSS = {
 };
 const POSITIONS = ['above', 'top'];
 
-export default function BrollCardPreview({ style, watermark, position, size, y, border, onSize, onY, aspect: fixedAspect, allowY = true }) {
+export default function BrollCardPreview({ style, watermark, position, size, y, border, onSize, onY, aspect: fixedAspect, allowY = true, allowSize = true }) {
     const [clips, setClips] = useState(null);
     const [clip, setClip] = useState('');
     const [t, setT] = useState(3);
@@ -139,11 +139,13 @@ export default function BrollCardPreview({ style, watermark, position, size, y, 
                     className="btn-quiet px-2.5 py-1 text-xs inline-flex items-center gap-1.5">
                     <RefreshCw size={13} /> another frame
                 </button>
-                <label className="flex flex-col gap-1">
-                    <span>size: <span className="text-ink">{Math.round(Number(size) || 28)}%</span> of the width</span>
-                    <input type="range" min="18" max={fixedAspect ? 64 : 60} step="1" value={Math.round(Number(size) || 28)}
-                        onChange={(e) => onSize(Number(e.target.value))} className="w-full accent-[var(--color-accent)]" />
-                </label>
+                {allowSize && (
+                    <label className="flex flex-col gap-1">
+                        <span>size: <span className="text-ink">{Math.round(Number(size) || 28)}%</span> of the width</span>
+                        <input type="range" min="18" max={fixedAspect ? 64 : 60} step="1" value={Math.round(Number(size) || 28)}
+                            onChange={(e) => onSize(Number(e.target.value))} className="w-full accent-[var(--color-accent)]" />
+                    </label>
+                )}
                 {allowY && (
                     <label className="flex flex-col gap-1">
                         <span>height: <span className="text-ink">{y != null ? `${Math.round(y)}%` : 'automatic'}</span>{y != null ? ' from the top' : ' (drag the card, or move this)'}</span>

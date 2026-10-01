@@ -46,7 +46,7 @@ DEFAULT_PROFILE = {
     "broll": {"enabled": False, "source": "local", "engine": "zimage", "planner": "gemini", "style": "photo",
               "max": 6, "mode": "mixed", "density": "normal", "real_photos": False, "review": "auto", "layout": "full", "position": "below", "y": None, "size": 28,
               "hold": None, "enter": "rise", "zoom": "soft", "border": "soft", "hero_res": "std",
-              "card_position": "top", "card_size": 60, "label": False, "house_look": "", "grade": "off", "sfx": False},
+              "label": False, "house_look": "", "grade": "off", "sfx": False},
     "auto_publish": {"enabled": False, "platforms": ["tiktok", "instagram", "youtube"]},
     "beta": {
              # Synapse Cut playbook: question titles without names, starts on the
@@ -262,11 +262,8 @@ def sanitize(raw):
                   "layout": br.get("layout") if br.get("layout") in ("rise", "full", "mixed") else "full",
                   # Size of the hero image: "std" 896x1600 (~16 s on an RTX 3060), "high" 1024x1792 (~23 s).
                   "hero_res": br.get("hero_res") if br.get("hero_res") in ("std", "high") else "std",
-                  # The wide 16:10 cards of the "mixed" layout: where (above the head by default: with the natural
-                  # captions on the chin there is no room between face and captions), how wide (18-64 %), and an
-                  # optional small-caps keyword in their corner.
-                  "card_position": br.get("card_position") if br.get("card_position") in ("top", "above", "below") else "top",
-                  "card_size": _int(br.get("card_size"), 18, 64, 60),
+                  # The wide 16:10 cards of the "mixed" layout are drawn one fixed way (broll.CARD_*: 60 % wide, above
+                  # the head, to the end of the sentence); the one option is a small-caps keyword in their corner.
                   "label": _bool(br.get("label")),
                   # One look for the whole clip (mixed layout): a house-style sentence put in every image prompt
                   # before the clip's style sheet, and one grade applied to every picture when it is cut in.
