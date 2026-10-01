@@ -456,6 +456,14 @@ change: every deploy is a ~5 min build plus a handover.
   its notion tag (`pick_hero` refuses a notion), `lost_facts` keeps the editor's draft when the director drops a
   number or a proper noun, `_review_facts` gives the judge the bible's WORLD / AVOID and the glossary line of
   every notion judged (the review has no transcript: it once called a cage on the White House lawn implausible).
+- REGISTERS (1-oct-2026 evening): the photo recipe is for what a camera can shoot. For the rest (a trip, the
+  cosmos, a notion, the microscopic) the episode's bible writes 0-4 `registers` (name, when, look of 80-120 words
+  from the known iconography and the speaker's words, judge, cheap); the editor names one in `style`
+  (`style_rule_premium`, `premium_style`), the director paints it (`REGISTER_TEXT`) and writes a `judge` line for
+  every picture, `_image_text` sends scene + guards + register + rules (no house look, no family, no grade), the
+  review rates a register picture on its judge line and its register's cheap line, never on real light. The
+  bible's `avoid` is false facts only (never taste). A register picture is never stored in the notion library;
+  a manual redo keeps `item["register"]`.
 - The chain per clip: editor (`plan_with_claude`: thesis, what, when, why, three hero concepts and one pick or
   none) -> `direct_art` -> ComfyUI (Z-Image; the hero in `HERO_TAKES` takes) -> review on two axes
   (`score` meaning, `look_score` look; a hero is judged at 768 px by the `broll` model, its takes together, redone

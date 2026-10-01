@@ -776,8 +776,19 @@ to THIS episode (nothing generic that would fit any episode):
 - "motifs": 3 to 5 recurring visual motifs the clips can return to, each a real thing of the episode (a hand on the
   pump's dial, a vial held to the light, the lawn at dusk) with when to use it, in one line — never an allegory (no
   doorway for a threshold, no hand reaching into the dark, no lone figure before the vastness).
-- "avoid": 3 to 8 pictures never to use for this episode (the clichés of its subject, the wrong scale, the wrong
-  era, the misleading image), one line each.
+- "avoid": 0 to 6 pictures that would state a FALSE FACT about this episode (a smoked pipe when the drug was an IV
+  infusion, an indoor arena when the fight was on a lawn, the wrong era, the wrong instrument), one line each —
+  never a matter of taste or style: that is the registers' job.
+- "registers": for every kind of thing this episode talks about that a camera cannot shoot as it is — an inner
+  experience (a psychedelic trip, a dream, a near-death, a vision), the cosmos, a mathematical or physical notion,
+  the microscopic, a past era — ONE register, 0 to 4 in all, and nothing for what a camera can photograph: "name"
+  (one lower-case word: vision, cosmos, math, micro, archive...), "when" (which moments of the episode call for it,
+  one line), "look" (80 to 120 words: what such a picture shows and how — the known iconography of that experience
+  or field AND the speaker's own words when he describes it: content, geometry, scale, colours, light, medium,
+  texture — written so an image model paints it; a vision may be impossible, saturated and strange when that is
+  how it is told, a cosmos has the scale and light of a telescope image, a math picture is shapes, curves and
+  surfaces in a real medium, never symbols), "judge" (one sentence: what a good picture of this register is),
+  "cheap" (one line: the version that would look cheap or generic, to stay away from).
 - "heroes": for each story or big theme of the brief, ONE picture that would make a cold viewer stop on a phone
   (full screen, one second): "story" (its name), "picture" (one sentence: a real scene of the story — place, subject,
   action, light — never an allegory of its idea), "why" (what the viewer sees). 6 to 12 of them.
@@ -792,9 +803,13 @@ BIBLE_SCHEMA = {
         "heroes": {"type": "array", "items": {"type": "object", "properties": {
             "story": {"type": "string"}, "picture": {"type": "string"}, "why": {"type": "string"}},
             "required": ["story", "picture"]}},
+        "registers": {"type": "array", "items": {"type": "object", "properties": {
+            k: {"type": "string"} for k in ("name", "when", "look", "judge", "cheap")}, "required": ["name", "look"]}},
     },
     "required": ["world", "look", "motifs", "avoid", "heroes"],
 }
+REGISTER_MAX = 4
+REGISTER_RESERVED = ("photo", "cinematic", "neon", "drawing", "vintage", "3d", "comic", "diagram")
 BIBLE_LOOK_KEYS = ("palette", "light", "lens", "texture", "mood")
 
 
@@ -837,8 +852,19 @@ def _clean_bible(data, who):
     for h in data.get("heroes") if isinstance(data.get("heroes"), list) else []:
         if isinstance(h, dict) and str(h.get("picture") or "").strip():
             heroes.append({k: re.sub(r"\s+", " ", str(h.get(k) or "")).strip()[:300] for k in ("story", "picture", "why")})
+    regs, seen_names = [], set()
+    for r in data.get("registers") if isinstance(data.get("registers"), list) else []:
+        if not isinstance(r, dict):
+            continue
+        name = re.sub(r"[^a-z]", "", str(r.get("name") or "").lower())[:16]
+        look_r = re.sub(r"\s+", " ", str(r.get("look") or "")).strip()[:900]
+        if not name or name in REGISTER_RESERVED or name in seen_names or len(look_r.split()) < 12:
+            continue
+        seen_names.add(name)
+        regs.append({"name": name, "look": look_r,
+                     **{k: re.sub(r"\s+", " ", str(r.get(k) or "")).strip()[:300] for k in ("when", "judge", "cheap")}})
     bible = {"world": _strs(data.get("world"), 15), "look": look, "motifs": _strs(data.get("motifs"), 5, 200),
-             "avoid": _strs(data.get("avoid"), 8), "heroes": heroes[:12], "by": who}
+             "avoid": _strs(data.get("avoid"), 8), "heroes": heroes[:12], "registers": regs[:REGISTER_MAX], "by": who}
     return bible if bible["world"] else None
 
 
@@ -889,8 +915,14 @@ def bible_text(bible=None, heroes=12):
         lines.append("LOOK: " + "; ".join(f"{k}: {v}" for k, v in bible["look"].items()))
     if bible.get("motifs"):
         lines.append("MOTIFS: " + " | ".join(bible["motifs"]))
+    if bible.get("registers"):
+        lines.append("REGISTERS (how this episode shows what a camera cannot shoot — the editor names one in \"style\", the "
+                     "director paints it, the channel's photo look does not apply to it):")
+        lines += [f"- \"{r['name']}\" — when: {r.get('when') or '-'} | look: {r['look']}"
+                  + (f" | judge: {r['judge']}" if r.get("judge") else "") + (f" | cheap: {r['cheap']}" if r.get("cheap") else "")
+                  for r in bible["registers"]]
     if bible.get("avoid"):
-        lines.append("AVOID: " + "; ".join(bible["avoid"]))
+        lines.append("WRONG FACTS (never show): " + "; ".join(bible["avoid"]))
     if bible.get("heroes") and heroes:
         lines.append("HERO IDEAS (one picture per story, for the full-screen hero):")
         lines += [f"- {h.get('story')}: {h.get('picture')}" + (f" ({h['why']})" if h.get("why") else "")

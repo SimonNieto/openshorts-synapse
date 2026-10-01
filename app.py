@@ -3444,7 +3444,8 @@ async def regenerate_clip_broll(job_id: str, clip_index: int, req: BrollRegenReq
             None, lambda: _broll.regenerate_image(prompt, style, out, item.get('query') or "", cfg,
                                                   os.getenv("GEMINI_API_KEY"), sheet=item.get('sheet'),
                                                   gen=item.get('gen'), art=bool(item.get('art')),
-                                                  family=item.get('family'), seed=seed))
+                                                  family=item.get('family'), seed=seed,
+                                                  register=item.get('register')))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image failed: {str(e)[:300]}")
     item.update(image=new_name, prompt=prompt, source=source, seed=seed,

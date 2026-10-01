@@ -74,7 +74,7 @@ class TestTheBible:
         text = ai_brain.bible_text(ai_brain._clean_bible(BIBLE_RAW, "claude"))
         assert text.startswith("EPISODE VISUAL BIBLE")
         assert "WORLD: a desert camp at dawn, three canvas tents; a dented steel canteen" in text
-        assert "LOOK: palette: sand ochre" in text and "MOTIFS: the canteen" in text and "AVOID: a glowing brain; a parade" in text
+        assert "LOOK: palette: sand ochre" in text and "MOTIFS: the canteen" in text and "WRONG FACTS (never show): a glowing brain; a parade" in text
         assert "- The 1998 march: A lone soldier on the cracked desert floor at dawn. (the ordeal at scale)" in text
         assert "junk" not in text
 
@@ -129,5 +129,5 @@ class TestInTheArtDirector:
         monkeypatch.setattr(ai_brain, "EPISODE_BIBLE", ai_brain._clean_bible(BIBLE_RAW, "claude"))
         text = broll._art_prompt(ms, {}, "h", family="cinematic_photo")
         head = "EPISODE VISUAL BIBLE (one read"
-        assert head in text and "AVOID: a glowing brain" in text and "MOTIFS:" in text
+        assert head in text and "WRONG FACTS (never show): a glowing brain" in text and "MOTIFS:" in text
         assert text.index("THE STYLE FAMILY") < text.index(head) < text.index("THIS CLIP'S STYLE SHEET")

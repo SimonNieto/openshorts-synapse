@@ -261,6 +261,59 @@ STYLE_RULE_PREMIUM = """
   Nothing else (no neon, no drawing, no comic, no diagram, no 3D render, no vintage): the images of a clip are
   one series shot with one camera."""
 PREMIUM_STYLES = ("photo", "cinematic")
+# The episode's registers (ai_brain.EPISODE_BIBLE["registers"], 1-oct-2026 evening): how THIS episode shows what a
+# camera cannot shoot (a trip, the cosmos, a notion, the microscopic). The editor names one in "style", the
+# director paints it, and nothing of the photo recipe (house look, family, grade, cliché list, the photo look-grid
+# of the review) applies to such a picture.
+STYLE_RULE_REGISTERS = """
+- "style": how to show it, one of:
+  "photo"     - the default, for everything that exists in the physical world and can be photographed as it is;
+  "cinematic" - the same when the moment is dramatic, dark or tense - never for a patient, an illness, a disability
+                or a death (use "photo" there);
+{lines}
+  A register is not an allegory: an experience, a cosmic object, a notion the speaker names IS the thing named, and
+  its register is how this episode shows it (see REGISTERS in the bible). Never a photo of a stand-in object (a vial
+  for a trip, a blackboard for an equation) when a register fits. Nothing else (no neon, no drawing, no comic, no
+  diagram, no 3D render, no vintage outside a register)."""
+
+
+def registers():
+    """The episode's registers, [] without a bible or without any."""
+    import ai_brain
+    return [r for r in ((ai_brain.EPISODE_BIBLE or {}).get("registers") or [])
+            if isinstance(r, dict) and r.get("name") and r.get("look")]
+
+
+def register_names():
+    return [r["name"] for r in registers()]
+
+
+def register_of(style):
+    """The register dict a style name points to, or None (a photo style, an unknown one)."""
+    style = str(style or "").lower()
+    return next((r for r in registers() if r["name"] == style), None) if style else None
+
+
+def register_look(m):
+    """The register block a moment's picture is painted in, or None for a photograph."""
+    r = register_of((m or {}).get("style"))
+    return r["look"] if r else None
+
+
+def style_rule_premium():
+    """The editor's style rule in the mixed layout: the two photo styles, plus the episode's registers when the
+    bible wrote some."""
+    regs = registers()
+    if not regs:
+        return STYLE_RULE_PREMIUM
+    lines = "\n".join(f'  "{r["name"]}"{" " * max(1, 11 - len(r["name"]))}- {r.get("when") or "the moments that call for it"}' for r in regs)
+    return STYLE_RULE_REGISTERS.format(lines=lines)
+
+
+def premium_style(style):
+    """What a planner's style becomes in the mixed layout: a photo style or a register of the episode; anything else
+    (the historical neon / comic / diagram...) is a photo."""
+    return style if style in PREMIUM_STYLES or register_of(style) else "photo"
 PLAN_SCHEMA = {
     "type": "object",
     "properties": {
@@ -332,7 +385,8 @@ CLICHES = ("a glowing brain, a brain floating in space or in blue light", "neuro
            "a hand reaching toward a light", "a doorway or threshold glowing with light",
            "water or sand running through fingers", "a person seen from behind at a window",
            "an empty corridor or a long empty road", "a clock, an hourglass or a crossroads for time or a choice")
-CLICHE_RULE = ("NEVER THE AI CLICHÉ. These pictures are what every generator draws first, what a clever editor reaches "
+CLICHE_RULE = ("NEVER THE AI CLICHÉ (for a PHOTO picture; a register picture follows its register). These pictures are what "
+               "every generator draws first, what a clever editor reaches "
                "for when nothing concrete was said, and what marks a cheap channel; none of them, whatever the words: " + "; ".join(CLICHES) + """.
 - A DETAIL THAT TELLS instead: every picture holds one specific, real-world thing at its true scale, as a documentary
   photographer would find it — the pill bottle on a kitchen counter at 7 am, the patient's hand on the bed rail, the
@@ -372,7 +426,9 @@ MODE_RULES = {
               "vastness, a hand reaching for the light) is allowed ONLY when the speaker says that image himself (\"a "
               "security blanket\", \"like decorator crabs\", \"it slides through your fingers\") — and then it shows "
               "exactly what he says, nothing cleverer. When a sentence names nothing, it gets no image: the face is the "
-              "picture. Zero images beats one allegory."),
+              "picture. Zero images beats one allegory. An inner experience, a cosmic object, a mathematical notion the "
+              "speaker names IS a thing named: when the episode's REGISTERS (in the bible below) give it one, show it in "
+              "that register, as it is known to look and as he tells it, never as a photo of a stand-in object."),
     "concept": ("Favour the IDEA over the noun: show what the sentence MEANS in one clear scene (the mechanism, "
                 "the consequence, the analogy), and use a plain literal picture only when the word itself is the "
                 "point."),
@@ -475,7 +531,8 @@ WRONG FACTS: the wrong organ, tool, animal or place (lungs for a throat, a rando
 a key detail that contradicts what is said, scores 2 at most — however pretty. Judge them against the quoted words
 and the EPISODE FACTS when given, never against your own idea of what is plausible: a surprising scene the speaker
 tells (a cage on a famous lawn) is a true scene, and the picture that shows it is right.
-STOCK OR CLICHÉ: a picture that reads as AI stock on a science channel — """ + "; ".join(CLICHES) + """ — scores 3 at
+STOCK OR CLICHÉ (photo pictures; a REGISTER picture is judged on its own cheap line instead): a picture that reads as
+AI stock on a science channel — """ + "; ".join(CLICHES) + """ — scores 3 at
 most, and its better_prompt shows the concrete case or the thing at its real scale instead.
 THE SET: the images are seen in a row. Compare them with each other: when one looks like an earlier one (same main
 subject, same framing, same look), the later one scores 3 at most and its better_prompt shows another side of the
@@ -487,6 +544,9 @@ set, the artefacts (hands, faces, lettering, melted objects), the stock or AI-cl
 size. 5 = a still a magazine would print, 4 = good, 3 = correct but flat, 2 or 1 = artefacts, stock or unreadable.
 A face, when one shows, must be natural and in focus with normal eyes, teeth and hands;
 a deformed, waxy or doubled face scores look 2 at most.
+A picture marked REGISTER below is not a photograph: rate its look on its "judge it on" line, on its fidelity to the
+register it names and on its force, never on a real light source; its cheap line replaces the stock test. When a
+picture carries a "judge it on" line, that line is what its score and look are rated against first.
 For each image, by "file": "seen", "score" 1-5 (5 = instantly clear and on point, 4 = good, 3 = acceptable, 2 or 1 =
 weak, wrong or confusing), "look" 1-5, "problem" (a few words, empty if none) and "better_prompt": an English image
 prompt that would fix it (one clear scene, one main subject, no text) - empty when the score is 4 or 5 AND the
@@ -757,7 +817,7 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None
                         "said": str(m.get("said") or "")[:200],
                         "subject": str(m.get("subject") or "")[:40],
                         "shot": m.get("shot") if m.get("shot") in SHOTS else None,
-                        "style": m.get("style") if m.get("style") in STYLES else None,
+                        "style": m.get("style") if (m.get("style") in STYLES or register_of(m.get("style"))) else None,
                         "role": m.get("role") if m.get("role") in ("concept", "example", "consequence") else None,
                         "notion": str(m.get("notion") or "")[:80],
                         "real_photo": bool(m.get("real_photo")) and bool(str(m.get("search_query") or "").strip()),
@@ -940,7 +1000,7 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     pace_of = DENSITY_MIXED if hero else DENSITY      # the mixed layout has its own, selective pace
     common = dict(n=n, avoid=avoid_txt, sheets=", ".join(os.path.basename(p) for p in sheets or []) or "none",
                   frame=FRAME_TEXT["mixed" if hero else "small"],
-                  style_rule=((STYLE_RULE_PREMIUM if hero else STYLE_RULE) if auto_style else ""),
+                  style_rule=((style_rule_premium() if hero else STYLE_RULE) if auto_style else ""),
                   mode_rule=MODE_RULES.get(mode, MODE_RULES["mixed"]),
                   title=title or "-",
                   hook=clip.get("viral_hook_text") or "-", before=before or "-", after=after or "-",
@@ -951,6 +1011,9 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
                   gap=gap)
     prompt = CLAUDE_PLAN_PROMPT.format(lo=head, hi=duration - TAIL_FREE - SEG_DUR, **common)
     schema, attach, shots_dir = PLAN_SCHEMA, list(sheets or []), None
+    if register_names():
+        schema = json.loads(json.dumps(schema))
+        schema["properties"]["moments"]["items"]["properties"]["style"]["enum"] += register_names()
     if hero:
         prompt += "\n" + HERO_RULE
         schema = json.loads(json.dumps(schema))
@@ -1043,7 +1106,7 @@ ART_PROMPT = """You are the director of photography of a short-form documentary 
 moments of this clip that get a picture and what each one must show; you write the prompt the image model will
 paint from, for EVERY picture of the set at once, so they look shot by one photographer on one day.
 
-THE CHANNEL'S LOOK (every picture of every clip, it always wins): {house}
+THE CHANNEL'S LOOK (every PHOTO picture of every clip, it always wins): {house}
 {family}{bible}THIS CLIP'S STYLE SHEET (the editor's; keep what agrees with the channel's look): {sheet}
 THE CLIP: title "{title}"; thesis: {thesis}
 {glossary}
@@ -1077,20 +1140,31 @@ RULES
   people" do nothing). Say "a bare plaster wall", not "no poster on the wall".
 - Photographic, real-world vocabulary: a documentary still. The style note of a picture is the editor's hint;
   when it fights the channel's look, the channel's look wins (a microscopic subject becomes a macro photograph in
-  real light, never a glowing illustration).
+  real light, never a glowing illustration) — unless the picture has a REGISTER: then the register wins and the
+  channel's look does not apply to it.
 - Keep every fact the editor gives, the glossary's way of drawing a notion, and the subject of each picture.
-- {cliche}
+- PHOTO pictures: {cliche}
   When the editor's draft or a glossary line is one of these clichés, keep its subject and shoot it as a real
   thing at its true scale in a real place.
+{registers}
 - Nothing written anywhere in the scene (signs, screens, pages and labels show plain surfaces).
 - {faces} Nobody real and recognisable, ever.
 
-Return JSON: {{"prompts": [{{"k": 0, "prompt": "..."}}, ...]}} with the "k" of every picture above."""
+For EVERY picture also write "judge": one sentence, what a good picture of THIS one is (what must be seen, what
+would make it wrong) — the reviewer rates the picture against it.
+
+Return JSON: {{"prompts": [{{"k": 0, "prompt": "...", "judge": "..."}}, ...]}} with the "k" of every picture above."""
+REGISTER_TEXT = """- REGISTER PICTURES: a picture marked REGISTER below is not a photograph and the channel's look does not apply
+  to it. Write it in this order instead: 1. what is seen (the content: the experience, the object, the notion —
+  from the speaker's words and the register's iconography), 2. geometry and scale, 3. colours and light (the
+  register's, not the channel's palette), 4. composition for its frame, 5. medium and texture, 6. mood. Make it as
+  strange, saturated or vast as its register says; its "cheap" line is what to stay away from. Still 80 to 120
+  words, still nothing written anywhere, still nobody real."""
 ART_SCHEMA = {
     "type": "object",
     "properties": {"prompts": {"type": "array", "items": {
         "type": "object",
-        "properties": {"k": {"type": "integer"}, "prompt": {"type": "string"}},
+        "properties": {"k": {"type": "integer"}, "prompt": {"type": "string"}, "judge": {"type": "string"}},
         "required": ["k", "prompt"]}},
                    "family": {"type": "string", "enum": ["cinematic_photo", "editorial_photo", "scientific_dark", "archive"]}},
     "required": ["prompts"],
@@ -1188,11 +1262,17 @@ def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, s
         if m.get("idea"):
             lines.append(f"  idea: {m['idea']}")
         lines.append(f"  the editor's draft: {m.get('prompt') or '-'}")
-        if family is None:
+        reg = register_of(m_style)
+        if reg:
+            lines.append(f"  REGISTER \"{reg['name']}\" (not a photograph): {reg['look']}"
+                         + (f" Cheap version to stay away from: {reg['cheap']}" if reg.get("cheap") else ""))
+        elif family is None:
             lines.append(f"  style note: {STYLES.get(m_style, STYLES['photo'])}")
         else:
             lines.append(f"  tone: {STYLE_TONE.get(m_style, STYLE_TONE['photo'])}")
+    any_register = any(register_of((m.get("style") or "photo") if auto_style else style) for m in moments)
     return ART_PROMPT.format(house=house or "cinematic documentary photograph", sheet=sheet_txt, cliche=CLICHE_RULE,
+                             registers=(REGISTER_TEXT + "\n") if any_register else "",
                              family=family_text(family), bible=_bible_block(),
                              title=clip.get("video_title_for_youtube_short") or "-", thesis=thesis,
                              glossary=_art_glossary(moments, clip_text), moments="\n".join(lines),
@@ -1264,6 +1344,9 @@ def _apply_art(moments, data):
             m["prompt_editor"] = m.get("prompt") or ""
         m["prompt"] = _cut_at_sentence(text, PROMPT_MAX)
         m["art"] = True
+        judge = re.sub(r"\s+", " ", str(p.get("judge") or "")).strip()[:300]
+        if judge:
+            m["judge"] = judge
         taken += 1
     return taken
 
@@ -1309,7 +1392,7 @@ def _review_facts(cands):
     if bible.get("world"):
         lines.append("- WORLD of the episode (real things said in it): " + "; ".join(bible["world"]))
     if bible.get("avoid"):
-        lines.append("- AVOID (pictures the episode's director refused): " + "; ".join(bible["avoid"]))
+        lines.append("- WRONG FACTS the episode rules out: " + "; ".join(bible["avoid"]))
     named = {str(c.get("m", {}).get("notion") or "").lower() for c in cands}
     for g in (ai_brain.EPISODE_BRIEF or {}).get("glossary") or []:
         if str(g.get("term") or "").lower() in named:
@@ -1379,9 +1462,12 @@ def _review_lines(cands, words):
         tags = ([f"role: {c['m']['role']}"] if c["m"].get("role") else []) + \
                (["shown FULL SCREEN for ~3 s: judge it at that size"] if c["m"].get("hero") else []) + \
                ([f"take {c['take']} of the same moment: compare the takes, score each apart"] if c.get("take") else [])
+        reg = register_of(c["m"].get("style"))
         lines.append(f'- file "{os.path.basename(c["file"])}": idea "{c["m"].get("idea") or c["m"]["prompt"]}"'
                      f'{" (" + "; ".join(tags) + ")" if tags else ""}; '
                      f'said: "{c["m"].get("said") or "..." + near + "..."}"'
+                     + (f'; judge it on: "{c["m"]["judge"]}"' if c["m"].get("judge") else "")
+                     + (f'; REGISTER "{reg["name"]}" (not a photograph; its cheap version: {reg.get("cheap") or "-"})' if reg else "")
                      + (f'; prompt (ART-DIRECTED): "{c["m"]["prompt"]}"' if c["m"].get("art") else ""))
     return lines
 
@@ -1947,13 +2033,16 @@ def _graph(engine, text, seed, width=768, height=1344, steps=None):
     return out
 
 
-def _image_text(prompt, style, look="", house="", art=False, family=None, faces=False):
+def _image_text(prompt, style, look="", house="", art=False, family=None, faces=False, register=None):
     """The full prompt sent to the image model: the scene (with its guardrails), the channel's house look
     (profile broll.house_look, the same sentence in every image of every clip), this clip's style sheet, the
     style's own description (or, in the mixed layout, the clip's style ``family``) and the common rules.
     ``art``: the scene is the art director's prompt, which already states the look, the frame and the light:
     only the guardrails, the family and the hard rules follow it."""
     prompt, guard = guardrails(prompt, faces) if os.environ.get("BROLL_GUARDRAILS", "1") != "0" else (prompt, "")
+    if register:
+        # Not a photograph: the register's block carries the look; no house look, no family, no style sentence.
+        return " ".join(p for p in (prompt, guard, register, ART_RULES) if p)
     fam = FAMILIES.get(family) if family else None
     if art:
         return " ".join(p for p in (prompt, guard, fam, ART_RULES) if p)
@@ -1964,7 +2053,7 @@ def _image_text(prompt, style, look="", house="", art=False, family=None, faces=
 
 
 def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", art=False,
-                family=None, seed=None, steps=None, faces=False):
+                family=None, seed=None, steps=None, faces=False, register=None):
     """One 9:16 image from ComfyUI. Measured on an RTX 3060 (ComfyUI on
     PyTorch cu130 — the int8 kernels need it): Z-Image Turbo ~12 s per
     image, FLUX.1 schnell ~25 s; the first call of a job also loads the
@@ -1974,7 +2063,7 @@ def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768
     import random
     import uuid
     import httpx
-    text = _image_text(prompt, style, look, house, art, family, faces)
+    text = _image_text(prompt, style, look, house, art, family, faces, register)
     seed = random.randint(0, 2 ** 48) if seed is None else int(seed)
     graph = _graph(engine if engine in ENGINES else "zimage", text, seed, *size, steps=steps)
     base = _comfy_url()
@@ -2639,7 +2728,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     gpu = [0.0]      # seconds spent waiting for ComfyUI, for the clip's log line
     seeds = {}       # picture path -> the seed it was made with (kept in its item)
 
-    def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None, art=False, family=None):
+    def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None, art=False, family=None, register=None):
         """(path, "local", None) from ComfyUI, or (None, None, None) when this
         one picture could not be made: a second try with a new seed, then the
         picture is skipped and the clip goes on with the others (one refused
@@ -2654,7 +2743,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             seed = random.randint(0, 2 ** 48)
             try:
                 got = local_image(prompt, m_style, raw, engine=engine, size=size, look=look_text(sheet, m_style),
-                                  house=house, art=art, family=family, seed=seed, steps=steps, faces=faces)
+                                  house=house, art=art, family=family, seed=seed, steps=steps, faces=faces,
+                                  register=register)
                 seeds[got] = seed
                 return got, "local", None
             except Exception as e:
@@ -2724,8 +2814,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             if auto_style:
                 # One photographic series: whatever the planner picked outside photo / cinematic / neon is a photo.
                 for m in moments:
-                    if m.get("style") not in PREMIUM_STYLES:
-                        m["style"] = "photo"
+                    m["style"] = premium_style(m.get("style"))
             # The code has the last word on the hero: the planner's pick counts, the timing rules win.
             k_hero = pick_hero(moments, words[-1]["end"], avoid, head, block)
             for i, m in enumerate(moments):
@@ -2773,7 +2862,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # made without this clip's look.
             got, used, credit = make_image(m["prompt"], m_style, raw, m["query"], used_urls,
                                            None if m.get("notion") else m.get("sheet"), layout=m_layout,
-                                           art=bool(m.get("art")), family=m.get("family"))
+                                           art=bool(m.get("art")), family=m.get("family"), register=register_look(m))
             takes = HERO_TAKES if m_layout == "hero" else 1
             if got:
                 cands.append({"k": k, "m": m, "style": m_style, "file": got, "source": used, "credit": credit,
@@ -2783,7 +2872,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     raw_j = os.path.join(tmp, f"broll_{k}_t{j}.jpg")
                     got_j, used_j, credit_j = make_image(m["prompt"], m_style, raw_j, m["query"], used_urls,
                                                          None if m.get("notion") else m.get("sheet"), layout=m_layout,
-                                                         art=bool(m.get("art")), family=m.get("family"))
+                                                         art=bool(m.get("art")), family=m.get("family"),
+                                                         register=register_look(m))
                     if got_j:
                         cands.append({"k": k, "m": m, "style": m_style, "file": got_j, "source": used_j, "credit": credit_j,
                                       "layout": m_layout, "seed": seeds.get(got_j), "take": j})
@@ -2823,7 +2913,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                         art = bool(c["m"].get("art")) and len(c["better_prompt"].split()) >= ART_MIN_WORDS
                         got, used, credit = make_image(c["better_prompt"], c["style"], raw, c["m"]["query"],
                                                        used_urls, None if c["m"].get("notion") else c["m"].get("sheet"),
-                                                       layout=c["layout"], art=art, family=c["m"].get("family"))
+                                                       layout=c["layout"], art=art, family=c["m"].get("family"),
+                                                       register=register_look(c["m"]))
                         if got:
                             pairs.append((c, {**c, "file": got, "source": used, "credit": credit, "seed": seeds.get(got),
                                              "m": {**c["m"], "prompt": c["better_prompt"], "art": art}}))
@@ -2839,7 +2930,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                       f"{[c.get('look_score') for c in cands]}"
                       f"{f', {redone} redone' if redone else ''}, {len(kept)}/{len(cands)} kept")
                 for c in kept:
-                    if c["m"].get("notion") and not c.get("reused") and c["score"] >= NOTION_MIN_SCORE:
+                    if c["m"].get("notion") and not c.get("reused") and c["score"] >= NOTION_MIN_SCORE and c["style"] in STYLES:
                         if notion_put(c["m"]["notion"], c["style"], engine, c["layout"], c["file"], c["m"]["prompt"],
                                       c["score"], look=look, shot=c["m"].get("notion_shot") or c["m"].get("shot"),
                                       house=house, family=c["m"].get("family")):
@@ -2871,12 +2962,17 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     "source": c["source"],
                     "style": c["style"] if c["source"] in ("local", "gemini") else "photo",
                     "layout": "hero" if hero else ("full" if big else ("card" if mixed else "rise")), "_img": c["file"]}
+            reg = register_of(c["style"])
+            if reg:
+                item["register"] = reg["look"]       # not a photograph: a manual redo paints it in its register again
+            if m.get("judge"):
+                item["judge"] = m["judge"]
             if mixed:
                 # The size the picture was made at: a manual redo asks for the same one.
                 item["gen"] = list(_gen_size(c["layout"], hero_res))
-                if m.get("family"):
+                if m.get("family") and not reg:
                     item["family"] = m["family"]     # the clip's photographic recipe: a manual redo keeps it
-                if grade != "off":
+                if grade != "off" and not reg:
                     item["grade"] = grade            # applied when the picture is cut in, restyle included
                 if hero and cfg.get("sfx"):
                     item["sfx"] = True               # the whoosh, on the hero only
@@ -2955,14 +3051,14 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
 
 
 def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, sheet=None, gen=None, art=False,
-                     family=None, seed=None, steps=None):
+                     family=None, seed=None, steps=None, register=None):
     """One image again, from a new prompt / style (the manual review), on the
     local GPU. ``gen``: the (width, height) the first picture was made at (the
     item's "gen"), else the layout's usual size. ``art``: the item's prompt is
     the art director's (sent as is, when it still reads like one). Returns
     (path, source, credit); raises when nothing came."""
     cfg = cfg or {}
-    style = style if style in STYLES else "photo"
+    style = style if (style in STYLES or register) else "photo"   # a register picture keeps its register's name
     engine = "zimage"
     rise = cfg.get("layout") == "rise"
     try:
@@ -2979,7 +3075,7 @@ def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, 
         faces = mode == "always" or (mode == "hero" and cfg.get("layout") == "hero")
         return local_image(prompt, style, out_path, engine=engine, size=size, look=look_text(sheet, style),
                            house=house, art=art, family=family if family in FAMILIES else None, seed=seed,
-                           steps=steps, faces=faces), "local", None
+                           steps=steps, faces=faces, register=register or None), "local", None
     finally:
         comfy_release()
 

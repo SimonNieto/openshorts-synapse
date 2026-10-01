@@ -97,7 +97,7 @@ class TestTheReviewerReadsTheEpisode:
         text = broll._review_facts(cands)
         assert text.startswith("\nEPISODE FACTS") and "TRUE for this review, whatever your general knowledge" in text
         assert "WORLD of the episode" in text and "South Lawn" in text
-        assert "AVOID (pictures the episode's director refused)" in text and "hides the White House" in text
+        assert "WRONG FACTS the episode rules out" in text and "hides the White House" in text
         assert "- UFC 250 at the White House: a fight card on the lawn -> drawn as: An octagon cage" in text
         assert "Ego dissolution" not in text
 
