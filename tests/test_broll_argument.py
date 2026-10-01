@@ -42,19 +42,21 @@ class TestTheEditor:
         p = seen["prompt"]
         assert "THE THING NAMED, FIRST. Every image shows something the speaker NAMES or TELLS" in p
         assert "allowed ONLY when the speaker says that image himself" in p and "Zero images beats one allegory" in p
-        assert p.index("THE THING NAMED, FIRST") < p.index('Also write "style_sheet"') < p.index("NEVER THE AI CLICHÉ")
-        assert "At most 4 images; one or two when the clip\nnames little, none when it names nothing" in p
+        assert p.index("THE THING NAMED, FIRST") < p.index('Also write "style_sheet"') < p.index("NO SYMBOL FOR AN IDEA")
+        assert "At most 4 images." in p and "none when it names nothing" in p
         assert "Aim for" not in p and "visual_argument" not in p and "PROVES" not in p
         assert '"idea": the link the viewer makes between the picture and the words' in p
-        assert "SPECIFICITY TEST: if the same picture would do for any other clip about the same noun" in p
-        assert p.index("NEVER THE AI CLICHÉ") < p.index("SPECIFICITY TEST") < p.index("Never: something already visible")
+        # the specificity test lives inside the context rule now, not as a rule of its own
+        assert "a picture that would do for any\nother clip about the same noun is not the picture" in p
+        assert "SPECIFICITY TEST" not in p and "Nothing else (no neon" not in p
         assert "visual_argument" not in seen["schema"]["properties"]
+        assert seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"] == ["photo", "cinematic"]
 
     def test_the_hero_is_a_real_scene_or_nothing(self, monkeypatch):
         seen, _m = self._plan(monkeypatch)
         p = seen["prompt"]
-        assert "one image of the set MAY be shown FULL SCREEN" in p and "never an allegory" in p
-        assert "When the clip has no such scene,\nmark no hero" in p
+        assert "one image of the set MAY be shown FULL SCREEN" in p and "A hero is a real scene the speaker names" in p
+        assert "When the clip has no such scene, mark no hero" in p and "never on the punchline" not in p
         assert broll.HERO_MIN_SCORE == 2.5
 
     def test_the_pace_wants_things_not_ideas(self):

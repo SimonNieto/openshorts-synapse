@@ -40,7 +40,7 @@ class TestTheEditor:
     def test_mixed_asks_for_meaning_not_a_ticker(self, monkeypatch):
         text = _plan_prompt(monkeypatch, hero=True, density="normal")
         assert "up to three per 30 s of clip, plus the hero" in text and "ALWAYS have something to look at" not in text
-        assert "skip passing mentions" in text and "even if it is a passing mention" not in text
+        assert "Show what the speaker names when it is:" in text and "even if it is a passing mention" not in text
         assert "wide card above the speaker's head (about 60 % of the screen width, 2.2-3.5 s)" in text
         assert "except the one HERO, full screen for about 3 s" in text
         assert "about a third of the screen width" not in text

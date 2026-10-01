@@ -47,12 +47,14 @@ class TestPrompt:
         import ai_brain
         monkeypatch.setattr(ai_brain, "EPISODE_BRIEF", None)
         seen = {}
-        monkeypatch.setattr(broll, "claude_json", lambda prompt, schema, **k: seen.update(prompt=prompt) or {"moments": []})
+        monkeypatch.setattr(broll, "claude_json", lambda prompt, schema, **k: seen.update(prompt=prompt, schema=schema) or {"moments": []})
         words = _words(TEXT)
         broll.plan_with_claude({}, words, 4, [], auto_style=True)
-        assert '"comic"' in seen["prompt"] and "one series" not in seen["prompt"]
+        assert '"comic"' in seen["prompt"] and "comic" in seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"]
         broll.plan_with_claude({}, words, 4, [], auto_style=True, hero=True)
-        assert '"comic"' not in seen["prompt"] and "one series" in seen["prompt"] and '"neon"' not in seen["prompt"]
+        # the mixed layout: the schema is the rule (photo, cinematic and the episode's registers), the text lists nothing else
+        assert '"comic"' not in seen["prompt"] and '"neon"' not in seen["prompt"] and "Nothing else" not in seen["prompt"]
+        assert seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"] == ["photo", "cinematic"]
         assert "real micrograph or lab photograph" in seen["prompt"]
         broll.plan_with_claude({}, words, 4, [], auto_style=False, hero=True)
         assert '"style"' not in seen["prompt"]

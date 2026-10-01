@@ -91,18 +91,15 @@ DENSITY = {
 DENSITY_MIXED = {
     "less": {"pace": "Be SELECTIVE: one or two images per 30 s of clip, plus the hero when the clip has a real scene for it "
                      "— only where the speaker names or tells something worth seeing.",
-             "names": "Show something the speaker names only when it is a case, a place or an object at real scale that "
-                      "carries the point (skip passing mentions):"},
+             "names": "Show what the speaker names when it is:"},
     "normal": {"pace": "An image only where the speaker names or tells something that can be shown: up to three per 30 s "
                        "of clip, plus the hero when the clip has a real scene for it. The face alone is fine; a picture "
                        "of an idea is not.",
-               "names": "Show something the speaker names only when it is a case, a place or an object at real scale that "
-                        "carries the point (skip passing mentions):"},
+               "names": "Show what the speaker names when it is:"},
     "more": {"pace": "An image wherever the speaker names or tells something that can be shown: three or four per 30 s of "
                      "clip, plus the hero when the clip has a real scene for it. The face alone is fine; a picture of an "
                      "idea is not.",
-             "names": "Show something the speaker names when it is a case, a place or an object at real scale that "
-                      "carries the point, and the strongest passing mentions:"},
+             "names": "Show what the speaker names, and the strongest passing mentions, when it is:"},
 }
 # How the pictures sit on screen, for the editor: the historical small card under the captions, or the mixed
 # layout's wide card above the head and its one full-screen hero.
@@ -198,15 +195,13 @@ SFX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "s
 SFX_GAIN_DB = _knob("BROLL_SFX_DB", -18.0)
 SFX_LEAD = 0.12       # s before the picture: the sound announces it
 HERO_RULE = """HERO IMAGE: one image of the set MAY be shown FULL SCREEN for about 3 s: the clip's poster, the frame a cold
-viewer stops on. A hero is a concrete scene the speaker names or a story of the brief tells — a thing at its real
-scale, a place, an action, a creature — shot wide or medium, never a diagram, never an allegory (no lone figure
-before the vastness, no doorway for a threshold), never in the hook's first seconds, never on the punchline.
-First list "hero_options": THREE different candidate concepts (each: "anchor", the verbatim words where it would
-land; "picture", the scene in one sentence; "why", what the viewer sees) — take them from the episode's HERO IDEAS
-when one fits, or find better — then pick the strongest (clear at a glance, specific to this clip, the thing itself)
-and mark that moment "hero": true (one at most) with "hero_why" (one sentence). When the clip has no such scene,
-mark no hero: the cards alone beat a poster of an idea. Make the hero's image_prompt a complete scene with depth
-(foreground, subject, background): it fills a phone screen."""
+viewer stops on. A hero is a real scene the speaker names or a story of the brief tells — a thing at its real scale,
+a place, an action, a creature — shot wide or medium. First list "hero_options": THREE different candidate concepts
+(each: "anchor", the verbatim words where it would land; "picture", the scene in one sentence; "why", what the viewer
+sees) — take them from the episode's HERO IDEAS when one fits, or find better — then pick the strongest (clear at a
+glance, specific to this clip, the thing itself) and mark that moment "hero": true (one at most) with "hero_why" (one
+sentence). When the clip has no such scene, mark no hero: the cards alone beat a poster of an idea. Make the hero's
+image_prompt a complete scene with depth (foreground, subject, background): it fills a phone screen."""
 STOPWORDS = set("""a an the of to in on at by for with from and or but so as is are was were be been it its this that
 these those he she they we you i me him her them us my your his their our there here then than very just not no
 some any all one two three""".split())
@@ -283,9 +278,7 @@ STYLE_RULE_PREMIUM = """
   "cinematic" - the same when the moment is dramatic, dark or tense (a night scene, a danger, a fight) - never for
                 a patient, an illness, a disability or a death (use "photo" there).
   The microscopic or the invisible (neurons, receptors, molecules, hormones, DNA, cells, brain activity) is "photo"
-  too: a real micrograph or lab photograph in real light, never glowing neon lines.
-  Nothing else (no neon, no drawing, no comic, no diagram, no 3D render, no vintage): the images of a clip are
-  one series shot with one camera."""
+  too: a real micrograph or lab photograph in real light, never glowing neon lines."""
 PREMIUM_STYLES = ("photo", "cinematic")
 # The episode's registers (ai_brain.EPISODE_BIBLE["registers"], 1-oct-2026 evening): how THIS episode shows what a
 # camera cannot shoot (a trip, the cosmos, a notion, the microscopic). The editor names one in "style", the
@@ -299,8 +292,7 @@ STYLE_RULE_REGISTERS = """
 {lines}
   A register is not an allegory: an experience, a cosmic object, a notion the speaker names IS the thing named, and
   its register is how this episode shows it (see REGISTERS in the bible). Never a photo of a stand-in object (a vial
-  for a trip, a blackboard for an equation) when a register fits. Nothing else (no neon, no drawing, no comic, no
-  diagram, no 3D render, no vintage outside a register)."""
+  for a trip, a blackboard for an equation) when a register fits."""
 
 
 def registers():
@@ -367,18 +359,18 @@ PLAN_SCHEMA = {
 GROUNDING_RULE = """STICK TO THE CONTEXT, not to the noun: read the whole sentence around the anchor and the words
 before it (resolve "he", "it", "that thing" from them and from the brief); keep EVERY specific the speaker gives (the
 number, the place, the era, the kind of person, the action, the tone) and show what the sentence SAYS about the thing,
-not just the thing ("the knife went through the bone" -> a blade against a bone). TONE: a patient, an illness, a
-disability, a death is shown with warmth and dignity, never as a menace. BE CORRECT: the right organ, tool, animal
-or place, named precisely. SOUND-OFF TEST, eliminatory: someone who sees ONLY the picture, then hears "said", links
-them within a second - else pick a more telling scene, or no image."""
+not just the thing ("the knife went through the bone" -> a blade against a bone) — a picture that would do for any
+other clip about the same noun is not the picture. TONE: a patient, an illness, a disability, a death is shown with
+warmth and dignity, never as a menace. BE CORRECT: the right organ, tool, animal or place, named precisely. SOUND-OFF
+TEST, eliminatory: someone who sees ONLY the picture, then hears "said", links them within a second - else a more
+telling scene, or no image."""
 
 # The images of a clip are ONE sequence the viewer watches in a row: they must
 # tell the clip's story, not repeat one picture.
 SET_RULE = """THE SET TELLS THE STORY: seen one after the other, the pictures follow the arc (setup -> claim -> payoff)
-and never show the same subject or the same shot twice in a row ("subject" and "shot" of each moment). HUMAN CASE
-FIRST: when the clip follows a person, a patient or a real case (see the STORIES), that case is the thread of the
-pictures. CAST: describe a recurring person or place ONCE in "style_sheet"."cast" and copy it word for word into every
-image_prompt where it appears (never a real identifiable person); leave "cast" empty when nobody recurs."""
+and vary subject and shot. HUMAN CASE FIRST: when the clip follows a person, a patient or a real case (see the
+STORIES), that case is the thread. CAST: describe a recurring person or place ONCE in "style_sheet"."cast" and copy
+it word for word into every image_prompt where it appears; leave "cast" empty when nobody recurs."""
 
 # What makes a B-roll read as cheap AI stock on a science channel: the pictures
 # every generator draws first. The editor and the art director are told never
@@ -402,11 +394,11 @@ photographer finds it (the pill bottle on the counter at 7 am, the patient's han
 the named building). THE CASE BEFORE THE NOTION: the speaker's case in its real setting; the notion itself only when
 nothing concrete was said, and then as a real object, instrument or place. THE INVISIBLE, PHOTOGRAPHED: a neuron, a
 molecule, a hormone as a micrograph or a lab photograph in real light - unless the episode's REGISTERS say how.""")
-# A picture that would do for any clip about the same noun is not the picture: the editor and the reviewer apply
-# the same test, the episode's world (its bible) and the sentence's specifics are where the right one comes from.
-SPECIFIC_RULE = ("SPECIFICITY TEST: if the same picture would do for any other clip about the same noun (a generic brain, "
-                 "a generic pill, a generic crowd), it is not the picture: take it from the world of THIS episode and the "
-                 "specifics of THIS sentence.")
+# The editor's one line on clichés (the director, who writes the picture, reads the whole CLICHE_RULE).
+CLICHE_LINE = ("NO SYMBOL FOR AN IDEA (photo pictures): never the glowing brain, the light bulb, the handshake, the open "
+               "palms, the lone figure before the vastness, the glowing doorway - a real thing at its true scale instead; "
+               "a notion only when nothing concrete was said, as a real object or place; the invisible as a micrograph "
+               "or a lab photograph unless a REGISTER says how.")
 
 CLAUDE_SYSTEM ="You are a meticulous short-form video editor. You answer only with the requested JSON."
 CLAUDE_SYSTEM_VISION = ("You are a meticulous short-form video editor. The images are attached to the request, in "
@@ -448,10 +440,10 @@ same person on the same day, in plain words a few words long each: "palette" (th
 grain), "mood". Take them from the topic, the era and the tone of the stories, not from the words of one sentence.
 When an EPISODE VISUAL BIBLE is given below, its LOOK is the style_sheet of every clip of the episode: copy its
 palette, light and lens, add only this clip's era and mood; take the pictures from its WORLD (the things this
-episode really contains), return to its MOTIFS, and never show what its AVOID list names.
+episode really contains), return to its MOTIFS, and never show its WRONG FACTS.
 Each image has a "role": "example" (a case, a place, an object, a creature, a scene the speaker tells — the usual
 picture), "concept" (the notion itself, only when it is introduced, drawn as the glossary says: a real object,
-instrument or place, never a symbol), "consequence" (what it leads to, when the speaker says it in concrete terms).
+instrument or place), "consequence" (what it leads to, when the speaker says it in concrete terms).
 When a notion of the visual glossary is shown, draw it exactly as the glossary says (the channel always shows it the
 same way).
 
@@ -465,12 +457,9 @@ same way).
 - a number or a scale, shown as the things counted; an action the viewer cannot see in the video.
 {grounding}
 {set_rule}
-{cliche_rule}
-{specific_rule}
-Never: something already visible in the video (look at the frame sheets), a named real person,
-a brand (use a generic equivalent), an abstraction nobody can draw. At most {n} images; one or two when the clip
-names little, none when it names nothing — a cold viewer forgives a face alone, never a picture that has nothing to do
-with the words.
+{cliche_line}
+Never: something already visible in the video (look at the frame sheets), a named real person, a brand (use a
+generic equivalent). At most {n} images.
 
 Frame sheets: {sheets} — thumbnails of the clip every 2.5 s, each stamped with its time. Look at them first.
 
@@ -481,8 +470,8 @@ For each image give:
 - "time": the second the anchor is spoken (from the markers);
 - "said": the sentence (about 8-15 words, verbatim) this image illustrates;
 - "idea": the link the viewer makes between the picture and the words, in one sentence ("he says security blanket:
-  a blanket pulled tight around someone on a bed"), never a thesis the picture would prove;
-- "subject": the main thing seen, 1-3 words ("brain", "patient in bed", "implant") — two images never share it;
+  a blanket pulled tight around someone on a bed");
+- "subject": the main thing seen, 1-3 words ("brain", "patient in bed", "implant"), one per image;
 - "shot": wide | medium | close | macro | schematic;
 - "worth": 1-5, how much this picture adds to the clip (5 = the one picture the clip needs, 1 = a nice extra): when
   two moments are too close, the higher worth stays;
@@ -1018,14 +1007,16 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
                   title=title or "-",
                   hook=clip.get("viral_hook_text") or "-", before=before or "-", after=after or "-",
                   brief=brief or "(no brief for this video)", bible=_bible_block(), text=_numbered_text(words)[:6000],
-                  grounding=GROUNDING_RULE, set_rule=SET_RULE, cliche_rule=CLICHE_RULE, specific_rule=SPECIFIC_RULE,
+                  grounding=GROUNDING_RULE, set_rule=SET_RULE, cliche_line=CLICHE_LINE,
                   pace=pace_of[density]["pace"], names=pace_of[density]["names"],
                   gap=gap)
     prompt = CLAUDE_PLAN_PROMPT.format(lo=head, hi=duration - TAIL_FREE - SEG_DUR, **common)
     schema, attach, shots_dir = PLAN_SCHEMA, list(sheets or []), None
-    if register_names():
+    if hero:
+        # The mixed layout: the schema is the style rule — the two photo styles and the episode's registers, nothing
+        # else can even be returned (three lines of "no neon, no comic..." used to say it).
         schema = json.loads(json.dumps(schema))
-        schema["properties"]["moments"]["items"]["properties"]["style"]["enum"] += register_names()
+        schema["properties"]["moments"]["items"]["properties"]["style"]["enum"] = list(PREMIUM_STYLES) + register_names()
     if hero:
         prompt += "\n" + HERO_RULE
         schema = json.loads(json.dumps(schema))

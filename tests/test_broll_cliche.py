@@ -41,15 +41,14 @@ class TestTheRules:
         broll.plan_with_claude({}, _words(TEXT), 4, [], **kw)
         return seen["prompt"]
 
-    def test_the_editor_is_told_the_clichés_and_the_positive_rules(self, monkeypatch):
+    def test_the_editor_gets_one_line_on_clichés_the_director_the_whole_list(self, monkeypatch):
+        # Since the cut of 1-oct-2026 (night) the editor reads one line; the director, who writes the picture,
+        # reads the whole list (test_the_art_director_gets_the_same_ban).
         text = self._plan_prompt(monkeypatch, hero=True)
-        assert "NEVER THE AI CLICHÉ" in text and "A DETAIL THAT TELLS" in text and "THE CASE BEFORE THE NOTION" in text
-        assert "THE INVISIBLE, PHOTOGRAPHED" in text
-        for c in broll.CLICHES:
-            assert c in text
-        assert "glowing brain" in text and "light bulb" in text and "handshake" in text and "glowing eyes" in text
-        # the rule sits after the set rule and before the "Never:" line, once
-        assert text.count("NEVER THE AI CLICHÉ") == 1 and text.index("THE SET TELLS THE STORY") < text.index("NEVER THE AI CLICHÉ")
+        assert "NO SYMBOL FOR AN IDEA (photo pictures)" in text and "glowing brain" in text and "light bulb" in text
+        assert "NEVER THE AI CLICHÉ" not in text and "A DETAIL THAT TELLS" not in text
+        assert sum(c in text for c in broll.CLICHES) <= 2
+        assert text.index("THE SET TELLS THE STORY") < text.index("NO SYMBOL FOR AN IDEA") < text.index("Never: something already visible")
         assert "ALREADY SHOWN" not in text
 
     def test_the_premium_neon_is_a_micrograph_not_neon_lines(self, monkeypatch):

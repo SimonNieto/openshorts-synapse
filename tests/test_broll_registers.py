@@ -95,7 +95,8 @@ class TestTheEditor:
         enum = seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"]
         assert "vision" in enum and "cosmos" in enum and "photo" in enum
         assert "when the episode's REGISTERS (in the bible below) give it one" in p
-        assert "NEVER THE AI CLICHÉ (for a PHOTO picture; a register picture follows its register)" in p
+        assert "NO SYMBOL FOR AN IDEA (photo pictures)" in p and "NEVER THE AI CLICHÉ" not in p
+        assert enum == ["photo", "cinematic", "vision", "cosmos"]
 
     def test_without_registers_the_old_rule_and_schema(self, monkeypatch):
         seen, _m = self._plan(monkeypatch)

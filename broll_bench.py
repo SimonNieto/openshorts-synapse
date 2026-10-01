@@ -410,6 +410,7 @@ VERSIONS = {
     "v5": {},                                 # the thing named first (audit « sens », 1-oct evening), faces everywhere
     "v6": {},                                 # the episode's registers (vision, cosmos, math...) written by the bible
     "v7": {},                                 # the prohibitions rebuilt (three verdicts, worth, counted filters, lighter editor)
+    "v8": {},                                 # the editor cut to its nine rules, the schema enum as the style rule
 }
 BOARD_W = 1500
 THUMB_W, THUMB_H = 420, 300
