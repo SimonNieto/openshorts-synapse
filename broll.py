@@ -26,6 +26,7 @@ whether a channel wants images at all.
 import io
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -124,6 +125,9 @@ HERO_PUSH = _knob("BROLL_HERO_PUSH", 1.06)          # push-in over the time on s
 HERO_VIGNETTE = _knob("BROLL_HERO_VIGNETTE", 0.30)  # darkening at the corners (0-1): keeps the eye in the middle
 HERO_GRADIENT = _knob("BROLL_HERO_GRADIENT", 0.45)  # darkening at the very bottom (0-1): the captions stay readable on a bright picture
 HERO_GRAIN = _knob("BROLL_HERO_GRAIN", 5.0)         # film grain, sigma in 8-bit levels: hides the upscale and the AI smoothness
+# Sampler steps of the hero alone (BROLL_HERO_STEPS; 0 = the usual COMFYUI_ZIMAGE_STEPS, 8). Z-Image Turbo is
+# distilled for 8: more is a matter of taste to measure on the brain bench (+50 % of its 16 s at 12).
+HERO_STEPS = int(_knob("BROLL_HERO_STEPS", 0))
 # The small cards of the "mixed" layout: landscape 16:10 pictures made in that
 # ratio (1152x720: 8.6 s on the 3060), wide (profile broll.card_size, 60 % of the
 # frame), in the free band ABOVE the speaker's head by default (broll.card_position
@@ -1521,10 +1525,11 @@ def notion_delete(nid):
             pass
 
 
-def _graph(engine, text, seed, width=768, height=1344):
+def _graph(engine, text, seed, width=768, height=1344, steps=None):
     """ComfyUI API graph for one image (768x1344 = 9:16 by default; the cards
     ask 1152x720, the hero 896x1600); node "7" is the PreviewImage (ComfyUI's
-    temp folder, wiped on restart — not its gallery).
+    temp folder, wiped on restart — not its gallery). ``steps``: sampler steps
+    (the hero may ask more), else COMFYUI_ZIMAGE_STEPS (8).
 
     One engine: Z-Image Turbo (int8 model + fp8 Qwen3-4B encoder, 8 steps),
     ~12 s an image on an RTX 3060. The FLUX.1 schnell graph (25 s an image,
@@ -1547,7 +1552,7 @@ def _graph(engine, text, seed, width=768, height=1344):
         "3": {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["2", 0]}},
         "5": {"class_type": "KSampler", "inputs": {
             "model": ["m", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["4", 0],
-            "seed": seed, "steps": int(os.environ.get("COMFYUI_ZIMAGE_STEPS") or 8), "cfg": 1.0,
+            "seed": seed, "steps": int(steps or os.environ.get("COMFYUI_ZIMAGE_STEPS") or 8), "cfg": 1.0,
             "sampler_name": "res_multistep", "scheduler": "simple", "denoise": 1.0}},
     })
     return out
@@ -1570,16 +1575,19 @@ def _image_text(prompt, style, look="", house="", art=False, family=None):
 
 
 def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", art=False,
-                family=None):
+                family=None, seed=None, steps=None):
     """One 9:16 image from ComfyUI. Measured on an RTX 3060 (ComfyUI on
     PyTorch cu130 — the int8 kernels need it): Z-Image Turbo ~12 s per
     image, FLUX.1 schnell ~25 s; the first call of a job also loads the
-    models from disk (~45 s in all)."""
+    models from disk (~45 s in all). ``seed``: the one to use (kept in the
+    item, so a picture can be made again at another size or step count),
+    else a new one; ``steps``: the sampler steps, else the usual."""
     import random
     import uuid
     import httpx
     text = _image_text(prompt, style, look, house, art, family)
-    graph = _graph(engine if engine in ENGINES else "zimage", text, random.randint(0, 2 ** 48), *size)
+    seed = random.randint(0, 2 ** 48) if seed is None else int(seed)
+    graph = _graph(engine if engine in ENGINES else "zimage", text, seed, *size, steps=steps)
     base = _comfy_url()
     with httpx.Client(timeout=30) as http:
         r = http.post(f"{base}/prompt", json={"prompt": graph, "client_id": uuid.uuid4().hex})
@@ -2239,6 +2247,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         except ValueError:
             pass
     gpu = [0.0]      # seconds spent waiting for ComfyUI, for the clip's log line
+    seeds = {}       # picture path -> the seed it was made with (kept in its item)
 
     def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None, art=False, family=None):
         """(path, "local", None) from ComfyUI, or (None, None, None) when this
@@ -2247,12 +2256,16 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         prompt used to stop the whole job). Only a ComfyUI that stopped
         answering raises ComfyDown: images are made nowhere else."""
         size = _gen_size(layout if layout is not None else ("rise" if rise else "full"), hero_res)
+        steps = HERO_STEPS if layout == "hero" and HERO_STEPS > 0 else None
         last = None
         for attempt in range(2):
             t0 = time.time()
+            seed = random.randint(0, 2 ** 48)
             try:
-                return local_image(prompt, m_style, raw, engine=engine, size=size, look=look_text(sheet, m_style),
-                                   house=house, art=art, family=family), "local", None
+                got = local_image(prompt, m_style, raw, engine=engine, size=size, look=look_text(sheet, m_style),
+                                  house=house, art=art, family=family, seed=seed, steps=steps)
+                seeds[got] = seed
+                return got, "local", None
             except Exception as e:
                 last = e
                 if not comfy_available():
@@ -2362,7 +2375,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                                            art=bool(m.get("art")), family=m.get("family"))
             if got:
                 cands.append({"k": k, "m": m, "style": m_style, "file": got, "source": used, "credit": credit,
-                              "layout": m_layout})
+                              "layout": m_layout, "seed": seeds.get(got)})
 
         # Claude checks every image against the idea it must carry; a weak
         # generated one is redone once from its better prompt, then dropped
@@ -2381,7 +2394,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                                                        layout=c["layout"], family=c["m"].get("family"))
                         if got:
                             # A redo is the editor's kind of prompt again (the reviewer's better_prompt).
-                            redo.append((c, {**c, "file": got, "source": used, "credit": credit,
+                            redo.append((c, {**c, "file": got, "source": used, "credit": credit, "seed": seeds.get(got),
                                              "m": {**c["m"], "prompt": r["better_prompt"], "art": False}}))
                 if redo:
                     for (c, c2), r2 in zip(redo, review_images([c2 for _, c2 in redo], words)):
@@ -2442,6 +2455,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     item["reused"] = True
             if c.get("score"):
                 item["score"] = c["score"]
+            if c.get("seed") is not None:
+                item["seed"] = c["seed"]        # the picture can be made again: same seed, another size or steps
             if mixed:
                 # The premium drawing is fixed: premium edge, fade in, no exit zoom, cards CARD_SIZE % wide at
                 # CARD_POSITION. The rise layout's hold / enter / zoom / border / size / position / y do not apply.
@@ -2499,7 +2514,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
 
 
 def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, sheet=None, gen=None, art=False,
-                     family=None):
+                     family=None, seed=None, steps=None):
     """One image again, from a new prompt / style (the manual review), on the
     local GPU. ``gen``: the (width, height) the first picture was made at (the
     item's "gen"), else the layout's usual size. ``art``: the item's prompt is
@@ -2520,7 +2535,8 @@ def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, 
     try:
         art = bool(art) and len(str(prompt).split()) >= ART_MIN_WORDS
         return local_image(prompt, style, out_path, engine=engine, size=size, look=look_text(sheet, style),
-                           house=house, art=art, family=family if family in FAMILIES else None), "local", None
+                           house=house, art=art, family=family if family in FAMILIES else None, seed=seed,
+                           steps=steps), "local", None
     finally:
         comfy_release()
 

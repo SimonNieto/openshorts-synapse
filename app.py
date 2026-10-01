@@ -1,5 +1,6 @@
 import os
 import llm_backend
+import random
 import re
 import sys
 import uuid
@@ -3373,6 +3374,7 @@ class BrollRegenRequest(BaseModel):
     prompt: str
     style: Optional[str] = None
     profile_id: Optional[str] = None
+    seed: Optional[int] = None       # the item's seed again (a remake), else a new picture
 
 
 async def _broll_clip_ctx(job_id: str, clip_index: int, request: Request):
@@ -3435,16 +3437,17 @@ async def regenerate_clip_broll(job_id: str, clip_index: int, req: BrollRegenReq
     new_name = f"{stem}_r{int(time.time())}.jpg"
     out = os.path.join(output_dir, new_name)
     cfg = {**_broll_cfg(req.profile_id), "layout": item.get('layout') or "full"}
+    seed = int(req.seed) if req.seed is not None else random.randint(0, 2 ** 48)
     loop = asyncio.get_event_loop()
     try:
         _path, source, credit = await loop.run_in_executor(
             None, lambda: _broll.regenerate_image(prompt, style, out, item.get('query') or "", cfg,
                                                   os.getenv("GEMINI_API_KEY"), sheet=item.get('sheet'),
                                                   gen=item.get('gen'), art=bool(item.get('art')),
-                                                  family=item.get('family')))
+                                                  family=item.get('family'), seed=seed))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image failed: {str(e)[:300]}")
-    item.update(image=new_name, prompt=prompt, source=source,
+    item.update(image=new_name, prompt=prompt, source=source, seed=seed,
                 style=style if source in ("local", "gemini") else "photo")
     item.pop("score", None)
     _save_broll_meta(meta_file, meta)
