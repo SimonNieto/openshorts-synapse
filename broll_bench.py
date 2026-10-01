@@ -586,7 +586,8 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
         it["k"] = k
         if k is not None and k < len(w.moments):
             m = w.moments[k]
-            it.update(said=m.get("said"), shot=m.get("shot"), planner_hero=bool(m.get("hero")), key=m.get("key"))
+            it.update(said=m.get("said"), shot=m.get("shot"), planner_hero=bool(m.get("hero")), key=m.get("key"),
+                      hero_why=m.get("hero_why"))
         # The exact text ComfyUI got for the picture that was kept: the one whose text opens with the item's
         # prompt (the redo's when the redo was kept); else the first picture made for this moment.
         cands = [(name, s) for name, s in w.sent.items() if _k_of(name) == k]
@@ -606,6 +607,7 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
     return {"job": os.path.basename(job_dir), "clip": n, "version": version, "overrides": over,
             "duration": round(end - start, 2), "title": clip.get("video_title_for_youtube_short") or "",
             "hook": clip.get("viral_hook_text") or "", "thesis": thesis, "argument": argument, "sheet": sheet,
+            "hero_options": next((m.get("hero_options") for m in w.moments if m.get("hero_options")), []),
             "sequence": [m.get("subject") for m in w.moments if m.get("subject")],
             "planner": (rep or {}).get("planner"), "moments": w.moments, "items": items, "reviews": w.reviews,
             "sent": w.sent, "dropped": dropped, "seconds": seconds, "usage": usage, "images_made": w.images,
@@ -672,6 +674,8 @@ def _board(res, out_path):
     head += block(f_t, f"THESIS  {res.get('thesis') or '-'}", _C_BODY, BOARD_W - 2 * M)
     if res.get("argument"):
         head += block(f_t, f"ARGUMENT  {res['argument']}", _C_LABEL, BOARD_W - 2 * M)
+    if res.get("hero_options"):
+        head += block(f_s, "HERO OPTIONS  " + " | ".join(f"{o.get('picture')} ({o.get('why')})" for o in res["hero_options"]), _C_DIM, BOARD_W - 2 * M)
     if res.get("sheet"):
         head += block(f_t, "LOOK  " + "; ".join(f"{k}: {v}" for k, v in res["sheet"].items()), _C_BODY, BOARD_W - 2 * M)
     if res.get("sequence"):
@@ -692,7 +696,11 @@ def _board(res, out_path):
             line1 += f"   notion « {it['notion']} »" + (" (reused)" if it.get("reused") else "")
         if it.get("planner_hero"):
             line1 += "   planner's hero"
+        if it.get("take"):
+            line1 += f"   take {it['take']}"
         lines += block(f_b, line1, _C_LABEL)
+        if it.get("hero_why"):
+            lines += block(f_s, f"why this hero: {it['hero_why']}", _C_DIM)
         # "look" on an item is the card's drawing ("premium"); the review's look score (chantier E) is "look_score".
         lines += block(f_b, f"score {it.get('score', '-')}" + (f"   look {it['look_score']}" if it.get("look_score") is not None else ""),
                        _score_colour(it.get("score")))

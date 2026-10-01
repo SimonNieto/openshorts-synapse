@@ -156,6 +156,9 @@ HERO_GRAIN = _knob("BROLL_HERO_GRAIN", 5.0)         # film grain, sigma in 8-bit
 # Sampler steps of the hero alone (BROLL_HERO_STEPS; 0 = the usual COMFYUI_ZIMAGE_STEPS, 8). Z-Image Turbo is
 # distilled for 8: more is a matter of taste to measure on the brain bench (+50 % of its 16 s at 12).
 HERO_STEPS = int(_knob("BROLL_HERO_STEPS", 0))
+# Takes of the hero (BROLL_HERO_TAKES): the full-screen picture is made this many times (new seeds), the judge
+# sees them together and the best one stays. 16 s of GPU each on the 3060.
+HERO_TAKES = max(1, int(_knob("BROLL_HERO_TAKES", 2)))
 # The small cards of the "mixed" layout: landscape 16:10 pictures made in that
 # ratio (1152x720: 8.6 s on the 3060), wide (profile broll.card_size, 60 % of the
 # frame), in the free band ABOVE the speaker's head by default (broll.card_position
@@ -191,10 +194,14 @@ SCREEN_CARD_SIZE = 86      # % of the width: the viewer must READ this one (labe
 SFX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "sfx", "whoosh_soft.wav")
 SFX_GAIN_DB = _knob("BROLL_SFX_DB", -18.0)
 SFX_LEAD = 0.12       # s before the picture: the sound announces it
-HERO_RULE = """HERO IMAGE: one image of the set may be shown FULL SCREEN for about 3 s instead of small: the most VISUAL
-moment of the clip — a concrete scene (an example, a consequence, a place, an action), shot wide or medium, never a
-diagram, never in the hook's first seconds, never on the punchline. Mark it "hero": true (one at most) and make its
-image_prompt a complete scene with depth (foreground, subject, background): it fills a phone screen."""
+HERO_RULE = """HERO IMAGE: one image of the set is shown FULL SCREEN for about 3 s: the clip's poster, the frame a cold
+viewer stops on. First list "hero_options": THREE different candidate concepts (each: "anchor", the verbatim words
+where it would land; "picture", the scene in one sentence; "why", what it proves) — take them from the episode's
+HERO IDEAS when one fits, or find better — then pick the strongest (clear at a glance, specific to this clip, felt,
+never a cliché) and mark that moment "hero": true (one at most) with "hero_why" (one sentence). A hero is a concrete
+scene (an example, a consequence, a place, an action), shot wide or medium, never a diagram, never in the hook's
+first seconds, never on the punchline; make its image_prompt a complete scene with depth (foreground, subject,
+background): it fills a phone screen."""
 STOPWORDS = set("""a an the of to in on at by for with from and or but so as is are was were be been it its this that
 these those he she they we you i me him her them us my your his their our there here then than very just not no
 some any all one two three""".split())
@@ -726,6 +733,7 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None
                         "notion": str(m.get("notion") or "")[:80],
                         "real_photo": bool(m.get("real_photo")) and bool(str(m.get("search_query") or "").strip()),
                         "hero": bool(m.get("hero")),
+                        "hero_why": re.sub(r"\s+", " ", str(m.get("hero_why") or "")).strip()[:200],
                         "dur": dur,
                         "sheet": sheet,
                         "score": 1.0})
@@ -911,6 +919,10 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
         prompt += "\n" + HERO_RULE
         schema = json.loads(json.dumps(schema))
         schema["properties"]["moments"]["items"]["properties"]["hero"] = {"type": "boolean"}
+        schema["properties"]["moments"]["items"]["properties"]["hero_why"] = {"type": "string"}
+        schema["properties"]["hero_options"] = {"type": "array", "items": {
+            "type": "object", "properties": {"anchor": {"type": "string"}, "picture": {"type": "string"}, "why": {"type": "string"}},
+            "required": ["picture"]}}
     if ground:
         frames, hook_prompt = ground
         shots_dir = tempfile.mkdtemp(prefix="hookshots_")
@@ -951,6 +963,12 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     argument = re.sub(r"\s+", " ", str((data or {}).get("visual_argument") or "")).strip()[:300]
     if argument:
         print(f"   👁️ Visual argument: {argument}")
+    options = [{k: re.sub(r"\s+", " ", str(o.get(k) or "")).strip()[:200] for k in ("anchor", "picture", "why")}
+               for o in ((data or {}).get("hero_options") or []) if isinstance(o, dict) and str(o.get("picture") or "").strip()][:3]
+    chosen = next((m for m in moments if m.get("hero")), None)
+    if options:
+        print(f"   🎯 Hero options: " + " | ".join(o["picture"][:80] for o in options)
+              + (f" -> chosen \"{chosen['anchor']}\"" + (f": {chosen['hero_why']}" if chosen.get("hero_why") else "") if chosen else ""))
     cast = str(((data or {}).get("style_sheet") or {}).get("cast") or "")[:200]
     if cast:
         print(f"   🎭 Recurring subject: {cast}")
@@ -960,6 +978,7 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     for m in moments:
         m["thesis"] = thesis
         m["argument"] = argument
+        m["hero_options"] = options
     return moments
 
 
@@ -1014,6 +1033,8 @@ RULES
 - One series: the same direction and quality of light, the same palette and grade in every prompt of the set.
   Vary the shots (wide, medium, close, macro) so no two pictures look alike; the HERO is the widest and most
   cinematic frame of the set.
+- THE HERO is the clip's poster: one unforgettable frame that proves the visual argument. Spend your best sentences
+  on it: a real place, a real scale, a human presence or a telling object, depth, the light of the episode.
 - Describe what IS in the frame, never what is not: the image model ignores negations ("no text", "without
   people" do nothing). Say "a bare plaster wall", not "no poster on the wall".
 - Photographic, real-world vocabulary: a documentary still. The style note of a picture is the editor's hint;
@@ -1123,6 +1144,8 @@ def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, s
         if m.get("notion"):
             parts.append(f"notion: {m['notion']}")
         lines.append("- " + " · ".join(parts))
+        if mixed and m.get("hero"):
+            lines.append("  THE HERO, the clip's poster" + (f" — why this one: {m['hero_why']}" if m.get("hero_why") else ""))
         if m.get("said"):
             lines.append(f"  said: \"{m['said']}\"")
         if m.get("idea"):
@@ -1218,6 +1241,7 @@ def review_with_claude(cands, words, model=None, size=512):
         # Judged against the point of the clip, not only the word under it.
         prompt += (f"\nTHE CLIP'S POINT: {thesis}\nAn image that shows the word but does not help the viewer "
                    f"get that point scores 3 at most.")
+    prompt += _hero_test(cands)
     # Judged at 512 px (same names): the card is ~300 px wide on screen, and a
     # 1024 px image costs Claude ~4x the tokens for nothing it could not see.
     small_dir = tempfile.mkdtemp(prefix="review_")
@@ -1237,6 +1261,18 @@ def review_with_claude(cands, words, model=None, size=512):
     return [by_file.get(os.path.basename(f), {"score": 3}) for f in files]
 
 
+HERO_TEST = """
+THE HERO TEST (the image marked FULL SCREEN): a cold viewer sees it full screen for one second while hearing
+the words — do they get the point of the clip? Is it a frame a documentary would open with (a real place, a real
+scale, depth, the light of the scene)? Judge it harder than the cards: look 5 only for a frame you would print. When
+several takes of the same moment are given, score each apart and say in "problem" which take is the better and why."""
+
+
+def _hero_test(cands):
+    """The hero's own test, when a hero is among the pictures judged."""
+    return HERO_TEST if any(c.get("layout") == "hero" or c.get("m", {}).get("hero") for c in cands) else ""
+
+
 def _review_frame(cands):
     """The opening of the review: the mixed layout's cards and hero, or the historical small card."""
     mixed = any(c.get("layout") in ("hero", "card") for c in cands)
@@ -1248,7 +1284,8 @@ def _review_lines(cands, words):
     for c in cands:
         near = " ".join(w["text"] for w in words if c["m"]["t"] - 4 <= w["start"] <= c["m"]["t"] + 4)
         tags = ([f"role: {c['m']['role']}"] if c["m"].get("role") else []) + \
-               (["shown FULL SCREEN for ~3 s: judge it at that size"] if c["m"].get("hero") else [])
+               (["shown FULL SCREEN for ~3 s: judge it at that size"] if c["m"].get("hero") else []) + \
+               ([f"take {c['take']} of the same moment: compare the takes, score each apart"] if c.get("take") else [])
         lines.append(f'- file "{os.path.basename(c["file"])}": idea "{c["m"].get("idea") or c["m"]["prompt"]}"'
                      f'{" (" + "; ".join(tags) + ")" if tags else ""}; '
                      f'said: "{c["m"].get("said") or "..." + near + "..."}"'
@@ -1266,7 +1303,8 @@ def review_with_gemini(cands, words):
     if thesis:
         prompt += (f"\nTHE CLIP'S POINT: {thesis}\nAn image that shows the word but does not help the viewer "
                    f"get that point scores 3 at most.")
-    prompt += '\nReturn only: {"reviews": [{"file": "...", "seen": "...", "score": 1-5, "problem": "...", "better_prompt": "..."}]}'
+    prompt += _hero_test(cands)
+    prompt += '\nReturn only: {"reviews": [{"file": "...", "seen": "...", "score": 1-5, "look": 1-5, "problem": "...", "better_prompt": "..."}]}'
     parts = []
     for c in cands:
         im = Image.open(c["file"]).convert("RGB")
@@ -2642,9 +2680,19 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             got, used, credit = make_image(m["prompt"], m_style, raw, m["query"], used_urls,
                                            None if m.get("notion") else m.get("sheet"), layout=m_layout,
                                            art=bool(m.get("art")), family=m.get("family"))
+            takes = HERO_TAKES if m_layout == "hero" else 1
             if got:
                 cands.append({"k": k, "m": m, "style": m_style, "file": got, "source": used, "credit": credit,
-                              "layout": m_layout, "seed": seeds.get(got)})
+                              "layout": m_layout, "seed": seeds.get(got), **({"take": 1} if takes > 1 else {})})
+                # The hero is made again with new seeds: the judge sees the takes together, the best one stays.
+                for j in range(2, takes + 1):
+                    raw_j = os.path.join(tmp, f"broll_{k}_t{j}.jpg")
+                    got_j, used_j, credit_j = make_image(m["prompt"], m_style, raw_j, m["query"], used_urls,
+                                                         None if m.get("notion") else m.get("sheet"), layout=m_layout,
+                                                         art=bool(m.get("art")), family=m.get("family"))
+                    if got_j:
+                        cands.append({"k": k, "m": m, "style": m_style, "file": got_j, "source": used_j, "credit": credit_j,
+                                      "layout": m_layout, "seed": seeds.get(got_j), "take": j})
 
         # Claude checks every image against the idea it must carry; a weak
         # generated one is redone once from its better prompt, then dropped
@@ -2654,6 +2702,19 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 checked = [c for c in cands if not c.get("reused")]
                 for c, r in zip(checked, review_images(checked, words)):
                     _take_review(c, r)
+                # Several takes of one moment: the best one stays (meaning, then look; the first on a tie), the
+                # others leave before the redo rounds.
+                best = {}
+                for c in checked:
+                    if c.get("take") and (c["k"] not in best or _better(c, best[c["k"]])):
+                        best[c["k"]] = c
+                if best:
+                    drop = [c for c in checked if c.get("take") and best[c["k"]] is not c]
+                    cands = [c for c in cands if c not in drop]
+                    checked = [c for c in checked if c not in drop]
+                    for c in best.values():
+                        print(f"   🎬 Hero: take {c['take']} kept (score {c['score']}, look {c.get('look_score')}) of "
+                              f"{1 + len([d for d in drop if d['k'] == c['k']])}.")
                 redone = 0
                 for _round in range(max(REDO_CARD, REDO_HERO)):
                     # A weak picture is made again from the reviewer's better prompt: once for a card, twice for
@@ -2741,6 +2802,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 item["look_score"] = c["look_score"]
             if c.get("seed") is not None:
                 item["seed"] = c["seed"]        # the picture can be made again: same seed, another size or steps
+            if c.get("take"):
+                item["take"] = c["take"]        # which of the hero's takes the judge kept
             if mixed:
                 # The premium drawing is fixed: premium edge, fade in, no exit zoom, cards CARD_SIZE % wide at
                 # CARD_POSITION. The rise layout's hold / enter / zoom / border / size / position / y do not apply.

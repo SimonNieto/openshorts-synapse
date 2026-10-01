@@ -32,6 +32,7 @@ LONG = ("A lone soldier walks across the cracked desert floor at dawn, canteen i
 def _quiet(monkeypatch, tmp_path):
     monkeypatch.setenv("BROLL_NOTION_DIR", str(tmp_path / "notions"))
     monkeypatch.setattr(broll, "NOTION_DIR", str(tmp_path / "notions"))
+    monkeypatch.setattr(broll, "HERO_TAKES", 1)   # the hero's takes have their own tests
     monkeypatch.setattr(ai_brain, "EPISODE_BRIEF", None)
     monkeypatch.delenv("CLAUDE_EFFORT_BROLL", raising=False)
 

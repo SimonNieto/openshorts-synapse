@@ -33,6 +33,7 @@ BIBLE_RAW = {"world": ["a desert camp at dawn, three canvas tents", "a dented st
 @pytest.fixture(autouse=True)
 def _quiet(monkeypatch, tmp_path):
     monkeypatch.setattr(broll, "NOTION_DIR", str(tmp_path / "notions"))
+    monkeypatch.setattr(broll, "HERO_TAKES", 1)   # the hero's takes have their own tests
     monkeypatch.setattr(ai_brain, "EPISODE_BRIEF", None)
     monkeypatch.setattr(ai_brain, "EPISODE_BIBLE", None)
     monkeypatch.setenv("BROLL_NOTION_MEMORY", "0")

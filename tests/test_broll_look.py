@@ -16,6 +16,7 @@ from test_broll import TEXT, _transcript, _words
 def _quiet(monkeypatch):
     monkeypatch.delenv("EDIT_STYLE", raising=False)
     monkeypatch.setattr(broll, "NOTION_DIR", tempfile.mkdtemp(prefix="notions_"))
+    monkeypatch.setattr(broll, "HERO_TAKES", 1)   # the hero's takes have their own tests
     monkeypatch.setattr(broll, "comfy_release", lambda full=False: None)
 
 

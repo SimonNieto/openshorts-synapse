@@ -33,6 +33,7 @@ def _quiet_env(monkeypatch):
     monkeypatch.delenv("EDIT_STYLE", raising=False)
     monkeypatch.delenv("PLUS_FX_JSON", raising=False)
     monkeypatch.setattr(broll, "NOTION_DIR", tempfile.mkdtemp(prefix="notions_"))
+    monkeypatch.setattr(broll, "HERO_TAKES", 1)   # the hero's takes have their own tests
     monkeypatch.setattr(broll, "comfy_release", lambda full=False: None)
 
 

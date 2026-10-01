@@ -28,6 +28,7 @@ TEXT = ("Well you know this is the setup for the story. In 1998 the soldiers wer
 @pytest.fixture(autouse=True)
 def _quiet(monkeypatch, tmp_path):
     monkeypatch.setattr(broll, "NOTION_DIR", str(tmp_path / "notions"))
+    monkeypatch.setattr(broll, "HERO_TAKES", 1)   # the hero's takes have their own tests
     monkeypatch.setattr(ai_brain, "EPISODE_BRIEF", None)
     monkeypatch.delenv("BROLL_NOTION_MEMORY", raising=False)
     monkeypatch.setattr(broll, "comfy_release", lambda full=False: None)
