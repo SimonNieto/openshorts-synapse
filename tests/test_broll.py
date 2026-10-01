@@ -332,7 +332,7 @@ class TestPlannerPrompt:
         assert "hero" not in seen["schema"]["properties"]["moments"]["items"]["properties"]
         plain = seen["prompt"]
         broll.plan_with_claude({}, words, 4, [], hero=True)
-        assert seen["prompt"].startswith(plain) and "HERO IMAGE" in seen["prompt"]
+        assert "HERO IMAGE" not in plain and "HERO IMAGE" in seen["prompt"]
         assert seen["schema"]["properties"]["moments"]["items"]["properties"]["hero"] == {"type": "boolean"}
         assert "hero" not in broll.PLAN_SCHEMA["properties"]["moments"]["items"]["properties"]
 

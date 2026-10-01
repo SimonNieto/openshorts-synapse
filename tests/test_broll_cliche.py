@@ -63,7 +63,7 @@ class TestTheRules:
             assert c in text
 
     def test_the_reviewer_marks_a_cliché_down(self):
-        text = broll.REVIEW_PROMPT.format(dur=2.0, items="- x")
+        text = broll.REVIEW_PROMPT.format(frame=broll._review_frame([{"layout": "card"}]), items="- x")
         assert "STOCK OR CLICHÉ" in text and "scores 3 at" in text
         for c in broll.CLICHES:
             assert c in text

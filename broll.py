@@ -85,6 +85,34 @@ DENSITY = {
                       "passing, and use every concrete mention you find:"},
 }
 
+# The "mixed" layout (premium): an image only when it adds meaning, two to four per 30 s plus the hero. The texts
+# above stay for the historical layouts, whose pace is the ticker's.
+DENSITY_MIXED = {
+    "less": {"pace": "Be SELECTIVE: one or two images per 30 s of clip, plus the hero — only the moments where a picture "
+                     "says what the voice alone cannot.",
+             "names": "Show something the speaker names only when it is a case, a place or an object at real scale that "
+                      "carries the point (skip passing mentions):"},
+    "normal": {"pace": "An image only when it adds meaning the voice alone does not give: two to four per 30 s of clip, "
+                       "plus the hero. The face alone is fine; a picture that merely repeats the noun is not.",
+               "names": "Show something the speaker names only when it is a case, a place or an object at real scale that "
+                        "carries the point (skip passing mentions):"},
+    "more": {"pace": "An image only when it adds meaning the voice alone does not give: three or four per 30 s of clip, "
+                     "plus the hero. A picture that merely repeats the noun is not worth the cut.",
+             "names": "Show something the speaker names when it is a case, a place or an object at real scale that "
+                      "carries the point, and the strongest passing mentions:"},
+}
+# How the pictures sit on screen, for the editor: the historical small card under the captions, or the mixed
+# layout's wide card above the head and its one full-screen hero.
+FRAME_TEXT = {
+    "small": "Each one shows small (about a third of the screen width, under the captions) while the voice goes on,\n"
+             "from the anchor word to the end of its sentence or clause (1.5-3 s): put the anchor where the thing is named, and\n"
+             "prefer a sentence the image can accompany to its end.",
+    "mixed": "Each one shows as a wide card above the speaker's head (about 60 % of the screen width, 2.2-3.5 s) while the\n"
+             "voice goes on, from the anchor word to the end of its sentence or clause —\n"
+             "except the one HERO, full screen for about 3 s: put the anchor where the thing is named, and prefer a\n"
+             "sentence the image can accompany to its end.",
+}
+
 
 def image_count(base, density):
     """Images asked per clip: the profile's max, scaled by the density."""
@@ -322,9 +350,7 @@ MODE_RULES = {
                 "point."),
 }
 CLAUDE_PLAN_PROMPT = """You are the editor of a short-form clip cut from a longer conversation. Add up to {n} B-roll
-images. Each one shows small (about a third of the screen width, under the captions) while the voice goes on,
-from the anchor word to the end of its sentence or clause (1.5-3 s): put the anchor where the thing is named, and
-prefer a sentence the image can accompany to its end.
+images. {frame}
 
 FIRST understand the clip inside its episode (the EPISODE BRIEF below: who talks, what the episode is about, the
 visual glossary, the real stories told). Then write:
@@ -385,7 +411,12 @@ TRANSCRIPT OF THE CLIP (seconds from the clip start):
 
 SAID JUST AFTER THE CLIP (context only): {after}"""
 
-REVIEW_PROMPT = """Each image below will appear for about {dur:.1f} s, small (about a third of a phone screen's width),
+REVIEW_FRAME = {
+    "small": "Each image below will appear for about {dur:.1f} s, small (about a third of a phone screen's width),",
+    "mixed": "Each image below will appear as a wide card above the speaker's head (about 60 % of a phone screen's width)\n"
+             "for 2-3.5 s, or full screen for about 3 s when marked HERO,",
+}
+REVIEW_PROMPT = """{frame}
 while the speaker says the quoted words.
 
 STEP 1 - LOOK FIRST. For every image, before you consider what it was meant to show, write "seen": one plain sentence
@@ -811,7 +842,9 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     brief = ai_brain.brief_for_clip(ai_brain.EPISODE_BRIEF, f"{before} {clip_text} {after}", start,
                                     end if end is not None else start + duration)
     recent = recent_subjects()
+    pace_of = DENSITY_MIXED if hero else DENSITY      # the mixed layout has its own, selective pace
     common = dict(n=n, avoid=avoid_txt, sheets=", ".join(os.path.basename(p) for p in sheets or []) or "none",
+                  frame=FRAME_TEXT["mixed" if hero else "small"],
                   style_rule=((STYLE_RULE_PREMIUM if hero else STYLE_RULE) if auto_style else ""),
                   mode_rule=MODE_RULES.get(mode, MODE_RULES["mixed"]),
                   title=title or "-",
@@ -819,7 +852,7 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
                   brief=brief or "(no brief for this video)", text=_numbered_text(words)[:6000],
                   grounding=GROUNDING_RULE, set_rule=SET_RULE, cliche_rule=CLICHE_RULE,
                   recent=(RECENT_RULE.format("; ".join(recent)) + "\n") if recent else "",
-                  pace=DENSITY[density]["pace"], names=DENSITY[density]["names"],
+                  pace=pace_of[density]["pace"], names=pace_of[density]["names"],
                   gap=gap)
     prompt = CLAUDE_PLAN_PROMPT.format(lo=head, hi=duration - TAIL_FREE - SEG_DUR, **common)
     schema, attach, shots_dir = PLAN_SCHEMA, list(sheets or []), None
@@ -893,7 +926,8 @@ THE CLIP: title "{title}"; thesis: {thesis}
 THE PICTURES, in the order they are seen:
 {moments}
 
-Write ONE prompt per picture, 80 to 120 English words, in this fixed order, each part one or two plain sentences:
+Write ONE prompt per picture, 80 to 120 English words (never more: a longer prompt is cut at its last full sentence),
+in this fixed order, each part one or two plain sentences:
 1. SUBJECT AND ACTION: who or what, doing what, with every specific the editor gives (number, place, era, state).
 2. SETTING: the exact place and time of day, what surrounds the subject.
 3. COMPOSITION FOR ITS FRAME. A HERO fills a phone screen (9:16): the subject sits in the upper-middle third,
@@ -1032,6 +1066,16 @@ def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, s
                              glossary=_art_glossary(moments, clip_text), moments="\n".join(lines))
 
 
+def _cut_at_sentence(text, limit):
+    """``text`` within ``limit`` characters: cut after its last full sentence when one ends past the half,
+    else at the limit."""
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    end = max(head.rfind(". "), head.rfind("! "), head.rfind("? "))
+    return head[:end + 1].rstrip() if end >= limit // 2 else head
+
+
 def _apply_art(moments, data):
     """The art director's prompts onto the moments, by index: ``prompt`` becomes the director's (the editor's
     draft kept in ``prompt_editor``, ``art`` set), when it reads like a prompt. Returns how many were taken."""
@@ -1051,7 +1095,7 @@ def _apply_art(moments, data):
         m = moments[k]
         if not m.get("art"):
             m["prompt_editor"] = m.get("prompt") or ""
-        m["prompt"] = text[:PROMPT_MAX]
+        m["prompt"] = _cut_at_sentence(text, PROMPT_MAX)
         m["art"] = True
         taken += 1
     return taken
@@ -1090,7 +1134,7 @@ def review_with_claude(cands, words, model=None):
     thesis = next((c["m"].get("thesis") for c in cands if c["m"].get("thesis")), "")
     files = [c["file"] for c in cands]
     lines = _review_lines(cands, words)
-    prompt = REVIEW_PROMPT.format(dur=RISE_DUR, items="\n".join(lines))
+    prompt = REVIEW_PROMPT.format(frame=_review_frame(cands), items="\n".join(lines))
     if thesis:
         # Judged against the point of the clip, not only the word under it.
         prompt += (f"\nTHE CLIP'S POINT: {thesis}\nAn image that shows the word but does not help the viewer "
@@ -1114,6 +1158,12 @@ def review_with_claude(cands, words, model=None):
     return [by_file.get(os.path.basename(f), {"score": 3}) for f in files]
 
 
+def _review_frame(cands):
+    """The opening of the review: the mixed layout's cards and hero, or the historical small card."""
+    mixed = any(c.get("layout") in ("hero", "card") for c in cands)
+    return REVIEW_FRAME["mixed" if mixed else "small"].format(dur=RISE_DUR)
+
+
 def _review_lines(cands, words):
     lines = []
     for c in cands:
@@ -1132,7 +1182,7 @@ def review_with_gemini(cands, words):
     import ai_brain
     from google.genai import types
     thesis = next((c["m"].get("thesis") for c in cands if c["m"].get("thesis")), "")
-    prompt = REVIEW_PROMPT.format(dur=RISE_DUR, items="\n".join(_review_lines(cands, words)))
+    prompt = REVIEW_PROMPT.format(frame=_review_frame(cands), items="\n".join(_review_lines(cands, words)))
     if thesis:
         prompt += (f"\nTHE CLIP'S POINT: {thesis}\nAn image that shows the word but does not help the viewer "
                    f"get that point scores 3 at most.")

@@ -89,6 +89,16 @@ class TestApplying:
         broll._apply_art(ms, {"prompts": [{"k": 0, "prompt": ("word " * 200).strip()}]})
         assert len(ms[0]["prompt"]) == broll.PROMPT_MAX
 
+    def test_a_long_prompt_is_cut_after_its_last_full_sentence(self):
+        sentences = " ".join(f"Sentence number {i} says a few true things about the scene." for i in range(18))
+        ms = _moments()
+        broll._apply_art(ms, {"prompts": [{"k": 0, "prompt": sentences}]})
+        got = ms[0]["prompt"]
+        assert len(got) <= broll.PROMPT_MAX and got.endswith("about the scene.") and len(got) > broll.PROMPT_MAX - 80
+        assert broll._cut_at_sentence("short.", 900) == "short."
+        # a sentence ending before the half is not worth the loss: the limit cuts
+        assert len(broll._cut_at_sentence("a" * 100 + ". " + "b" * 900, 900)) == 900
+
     def test_the_editor_and_the_notion_caps_follow(self):
         assert broll.PROMPT_MAX == 900
         words = _words(TEXT)
