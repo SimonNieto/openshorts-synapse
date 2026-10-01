@@ -406,6 +406,7 @@ VERSIONS = {
     "art": {"art_director": True},            # chantier A: the art director writes the prompts
     "v2": {"art_director": True},             # the same, run again after each later chantier (its own boards)
     "v3": {},                                 # the recipe as it stands (E review, H faces, F notions), its own boards
+    "v4": {},                                 # with the episode's visual bible (J), the visual argument (K), the hero takes (L)
 }
 BOARD_W = 1500
 THUMB_W, THUMB_H = 420, 300
@@ -825,6 +826,15 @@ def cmd_plan(args):
         raise SystemExit(f"ComfyUI not reachable at {broll._comfy_url()} (start it in Pinokio)")
     brief, how = _full_brief(meta)
     ai_brain.EPISODE_BRIEF = brief
+    # The episode's visual bible: the job's, else made now (one call, remembered by ai_cache).
+    bible = meta.get("episode_bible") or None
+    if bible:
+        ai_brain.EPISODE_BIBLE = bible
+    elif brief and not args.no_bible:
+        print("   🎨 No visual bible in the job: reading the episode for it...", flush=True)
+        bible = ai_brain.episode_bible(brief, meta.get("transcript"))
+    else:
+        ai_brain.EPISODE_BIBLE = None
     job8 = os.path.basename(job_dir)[:8]
     print(f"🧠 brain bench: job {job8}, clips {clips}, versions {[v for v, _ in versions]}; brief {how} "
           f"({len((brief or {}).get('glossary') or [])} notions, {len((brief or {}).get('stories') or [])} stories); "
@@ -958,6 +968,7 @@ def main():
     p.add_argument("--versions", default="current", help="brain versions to run, e.g. current,v2 or v2:art_director=1")
     p.add_argument("--profile", default=None)
     p.add_argument("--fresh", action="store_true", help="ask Claude again instead of reading the remembered answers")
+    p.add_argument("--no-bible", action="store_true", help="plan without the episode's visual bible")
     p.set_defaults(fn=cmd_plan)
     p = sub.add_parser("board", help="the boards again from the JSON of an earlier plan run")
     p.add_argument("--job", required=True)

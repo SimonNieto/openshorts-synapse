@@ -753,3 +753,145 @@ def brief_for_clip(brief, clip_words_text, start, end):
         lines.append("STORIES TOLD AROUND THIS CLIP (real details, use them):")
         lines += [f"- {s['summary']} — {s.get('details') or ''}" for s in st]
     return "\n".join(lines)
+
+
+# --- the episode's visual bible (B-roll v2, 1-oct-2026) ------------------------------------
+# One read of the brief and the transcript per episode, by the art director's
+# model: the concrete WORLD the pictures are taken from, the episode's own LOOK
+# inside the house look, recurring MOTIFS, pictures to AVOID, and a hero
+# concept per story. Every clip's editor and art director read it; kept in the
+# job's metadata (episode_bible) and remembered by ai_cache.
+EPISODE_BIBLE = None
+BIBLE_RULES = """You are the director of photography of a documentary channel, preparing ONE episode's visual bible
+before its clips are cut. You have the episode brief and the transcript. Write, in English, concrete and specific
+to THIS episode (nothing generic that would fit any episode):
+- "world": 8 to 15 concrete things the pictures can be taken from, as said or clearly implied in the episode: real
+  places with their time of day, objects and instruments at their true scale, kinds of people and what they wear
+  or do, materials and textures. Each a short phrase ("a lab bench with a petri dish under one lamp"). Never a
+  symbol, a glowing brain, a neon neuron, a light bulb, a floating interface.
+- "look": the episode's own photographic look, inside a cinematic documentary style: "palette" (3-4 colours and
+  WHERE they live: "indigo in the windows, amber on the skin"), "light" (sources, direction, quality, time of
+  day), "lens" (focal lengths and distances the episode calls for), "texture" (surfaces, grain, materials), "mood"
+  (3-4 words). Choose it from what the episode is about and how it feels, so its clips look like one series.
+- "motifs": 3 to 5 recurring visual motifs the clips can return to (a hand, a window at dawn, a vial, a doorway...),
+  each with when to use it, in one line.
+- "avoid": 3 to 8 pictures never to use for this episode (the clichés of its subject, the wrong scale, the wrong
+  era, the misleading image), one line each.
+- "heroes": for each story or big theme of the brief, ONE picture that would make a cold viewer stop on a phone
+  (full screen, one second): "story" (its name), "picture" (one sentence: scene, subject, action, place, light),
+  "why" (what it proves or makes felt). 6 to 12 of them.
+Never invent a fact: a place, a year, a person must be in the transcript or the brief."""
+BIBLE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "world": {"type": "array", "items": {"type": "string"}},
+        "look": {"type": "object", "properties": {k: {"type": "string"} for k in ("palette", "light", "lens", "texture", "mood")}},
+        "motifs": {"type": "array", "items": {"type": "string"}},
+        "avoid": {"type": "array", "items": {"type": "string"}},
+        "heroes": {"type": "array", "items": {"type": "object", "properties": {
+            "story": {"type": "string"}, "picture": {"type": "string"}, "why": {"type": "string"}},
+            "required": ["story", "picture"]}},
+    },
+    "required": ["world", "look", "motifs", "avoid", "heroes"],
+}
+BIBLE_LOOK_KEYS = ("palette", "light", "lens", "texture", "mood")
+
+
+def brief_text(brief):
+    """The whole brief as prompt text (the bible reads all of it)."""
+    if not brief:
+        return ""
+    lines = []
+    sp = "; ".join(f"{s.get('name') or '?'} ({s.get('role')}{', ' + s['expertise'] if s.get('expertise') else ''})"
+                   for s in brief.get("speakers") or [])
+    if sp:
+        lines.append(f"SPEAKERS: {sp}")
+    if brief.get("topic"):
+        lines.append(f"TOPIC: {brief['topic']}")
+    if brief.get("themes"):
+        lines.append("THEMES: " + "; ".join(brief["themes"][:12]))
+    if brief.get("tone"):
+        lines.append(f"TONE: {brief['tone']}")
+    if brief.get("glossary"):
+        lines.append("GLOSSARY:")
+        lines += [f"- {g.get('term')}: {g.get('meaning')} -> {g.get('visual')}" for g in brief["glossary"][:20]]
+    if brief.get("stories"):
+        lines.append("STORIES:")
+        lines += [f"- {s.get('summary')} — {s.get('details') or ''}" for s in brief["stories"][:20]]
+    return "\n".join(lines)
+
+
+def _strs(v, n, width=160):
+    return [re.sub(r"\s+", " ", str(x)).strip()[:width] for x in (v if isinstance(v, list) else []) if str(x).strip()][:n]
+
+
+def _clean_bible(data, who):
+    """The model's answer -> the bible kept (short strings, bounded lists), or None when it has no world."""
+    if not isinstance(data, dict):
+        return None
+    look_raw = data.get("look") if isinstance(data.get("look"), dict) else {}
+    look = {k: re.sub(r"\s+", " ", str(look_raw.get(k) or "")).strip()[:200] for k in BIBLE_LOOK_KEYS}
+    look = {k: v for k, v in look.items() if v}
+    heroes = []
+    for h in data.get("heroes") if isinstance(data.get("heroes"), list) else []:
+        if isinstance(h, dict) and str(h.get("picture") or "").strip():
+            heroes.append({k: re.sub(r"\s+", " ", str(h.get(k) or "")).strip()[:300] for k in ("story", "picture", "why")})
+    bible = {"world": _strs(data.get("world"), 15), "look": look, "motifs": _strs(data.get("motifs"), 5, 200),
+             "avoid": _strs(data.get("avoid"), 8), "heroes": heroes[:12], "by": who}
+    return bible if bible["world"] else None
+
+
+def episode_bible(brief, transcript=None):
+    """The episode's visual bible (dict) or None; becomes EPISODE_BIBLE. One
+    call on the ``broll_art`` step (the art director's model), high effort,
+    remembered by ai_cache for the next run of the same source."""
+    global EPISODE_BIBLE
+    if not brief:
+        return None
+    words = _words(transcript) if transcript else []
+    text = _marked_text(words) if words else ""
+    if len(text) > 60_000:
+        text = text[:45_000] + "\n[...]\n" + text[-15_000:]
+    prompt = BIBLE_RULES + "\n\nEPISODE BRIEF:\n" + brief_text(brief)
+    if text:
+        prompt += "\n\nTRANSCRIPT ([mm:ss] markers):\n" + text
+
+    def gemini():
+        model = os.environ.get("GEMINI_MODEL_BRIEF") or os.environ.get("GEMINI_MODEL") or "gemini-3.1-flash-lite"
+        return gemini_json([prompt], model=model)[0]
+
+    try:
+        data, who = think("the episode's visual bible (B-roll)", prompt, BIBLE_SCHEMA, fallback=gemini, timeout=600,
+                          route_key="broll_art", effort="high")
+    except Exception as e:
+        print(f"   ⚠️ Episode visual bible failed ({str(e)[:160]}) — the clips are planned without it.", flush=True)
+        return None
+    bible = _clean_bible(data, who)
+    if bible:
+        print(f"   🎨 Episode visual bible ({who}): {len(bible['world'])} things of its world, look « {bible['look'].get('mood') or '-'} », "
+              f"{len(bible['motifs'])} motifs, {len(bible['heroes'])} hero ideas", flush=True)
+    else:
+        print("   ⚠️ Episode visual bible: nothing usable in the answer — the clips are planned without it.", flush=True)
+    EPISODE_BIBLE = bible
+    return bible
+
+
+def bible_text(bible=None, heroes=12):
+    """The bible as prompt text for a clip's editor and art director ("" without one)."""
+    bible = bible or EPISODE_BIBLE
+    if not bible:
+        return ""
+    lines = ["EPISODE VISUAL BIBLE (one read of the whole episode — the pictures come from this world and wear this look):"]
+    if bible.get("world"):
+        lines.append("WORLD: " + "; ".join(bible["world"]))
+    if bible.get("look"):
+        lines.append("LOOK: " + "; ".join(f"{k}: {v}" for k, v in bible["look"].items()))
+    if bible.get("motifs"):
+        lines.append("MOTIFS: " + " | ".join(bible["motifs"]))
+    if bible.get("avoid"):
+        lines.append("AVOID: " + "; ".join(bible["avoid"]))
+    if bible.get("heroes") and heroes:
+        lines.append("HERO IDEAS (one picture per story, for the full-screen hero):")
+        lines += [f"- {h.get('story')}: {h.get('picture')}" + (f" ({h['why']})" if h.get("why") else "")
+                  for h in bible["heroes"][:heroes]]
+    return "\n".join(lines)

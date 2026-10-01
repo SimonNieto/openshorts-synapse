@@ -360,6 +360,9 @@ Also write "style_sheet": ONE visual direction for the whole set of images of th
 same person on the same day, in plain words a few words long each: "palette" (the 2-4 dominant colours), "light"
 (kind and direction of the light), "era" (the period the story is in, or "present day"), "camera" (lens, angle,
 grain), "mood". Take them from the topic, the era and the tone of the stories, not from the words of one sentence.
+When an EPISODE VISUAL BIBLE is given below, its LOOK is the style_sheet of every clip of the episode: copy its
+palette, light and lens, add only this clip's era and mood; take the pictures from its WORLD (the things this
+episode really contains), return to its MOTIFS, and never show what its AVOID list names.
 The images serve that thesis and that arc — never an isolated word. Typical roles ("role" of each moment):
 "concept" (the notion the point rests on, when it is introduced), "example" (the concrete case, with the REAL
 details from the stories: place, year, kind of people, study), "consequence" (what it leads to — often the payoff).
@@ -401,7 +404,7 @@ Only moments between {lo:.1f}s and {hi:.1f}s{avoid}, at least {gap:g} s apart.
 
 EPISODE BRIEF:
 {brief}
-
+{bible}
 CLIP TITLE: {title}
 HOOK: {hook}
 SAID JUST BEFORE THE CLIP (context only): {before}
@@ -605,6 +608,29 @@ def look_text(sheet, style):
         return ""
     parts = [f"{k}: {sheet[k]}" for k in SHEET_FIELDS.get(style, SHEET_ALL) if sheet.get(k)]
     return ("Same visual look as the other images of the set — " + "; ".join(parts) + ".") if parts else ""
+
+
+def _bible_block():
+    """The episode's visual bible as prompt text, with a blank line after it ("" without one)."""
+    import ai_brain
+    text = ai_brain.bible_text()
+    return text + "\n" if text else ""
+
+
+def _sheet_with_bible(sheet):
+    """The clip's style sheet with the episode's look laid over it (palette, light, camera): the editor keeps
+    only the era and the mood of its clip. The sheet as it is without a bible."""
+    import ai_brain
+    look = (ai_brain.EPISODE_BIBLE or {}).get("look") or {}
+    if not look:
+        return sheet
+    out = dict(sheet or {})
+    for k_sheet, k_look in (("palette", "palette"), ("light", "light"), ("camera", "lens")):
+        if look.get(k_look):
+            out[k_sheet] = re.sub(r"\s+", " ", look[k_look]).strip(" .")[:120]
+    if not out.get("mood") and look.get("mood"):
+        out["mood"] = look["mood"][:70]
+    return out or None
 
 
 def _key_index(words, i, n):
@@ -860,7 +886,7 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
                   mode_rule=MODE_RULES.get(mode, MODE_RULES["mixed"]),
                   title=title or "-",
                   hook=clip.get("viral_hook_text") or "-", before=before or "-", after=after or "-",
-                  brief=brief or "(no brief for this video)", text=_numbered_text(words)[:6000],
+                  brief=brief or "(no brief for this video)", bible=_bible_block(), text=_numbered_text(words)[:6000],
                   grounding=GROUNDING_RULE, set_rule=SET_RULE, cliche_rule=CLICHE_RULE,
                   recent=(RECENT_RULE.format("; ".join(recent)) + "\n") if recent else "",
                   pace=pace_of[density]["pace"], names=pace_of[density]["names"],
@@ -902,6 +928,8 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
         import hook_grounding
         hook_grounding.apply(clip, (data or {}).get("hook"), len(ground[0]))
     moments = _parse_moments(data, words, n, avoid, gap, dur_range, tail, head, block)
+    for m in moments:
+        m["sheet"] = _sheet_with_bible(m.get("sheet"))
     apply_notions(moments, ai_brain.EPISODE_BRIEF, f"{before} {clip_text} {after}")
     thesis = str((data or {}).get("thesis") or "")[:300]
     if thesis:
@@ -942,7 +970,7 @@ moments of this clip that get a picture and what each one must show; you write t
 paint from, for EVERY picture of the set at once, so they look shot by one photographer on one day.
 
 THE CHANNEL'S LOOK (every picture of every clip, it always wins): {house}
-{family}THIS CLIP'S STYLE SHEET (the editor's; keep what agrees with the channel's look): {sheet}
+{family}{bible}THIS CLIP'S STYLE SHEET (the editor's; keep what agrees with the channel's look): {sheet}
 THE CLIP: title "{title}"; thesis: {thesis}
 {glossary}
 THE PICTURES, in the order they are seen:
@@ -1086,7 +1114,7 @@ def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, s
         else:
             lines.append(f"  tone: {STYLE_TONE.get(m_style, STYLE_TONE['photo'])}")
     return ART_PROMPT.format(house=house or "cinematic documentary photograph", sheet=sheet_txt, cliche=CLICHE_RULE,
-                             family=family_text(family),
+                             family=family_text(family), bible=_bible_block(),
                              title=clip.get("video_title_for_youtube_short") or "-", thesis=thesis,
                              glossary=_art_glossary(moments, clip_text), moments="\n".join(lines),
                              faces=FACE_TEXT.get(faces, FACE_TEXT["never"]))

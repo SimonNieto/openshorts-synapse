@@ -3038,6 +3038,13 @@ if __name__ == '__main__':
             # call as the scoring pass when it can).
             clips_data = get_viral_clips(transcript, duration, video_path=input_video)
             episode_brief = ai_brain.EPISODE_BRIEF
+            if episode_brief and os.environ.get("PLUS_BROLL_JSON") and ai_brain.EPISODE_BIBLE is None:
+                # The episode's visual bible (one call): the world, the look, the motifs and the hero ideas
+                # every clip's B-roll editor and art director read.
+                try:
+                    ai_brain.episode_bible(episode_brief, transcript)
+                except Exception as e:
+                    print(f"   ⚠️ Episode visual bible failed ({type(e).__name__}: {e}) — B-roll without it.")
         else:
             clips_data = get_visual_clips(input_video, duration)
 
@@ -3055,6 +3062,8 @@ if __name__ == '__main__':
             clips_data['transcript'] = transcript or {"language": "none", "segments": []}
             if episode_brief:
                 clips_data['episode_brief'] = episode_brief
+            if ai_brain.EPISODE_BIBLE:
+                clips_data['episode_bible'] = ai_brain.EPISODE_BIBLE
             # The clip editor's re-render path needs to find the source video
             # again and reproduce the render settings, so record both. The
             # basename is enough — the file sits in the job dir (URL jobs with
