@@ -106,6 +106,32 @@ DUR_MAX = 3.0     # at least this long, at most that long
 DUR_TAIL = 0.2    # s kept after the last word of the clause
 DUR_NEXT_GAP = 0.3  # s left free before the next image
 KEY_LEAD = 0.12   # s the image comes up before its key word is said (the pop-in takes ~0.4 s)
+
+# "mixed" layout (premium look): ONE full-screen "hero" picture on the most visual
+# moment of the clip, the other images as small cards. The hero is generated in
+# 9:16 at the biggest size the GPU gives in ~20 s (measured on an RTX 3060 with
+# Z-Image Turbo: 896x1600 in 16 s, 1024x1792 in 23 s; profile broll.hero_res).
+HERO_GEN = {"std": (896, 1600), "high": (1024, 1792)}
+HERO_DUR_MIN, HERO_DUR_MAX = 2.5, 3.5   # s on screen: long enough to read as a shot, short enough to come back to the face
+
+
+def _knob(name, default):
+    """A matter-of-taste value, settable from the env (BROLL_<NAME>) without a code change."""
+    try:
+        return float(os.environ.get(name) or default)
+    except ValueError:
+        return default
+
+
+HERO_FADE = _knob("BROLL_HERO_FADE", 0.35)          # s: crossfade in and out (a pop reads as a sticker, a dissolve as a cut)
+HERO_PUSH = _knob("BROLL_HERO_PUSH", 1.06)          # push-in over the time on screen: 6 % is felt, not seen
+HERO_VIGNETTE = _knob("BROLL_HERO_VIGNETTE", 0.30)  # darkening at the corners (0-1): keeps the eye in the middle
+HERO_GRADIENT = _knob("BROLL_HERO_GRADIENT", 0.45)  # darkening at the very bottom (0-1): the captions stay readable on a bright picture
+HERO_GRAIN = _knob("BROLL_HERO_GRAIN", 5.0)         # film grain, sigma in 8-bit levels: hides the upscale and the AI smoothness
+HERO_RULE = """HERO IMAGE: one image of the set may be shown FULL SCREEN for about 3 s instead of small: the most VISUAL
+moment of the clip — a concrete scene (an example, a consequence, a place, an action), shot wide or medium, never a
+diagram, never in the hook's first seconds, never on the punchline. Mark it "hero": true (one at most) and make its
+image_prompt a complete scene with depth (foreground, subject, background): it fills a phone screen."""
 STOPWORDS = set("""a an the of to in on at by for with from and or but so as is are was were be been it its this that
 these those he she they we you i me him her them us my your his their our there here then than very just not no
 some any all one two three""".split())
@@ -368,6 +394,49 @@ def _space(moments, n, gap=MIN_GAP):
     return sorted(kept, key=lambda m: m["t"])
 
 
+# The "hero" of a "mixed" clip: the one image shown full screen (~3 s). Chosen
+# here and not only by the planner, so a Gemini plan gets one too and a planner's
+# pick that breaks the timing rules is overruled.
+HERO_ROLE = {"example": 2.0, "consequence": 2.0, "concept": 0.0}
+HERO_SHOT = {"wide": 1.5, "medium": 1.0, "close": 0.5, "macro": 0.0, "schematic": -1.0}
+HERO_STYLE = {"diagram": -2.0, "drawing": -1.0, "neon": -1.0, "comic": -1.0, "3d": -0.5}
+HERO_MIN_SCORE = 1.5   # a plain photo of a concept, close-up, just makes it; a schematic or a diagram never does
+
+
+def hero_dur(m):
+    """Time on screen of the hero: its sentence (``dur``) plus the crossfade, within HERO_DUR_MIN..MAX."""
+    return round(min(HERO_DUR_MAX, max(HERO_DUR_MIN, float(m.get("dur") or 0) + HERO_FADE)), 2)
+
+
+def hero_fits(m, duration, avoid):
+    """A hero never runs into the hook's seconds, the last TAIL_FREE s, or within
+    1.2 s of the punchline — on its whole time on screen, not only its first frame."""
+    t, d = m["t"], hero_dur(m)
+    if t < HEAD_FREE or t + d > duration - TAIL_FREE:
+        return False
+    return all(t + d <= a - 1.2 or t >= a + 1.2 for a in avoid)
+
+
+def pick_hero(moments, duration, avoid):
+    """Index of the moment shown full screen, or None: a concrete scene (an example
+    or a consequence, a wide or medium shot, a photographic style) that fits the
+    timing rules. The planner's own "hero" counts for a lot, a moment in the second
+    part of the clip (the payoff) a little; a tie goes to the later one. None when
+    no moment reads well on a whole phone screen (a diagram, a schematic)."""
+    best, best_score = None, 0.0
+    for i, m in enumerate(moments):
+        if not hero_fits(m, duration, avoid) or m.get("notion"):
+            continue
+        score = 1.0 + HERO_ROLE.get(m.get("role") or "", 0.0) + HERO_SHOT.get(m.get("shot") or "", 0.5)
+        score += HERO_STYLE.get(m.get("style") or "photo", 0.0)
+        score += 3.0 if m.get("hero") else 0.0
+        score += 1.0 if m.get("real_photo") else 0.0
+        score += 0.5 if m["t"] > duration * 0.35 else 0.0
+        if best is None or score > best_score + 1e-9 or (abs(score - best_score) < 1e-9 and m["t"] > moments[best]["t"]):
+            best, best_score = i, score
+    return best if best is not None and best_score >= HERO_MIN_SCORE else None
+
+
 def _find_anchor(words, anchor, near):
     toks = _tokens(anchor)
     if not toks:
@@ -486,6 +555,7 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP):
                         "role": m.get("role") if m.get("role") in ("concept", "example", "consequence") else None,
                         "notion": str(m.get("notion") or "")[:80],
                         "real_photo": bool(m.get("real_photo")) and bool(str(m.get("search_query") or "").strip()),
+                        "hero": bool(m.get("hero")),
                         "dur": _moment_dur(words, k, t, duration),
                         "sheet": sheet,
                         "score": 1.0})
@@ -625,11 +695,12 @@ def apply_notions(moments, brief, clip_text):
 
 
 def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, start=0.0, end=None,
-                     sheets=None, ground=None, mode="mixed", real_photos=False, density="normal"):
+                     sheets=None, ground=None, mode="mixed", real_photos=False, density="normal", hero=False):
     """Claude reads the clip, the conversation around it and (``sheets``) what
     is on screen, and places images that carry the IDEA being said.
     ``ground``: hook_grounding.request()'s (frames, prompt) — the hook is
-    rewritten from the screen in this same call instead of a second one."""
+    rewritten from the screen in this same call instead of a second one.
+    ``hero``: the "mixed" layout — it may name the one image worth the whole screen."""
     import ai_brain
     duration = words[-1]["end"]
     before, after = _context(transcript, start, end if end is not None else start + duration)
@@ -649,6 +720,10 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     if real_photos:
         prompt += "\n" + REAL_PHOTO_RULE
     schema, attach, shots_dir = PLAN_SCHEMA, list(sheets or []), None
+    if hero:
+        prompt += "\n" + HERO_RULE
+        schema = json.loads(json.dumps(schema))
+        schema["properties"]["moments"]["items"]["properties"]["hero"] = {"type": "boolean"}
     if ground:
         frames, hook_prompt = ground
         shots_dir = tempfile.mkdtemp(prefix="hookshots_")
@@ -660,7 +735,7 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
         names = ", ".join(f"screen_{k + 1}.jpg" for k in range(len(frames)))
         prompt += (f"\n\nSECOND TASK, same clip — field \"hook\". The files {names} are {len(frames)} frames of "
                    f"this clip at full resolution (read the on-screen text on them).\n{hook_prompt}")
-        schema = json.loads(json.dumps(PLAN_SCHEMA))
+        schema = json.loads(json.dumps(schema))
         schema["properties"]["hook"] = {"type": "object", "properties": {
             "on_screen": {"type": "string"}, "viral_hook_text": {"type": "string"},
             "video_title_for_youtube_short": {"type": "string"}},
@@ -729,8 +804,10 @@ def _review_lines(cands, words):
     lines = []
     for c in cands:
         near = " ".join(w["text"] for w in words if c["m"]["t"] - 4 <= w["start"] <= c["m"]["t"] + 4)
+        tags = ([f"role: {c['m']['role']}"] if c["m"].get("role") else []) + \
+               (["shown FULL SCREEN for ~3 s: judge it at that size"] if c["m"].get("hero") else [])
         lines.append(f'- file "{os.path.basename(c["file"])}": idea "{c["m"].get("idea") or c["m"]["prompt"]}"'
-                     f'{" (role: " + c["m"]["role"] + ")" if c["m"].get("role") else ""}; '
+                     f'{" (" + "; ".join(tags) + ")" if tags else ""}; '
                      f'said: "{c["m"].get("said") or "..." + near + "..."}"')
     return lines
 
@@ -924,40 +1001,68 @@ def _keep_meaningful(cands):
 NOTION_MIN_SCORE = 5   # kept and shown in EVERY later clip: only a picture the judge rates perfect
 
 
-def _notion_path(term, style, engine, rise):
+# One kept picture per shape: the small square card, the tall full-frame image,
+# the full-screen hero (bigger) and (premium cards) the wide 16:10 card.
+_SHAPES = {"rise": "sq", "full": "tall", "hero": "hero", "card": "wide"}
+_SHAPE_LAYOUT = {v: k for k, v in _SHAPES.items()}
+
+
+def _shape(layout):
+    """Shape key of a layout (True / False mean the historical rise / full)."""
+    if layout is True:
+        return "sq"
+    if layout is False or layout is None:
+        return "tall"
+    return _SHAPES.get(layout, "tall")
+
+
+def _layout_of(shape):
+    return _SHAPE_LAYOUT.get(shape, "full")
+
+
+def _gen_size(layout, hero_res="std"):
+    """Pixels asked from the image model for a layout family."""
+    if layout in ("rise", True):
+        return RISE_GEN
+    if layout == "hero":
+        return HERO_GEN.get(hero_res) or HERO_GEN["std"]
+    return (768, 1344)
+
+
+def _notion_path(term, style, engine, layout):
     import hashlib
     norm = re.sub(r"\W+", " ", str(term or "").lower()).strip()
     import unicodedata
     ascii_norm = unicodedata.normalize("NFKD", norm).encode("ascii", "ignore").decode()   # plain file / URL names
     slug = re.sub(r"\s+", "-", ascii_norm.strip())[:40] or "notion"
     h = hashlib.sha1(norm.encode()).hexdigest()[:6]
-    return os.path.join(NOTION_DIR, f"{slug}-{h}__{style}__{engine}__{'sq' if rise else 'tall'}.jpg")
+    return os.path.join(NOTION_DIR, f"{slug}-{h}__{style}__{engine}__{_shape(layout)}.jpg")
 
 
-def notion_get(term, style, engine, rise, dest):
+def notion_get(term, style, engine, layout, dest):
     """Copy the kept picture of ``term`` to ``dest`` and return ``dest``; None if none."""
     if os.environ.get("BROLL_NOTION_MEMORY", "1") == "0" or not term:
         return None
-    src = _notion_path(term, style, engine, rise)
+    src = _notion_path(term, style, engine, layout)
     if not os.path.exists(src):
         return None
     shutil.copy2(src, dest)
     return dest
 
 
-def notion_put(term, style, engine, rise, src, prompt="", score=None):
+def notion_put(term, style, engine, layout, src, prompt="", score=None):
     """Keep ``src`` as the picture of ``term`` unless one is already kept (the
     first good one stays the channel's picture). Never raises."""
     if os.environ.get("BROLL_NOTION_MEMORY", "1") == "0" or not term:
         return False
     try:
-        dest = _notion_path(term, style, engine, rise)
+        dest = _notion_path(term, style, engine, layout)
         if os.path.exists(dest):
             return False
         os.makedirs(NOTION_DIR, exist_ok=True)
         shutil.copy2(src, dest)
         with open(dest[:-4] + ".json", "w", encoding="utf-8") as f:
-            json.dump({"term": term, "style": style, "engine": engine, "layout": "rise" if rise else "full",
+            json.dump({"term": term, "style": style, "engine": engine, "layout": _layout_of(_shape(layout)),
                        "prompt": prompt, "score": score, "saved": time.strftime("%Y-%m-%d %H:%M")}, f,
                       ensure_ascii=False, indent=1)
         return True
@@ -998,7 +1103,7 @@ def _notion_entry(path):
     return {"id": stem, "term": meta.get("term") or parts[0],
             "style": meta.get("style") or (parts[1] if len(parts) > 1 else "photo"),
             "engine": meta.get("engine") or (parts[2] if len(parts) > 2 else "zimage"),
-            "layout": meta.get("layout") or ("rise" if stem.endswith("__sq") else "full"),
+            "layout": meta.get("layout") or _layout_of(stem.rsplit("__", 1)[-1]),
             "prompt": meta.get("prompt") or "", "score": meta.get("score"), "saved": meta.get("saved") or "",
             "made_with": meta.get("made_with") or meta.get("engine") or "zimage",
             "manual": bool(meta.get("manual")), "has_prev": os.path.exists(path[:-4] + ".prev.jpg"),
@@ -1031,8 +1136,7 @@ def notion_regenerate(nid, prompt, engine=None):
         if not comfy_available():
             raise RuntimeError(f"ComfyUI not reachable at {_comfy_url()} (start it in Pinokio)")
         new = os.path.join(tmp, "new.jpg")
-        local_image(prompt, entry["style"], new, engine=engine,
-                    size=RISE_GEN if entry["layout"] == "rise" else (768, 1344))
+        local_image(prompt, entry["style"], new, engine=engine, size=_gen_size(entry["layout"]))
         base = path[:-4]
         shutil.copy2(path, base + ".prev.jpg")
         if os.path.exists(base + ".json"):
@@ -1675,6 +1779,53 @@ def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=
     return os.path.join(folder, "c%03d.png"), (W - cvw) // 2, (y_start, y_end, 0, cvh)
 
 
+def _hero_frames(src, folder, fps, dur, W, H):
+    """PNG sequence (RGBA) of a full-screen "hero" picture, the way a cutaway is
+    cut in a documentary: the image covers the frame (centre crop), pushes in
+    slowly (1.00 -> HERO_PUSH, eased over its whole time on screen) and
+    crossfades in and out over HERO_FADE s — the podcast stays sharp underneath,
+    no blur. Every frame is resampled with LANCZOS straight from the source with
+    a sub-pixel box, so the move is smooth (zoompan rounds its window to whole
+    pixels and shimmers on a slow zoom). A soft vignette, a dark gradient at the
+    bottom (the captions stay readable on a bright picture) and a fine film
+    grain that changes every frame finish it. Returns the frame pattern."""
+    import numpy as np
+    img = Image.open(src).convert("RGB")
+    img = ImageEnhance.Contrast(img).enhance(1.07)
+    img = ImageEnhance.Color(img).enhance(1.08)
+    img = ImageEnhance.Sharpness(img).enhance(1.2)      # the source is smaller than the frame (896 px -> 1080 px)
+    iw, ih = img.size
+    if iw / ih > W / H:
+        sh, sw = ih, ih * W / H
+    else:
+        sw, sh = iw, iw * H / W
+    # Static shading (one array for the whole sequence): vignette + bottom gradient.
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    rx, ry = (xx - W / 2) / (W / 2), (yy - H / 2) / (H / 2)
+    r2 = np.clip((rx * rx + ry * ry) / 2.0, 0, 1)            # 0 at the centre, 1 at the corners
+    shade = 1.0 - HERO_VIGNETTE * r2 * r2
+    g = np.clip((yy / H - 0.55) / 0.45, 0, 1)                # 0 down to 55 % of the height, 1 at the bottom
+    shade = (shade * (1.0 - HERO_GRADIENT * g * g))[..., None].astype(np.float32)
+    rng = np.random.default_rng(7)
+    noise = rng.normal(0.0, HERO_GRAIN, (H, W, 1)).astype(np.float32) if HERO_GRAIN > 0 else None
+    n = max(2, int(round(dur * fps)))
+    for f in range(n):
+        t = f / fps
+        z = 1.0 + (HERO_PUSH - 1.0) * _smooth(t / dur)
+        bw, bh = sw / z, sh / z
+        x0, y0 = (iw - bw) / 2, (ih - bh) / 2
+        frame = img.resize((W, H), Image.LANCZOS, box=(x0, y0, x0 + bw, y0 + bh))
+        arr = np.asarray(frame, dtype=np.float32) * shade
+        if noise is not None:
+            # The same grain field moved around: new grain every frame for the price of a copy.
+            arr += np.roll(noise, (int(rng.integers(0, H)), int(rng.integers(0, W))), axis=(0, 1))
+        out = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
+        alpha = min(_smooth(t / HERO_FADE), _smooth((dur - t) / HERO_FADE))
+        out.putalpha(int(round(255 * max(0.0, min(1.0, alpha)))))
+        out.save(os.path.join(folder, f"c{f:03d}.png"), compress_level=1)
+    return os.path.join(folder, "c%03d.png")
+
+
 class ComfyDown(RuntimeError):
     """The local GPU (ComfyUI) is off or failed: B-roll images are made only
     there, so the whole job stops instead of shipping clips without them."""
@@ -1698,6 +1849,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     style = cfg.get("style") if cfg.get("style") in STYLES else "photo"
     engine = cfg.get("engine") if cfg.get("engine") in ENGINES else "zimage"
     rise = cfg.get("layout") == "rise"
+    mixed = cfg.get("layout") == "mixed"     # premium: one full-screen hero + small cards
+    hero_res = cfg.get("hero_res") if cfg.get("hero_res") in HERO_GEN else "std"
     size_pct = int(cfg.get("size") or RISE_SIZE)
     avoid = [float(clip["punchline_time"])] if clip.get("punchline_time") is not None else []
     planner = "local"
@@ -1706,11 +1859,18 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     # Images are made on this PC only (ComfyUI in Pinokio): no Gemini image, no free photo.
     used_local = True
 
-    def make_image(prompt, m_style, raw, query, used_urls, sheet=None):
+    def item_layout(m):
+        """Which family of picture this moment gets: hero / small card, or the profile's single layout."""
+        if mixed:
+            return "hero" if m.get("hero") else "rise"
+        return "rise" if rise else "full"
+
+    def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None):
         """(path, "local", None) from ComfyUI; raises ComfyDown when it fails."""
         try:
             return local_image(prompt, m_style, raw, engine=engine,
-                               size=RISE_GEN if rise else (768, 1344), look=look_text(sheet, m_style)), "local", None
+                               size=_gen_size(layout if layout is not None else ("rise" if rise else "full"), hero_res),
+                               look=look_text(sheet, m_style)), "local", None
         except Exception as e:
             raise ComfyDown(f"ComfyUI image failed: {str(e)[:200]}") from e
 
@@ -1740,7 +1900,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     moments = plan_with_claude(clip, words, n, avoid, auto_style, transcript, start, end, sheets,
                                                ground=ground,
                                                mode=cfg.get("mode") or "mixed",
-                                               real_photos=bool(cfg.get("real_photos")), density=density)
+                                               real_photos=bool(cfg.get("real_photos")), density=density,
+                                               hero=mixed)
                     planner = "claude"
                     if not moments:
                         print("   ℹ️ B-roll: Claude found no moment where an image would add meaning — none added.")
@@ -1763,31 +1924,41 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # the Space Needle): no B-roll beats a wrong one.
             print("   ℹ️ B-roll skipped: moments need the Claude or Gemini planner (not set up or call failed).")
             return None
+        if mixed:
+            # The code has the last word on the hero: the planner's pick counts, the timing rules win.
+            k_hero = pick_hero(moments, words[-1]["end"], avoid)
+            for i, m in enumerate(moments):
+                m["hero"] = i == k_hero
+            if k_hero is None:
+                print("   ℹ️ B-roll: no moment of this clip reads well on a whole screen — small cards only.")
 
         used_urls, cands = set(), []
         for k, m in enumerate(moments):
             m_style = (m.get("style") or "photo") if auto_style else style
+            m_layout = item_layout(m)
             raw = os.path.join(tmp, f"broll_{k}.jpg")
-            kept = notion_get(m.get("notion"), m_style, engine, rise, raw) if m.get("notion") else None
+            kept = notion_get(m.get("notion"), m_style, engine, m_layout, raw) if m.get("notion") else None
             if kept:
                 print(f"   ♻️ Notion \"{m['notion']}\": the channel's picture is reused (no image made, no review).")
                 cands.append({"k": k, "m": m, "style": m_style, "file": kept, "source": "local", "credit": None,
-                              "score": 5, "reused": True})
+                              "score": 5, "reused": True, "layout": m_layout})
                 continue
             if cfg.get("real_photos") and m.get("real_photo") and not m.get("notion"):
                 try:
                     photo, credit = free_photo(m["query"], raw, used_urls)
                     print(f"   📷 Real photo for \"{m['query']}\"" + (f" (credit: {credit})" if credit else ""))
-                    cands.append({"k": k, "m": m, "style": "photo", "file": photo, "source": "free", "credit": credit})
+                    cands.append({"k": k, "m": m, "style": "photo", "file": photo, "source": "free", "credit": credit,
+                                  "layout": m_layout})
                     continue
                 except Exception as e:
                     print(f"   ℹ️ No real photo for \"{m['query']}\" ({str(e)[:80]}) — image generated instead.")
             # A notion's picture is the channel's usual one, kept for other clips:
             # made without this clip's look.
             got, used, credit = make_image(m["prompt"], m_style, raw, m["query"], used_urls,
-                                           None if m.get("notion") else m.get("sheet"))
+                                           None if m.get("notion") else m.get("sheet"), layout=m_layout)
             if got:
-                cands.append({"k": k, "m": m, "style": m_style, "file": got, "source": used, "credit": credit})
+                cands.append({"k": k, "m": m, "style": m_style, "file": got, "source": used, "credit": credit,
+                              "layout": m_layout})
 
         # Claude checks every image against the idea it must carry; a weak
         # generated one is redone once from its better prompt, then dropped
@@ -1802,7 +1973,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     if c["score"] <= 3 and r.get("better_prompt"):
                         raw = os.path.join(tmp, f"broll_{c['k']}_v2.jpg")
                         got, used, credit = make_image(r["better_prompt"], c["style"], raw, c["m"]["query"],
-                                                       used_urls, None if c["m"].get("notion") else c["m"].get("sheet"))
+                                                       used_urls, None if c["m"].get("notion") else c["m"].get("sheet"),
+                                                       layout=c["layout"])
                         if got:
                             redo.append((c, {**c, "file": got, "source": used, "credit": credit,
                                              "m": {**c["m"], "prompt": r["better_prompt"]}}))
@@ -1815,7 +1987,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                       f"{f', {len(redo)} redone' if redo else ''}, {len(kept)}/{len(cands)} kept")
                 for c in kept:
                     if c["m"].get("notion") and not c.get("reused") and c["score"] >= NOTION_MIN_SCORE:
-                        if notion_put(c["m"]["notion"], c["style"], engine, rise, c["file"], c["m"]["prompt"],
+                        if notion_put(c["m"]["notion"], c["style"], engine, c["layout"], c["file"], c["m"]["prompt"],
                                       c["score"]):
                             print(f"   📚 Notion \"{c['m']['notion']}\": picture kept for the next clips.")
                 cands = kept
@@ -1829,9 +2001,12 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             m = c["m"]
             # A real photo (a place, a flag) is shown BIG: a small card shows a tower or a flag badly. Big
             # pictures cover the speaker, so they stay short.
-            big = (not rise) or c["source"] == "free"
+            hero = mixed and c["layout"] == "hero"
+            big = (not rise and not mixed) or (c["source"] == "free" and not mixed)
             dur = m.get("dur") or (SEG_DUR if big else RISE_DUR)
-            if _hold(cfg.get("hold")):
+            if hero:
+                dur = hero_dur(m)                          # its sentence plus the crossfades, 2.5-3.5 s
+            elif _hold(cfg.get("hold")):
                 dur = _hold(cfg.get("hold"))               # the user's own time on screen
             elif big:
                 dur = round(max(FULL_DUR_MIN, min(FULL_DUR_MAX, dur)), 2)
@@ -1839,7 +2014,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     "idea": m.get("idea") or "", "role": m.get("role"), "query": m["query"], "prompt": m["prompt"],
                     "source": c["source"],
                     "style": c["style"] if c["source"] in ("local", "gemini") else "photo",
-                    "layout": "full" if big else "rise", "_img": c["file"]}
+                    "layout": "hero" if hero else ("full" if big else "rise"), "_img": c["file"]}
+            if mixed:
+                # The size the picture was made at: a manual redo asks for the same one.
+                item["gen"] = list(_gen_size(c["layout"], hero_res))
             if m.get("sheet") and not m.get("notion"):
                 item["sheet"] = m["sheet"]      # kept: a manual redo keeps the clip's look
             if m.get("notion"):
@@ -1850,7 +2028,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 item["score"] = c["score"]
             item["zoom"] = cfg.get("zoom") if cfg.get("zoom") in ZOOM_LEVELS else "soft"
             item["border"] = cfg.get("border") if cfg.get("border") in BORDERS else "soft"
-            if not big:
+            if not big and not hero:
                 item["enter"] = cfg.get("enter") if cfg.get("enter") in ENTER_MODES else "rise"
                 item.update(size=size_pct, position="above" if cfg.get("position") == "above" else "below")
                 if _free_y(cfg.get("y")) is not None:
@@ -1867,8 +2045,9 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         if not items:
             print("   ℹ️ B-roll: no image good enough for this clip's moments — clip left without.")
             return None
-        if _hold(cfg.get("hold")):
-            # A fixed time on screen: two pictures never overlap, the first one leaves a little early
+        if _hold(cfg.get("hold")) or mixed:
+            # A fixed time on screen (or a hero longer than its sentence): two pictures never overlap, the
+            # first one leaves a little early
             for a, b in zip(items, items[1:]):
                 a["dur"] = round(max(1.0, min(a["dur"], b["t"] - a["t"] - 0.25)), 2)
         # "manual" review: the images are kept next to the clip and listed, but
@@ -1885,18 +2064,23 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, sheet=None):
+def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, sheet=None, gen=None):
     """One image again, from a new prompt / style (the manual review), on the
-    local GPU. Returns (path, source, credit); raises when nothing came."""
+    local GPU. ``gen``: the (width, height) the first picture was made at (the
+    item's "gen"), else the layout's usual size. Returns (path, source, credit);
+    raises when nothing came."""
     cfg = cfg or {}
     style = style if style in STYLES else "photo"
     engine = cfg.get("engine") if cfg.get("engine") in ENGINES else "zimage"
     rise = cfg.get("layout") == "rise"
+    try:
+        size = (int(gen[0]), int(gen[1])) if gen else (RISE_GEN if rise else (768, 1344))
+    except (TypeError, ValueError, IndexError):
+        size = RISE_GEN if rise else (768, 1344)
     if not comfy_available():
         raise RuntimeError("ComfyUI is not reachable (start it in Pinokio)")
     try:
-        return local_image(prompt, style, out_path, engine=engine,
-                           size=RISE_GEN if rise else (768, 1344), look=look_text(sheet, style)), "local", None
+        return local_image(prompt, style, out_path, engine=engine, size=size, look=look_text(sheet, style)), "local", None
     finally:
         comfy_release()
 
@@ -1920,12 +2104,16 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
             if not src or not os.path.exists(src):
                 continue
             rise = it.get("layout") == "rise"
+            hero = it.get("layout") == "hero"
             try:
                 dur = float(it.get("dur") or (RISE_DUR if rise else SEG_DUR))
             except (TypeError, ValueError):
                 dur = RISE_DUR if rise else SEG_DUR
             dur = max(1.0, min(4.0, dur))
-            if rise:
+            if hero:
+                pattern = _hero_frames(src, folder, fps, dur, w, h)
+                layers.append({"t": it["t"], "dur": dur, "rise": False, "hero": True, "pattern": pattern, "x": 0, "y": 0})
+            elif rise:
                 pattern, x, motion = _rise_frames(src, folder, fps, dur, w, h, int(it.get("size") or RISE_SIZE),
                                                   it.get("position") or "below", _free_y(it.get("y")),
                                                   it.get("enter") if it.get("enter") in ENTER_MODES else "rise",
@@ -1939,11 +2127,12 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                 layers.append({"t": it["t"], "dur": dur, "rise": False, "pattern": pattern, "x": x, "y": y})
         if not layers:
             raise RuntimeError("no B-roll image to cut in")
-        big = [ly for ly in layers if not ly["rise"]]
+        big = [ly for ly in layers if not ly["rise"] and not ly.get("hero")]
         if big:
             # Behind a big card, the podcast keeps playing — blurred and dimmed,
             # so the photo reads as "in front of" the conversation. A small
-            # "rise" card leaves the podcast untouched.
+            # "rise" card leaves the podcast untouched, and so does a hero: it
+            # covers the frame and dissolves to the sharp face.
             windows = "+".join(f"between(t,{ly['t']:.3f},{ly['t'] + ly['dur']:.3f})" for ly in big)
             graph = [f"[0:v]boxblur=22:2:enable='{windows}',"
                      f"eq=brightness=-0.10:saturation=0.8:enable='{windows}'[bg]"]

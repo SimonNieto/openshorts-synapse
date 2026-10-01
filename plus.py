@@ -45,7 +45,7 @@ DEFAULT_PROFILE = {
     # BETA: 2-4 image cutaways when something concrete is named (broll.py).
     "broll": {"enabled": False, "source": "local", "engine": "zimage", "planner": "gemini", "style": "photo",
               "max": 6, "mode": "mixed", "density": "normal", "real_photos": False, "review": "auto", "layout": "full", "position": "below", "y": None, "size": 28,
-              "hold": None, "enter": "rise", "zoom": "soft", "border": "soft"},
+              "hold": None, "enter": "rise", "zoom": "soft", "border": "soft", "hero_res": "std"},
     "auto_publish": {"enabled": False, "platforms": ["tiktok", "instagram", "youtube"]},
     "beta": {
              # Synapse Cut playbook: question titles without names, starts on the
@@ -257,7 +257,10 @@ def sanitize(raw):
                   "density": br.get("density") if br.get("density") in ("less", "normal", "more") else "normal",
                   # "manual": the images are prepared but only cut in once you approve them.
                   "review": br.get("review") if br.get("review") in ("auto", "manual") else "auto",
-                  "layout": br.get("layout") if br.get("layout") in ("rise", "full") else "full",
+                  # "mixed" (premium): one full-screen hero on the most visual moment + small cards (broll.pick_hero).
+                  "layout": br.get("layout") if br.get("layout") in ("rise", "full", "mixed") else "full",
+                  # Size of the hero image: "std" 896x1600 (~16 s on an RTX 3060), "high" 1024x1792 (~23 s).
+                  "hero_res": br.get("hero_res") if br.get("hero_res") in ("std", "high") else "std",
                   "position": br.get("position") if br.get("position") in ("below", "above") else "below",
                   # A height chosen by the user (the small card's centre, % from the top of the frame): wins over "position".
                   "y": _free_y(br.get("y")),

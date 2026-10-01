@@ -229,9 +229,150 @@ def cmd_chain(args):
 
 # --- the look (before / after) ----------------------------------------------------------
 
+# What the premium chantiers change, applied on top of the saved profile for the AFTER render.
+AFTER_BROLL = {"layout": "mixed", "hold": None, "density": "normal", "max": 4, "hero_res": "std"}
+AFTER_FX = {"hq_chain": True}
+
+
+def _render_with_broll(pre_fx, meta, clip, prof, cfg, tag, keep_dir):
+    """motion -> add_broll (planned and generated for real) -> hook -> captions, as main.py chains them.
+    Returns (final path, items, seconds per layer)."""
+    import broll
+    import hooks
+    import viral_fx
+    start, end = float(clip["start"]), float(clip["end"])
+    style = prof["edit_style"]
+    fx = dict(prof["fx"])
+    fx.pop("watermark", None)
+    if clip.get("punchline_time") is not None:
+        fx["hints"] = {"punchline_time": clip["punchline_time"]}
+    words = viral_fx.clip_words(meta.get("transcript"), start, end)
+    topic = viral_fx.topic_words(clip.get("video_title_for_youtube_short"), clip.get("viral_hook_text"))
+    tmp = os.path.join(OUT_DIR, f"_tmp_{tag}")
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp)
+    os.makedirs(keep_dir, exist_ok=True)
+    times = {}
+    t0 = time.time()
+    motion = os.path.join(tmp, "1_motion.mp4")
+    viral_fx.apply_motion(pre_fx, words, style, motion, opts=fx)
+    times["motion"] = round(time.time() - t0, 1)
+    t0 = time.time()
+    br = os.path.join(tmp, "2_broll.mp4")
+    rep = broll.add_broll(motion, br, dict(clip), meta.get("transcript"), start, end, cfg, keep_dir=keep_dir,
+                          keep_prefix=f"{tag}_")
+    times["broll"] = round(time.time() - t0, 1)
+    cur = br if rep and not rep.get("pending") and os.path.exists(br) else motion
+    hook = clip.get("auto_hook") or {}
+    text = hook.get("text") or clip.get("viral_hook_text")
+    if text and prof["hook_style"] != "none":
+        t0 = time.time()
+        hk = os.path.join(tmp, "3_hooked.mp4")
+        hooks.add_hook_to_video(cur, text, hk, position="top", duration=float(hook.get("duration_seconds") or prof["hook_seconds"]),
+                                style=hook.get("style") or prof["hook_style"])
+        times["hook"] = round(time.time() - t0, 1)
+        cur = hk
+    t0 = time.time()
+    final = os.path.join(OUT_DIR, f"visual_{tag}.mp4")
+    viral_fx.apply_captions(cur, words, style, final, watermark=prof["watermark"] or None, topic=topic)
+    times["captions"] = round(time.time() - t0, 1)
+    shutil.rmtree(tmp, ignore_errors=True)
+    items = (rep or {}).get("items") or []
+    with open(os.path.join(OUT_DIR, f"visual_{tag}_items.json"), "w", encoding="utf-8") as f:
+        json.dump({"items": items, "seconds": times, "planner": (rep or {}).get("planner"), "cfg": cfg}, f, indent=1,
+                  ensure_ascii=False)
+    return final, items, times
+
+
+def _describe(tag, items, dur, times):
+    covered = sum(float(it.get("dur") or 0) for it in items)
+    hero = next((it for it in items if it.get("layout") == "hero"), None)
+    where = ", ".join("%ss/%ss %s" % (it["t"], it["dur"], it.get("style")) for it in items)
+    hero_txt = ", hero at %s s for %s s" % (hero["t"], hero["dur"]) if hero else ""
+    layouts = sorted(set(str(it.get("layout")) for it in items))
+    print("   %s: %d image(s), %.1f s of %.0f s covered (%d %%), layouts %s, at %s%s; seconds %s"
+          % (tag, len(items), covered, dur, round(100 * covered / max(dur, 1)), layouts, where, hero_txt, times))
+
+
 def cmd_visual(args):
-    """Filled in by the premium chantiers: BEFORE = the profile as saved, AFTER = the premium overrides."""
-    sys.exit("visual mode: not available yet (chantier B)")
+    # Everything imported up front: the bench runs for minutes and the code may be edited meanwhile.
+    import ffmpeg_utils as ffu
+    import ai_brain  # noqa: F401
+    import broll  # noqa: F401
+    import hooks  # noqa: F401
+    import viral_fx  # noqa: F401
+    from PIL import Image
+    os.makedirs(OUT_DIR, exist_ok=True)
+    job_dir, meta, clip, pre_fx = _find_clip(args.job, args.clip)
+    prof = _profile(args.profile)
+    _job_env(prof)
+    os.environ.pop("PLUS_HQ_CHAIN", None)
+    dur = _ffprobe_duration(pre_fx)
+    print(f"🎬 visual bench: {os.path.basename(pre_fx)[:70]} ({dur:.1f} s), profile '{prof['name']}', "
+          f"style {prof['edit_style']}, hook {prof['hook_style']} {prof['hook_seconds']} s")
+    before = os.path.join(OUT_DIR, "visual_before.mp4")
+    before_items = os.path.join(OUT_DIR, "visual_before_items.json")
+    if args.before_cache and os.path.exists(before) and os.path.exists(before_items):
+        with open(before_items, encoding="utf-8") as f:
+            saved = json.load(f)
+        b_items, b_times = saved["items"], saved.get("seconds") or {}
+        print("   before: reused from the previous run")
+    else:
+        cfg = {**prof["broll"], "enabled": True, "review": "auto"}
+        with ffu.hq_chain(False):
+            before, b_items, b_times = _render_with_broll(pre_fx, meta, clip, prof, cfg, "before",
+                                                          os.path.join(OUT_DIR, "visual_before_images"))
+    _describe("before", b_items, dur, b_times)
+    cfg = {**prof["broll"], "enabled": True, "review": "auto", **AFTER_BROLL}
+    prof_after = {**prof, "fx": {**prof["fx"], **AFTER_FX}}
+    with ffu.hq_chain(True):
+        after, a_items, a_times = _render_with_broll(pre_fx, meta, clip, prof_after, cfg, "after",
+                                                     os.path.join(OUT_DIR, "visual_after_images"))
+    _describe("after", a_items, dur, a_times)
+
+    # Six instants: the hero coming in, holding and leaving, two cards, and a moment with the face alone.
+    instants = []
+    hero = next((it for it in a_items if it.get("layout") == "hero"), None)
+    if hero:
+        instants += [("hero_in", hero["t"] + 0.25), ("hero_mid", hero["t"] + hero["dur"] / 2),
+                     ("hero_out", hero["t"] + hero["dur"] - 0.2)]
+    for k, it in enumerate([it for it in a_items if it.get("layout") != "hero"][:3]):
+        instants.append((f"card{k + 1}", it["t"] + min(1.0, it["dur"] / 2)))
+    instants.append(("plain", hero["t"] - 1.2 if hero and hero["t"] > 6 else 5.0))
+    for k, it in enumerate(b_items):
+        if len(instants) >= 6:
+            break
+        instants.append((f"before_img{k + 1}", it["t"] + 1.0))
+    instants = instants[:6]
+    sheets = []
+    for k, (label, t) in enumerate(instants):
+        t = max(0.2, min(dur - 0.2, t))
+        fb = _frame(before, t, os.path.join(OUT_DIR, "_fb.png"))
+        fa = _frame(after, t, os.path.join(OUT_DIR, "_fa.png"))
+        _label(fb, f"before  {label}  {t:.1f}s")
+        _label(fa, f"after  {label}  {t:.1f}s")
+        sheets.append(_hstack([fb, fa], os.path.join(OUT_DIR, f"visual_f{k + 1}_{label}.jpg"), height=720))
+    for p in ("_fb.png", "_fa.png"):
+        if os.path.exists(os.path.join(OUT_DIR, p)):
+            os.remove(os.path.join(OUT_DIR, p))
+    # One contact sheet of the six pairs, three per row.
+    tiles = [Image.open(p).convert("RGB") for p in sheets]
+    tw = 600
+    tiles = [im.resize((tw, int(im.height * tw / im.width)), Image.LANCZOS) for im in tiles]
+    th = max(im.height for im in tiles)
+    cols = 3
+    rows = -(-len(tiles) // cols)
+    sheet = Image.new("RGB", (cols * tw + (cols - 1) * 8, rows * th + (rows - 1) * 8), (24, 24, 24))
+    for k, im in enumerate(tiles):
+        sheet.paste(im, ((k % cols) * (tw + 8), (k // cols) * (th + 8)))
+    sheet.save(os.path.join(OUT_DIR, "visual_sheet.jpg"), quality=90)
+    # The two clips side by side, to watch.
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", before, "-i", after, "-filter_complex",
+                    "[0:v]scale=540:-2[a];[1:v]scale=540:-2[b];[a][b]hstack=2[v]", "-map", "[v]", "-map", "0:a?",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-c:a", "aac", "-b:a", "160k",
+                    "-movflags", "+faststart", os.path.join(OUT_DIR, "visual_side_by_side.mp4")], check=True)
+    print(f"✅ visual bench written to {OUT_DIR}: visual_sheet.jpg, visual_f1..6_*.jpg, visual_side_by_side.mp4, "
+          f"visual_before.mp4, visual_after.mp4")
 
 
 def main():
