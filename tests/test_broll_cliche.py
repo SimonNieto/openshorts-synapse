@@ -1,6 +1,6 @@
 """Anti-cliché and specificity rules (B-roll v2, chantier C): the editor, the art director, the reviewer and the
-brief's glossary are told what cheap AI B-roll looks like; the channel's latest subjects are remembered so a batch
-does not open on the same picture three times. Nothing here calls a model."""
+brief's glossary are told what cheap AI B-roll looks like. Nothing here calls a model (the "latest subjects" memory
+tested here until 1-oct-2026 evening was removed by the audit of the prohibitions)."""
 import json
 import os
 
@@ -82,41 +82,8 @@ class TestTheRules:
         assert "plain colour" not in guard
 
 
-class TestRecentSubjects:
-    def test_round_trip_and_cap(self):
-        assert broll.recent_subjects() == []
-        n = broll.remember_subjects([{"subject": "brain", "source": "local"}, {"subject": "patient in bed", "source": "local"},
-                                     {"subject": "", "source": "local"}, {"subject": "on screen", "source": "screen"}])
-        assert n == 2 and broll.recent_subjects() == ["brain", "patient in bed"]
-        broll.remember_subjects([{"subject": f"s{i}", "source": "local"} for i in range(broll.RECENT_MAX + 5)])
-        kept = json.load(open(broll._recent_path(), encoding="utf-8"))
-        assert len(kept) == broll.RECENT_MAX and kept[-1]["subject"] == f"s{broll.RECENT_MAX + 4}" and "brain" not in [e["subject"] for e in kept]
-        assert len(broll.recent_subjects()) == broll.RECENT_SHOWN and broll.recent_subjects(3) == ["s42", "s43", "s44"]
-
-    def test_the_memory_switch_turns_it_off(self, monkeypatch):
-        monkeypatch.setenv("BROLL_NOTION_MEMORY", "0")
-        assert broll.remember_subjects([{"subject": "brain", "source": "local"}]) == 0
-        assert not os.path.exists(broll._recent_path()) and broll.recent_subjects() == []
-
-    def test_a_broken_file_is_an_empty_memory(self):
-        os.makedirs(broll.NOTION_DIR)
-        with open(broll._recent_path(), "w") as f:
-            f.write("{not json")
-        assert broll.recent_subjects() == []
-        assert broll.remember_subjects([{"subject": "x", "source": "local"}]) == 1 and broll.recent_subjects() == ["x"]
-
-    def test_the_editor_is_told_what_was_just_shown(self, monkeypatch):
-        broll.remember_subjects([{"subject": "hands clutching symbols", "source": "local"}, {"subject": "night sky", "source": "local"}])
-        seen = {}
-        monkeypatch.setattr(broll, "claude_json", lambda prompt, schema, **k: seen.update(prompt=prompt) or {"moments": []})
-        broll.plan_with_claude({}, _words(TEXT), 4, [], hero=True)
-        assert "ALREADY SHOWN by the channel in its latest clips" in seen["prompt"]
-        assert "hands clutching symbols; night sky" in seen["prompt"]
-        assert seen["prompt"].index("NEVER THE AI CLICHÉ") < seen["prompt"].index("ALREADY SHOWN") < seen["prompt"].index("Never: something already visible")
-
-
 class TestInTheJob:
-    def test_items_carry_their_subject_and_the_clip_is_remembered(self, monkeypatch):
+    def test_items_carry_their_subject(self, monkeypatch):
         def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", **kw):
             Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
             return out_path
@@ -139,12 +106,7 @@ class TestInTheJob:
         cfg = {"planner": "claude", "layout": "mixed", "style": "auto", "house_look": "h"}
         rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1, cfg)
         assert [it["subject"] for it in rep["items"]] == ["soldiers at dawn", "sergeant's smile"]
-        assert broll.recent_subjects() == ["soldiers at dawn", "sergeant's smile"]
-        # a bench or a test with the memory off leaves no trace
-        monkeypatch.setenv("BROLL_NOTION_MEMORY", "0")
-        os.remove(broll._recent_path())
-        broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1, cfg)
-        assert not os.path.exists(broll._recent_path())
+        assert not hasattr(broll, "recent_subjects") and not hasattr(broll, "RECENT_RULE")
 
     def test_the_recipe_is_unchanged_by_the_rules(self):
         assert plus.BROLL["style"] == "auto" and plus.BROLL["art_director"] is True

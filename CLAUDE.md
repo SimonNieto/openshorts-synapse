@@ -469,7 +469,8 @@ change: every deploy is a ~5 min build plus a handover.
   (`score` meaning, `look_score` look; a hero is judged at 768 px by the `broll` model, its takes together, redone
   twice) -> `_keep_meaningful`. Before the clips, `ai_brain.episode_bible` reads the episode once (world, look,
   motifs, avoid, hero ideas): every editor and art director of the job reads it. The notion memory (`output/_glossary_images`, two variants per notion and house
-  look) and the latest subjects (`_recent.json`) are channel memory: `BROLL_NOTION_MEMORY=0` switches both off.
+  look) is channel memory: `BROLL_NOTION_MEMORY=0` switches it off (the "latest subjects" list, `_recent.json`,
+  was removed on 1-oct-2026: it forbade clip after clip what the notion library and CAST want to repeat).
 - Judge a prompt change by eye, never from the tests alone: `docker exec -w /app openshorts-backend python
   broll_bench.py plan --job <id or prefix> --clips 1,3,5 --versions v3` writes one board per clip and version in
   `output/_test_broll/brain/` (picture, prompt, the exact text sent to ComfyUI, scores, cost) and a `_compare.jpg`

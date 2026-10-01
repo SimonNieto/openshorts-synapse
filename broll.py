@@ -211,6 +211,32 @@ STOPWORDS = set("""a an the of to in on at by for with from and or but so as is 
 these those he she they we you i me him her them us my your his their our there here then than very just not no
 some any all one two three""".split())
 
+# What the chain filtered out of one clip, by reason, printed by add_broll at the end of the clip (the audit of
+# 1-oct-2026 found moments dropped by the parser without a line of log: a filter that does not count its hits
+# cannot be judged).
+FILTERS = __import__("collections").Counter()
+
+
+def filter_hit(name, detail=""):
+    """One hit of the filter ``name``; ``detail`` is printed when given."""
+    FILTERS[name] += 1
+    if detail:
+        print(f"   ✂️ {detail}")
+
+
+def filters_line():
+    """The clip's filter hits as one line ("none" when nothing was filtered)."""
+    return ", ".join(f"{k} {v}" for k, v in sorted(FILTERS.items())) or "none"
+
+
+def _worth(v):
+    """The planner's 1-5 worth of a moment (1.0 when not given): _space keeps the higher one of two that touch."""
+    try:
+        w = float(v)
+    except (TypeError, ValueError):
+        return 1.0
+    return w if 1.0 <= w <= 5.0 else 1.0
+
 PLAN_PROMPT = """You are the editor of a short-form podcast clip. Pick up to {n} moments (about one every 4-6 s, so the viewer
 always has something to look at) where a B-roll image (1.6 s, full screen, while the voice continues) adds
 content: every time the speaker names something CONCRETE and visual, even in passing — an object, a plant, a substance, an organ, a place, an animal, a tool,
@@ -326,6 +352,7 @@ PLAN_SCHEMA = {
             "properties": {"anchor": {"type": "string"}, "time": {"type": "number"}, "idea": {"type": "string"}, "said": {"type": "string"},
                            "subject": {"type": "string"},
                            "shot": {"type": "string", "enum": ["wide", "medium", "close", "macro", "schematic"]},
+                           "worth": {"type": "integer"},
                            "role": {"type": "string", "enum": ["concept", "example", "consequence", "other"]},
                            "notion": {"type": "string"},
                            "real_photo": {"type": "boolean"}, "search_query": {"type": "string"},
@@ -402,10 +429,6 @@ CLICHE_RULE = ("NEVER THE AI CLICHÉ (for a PHOTO picture; a register picture fo
 SPECIFIC_RULE = ("SPECIFICITY TEST: if the same picture would do for any other clip about the same noun (a generic brain, "
                  "a generic pill, a generic crowd), it is not the picture: take it from the world of THIS episode (its "
                  "places, objects, people, era — the bible's WORLD when given) and the specifics of THIS sentence.")
-# The channel's latest pictures (recent_subjects): the editor is told what was just shown so a batch of clips does
-# not open on the same picture three times.
-RECENT_RULE = ("ALREADY SHOWN by the channel in its latest clips — find another picture of the idea, never one of these "
-               "again: {}.")
 
 CLAUDE_SYSTEM ="You are a meticulous short-form video editor. You answer only with the requested JSON."
 CLAUDE_SYSTEM_VISION = ("You are a meticulous short-form video editor. The images are attached to the request, in "
@@ -466,7 +489,7 @@ same way).
 {set_rule}
 {cliche_rule}
 {specific_rule}
-{recent}Never: something already visible in the video (look at the frame sheets), a named real person,
+Never: something already visible in the video (look at the frame sheets), a named real person,
 a brand (use a generic equivalent), an abstraction nobody can draw. At most {n} images; one or two when the clip
 names little, none when it names nothing — a cold viewer forgives a face alone, never a picture that has nothing to do
 with the words.
@@ -483,6 +506,8 @@ For each image give:
   a blanket pulled tight around someone on a bed"), never a thesis the picture would prove;
 - "subject": the main thing seen, 1-3 words ("brain", "patient in bed", "implant") — two images never share it;
 - "shot": wide | medium | close | macro | schematic;
+- "worth": 1-5, how much this picture adds to the clip (5 = the one picture the clip needs, 1 = a nice extra): when
+  two moments are too close, the higher worth stays;
 - "notion": only when the image is simply THE usual picture of a notion of the brief's glossary (VISUAL GLOSSARY or
   OTHER NOTIONS, even if the speaker says it in other words), with no detail of this particular case (number, person,
   scene, era): its name exactly as listed. If the image must show a specific case, leave it empty;
@@ -601,10 +626,18 @@ def _space(moments, n, gap=MIN_GAP):
             bool(a.get("subject")) and _stem(a["subject"]) == _stem(b.get("subject") or ""))
 
     for m in sorted(moments, key=lambda m: -m.get("score", 1.0)):
-        if all(abs(m["t"] - k["t"]) >= gap and not same(m, k) for k in kept):
-            kept.append(m)
         if len(kept) == n:
-            break
+            filter_hit("parser: beyond n", f'Moment "{m["anchor"]}" at {m["t"]:.1f} s dropped: {n} pictures already kept, '
+                                           f'this one worth {m.get("score", 1.0):g}.')
+            continue
+        clash = next((k for k in kept if abs(m["t"] - k["t"]) < gap or same(m, k)), None)
+        if clash is None:
+            kept.append(m)
+        elif same(m, clash):
+            filter_hit("parser: same subject", f'Moment "{m["anchor"]}" at {m["t"]:.1f} s dropped: the same thing as "{clash["anchor"]}".')
+        else:
+            filter_hit("parser: too close", f'Moment "{m["anchor"]}" at {m["t"]:.1f} s dropped: {abs(m["t"] - clash["t"]):.1f} s from '
+                                            f'"{clash["anchor"]}" (worth {m.get("score", 1.0):g} against {clash.get("score", 1.0):g}).')
     return sorted(kept, key=lambda m: m["t"])
 
 
@@ -793,21 +826,29 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None
             continue
         i = _find_anchor(words, m.get("anchor"), near)
         if i is None:
+            filter_hit("parser: anchor not found",
+                       f'Moment "{m.get("anchor")}" at {near:.1f} s dropped: its words are not in the transcript there.')
             continue
         n_tok = len(_tokens(m.get("anchor")))
         k = _key_index(words, i, n_tok)
         t = max(0.0, words[k]["start"] - KEY_LEAD)
         if not _allowed(t, duration, avoid, head, block):
+            filter_hit("parser: outside the window",
+                       f'Moment "{m.get("anchor")}" at {t:.1f} s dropped: in the hook, the tail, on the punchline or on the source\'s picture.')
             continue
         dur = _moment_dur(words, k, t, duration, lo, hi)
         if tail:
             dur = round(min(dur, duration - tail - t), 2)
             if dur < lo:
-                continue                       # it would run into the last seconds: the face keeps them
+                filter_hit("parser: runs into the tail",
+                           f'Moment "{m.get("anchor")}" at {t:.1f} s dropped: it would run into the last {tail:g} s (the face keeps them).')
+                continue
         for a, _b in block:
             if t < a:
                 dur = round(min(dur, a - DUR_NEXT_GAP - t), 2)   # it leaves before the source's picture comes up
         if dur < lo:
+            filter_hit("parser: too short before the source's picture",
+                       f'Moment "{m.get("anchor")}" at {t:.1f} s dropped: no room before the source\'s own picture.')
             continue
         moments.append({"t": t, "anchor": " ".join(w["text"] for w in words[i:i + n_tok]),
                         "key": words[k]["text"],
@@ -825,7 +866,7 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None
                         "hero_why": re.sub(r"\s+", " ", str(m.get("hero_why") or "")).strip()[:200],
                         "dur": dur,
                         "sheet": sheet,
-                        "score": 1.0})
+                        "score": _worth(m.get("worth"))})
     kept = _space(moments, n, gap)
     for a, b in zip(kept, kept[1:]):
         # never run into the next image
@@ -963,7 +1004,11 @@ def apply_notions(moments, brief, clip_text):
             m["notion"] = ""
             continue
         own = ai_brain._content(" ".join(str(m.get(k) or "") for k in ("subject", "anchor", "query")))
-        if not ai_brain._term_matches(g["term"], own):
+        drawn = ai_brain._content(str(g.get("visual") or ""))
+        # The picture IS the notion when its subject names the term, or names what the glossary draws for it
+        # ("brain scan" for "Mesial temporal sclerosis" -> "a medical brain scan showing the temporal lobe").
+        if not (ai_brain._term_matches(g["term"], own) or (own and len(own & drawn) >= min(2, len(own)))):
+            filter_hit("notion: tag dropped")
             # The tag names a notion the picture does not show (a cardboard box tagged "Ego dissolution"): the
             # glossary's drawing would be glued onto a stranger, or the library's picture shown in its place.
             print(f"   ℹ️ Notion \"{g['term']}\" tagged on \"{m.get('subject') or m['anchor']}\", which is not it — tag dropped.")
@@ -996,7 +1041,6 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     clip_text = " ".join(w["text"] for w in words)
     brief = ai_brain.brief_for_clip(ai_brain.EPISODE_BRIEF, f"{before} {clip_text} {after}", start,
                                     end if end is not None else start + duration)
-    recent = recent_subjects()
     pace_of = DENSITY_MIXED if hero else DENSITY      # the mixed layout has its own, selective pace
     common = dict(n=n, avoid=avoid_txt, sheets=", ".join(os.path.basename(p) for p in sheets or []) or "none",
                   frame=FRAME_TEXT["mixed" if hero else "small"],
@@ -1006,7 +1050,6 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
                   hook=clip.get("viral_hook_text") or "-", before=before or "-", after=after or "-",
                   brief=brief or "(no brief for this video)", bible=_bible_block(), text=_numbered_text(words)[:6000],
                   grounding=GROUNDING_RULE, set_rule=SET_RULE, cliche_rule=CLICHE_RULE, specific_rule=SPECIFIC_RULE,
-                  recent=(RECENT_RULE.format("; ".join(recent)) + "\n") if recent else "",
                   pace=pace_of[density]["pace"], names=pace_of[density]["names"],
                   gap=gap)
     prompt = CLAUDE_PLAN_PROMPT.format(lo=head, hi=duration - TAIL_FREE - SEG_DUR, **common)
@@ -1298,13 +1341,16 @@ def facts_of(text):
     """The facts of an image draft that must survive any rewrite: its numbers (separators dropped) and its
     proper nouns (a capitalised word that does not open a sentence, or an acronym), lower-cased."""
     text = re.sub(r"\s+", " ", str(text or "")).strip()
+    # An age or a decade of life ("in his 40s") is not a fact the picture must keep; a year or an era ("1980s") is.
+    text = re.sub(r"\b(?:his|her|their|my|your|our)\s+\d{2}s\b", "", text)
     facts = {re.sub(r"[,.]", "", n) for n in _NUM_RE.findall(text)}
     for sentence in re.split(r"(?<=[.!?:;])\s+", text):
         for w in sentence.split(" ")[1:]:
             w = w.strip("()\"',.;:!?")
-            if len(w) < 2 or w.lower() in _FACT_STOP:
+            if len(w) < 3 or w.lower() in _FACT_STOP:
                 continue
-            if (w[0].isupper() and len(w) >= 3 and w[1:].islower()) or (w.isupper() and w.isalpha()):
+            # A proper noun, or an acronym of three letters or more ("OR" the operating room and "IV" are words)
+            if (w[0].isupper() and w[1:].islower()) or (w.isupper() and w.isalpha()):
                 facts.add(w.lower())
     return {f for f in facts if f}
 
@@ -1337,6 +1383,7 @@ def _apply_art(moments, data):
         m = moments[k]
         lost = lost_facts(m.get("prompt_editor") or m.get("prompt"), text)
         if lost:
+            filter_hit("art: facts lost")
             print(f"   ⚠️ Art direction #{k}: the director dropped {', '.join(lost)} — the editor's draft is kept "
                   f"for this picture.")
             continue
@@ -1539,7 +1586,20 @@ def review_images(cands, words):
             return reviews
         except Exception as e:
             print(f"   ⚠️ B-roll review via Gemini failed ({str(e)[:160]}) — Claude checks them.")
-    return review_with_claude(cands, words, model=ai_brain.stage_model("image_review"))
+    first, judge = ai_brain.stage_model("image_review"), ai_brain.stage_model("broll")
+    reviews = review_with_claude(cands, words, model=first)
+    if first != judge:
+        # The weakest model never has the last word: a card it finds doubtful or weak goes to the B-roll's judge.
+        doubtful = [k for k, r in enumerate(reviews)
+                    if int(r.get("score") or 3) <= 3 or (isinstance(r.get("look"), int) and r.get("look") <= 3)]
+        if doubtful:
+            try:
+                for k, r in zip(doubtful, review_with_claude([cands[k] for k in doubtful], words, model=judge)):
+                    reviews[k] = r
+                print(f"   🔎 Image check: {len(cands)} by {first}, {len(doubtful)} doubtful one(s) re-checked by {judge}.")
+            except Exception as e:
+                print(f"   ⚠️ {judge}'s second look failed ({str(e)[:120]}) — {first}'s scores kept.")
+    return reviews
 
 
 def plan_locally(clip, words, n, avoid):
@@ -1603,9 +1663,6 @@ _BRANDS = ("iphone", "ipad", "nike", "adidas", "coca-cola", "coke", "pepsi", "st
 _BRAND_RE = re.compile(r"\b(" + "|".join(re.escape(b) for b in _BRANDS) + r")\b", re.I)
 _GENERIC = {"iphone": "smartphone", "ipad": "tablet", "coca-cola": "cola bottle", "coke": "cola bottle",
             "pepsi": "cola bottle", "nike": "plain", "adidas": "plain"}
-GUARD_MAX = 3
-
-
 def guardrails(prompt, faces=False):
     """(prompt, extra): the prompt with brand names swapped for generic ones, and
     the positive sentences to add at its end for the pitfalls this prompt holds.
@@ -1619,24 +1676,32 @@ def guardrails(prompt, faces=False):
     extra = []
     c = _COUNT_RE.search(prompt)
     if c:
+        filter_hit("guard: count")
         extra.append(f"Show exactly {_NUM_WORDS[c.group(1).lower()]} {c.group(2)}, clearly separate from each other "
                      "and easy to count.")
     elif _BIG_RE.search(prompt):
+        filter_hit("guard: big number")
         extra.append("Show it as one large group seen as a whole, without trying to depict an exact number.")
     if _TEXT_RE.search(prompt):
+        filter_hit("guard: text")
         extra.append("Any screen, sign, page or label shows only plain colour, soft light or abstract shapes.")
     if had_brand:
+        filter_hit("guard: brand")
         extra.append("A generic unbranded version with plain surfaces.")
     if _HANDS_RE.search(prompt):
-        extra.append("Hands are seen from the side or partly out of frame, in a simple natural pose.")
+        filter_hit("guard: hands")
+        extra.append("Hands natural and well formed, each with five fingers, in a simple pose.")
     if _CROWD_RE.search(prompt):
+        filter_hit("guard: crowd")
         extra.append("The group is seen as a whole, the nearest faces natural and anonymous, nobody recognisable."
                      if faces else "The figures are seen from behind or at a distance, as simple silhouettes.")
     elif _PERSON_RE.search(prompt):
+        filter_hit("guard: person")
         extra.append("An anonymous person, nobody real or recognisable, the face natural, in focus and lit by the "
                      "scene's light." if faces else
                      "An anonymous person, face turned away, in shadow or small in the frame.")
-    return prompt, " ".join(extra[:GUARD_MAX])
+    # Every guard that fired goes out (a cap of three used to drop the faces guard behind count + text + brand).
+    return prompt, " ".join(extra)
 
 
 # --- the channel's notion pictures ---------------------------------------------------
@@ -1693,54 +1758,6 @@ def _keep_meaningful(cands):
 
 
 NOTION_MIN_SCORE = 5   # kept and shown in EVERY later clip: only a picture the judge rates perfect
-
-# The subjects of the channel's latest pictures, kept across jobs next to the notion memory: the editor is told
-# them so a batch does not open on the same picture three times. Off with the notion memory (BROLL_NOTION_MEMORY=0).
-RECENT_MAX = 40        # subjects kept
-RECENT_SHOWN = 24      # the latest ones the editor is told
-_RECENT_LOCK = __import__("threading").Lock()
-
-
-def _recent_path():
-    return os.path.join(NOTION_DIR, "_recent.json")
-
-
-def recent_subjects(n=RECENT_SHOWN):
-    """The subjects of the channel's latest B-roll pictures, oldest first, or []."""
-    if os.environ.get("BROLL_NOTION_MEMORY", "1") == "0":
-        return []
-    try:
-        with open(_recent_path(), encoding="utf-8") as f:
-            data = json.load(f)
-        return [str(e.get("subject")) for e in data if isinstance(e, dict) and e.get("subject")][-n:]
-    except (OSError, ValueError):
-        return []
-
-
-def remember_subjects(items):
-    """Keep the subjects of the pictures just made for a clip (RECENT_MAX at most, across jobs). Never raises."""
-    if os.environ.get("BROLL_NOTION_MEMORY", "1") == "0":
-        return 0
-    subs = [re.sub(r"\s+", " ", str(it.get("subject") or "")).strip()[:40] for it in items
-            if it.get("subject") and it.get("source") != "screen"]
-    if not subs:
-        return 0
-    with _RECENT_LOCK:
-        try:
-            try:
-                with open(_recent_path(), encoding="utf-8") as f:
-                    data = [e for e in json.load(f) if isinstance(e, dict)]
-            except (OSError, ValueError):
-                data = []
-            when = time.strftime("%Y-%m-%d %H:%M")
-            data = (data + [{"subject": s, "at": when} for s in subs])[-RECENT_MAX:]
-            os.makedirs(NOTION_DIR, exist_ok=True)
-            with open(_recent_path(), "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=0)
-        except OSError:
-            return 0
-    return len(subs)
-
 
 # One kept picture per shape: the small square card, the tall full-frame image,
 # the full-screen hero (bigger) and (premium cards) the wide 16:10 card.
@@ -2674,6 +2691,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     # "manual" review: the images are kept next to the clip and listed, but
     # nothing is cut in until the user approves them (app.py .../broll/apply).
     manual = cfg.get("review") == "manual" and bool(keep_dir)
+    FILTERS.clear()
     # The picture the source itself showed (screen_inset): one of the cards, placed by the source, not planned.
     screen = screen_item(clip.get("screen_inset"), keep_dir)
     block = _block_of(screen)
@@ -2929,6 +2947,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 print(f"   🔎 B-roll review: scores {[c['score'] for c in cands]}, looks "
                       f"{[c.get('look_score') for c in cands]}"
                       f"{f', {redone} redone' if redone else ''}, {len(kept)}/{len(cands)} kept")
+                for c in cands:
+                    if c not in kept:
+                        filter_hit("review: dropped", f'Picture "{c["m"]["anchor"]}" dropped by the review (score {c["score"]}, '
+                                                      f'look {c.get("look_score")}): {c.get("problem") or "-"}')
                 for c in kept:
                     if c["m"].get("notion") and not c.get("reused") and c["score"] >= NOTION_MIN_SCORE and c["style"] in STYLES:
                         if notion_put(c["m"]["notion"], c["style"], engine, c["layout"], c["file"], c["m"]["prompt"],
@@ -3034,7 +3056,6 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 a["dur"] = round(max(1.0, min(a["dur"], b["t"] - a["t"] - 0.25)), 2)
         if not manual:
             overlay_items(clip_path, out_path, items)
-        remember_subjects(items)
         for it in items:
             it.pop("_img", None)
         duration = words[-1]["end"]
@@ -3043,6 +3064,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
               + (f" ({sum(it['layout'] == 'hero' for it in items)} hero)" if mixed else "")
               + f", {covered:.1f} s of {duration:.0f} s covered ({100 * covered / max(duration, 1.0):.0f} %), "
               f"ComfyUI {gpu[0]:.0f} s" + (" (manual review: not cut in yet)" if manual else ""))
+        print(f"   🧮 Filters this clip: {filters_line()}")
         return {"items": items, "credits": credits, "planner": planner, "sources": sources, "pending": manual}
     finally:
         if used_local:
