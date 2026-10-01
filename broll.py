@@ -55,6 +55,9 @@ STYLES = {
 }
 COMMON_RULES = ("One clear subject, centred, filling the frame. No text, no letters, no numbers, "
                 "no logos, no watermark. Never depict a real, identifiable person.")
+# An art-directed prompt (direct_art) already says the look and the frame: only the hard rules follow it.
+ART_RULES = "No text, no letters, no numbers, no logos, no watermark. Never depict a real, identifiable person."
+PROMPT_MAX = 900   # characters of an image prompt kept anywhere (the art director writes 80-120 words)
 TEXT_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-3.1-flash-lite"
 SEG_DUR = 1.6
 HEAD_FREE = 4.3   # the hook's seconds stay on the speaker
@@ -597,7 +600,7 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None
         moments.append({"t": t, "anchor": " ".join(w["text"] for w in words[i:i + n_tok]),
                         "key": words[k]["text"],
                         "query": str(m.get("search_query") or m.get("anchor"))[:60],
-                        "prompt": str(m.get("image_prompt") or m.get("anchor"))[:400],
+                        "prompt": str(m.get("image_prompt") or m.get("anchor"))[:PROMPT_MAX],
                         "idea": str(m.get("idea") or "")[:200],
                         "said": str(m.get("said") or "")[:200],
                         "subject": str(m.get("subject") or "")[:40],
@@ -653,17 +656,18 @@ def claude_ready():
     return ai_brain.claude_usable()
 
 
-def claude_json(prompt, schema, timeout=240, attach=None, stage=None, effort=None, model=None):
+def claude_json(prompt, schema, timeout=240, attach=None, stage=None, effort=None, model=None, system=None):
     """One Claude call through ai_brain (the job-wide Claude-first switch): a
     quota / session limit switches Claude off for the rest of the job.
-    ``model``: the profile's model for the B-roll by default."""
+    ``model``: the profile's model for the B-roll by default; ``system``: the
+    editor's voice by default (the art director has its own)."""
     import ai_brain
     model = model or ai_brain.stage_model("broll")
     if stage:
         ai_brain.say(f"Claude · {model}", stage)
     try:
         return ai_brain.claude_json(prompt, schema, timeout=timeout, attach=attach, effort=effort, model=model,
-                                    system=CLAUDE_SYSTEM_VISION if attach else CLAUDE_SYSTEM)
+                                    system=system or (CLAUDE_SYSTEM_VISION if attach else CLAUDE_SYSTEM))
     except Exception as e:
         ai_brain._switch_off_if_limit(e)
         raise
@@ -747,7 +751,7 @@ def apply_notions(moments, brief, clip_text):
             continue
         m["notion"] = g["term"]
         if norm(g["term"]) not in said_names:
-            m["prompt"] = f"{m['prompt']} Draw {g['term']} the channel's usual way: {g['visual']}."[:700]
+            m["prompt"] = f"{m['prompt']} Draw {g['term']} the channel's usual way: {g['visual']}."[:PROMPT_MAX]
             print(f"   📚 Notion \"{g['term']}\" recognised by meaning — glossary picture added.")
     return moments
 
@@ -830,6 +834,158 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     for m in moments:
         m["thesis"] = thesis
     return moments
+
+
+# --- the art director (B-roll v2, profile-less: plus.BROLL["art_director"]) ---------------------------
+# The editor (plan_with_claude) decides WHAT each picture shows and WHEN; a second
+# call, the director of photography, writes the prompt the image model paints
+# from — for the whole set at once, so every picture shares one light and one
+# palette, in a fixed grammar the model reads best: subject and action, setting,
+# composition for its frame, lens, light, palette, material, mood. 80-120 words,
+# stated in the positive (at cfg 1.0 a negation does nothing).
+ART_MIN_WORDS, ART_MAX_WORDS = 40, 220   # an answer outside this is not a prompt: the editor's draft stays
+ART_SYSTEM = "You are a director of photography for a documentary channel. You answer only with the requested JSON."
+ART_PROMPT = """You are the director of photography of a short-form documentary channel. The editor has chosen the
+moments of this clip that get a picture and what each one must show; you write the prompt the image model will
+paint from, for EVERY picture of the set at once, so they look shot by one photographer on one day.
+
+THE CHANNEL'S LOOK (every picture of every clip, it always wins): {house}
+THIS CLIP'S STYLE SHEET (the editor's; keep what agrees with the channel's look): {sheet}
+THE CLIP: title "{title}"; thesis: {thesis}
+{glossary}
+THE PICTURES, in the order they are seen:
+{moments}
+
+Write ONE prompt per picture, 80 to 120 English words, in this fixed order, each part one or two plain sentences:
+1. SUBJECT AND ACTION: who or what, doing what, with every specific the editor gives (number, place, era, state).
+2. SETTING: the exact place and time of day, what surrounds the subject.
+3. COMPOSITION FOR ITS FRAME. A HERO fills a phone screen (9:16): the subject sits in the upper-middle third,
+   something close and soft gives depth in the foreground, and the lower third stays calm and dark (captions go
+   there). A CARD is a small wide frame (16:10) seen above the speaker's head: one clear subject with air around
+   it, readable at a glance when small.
+4. LENS AND POINT OF VIEW: the focal length (24, 35, 50, 85 mm, macro), the camera's height and distance.
+5. LIGHT: its source, its direction and its quality (window light from the left, late sun from behind, one
+   practical lamp, overcast sky...).
+6. PALETTE AND GRADE: the channel's colours, said in the scene's own things (teal shadow on the wall, amber rim
+   light on the hair...).
+7. MATERIAL AND DETAIL: textures and surfaces, and the one small true detail that proves the place is real.
+8. MOOD: two or three words.
+
+RULES
+- One series: the same direction and quality of light, the same palette and grade in every prompt of the set.
+  Vary the shots (wide, medium, close, macro) so no two pictures look alike; the HERO is the widest and most
+  cinematic frame of the set.
+- Describe what IS in the frame, never what is not: the image model ignores negations ("no text", "without
+  people" do nothing). Say "a bare plaster wall", not "no poster on the wall".
+- Photographic, real-world vocabulary: a documentary still. The style note of a picture is the editor's hint;
+  when it fights the channel's look, the channel's look wins (a microscopic subject becomes a macro photograph in
+  real light, never a glowing illustration).
+- Keep every fact the editor gives, the glossary's way of drawing a notion, and the subject of each picture.
+- Nothing written anywhere in the scene (signs, screens, pages and labels show plain surfaces). Nobody real and
+  recognisable.
+
+Return JSON: {{"prompts": [{{"k": 0, "prompt": "..."}}, ...]}} with the "k" of every picture above."""
+ART_SCHEMA = {
+    "type": "object",
+    "properties": {"prompts": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"k": {"type": "integer"}, "prompt": {"type": "string"}},
+        "required": ["k", "prompt"]}}},
+    "required": ["prompts"],
+}
+
+
+def _art_frame(m, mixed, rise):
+    """How the picture is framed on screen, for the art director."""
+    if mixed:
+        return "HERO (full screen, 9:16, about 3 s)" if m.get("hero") else "CARD (small wide frame 16:10 above the head)"
+    return "CARD (small square frame under the captions)" if rise else "FULL FRAME (9:16, full screen, about 1.5 s)"
+
+
+def _art_glossary(moments, clip_text):
+    """The glossary lines the set needs: the notions the clip says, and the ones the editor named."""
+    import ai_brain
+    brief = ai_brain.EPISODE_BRIEF
+    if not brief:
+        return ""
+    matched, rest = ai_brain.glossary_split(brief, clip_text)
+    named = {str(m.get("notion") or "").lower() for m in moments if m.get("notion")}
+    picked = list(matched[:12]) + [g for g in rest if str(g.get("term") or "").lower() in named]
+    if not picked:
+        return ""
+    return ("VISUAL GLOSSARY (the channel always draws these notions this way):\n"
+            + "\n".join(f"- {g['term']}: {g.get('visual') or g.get('meaning') or ''}" for g in picked) + "\n")
+
+
+def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, style="photo", clip_text=""):
+    """The art director's request for the whole set of one clip."""
+    sheet = next((m.get("sheet") for m in moments if m.get("sheet")), None)
+    sheet_txt = "; ".join(f"{k}: {v}" for k, v in (sheet or {}).items()) or "none"
+    thesis = next((m.get("thesis") for m in moments if m.get("thesis")), "") or "-"
+    lines = []
+    for k, m in enumerate(moments):
+        m_style = (m.get("style") or "photo") if auto_style else style
+        parts = [f"#{k} {_art_frame(m, mixed, rise)}", f"shot: {m.get('shot') or '-'}", f"role: {m.get('role') or '-'}",
+                 f"subject: {m.get('subject') or m.get('query') or '-'}"]
+        if m.get("notion"):
+            parts.append(f"notion: {m['notion']}")
+        lines.append("- " + " · ".join(parts))
+        if m.get("said"):
+            lines.append(f"  said: \"{m['said']}\"")
+        if m.get("idea"):
+            lines.append(f"  idea: {m['idea']}")
+        lines.append(f"  the editor's draft: {m.get('prompt') or '-'}")
+        lines.append(f"  style note: {STYLES.get(m_style, STYLES['photo'])}")
+    return ART_PROMPT.format(house=house or "cinematic documentary photograph", sheet=sheet_txt,
+                             title=clip.get("video_title_for_youtube_short") or "-", thesis=thesis,
+                             glossary=_art_glossary(moments, clip_text), moments="\n".join(lines))
+
+
+def _apply_art(moments, data):
+    """The art director's prompts onto the moments, by index: ``prompt`` becomes the director's (the editor's
+    draft kept in ``prompt_editor``, ``art`` set), when it reads like a prompt. Returns how many were taken."""
+    taken = 0
+    for p in (data or {}).get("prompts") or []:
+        try:
+            k = int(p.get("k"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        text = re.sub(r"\s+", " ", str(p.get("prompt") or "")).strip()
+        if not 0 <= k < len(moments) or not ART_MIN_WORDS <= len(text.split()) <= ART_MAX_WORDS:
+            continue
+        m = moments[k]
+        if not m.get("art"):
+            m["prompt_editor"] = m.get("prompt") or ""
+        m["prompt"] = text[:PROMPT_MAX]
+        m["art"] = True
+        taken += 1
+    return taken
+
+
+def direct_art(moments, clip, house, mixed=True, rise=False, auto_style=True, style="photo", clip_text=""):
+    """The second call of the brain: one prompt per picture of the set, in the channel's look. Runs on the
+    brain's ``broll_art`` step (a Claude model, or Gemini). Any failure leaves the editor's prompts in place."""
+    import ai_brain
+    if not moments:
+        return 0
+    prompt = _art_prompt(moments, clip, house, mixed, rise, auto_style, style, clip_text)
+    try:
+        if ai_brain.route("broll_art") == "gemini":
+            ai_brain.say(f"Gemini · {TEXT_MODEL}", "B-roll: art direction of the set")
+            data, _r = ai_brain.gemini_json([prompt], model=TEXT_MODEL)
+        else:
+            data = claude_json(prompt, ART_SCHEMA, timeout=300, effort=os.environ.get("CLAUDE_EFFORT_BROLL") or "high",
+                               stage="B-roll: art direction of the set", model=ai_brain.stage_model("broll_art"),
+                               system=ART_SYSTEM)
+    except Exception as e:
+        print(f"   ⚠️ B-roll art direction failed ({str(e)[:160]}) — the editor's prompts are used.")
+        return 0
+    taken = _apply_art(moments, data)
+    words = [len(m["prompt"].split()) for m in moments if m.get("art")]
+    print(f"   🎨 Art direction: {taken}/{len(moments)} prompt(s) written"
+          + (f", {sum(words) // len(words)} words on average" if words else "")
+          + (" — the others keep the editor's draft" if taken < len(moments) else ""))
+    return taken
 
 
 def review_with_claude(cands, words, model=None):
@@ -1173,7 +1329,7 @@ def notion_regenerate(nid, prompt, engine=None):
     can be restored. No clip look, no review. Raises ValueError / RuntimeError."""
     path = _notion_file(nid)
     entry = _notion_entry(path)
-    prompt = re.sub(r"\s+", " ", str(prompt or "")).strip()[:700]
+    prompt = re.sub(r"\s+", " ", str(prompt or "")).strip()[:PROMPT_MAX]
     if not prompt:
         raise ValueError("the prompt is empty")
     engine = engine if engine in ENGINES else entry["made_with"] if entry["made_with"] in ENGINES else "zimage"
@@ -1257,18 +1413,21 @@ def _graph(engine, text, seed, width=768, height=1344):
     return out
 
 
-def _image_text(prompt, style, look="", house=""):
+def _image_text(prompt, style, look="", house="", art=False):
     """The full prompt sent to the image model: the scene (with its guardrails), the channel's house look
     (profile broll.house_look, the same sentence in every image of every clip), this clip's style sheet, the
-    style's own description and the common rules."""
+    style's own description and the common rules. ``art``: the scene is the art director's prompt, which
+    already states the look, the frame and the light: only the guardrails and the hard rules follow it."""
     prompt, guard = guardrails(prompt) if os.environ.get("BROLL_GUARDRAILS", "1") != "0" else (prompt, "")
+    if art:
+        return f"{prompt} {guard} {ART_RULES}".replace("  ", " ")
     house = re.sub(r"\s+", " ", str(house or "")).strip()
     if house and not house.endswith("."):
         house += "."
     return f"{prompt} {guard} {house} {look} {STYLES.get(style, STYLES['photo'])} {COMMON_RULES}".replace("  ", " ")
 
 
-def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
+def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", art=False):
     """One 9:16 image from ComfyUI. Measured on an RTX 3060 (ComfyUI on
     PyTorch cu130 — the int8 kernels need it): Z-Image Turbo ~12 s per
     image, FLUX.1 schnell ~25 s; the first call of a job also loads the
@@ -1276,7 +1435,7 @@ def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768
     import random
     import uuid
     import httpx
-    text = _image_text(prompt, style, look, house)
+    text = _image_text(prompt, style, look, house, art)
     graph = _graph(engine if engine in ENGINES else "zimage", text, random.randint(0, 2 ** 48), *size)
     base = _comfy_url()
     with httpx.Client(timeout=30) as http:
@@ -1938,7 +2097,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             pass
     gpu = [0.0]      # seconds spent waiting for ComfyUI, for the clip's log line
 
-    def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None):
+    def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None, art=False):
         """(path, "local", None) from ComfyUI, or (None, None, None) when this
         one picture could not be made: a second try with a new seed, then the
         picture is skipped and the clip goes on with the others (one refused
@@ -1950,7 +2109,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             t0 = time.time()
             try:
                 return local_image(prompt, m_style, raw, engine=engine, size=size, look=look_text(sheet, m_style),
-                                   house=house), "local", None
+                                   house=house, art=art), "local", None
             except Exception as e:
                 last = e
                 if not comfy_available():
@@ -2026,6 +2185,11 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 m["hero"] = i == k_hero
             if k_hero is None:
                 print("   ℹ️ B-roll: no moment of this clip reads well on a whole screen — small cards only.")
+        if planner == "claude" and cfg.get("art_director"):
+            # The second call: the prompts of the whole set, in the channel's look (the editor's drafts stay
+            # when it fails).
+            direct_art(moments, clip, house, mixed=mixed, rise=rise, auto_style=auto_style, style=style,
+                       clip_text=" ".join(w["text"] for w in words))
 
         used_urls, cands = set(), []
         for k, m in enumerate(moments):
@@ -2041,7 +2205,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # A notion's picture is the channel's usual one, kept for other clips:
             # made without this clip's look.
             got, used, credit = make_image(m["prompt"], m_style, raw, m["query"], used_urls,
-                                           None if m.get("notion") else m.get("sheet"), layout=m_layout)
+                                           None if m.get("notion") else m.get("sheet"), layout=m_layout,
+                                           art=bool(m.get("art")))
             if got:
                 cands.append({"k": k, "m": m, "style": m_style, "file": got, "source": used, "credit": credit,
                               "layout": m_layout})
@@ -2062,8 +2227,9 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                                                        used_urls, None if c["m"].get("notion") else c["m"].get("sheet"),
                                                        layout=c["layout"])
                         if got:
+                            # A redo is the editor's kind of prompt again (the reviewer's better_prompt).
                             redo.append((c, {**c, "file": got, "source": used, "credit": credit,
-                                             "m": {**c["m"], "prompt": r["better_prompt"]}}))
+                                             "m": {**c["m"], "prompt": r["better_prompt"], "art": False}}))
                 if redo:
                     for (c, c2), r2 in zip(redo, review_images([c2 for _, c2 in redo], words)):
                         if int(r2.get("score") or 3) > c["score"]:
@@ -2110,6 +2276,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     item["sfx"] = True               # the whoosh, on the hero only
             if m.get("sheet") and not m.get("notion"):
                 item["sheet"] = m["sheet"]      # kept: a manual redo keeps the clip's look
+            if m.get("art"):
+                # The art director's prompt (a redo from the review's better_prompt is the editor's kind again).
+                item["art"] = True
+                item["prompt_editor"] = m.get("prompt_editor") or ""
             if m.get("notion"):
                 item["notion"] = m["notion"]
                 if c.get("reused"):
@@ -2171,11 +2341,12 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, sheet=None, gen=None):
+def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, sheet=None, gen=None, art=False):
     """One image again, from a new prompt / style (the manual review), on the
     local GPU. ``gen``: the (width, height) the first picture was made at (the
-    item's "gen"), else the layout's usual size. Returns (path, source, credit);
-    raises when nothing came."""
+    item's "gen"), else the layout's usual size. ``art``: the item's prompt is
+    the art director's (sent as is, when it still reads like one). Returns
+    (path, source, credit); raises when nothing came."""
     cfg = cfg or {}
     style = style if style in STYLES else "photo"
     engine = "zimage"
@@ -2189,8 +2360,9 @@ def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, 
     # A hero or a wide card belongs to a "mixed" clip: it gets the house look like the first picture did.
     house = str(cfg.get("house_look") or "").strip() if cfg.get("layout") in ("hero", "card", "mixed") else ""
     try:
+        art = bool(art) and len(str(prompt).split()) >= ART_MIN_WORDS
         return local_image(prompt, style, out_path, engine=engine, size=size, look=look_text(sheet, style),
-                           house=house), "local", None
+                           house=house, art=art), "local", None
     finally:
         comfy_release()
 

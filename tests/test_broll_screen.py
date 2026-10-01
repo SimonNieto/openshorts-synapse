@@ -48,7 +48,7 @@ def stubs(monkeypatch):
     """Everything around add_broll stubbed; the planner records what it was asked (``_n``, ``block``...)."""
     made, cut, seen = [], [], {}
 
-    def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
+    def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", **kw):
         Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
         made.append(tuple(size))
         return out_path

@@ -76,12 +76,13 @@ def claude_model():
 # (plus.py -> BRAIN_<STAGE> env of the job): "gemini", or a Claude model —
 # "haiku" (light, uses little of the plan), "sonnet", "opus". Every stage falls
 # back to the other provider when its first choice fails.
-STAGES = ("brief_score", "detail", "layout", "broll", "image_review", "hook", "text")
+STAGES = ("brief_score", "detail", "layout", "broll", "broll_art", "image_review", "hook", "text")
 STAGE_DEFAULTS = {
     "brief_score": "gemini",    # brief + scoring pass: reads the whole transcript
     "detail": "sonnet",         # picks the clips, writes hooks / titles / descriptions
     "layout": "gemini",         # layout picker: frame classification
     "broll": "sonnet",          # B-roll plan (+ the hook of a screen clip)
+    "broll_art": "sonnet",      # B-roll art direction: the prompt of every picture of a set, no image
     "image_review": "gemini",   # B-roll image check (the judge re-checks the doubtful ones)
     "hook": "sonnet",           # screen hook of a clip without Claude B-roll
     "text": "gemini",           # caption translation, copy regeneration

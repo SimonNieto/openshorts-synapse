@@ -86,7 +86,10 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          "review": "auto", "layout": "mixed", "hero_res": "std", "label": False, "max": 6,
          "house_look": ("cinematic documentary photograph, 35 mm lens, natural light, teal and amber grade, "
                         "fine film grain, shallow depth of field"),
-         "grade": "cinematic", "sfx": True}
+         "grade": "cinematic", "sfx": True,
+         # B-roll v2 (1-oct-2026): a second call writes the prompt of every picture of a set in the channel's
+         # look (broll.direct_art). Off until the brain bench shows its boards beat the editor's drafts.
+         "art_director": False}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set
@@ -94,20 +97,20 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
 SELECTION = {"dedupe_overlap": 0.2, "dedupe_seconds": 8.0, "hook_check": True, "audio_signals": True,
              "title_variety": True, "playbook": True}
 
-BRAIN_STAGES = ("brief_score", "detail", "layout", "broll", "image_review", "hook", "text")
+BRAIN_STAGES = ("brief_score", "detail", "layout", "broll", "broll_art", "image_review", "hook", "text")
 BRAIN_CHOICES = ("gemini", "haiku", "sonnet", "opus")
 BRAIN_PRESETS = {
     # No Claude at all: every step on Gemini (billed per token, cheap).
     "gemini": {k: "gemini" for k in BRAIN_STAGES},
     # "Gemini reads, Claude decides" — the default.
     "balanced": {"brief_score": "gemini", "detail": "sonnet", "layout": "gemini", "broll": "sonnet",
-                 "image_review": "gemini", "hook": "sonnet", "text": "gemini"},
+                 "broll_art": "sonnet", "image_review": "gemini", "hook": "sonnet", "text": "gemini"},
     # Claude everywhere, the light steps on Haiku (a fraction of the plan's usage).
     "claude": {"brief_score": "haiku", "detail": "sonnet", "layout": "haiku", "broll": "sonnet",
-               "image_review": "haiku", "hook": "sonnet", "text": "haiku"},
+               "broll_art": "sonnet", "image_review": "haiku", "hook": "sonnet", "text": "haiku"},
     # Claude everywhere, Opus on the two decisions.
     "claude_max": {"brief_score": "sonnet", "detail": "opus", "layout": "haiku", "broll": "opus",
-                   "image_review": "sonnet", "hook": "sonnet", "text": "haiku"},
+                   "broll_art": "sonnet", "image_review": "sonnet", "hook": "sonnet", "text": "haiku"},
 }
 THINKING = {"light": "low", "normal": "medium", "deep": "high"}
 

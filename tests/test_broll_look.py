@@ -126,7 +126,7 @@ class TestAddBroll:
     def test_items_carry_the_grade_and_the_styles_are_photographic(self, monkeypatch):
         made = []
 
-        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", **kw):
             Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
             made.append((style, house))
             return out_path

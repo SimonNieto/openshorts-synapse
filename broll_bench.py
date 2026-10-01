@@ -402,6 +402,7 @@ BRAIN_DIR = os.path.join(HERE, "output", "_test_broll", "brain")
 # version is "name" or "name:key=value;key=value" (its keys laid over the named one, or over "current").
 VERSIONS = {
     "current": {},
+    "art": {"art_director": True},            # chantier A: the art director writes the prompts
 }
 BOARD_W = 1500
 THUMB_W, THUMB_H = 420, 300
@@ -673,13 +674,17 @@ def _board(res, out_path):
         if it.get("planner_hero"):
             line1 += "   planner's hero"
         lines += block(f_b, line1, _C_LABEL)
-        lines += block(f_b, f"score {it.get('score', '-')}" + (f"   look {it['look']}" if it.get("look") is not None else ""),
+        # "look" on an item is the card's drawing ("premium"); the review's look score (chantier E) is "look_score".
+        lines += block(f_b, f"score {it.get('score', '-')}" + (f"   look {it['look_score']}" if it.get("look_score") is not None else ""),
                        _score_colour(it.get("score")))
         lines += block(f_t, f"“{it.get('anchor') or ''}”" + (f"  —  said: {it['said']}" if it.get("said") else ""), _C_BODY)
         if it.get("idea"):
             lines += block(f_t, f"idea: {it['idea']}", _C_BODY)
         if it.get("source") != "screen":
-            lines += block(f_t, f"PROMPT ({len(it.get('prompt') or '')} chars): {it.get('prompt') or ''}", _C_HEAD)
+            if it.get("art"):
+                lines += block(f_s, f"EDITOR'S DRAFT: {it.get('prompt_editor') or '-'}", _C_DIM)
+            lines += block(f_t, f"{'ART DIRECTOR' if it.get('art') else 'PROMPT'} ({len(it.get('prompt') or '')} chars): "
+                                f"{it.get('prompt') or ''}", _C_HEAD)
             sent = it.get("sent") or {}
             if sent:
                 lines += block(f_s, f"SENT TO Z-IMAGE ({len(sent['text'])} chars, {len(sent['text'].split())} words, "
@@ -795,8 +800,13 @@ def cmd_plan(args):
                 print(f"   {name}: {row['images']} kept of {row['made']} made, scores {scores}, hero {row['hero']}, "
                       f"{res['seconds']} s, Claude {res['usage']['calls']} call(s) "
                       f"{res['usage']['input_tokens']:,}/{res['usage']['output_tokens']:,} -> {tag}.jpg", flush=True)
-            if len(boards) > 1:
-                _hstack(boards, os.path.join(BRAIN_DIR, f"{job8}_clip{n}_compare.jpg"))
+            # Side by side with every version of this clip already on disk ("current" first, then by age), so a
+            # version can be run alone and still be compared with the ones made before.
+            on_disk = [p for p in glob.glob(os.path.join(glob.escape(BRAIN_DIR), f"{job8}_clip{n}_*.jpg"))
+                       if not p.endswith("_compare.jpg")]
+            on_disk.sort(key=lambda p: (not p.endswith("_current.jpg"), os.path.getmtime(p)))
+            if len(on_disk) > 1:
+                _hstack(on_disk, os.path.join(BRAIN_DIR, f"{job8}_clip{n}_compare.jpg"))
     finally:
         broll._comfy_leave()
     with open(os.path.join(BRAIN_DIR, f"{job8}_summary.json"), "w", encoding="utf-8") as f:

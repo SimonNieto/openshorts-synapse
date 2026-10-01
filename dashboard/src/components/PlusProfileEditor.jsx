@@ -53,6 +53,7 @@ const STEPS = [
     { k: 'brief_score', label: 'read & sort the video', hint: 'Reads the whole transcript once: who talks, the topic, and a score for every stretch. The biggest read of the job.', w: 30 },
     { k: 'detail', label: 'pick & write the clips', hint: 'Chooses the clips from the shortlist and writes hooks, titles and descriptions. Where the quality shows.', w: 25 },
     { k: 'broll', label: 'b-roll plan', hint: 'Which moments get an image and what it shows (and the hook of a screen clip, in the same call).', w: 25 },
+    { k: 'broll_art', label: 'b-roll art direction', hint: 'Writes the final prompt of every picture of a clip in the channel’s look, for the whole set at once (text only, no image).', w: 6 },
     { k: 'image_review', label: 'check b-roll images', hint: 'Scores each image against its idea. On Gemini, the b-roll brain re-checks only the doubtful ones.', w: 8 },
     { k: 'layout', label: 'framing', hint: 'A few frames of the source: face crop, screen or split screen.', w: 5 },
     { k: 'hook', label: 'screen hook', hint: 'Rewrites the hook from the frames when the clip is a screen and no Claude b-roll did it.', w: 5 },
@@ -67,9 +68,9 @@ const PRESETS = [
 // Fallback copy of plus.py's presets (the server sends the real ones).
 const PRESET_STAGES = {
     gemini: Object.fromEntries(STEPS.map((s) => [s.k, 'gemini'])),
-    balanced: { brief_score: 'gemini', detail: 'sonnet', layout: 'gemini', broll: 'sonnet', image_review: 'gemini', hook: 'sonnet', text: 'gemini' },
-    claude: { brief_score: 'haiku', detail: 'sonnet', layout: 'haiku', broll: 'sonnet', image_review: 'haiku', hook: 'sonnet', text: 'haiku' },
-    claude_max: { brief_score: 'sonnet', detail: 'opus', layout: 'haiku', broll: 'opus', image_review: 'sonnet', hook: 'sonnet', text: 'haiku' },
+    balanced: { brief_score: 'gemini', detail: 'sonnet', layout: 'gemini', broll: 'sonnet', broll_art: 'sonnet', image_review: 'gemini', hook: 'sonnet', text: 'gemini' },
+    claude: { brief_score: 'haiku', detail: 'sonnet', layout: 'haiku', broll: 'sonnet', broll_art: 'sonnet', image_review: 'haiku', hook: 'sonnet', text: 'haiku' },
+    claude_max: { brief_score: 'sonnet', detail: 'opus', layout: 'haiku', broll: 'opus', broll_art: 'sonnet', image_review: 'sonnet', hook: 'sonnet', text: 'haiku' },
 };
 // Rough share of a Claude plan per model, Sonnet = 1 (list prices ratio).
 const PLAN_WEIGHT = { gemini: 0, haiku: 1 / 3, sonnet: 1, opus: 5 / 3 };

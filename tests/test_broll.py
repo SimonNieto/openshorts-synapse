@@ -233,7 +233,7 @@ class TestAddBroll:
     def stubs(self, monkeypatch):
         made = []
 
-        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", **kw):
             Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
             made.append(tuple(size))
             return out_path
@@ -422,7 +422,7 @@ class TestMixedCards:
     def test_mixed_cards_are_wide_premium_and_above_the_head(self, monkeypatch):
         made = []
 
-        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", **kw):
             Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
             made.append(tuple(size))
             return out_path
@@ -527,7 +527,7 @@ class TestPace:
         assert (seen["n"], seen["gap_min"], seen["tail"], seen["head"]) == (broll.image_count(10, "more"), 0.0, None, broll.HEAD_FREE)
 
     def test_the_clip_log_line(self, monkeypatch, capsys):
-        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", **kw):
             Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
             return out_path
 
@@ -608,7 +608,7 @@ class TestSfx:
     def test_only_the_hero_of_a_mixed_clip_gets_the_flag(self, monkeypatch):
         assert plus.BROLL["sfx"] is True, "the whoosh is part of the house recipe"
 
-        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", **kw):
             Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
             return out_path
 
@@ -642,7 +642,7 @@ class TestRobustness:
         """``fail``: {prompt substring: how many times local_image raises for it}."""
         calls = []
 
-        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", **kw):
             calls.append(prompt)
             for key, n in fail.items():
                 if key in prompt and sum(key in c for c in calls) <= n:

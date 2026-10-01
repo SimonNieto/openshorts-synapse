@@ -3427,7 +3427,7 @@ async def regenerate_clip_broll(job_id: str, clip_index: int, req: BrollRegenReq
     item = next((it for it in (clip.get('broll') or []) if it.get('image') == name), None)
     if item is None:
         raise HTTPException(status_code=404, detail="Image not found")
-    prompt = (req.prompt or "").strip()[:400]
+    prompt = (req.prompt or "").strip()[:_broll.PROMPT_MAX]
     if not prompt:
         raise HTTPException(status_code=400, detail="Empty prompt")
     style = req.style if req.style in _broll.STYLES else (item.get('style') or 'photo')
@@ -3440,7 +3440,7 @@ async def regenerate_clip_broll(job_id: str, clip_index: int, req: BrollRegenReq
         _path, source, credit = await loop.run_in_executor(
             None, lambda: _broll.regenerate_image(prompt, style, out, item.get('query') or "", cfg,
                                                   os.getenv("GEMINI_API_KEY"), sheet=item.get('sheet'),
-                                                  gen=item.get('gen')))
+                                                  gen=item.get('gen'), art=bool(item.get('art'))))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image failed: {str(e)[:300]}")
     item.update(image=new_name, prompt=prompt, source=source,
