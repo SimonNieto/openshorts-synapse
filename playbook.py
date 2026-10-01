@@ -344,6 +344,40 @@ def hook_problems(hook: str) -> list:
     return out
 
 
+# --- does the hook tell the ending? --------------------------------------------
+# A hook teases the payoff, it never tells it: "A 6-to-1 underdog won the
+# greatest fight ever" (a rewrite on JRE #2515) leaves nothing to watch for,
+# and "The quit room has no one in it." is the clip's punchline word for word.
+# Two plain tests: a verb that settles the story (past tense), or most of
+# the hook's words already in the punchline (HOOK_SPOIL_MAX). Nouns such as
+# "champion" or "winner" stay out: they name who is in the story, not how it
+# ends ("Betting odds gave the champion no chance" teases).
+_HOOK_OUTCOME = set("""won lost died survived defeated recovered cured healed escaped failed succeeded
+retired""".split())
+_HOOK_OUTCOME_PHRASES = ("ended up", "turned out", "turns out", "in the end", "wound up")
+HOOK_SPOIL_MAX = 0.5
+
+
+def hook_spoils(hook: str, punchline: str = "") -> str:
+    """Why the hook tells the ending instead of teasing it ("" when it does
+    not, or when there is no hook)."""
+    text = (hook or "").lower()
+    if not text.strip():
+        return ""
+    words = _hook_words(hook)
+    verdict = next((w for w in words if w in _HOOK_OUTCOME), None)
+    if verdict:
+        return f"tells the ending ('{verdict}')"
+    phrase = next((ph for ph in _HOOK_OUTCOME_PHRASES if ph in text), None)
+    if phrase:
+        return f"tells the ending ('{phrase}')"
+    h, p = _sig_words(hook), _sig_words(punchline)
+    shared = h & p
+    if len(shared) >= 2 and len(shared) / len(h) >= HOOK_SPOIL_MAX:
+        return "says the punchline"
+    return ""
+
+
 def hook_check_enabled() -> bool:
     """HOOK_CHECK=1 (profile: selection.hook_check): an unclear hook gets one
     rewrite by the model. The check itself always runs with the playbook."""
@@ -352,14 +386,16 @@ def hook_check_enabled() -> bool:
 
 def check_hook(clip: dict) -> bool:
     """Sets clip['hook_repeats_title'] (the hook says the title again:
-    HOOK_OVERLAP_MAX or more of its significant words) and
-    clip['hook_clear'] / clip['hook_problems'] (hook_problems). Returns True
-    when the hook repeats the title."""
+    HOOK_OVERLAP_MAX or more of its significant words),
+    clip['hook_clear'] / clip['hook_problems'] (hook_problems) and
+    clip['hook_spoils'] (hook_spoils, against clip['punchline']). Returns
+    True when the hook repeats the title."""
     share = hook_overlap(clip.get("video_title_for_youtube_short"), clip.get("viral_hook_text"))
     clip["hook_repeats_title"] = share >= HOOK_OVERLAP_MAX
     clip["hook_title_overlap"] = round(share, 2)
     clip["hook_problems"] = hook_problems(clip.get("viral_hook_text"))
     clip["hook_clear"] = not clip["hook_problems"]
+    clip["hook_spoils"] = hook_spoils(clip.get("viral_hook_text"), clip.get("punchline"))
     return clip["hook_repeats_title"]
 
 
@@ -367,16 +403,21 @@ _HOOK_REPEAT = "says the title again"
 
 
 def hook_issues(clip: dict) -> list:
-    """Everything wrong with the clip's hook: check_hook's two verdicts."""
+    """Everything wrong with the clip's hook: check_hook's three verdicts
+    (unclear, tells the ending, says the title again)."""
     repeats = check_hook(clip)
-    return clip["hook_problems"] + ([_HOOK_REPEAT] if repeats else [])
+    return (clip["hook_problems"] + ([clip["hook_spoils"]] if clip["hook_spoils"] else [])
+            + ([_HOOK_REPEAT] if repeats else []))
 
 
 def _hook_rank(issues) -> tuple:
-    """Lower is better. Clarity first: a hook read without the title that
-    says it again still tells the viewer what the clip is about; one that
-    cannot be understood tells nothing."""
-    return len([i for i in issues if i != _HOOK_REPEAT]), _HOOK_REPEAT in issues
+    """Lower is better. A hook that tells the ending comes last whatever
+    else it does right: the clip has nothing left to show. Then clarity: a
+    hook read without the title that says it again still tells the viewer
+    what the clip is about; one that cannot be understood tells nothing."""
+    spoils = any(i.startswith("tells the ending") or i == "says the punchline" for i in issues)
+    return spoils, len([i for i in issues if i != _HOOK_REPEAT and not (i.startswith("tells the ending")
+                                                                        or i == "says the punchline")]),         _HOOK_REPEAT in issues
 
 
 def opening_sentences(clip: dict, transcript=None, n: int = 2, max_words: int = 60) -> str:
@@ -403,8 +444,9 @@ You fix the on-screen hooks of short video clips. The hook is the big text a
 viewer reads in the first 3 seconds, BEFORE hearing a word and WITHOUT reading
 the title: it has to be understood cold, on its own.
 
-For each clip below you get its title, the first sentences heard, its current
-hook and what is wrong with it. Write ONE better hook per clip:
+For each clip below you get its title, the first sentences heard, the
+punchline it closes on, its current hook and what is wrong with it. Write ONE
+better hook per clip:
 - max {max_words} words, in {language};
 - it names the concrete thing the clip is about (the substance, the organ, the
   illness, the number, the act) in plain words: someone who reads only these
@@ -417,6 +459,10 @@ hook and what is wrong with it. Write ONE better hook per clip:
   share the subject with the title but never says the title again;
 - no name of a person or a show; never an explicit word for suicide or
   self-harm; a drug is shown from its risk, never as fun;
+- it teases the payoff, it NEVER tells it: nothing from the punchline, no
+  result, no verdict, no "won", "lost", "died", "survived", "turned out". The
+  viewer must need the clip to learn how it ends ("A 6-to-1 underdog won the
+  greatest fight ever" is wrong; "Nobody gave the underdog a chance" is right);
 - true to the clip: nothing the opening does not support.
 
 CLIPS_JSON:
@@ -436,7 +482,7 @@ HOOK_RETRY_SCHEMA = {
 
 
 def hook_retry_prompt(items, language: str = "en") -> str:
-    """``items``: [{"id", "title", "opening", "hook", "problems"}]."""
+    """``items``: [{"id", "title", "opening", "punchline", "hook", "problems"}]."""
     return HOOK_RETRY_PROMPT.format(max_words=HOOK_MAX_WORDS, language=language or "en",
                                     clips=json.dumps(items, ensure_ascii=False, indent=1))
 
@@ -453,7 +499,7 @@ def apply_hook_retry(clip: dict, new_hook: str) -> bool:
         clip["hook_check"] = {**record, "kept": "no new hook"}
         return False
     trial = {"video_title_for_youtube_short": clip.get("video_title_for_youtube_short"),
-             "viral_hook_text": new_hook}
+             "viral_hook_text": new_hook, "punchline": clip.get("punchline")}
     after = hook_issues(trial)
     if _hook_rank(after) >= _hook_rank(before):
         clip["hook_check"] = {**record, "kept": "the new hook was no better", "rejected": new_hook,
@@ -568,6 +614,8 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "hook_clear": bool(clip.get("hook_clear")),
         "hook_problems": clip.get("hook_problems") or [],
         "hook_before_retry": (clip.get("hook_check") or {}).get("before") or "",
+        # The hook tells the ending (hook_spoils): "" when it teases.
+        "hook_tells_ending": clip.get("hook_spoils") or "",
         "score": clip.get("predicted_score"),
         # Outside the profile's niche_topics: the score above lost the niche
         # weight, score_raw is what the model gave (apply_niche).

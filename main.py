@@ -2026,9 +2026,10 @@ def _ask_hook_retry(prompt):
 def retry_unclear_hooks(shorts, transcript, ask=None):
     """Synapse Cut playbook + HOOK_CHECK=1: the on-screen hooks that fail
     playbook.hook_issues (an image, a "he" nobody has met, no concrete word,
-    the title said again) are sent back to the model ONCE, all in one call,
-    each with its title and the first two sentences of its clip. A new hook
-    is taken only when it has fewer issues. Returns how many hooks changed.
+    the ending told, the title said again) are sent back to the model ONCE,
+    all in one call, each with its title, the first two sentences of its clip
+    and its punchline. A new hook is taken only when it has fewer issues.
+    Returns how many hooks changed.
 
     Called again after hook grounding rewrote a hook from the frames: a hook
     already checked is not asked about twice. Never raises — a hook problem
@@ -2045,6 +2046,7 @@ def retry_unclear_hooks(shorts, transcript, ask=None):
         return 0
     items = [{"id": i, "title": shorts[i].get("video_title_for_youtube_short") or "",
               "opening": playbook.opening_sentences(shorts[i], transcript),
+              "punchline": str(shorts[i].get("punchline") or "").strip(),
               "hook": hook, "problems": issues} for i, hook, issues in todo]
     language = str((transcript or {}).get("language") or "en")
     try:

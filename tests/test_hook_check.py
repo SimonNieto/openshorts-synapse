@@ -61,6 +61,39 @@ class TestHookProblems:
         assert playbook.hook_issues(c) == ["says the title again"]
 
 
+class TestHookSpoils:
+    # Hooks, punchlines and titles from JRE #2515 and its hook-check trial.
+    def test_a_rewrite_that_tells_the_ending_is_caught(self):
+        assert playbook.hook_spoils("A 6-to-1 underdog won the greatest fight ever", "and then Justin rallied")             == "tells the ending ('won')"
+        assert playbook.hook_spoils("He survived five days without water.") == "tells the ending ('survived')"
+        assert playbook.hook_spoils("It turned out to be a tumor.", "") == "tells the ending ('turned out')"
+
+    def test_the_punchline_quoted_as_the_hook_is_caught(self):
+        assert playbook.hook_spoils("The quit room has no one in it.",
+                                    "the quit room has no one in it there's nothing in there") == "says the punchline"
+        assert playbook.hook_spoils("The whole world is lonelier than ever before.",
+                                    "We have more rampant loneliness around the world than we've ever had before")             == "says the punchline"
+
+    def test_a_tease_passes(self):
+        for hook, punch in (("Nobody gave him a real chance to win.", "and then Justin rallied"),
+                            ("Every single fight ended the exact same way.", "to see it that way at the White House"),
+                            ("His opponent was left completely unrecognizable.", "he's unrecognizable"),
+                            ("It might go on forever, fractal inside fractal.", "black holes inside their brain cells"),
+                            ("Five and a half hours straight.", "and it seems like we're protected"),
+                            ("Betting odds gave the champion almost no chance.", "and then Justin rallied"),
+                            ("", "anything"), (None, None)):
+            assert playbook.hook_spoils(hook, punch) == "", hook
+
+    def test_check_hook_and_issues_carry_it(self):
+        c = {"video_title_for_youtube_short": "Can a 6-to-1 underdog really beat the sport's best?",
+             "viral_hook_text": "The underdog won the greatest fight ever.", "punchline": "and then Justin rallied"}
+        assert playbook.check_hook(c) is False
+        assert c["hook_spoils"] == "tells the ending ('won')" and c["hook_clear"] is True
+        assert playbook.hook_issues(c) == ["tells the ending ('won')"]
+        c["viral_hook_text"] = "Nobody gave the underdog a chance."
+        assert playbook.hook_issues(c) == [] and c["hook_spoils"] == ""
+
+
 class TestRetryPieces:
     TRANSCRIPT = {"language": "en", "segments": [{"words": [
         {"word": w, "start": 100 + i * 0.4, "end": 100 + i * 0.4 + 0.3} for i, w in enumerate(
@@ -75,8 +108,10 @@ class TestRetryPieces:
         assert playbook.opening_sentences({"start": 100.8, "end": 102.0}, self.TRANSCRIPT) == "Psilocybin quiets the"
 
     def test_prompt_is_filled(self):
-        prompt = playbook.hook_retry_prompt([{"id": 0, "title": "T?", "opening": "O.", "hook": "H", "problems": ["p"]}], "en")
-        assert "max 8 words, in en" in prompt and '"opening": "O."' in prompt
+        prompt = playbook.hook_retry_prompt([{"id": 0, "title": "T?", "opening": "O.", "punchline": "P.",
+                                              "hook": "H", "problems": ["p"]}], "en")
+        assert "max 8 words, in en" in prompt and '"opening": "O."' in prompt and '"punchline": "P."' in prompt
+        assert "it NEVER tells it" in prompt
         assert '{"hooks": [{"id": <clip id>, "viral_hook_text": "<max 8 words>"}]}' in prompt
 
     def test_a_better_hook_is_taken(self):
@@ -97,6 +132,21 @@ class TestRetryPieces:
             assert c["viral_hook_text"] == old and c["hook_check"]["kept"], new
             assert c["hook_clear"] is False
 
+    def test_a_rewrite_that_tells_the_ending_is_refused(self):
+        # Real rewrite on JRE #2515: clear, concrete, and it gives the fight away.
+        c = {"video_title_for_youtube_short": "Can a 6-to-1 underdog really beat the sport's best?",
+             "viral_hook_text": "Nobody gave him a real chance to win.", "punchline": "and then Justin rallied"}
+        assert playbook.apply_hook_retry(c, "A 6-to-1 underdog won the greatest fight ever") is False
+        assert c["viral_hook_text"] == "Nobody gave him a real chance to win."
+        assert c["hook_check"]["issues_rejected"] == ["tells the ending ('won')"]
+        assert playbook.apply_hook_retry(c, "Nobody gave the 6-to-1 underdog a chance") is True
+        assert c["hook_spoils"] == ""
+        # ...and a hook that quotes the punchline is sent back even when it is clear
+        c = {"video_title_for_youtube_short": "Does this fighter actually have zero quit in him?",
+             "viral_hook_text": "The quit room has no one in it.",
+             "punchline": "the quit room has no one in it there's nothing in there"}
+        assert "says the punchline" in playbook.hook_issues(c)
+
     def test_clear_beats_unclear_even_when_it_says_the_title_again(self):
         # Real answer on JRE #2515: the viewer reads the hook without the title.
         c = {"video_title_for_youtube_short": "Does a prayer really shape a DMT experience?",
@@ -113,6 +163,7 @@ class TestRetryPieces:
              "viral_hook_text": "Your brain wakes up with one labeled folder."}
         out = json.load(open(playbook.export_clip(c, str(tmp_path), "x_clip_1.mp4", []), encoding="utf-8"))
         assert out["hook_clear"] is False and out["hook_problems"] and out["hook_before_retry"] == ""
+        assert out["hook_tells_ending"] == ""
         playbook.apply_hook_retry(c, "Psilocybin switches off your sense of self.")
         out = json.load(open(playbook.export_clip(c, str(tmp_path), "x_clip_1.mp4", []), encoding="utf-8"))
         assert out["hook_clear"] is True and out["hook_before_retry"].startswith("Your brain wakes up")
@@ -135,7 +186,7 @@ main = pytest.importorskip("main")
 def _shorts():
     return [
         {"start": 100.8, "end": 140.0, "video_title_for_youtube_short": "Can psychedelics really reboot your identity?",
-         "viral_hook_text": "Your brain wakes up with one labeled folder."},
+         "viral_hook_text": "Your brain wakes up with one labeled folder.", "punchline": "Then it comes back."},
         {"start": 300.0, "end": 330.0, "video_title_for_youtube_short": "Is kratom really harmless?",
          "viral_hook_text": "Kratom hits the same receptors as opioids."},
         {"start": 500.0, "end": 530.0, "video_title_for_youtube_short": "Can a fighter come back from that?",
@@ -158,6 +209,7 @@ class TestRetryUnclearHooks:
         assert "labeled folder" in prompts[0] and "unrecognizable" in prompts[0]
         assert "Kratom" not in prompts[0], "a clear hook is not sent"
         assert "Psilocybin quiets the default mode network." in prompts[0], "the clip's opening goes with it"
+        assert '"punchline": "Then it comes back."' in prompts[0], "and its punchline"
         assert shorts[0]["viral_hook_text"] == "Psilocybin switches off your sense of self."
         assert shorts[2]["viral_hook_text"] == "His opponent was left completely unrecognizable.", "no better: kept"
         assert "hook_check" not in shorts[1] and "hook_check" not in shorts[3]
