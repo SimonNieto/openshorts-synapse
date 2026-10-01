@@ -3,34 +3,6 @@ import { FlaskConical, Music, Film, Clock, User, Zap, Trash2, Copy, Image as Ima
 import Modal from './ui/Modal';
 import { loadNicheHistory } from '../lib/nicheHistory';
 import { apiJson } from '../lib/api';
-import BrollCardPreview from './BrollCardPreview';
-
-// The real width of a small B-roll card: the wanted size is cut down to the free band next to the captions
-// (broll.rise_geometry answers, so this never drifts from what the video gets).
-function RealSize({ style, watermark, position, size, y, aspect }) {
-    const [g, setG] = useState(null);
-    useEffect(() => {
-        let live = true;
-        const t = setTimeout(() => {
-            apiJson(`/api/plus/broll/geometry?edit_style=${encodeURIComponent(style || 'natural')}&watermark=${watermark ? 1 : 0}`
-                + `&position=${['above', 'top'].includes(position) ? position : 'below'}&size=${encodeURIComponent(Number(size) || 28)}`
-                + (y != null ? `&y=${encodeURIComponent(y)}` : '') + (aspect ? `&aspect=${encodeURIComponent(aspect)}` : ''))
-                .then((d) => { if (live) setG(d); })
-                .catch(() => { if (live) setG(null); });
-        }, 250);
-        return () => { live = false; clearTimeout(t); };
-    }, [style, watermark, position, size, y, aspect]);
-    if (!g) return null;
-    return (
-        <span className={`text-xs ${g.limited || g.into_app_zone ? 'text-brass' : 'text-muted'}`}>
-            {g.limited
-                ? (position === 'top' ? `→ really ${g.effective_pct}%: narrowed to fit above the head` : `→ really ${g.effective_pct}%: cut by the edge of the screen`)
-                : g.into_app_zone
-                    ? `→ ${g.effective_pct}% as asked; it covers the app's buttons area on a phone`
-                    : `→ ${g.effective_pct}% as asked`}
-        </span>
-    );
-}
 
 // What the B-roll test says, in words a user can act on.
 const brollVerdict = (r) => {
@@ -445,7 +417,7 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                 <Section icon={<ImageIcon size={13} />} title="b-roll images">
                     <Toggle checked={p.broll?.enabled} onChange={(v) => setIn('broll', { enabled: v })}
                         label="images when something concrete is named"
-                        hint="Several images per clip (choose the amount below), each shown from its word to the end of the sentence (1.5-3 s; big full-screen ones stay under 1.5 s): the kratom plant, a knife, a brain scan, soldiers. The AI picks the moments and the style of each image. Kept clear of the punchline; in the small and full-screen layouts also of the hook. Clips become a real edit, not a re-upload." />
+                        hint="Images cut in when the speaker names something concrete, chosen and checked by the AI brain. Clear of the hook, the punchline and the last seconds." />
                     {p.broll?.enabled && (
                         <div className="mt-1 space-y-2">
                             {(
@@ -515,64 +487,14 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                                     ));
                                 })()}
                             </div>
-                            {p.broll?.layout !== 'mixed' && (
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs text-muted w-14">stays</span>
-                                <button type="button" onClick={() => setIn('broll', { hold: null })}
-                                    title="Each image stays from its word to the end of the sentence (1.5-3 s; 1.2-1.5 s for a big full-screen one)."
-                                    className={chip(p.broll?.hold == null)}>until the end of the sentence</button>
-                                <button type="button" onClick={() => { if (p.broll?.hold == null) setIn('broll', { hold: 2 }); }}
-                                    title="The same time on screen for every image. Two images never overlap: the first leaves a little early if they are close."
-                                    className={chip(p.broll?.hold != null)}>
-                                    fixed{p.broll?.hold != null ? ` · ${Number(p.broll.hold).toFixed(1)} s` : ''}
-                                </button>
-                                {p.broll?.hold != null && (
-                                    <input type="range" min="1" max="4" step="0.1" value={p.broll.hold}
-                                        onChange={(e) => setIn('broll', { hold: Number(e.target.value) })}
-                                        className="w-40 accent-[var(--color-accent)]" />
-                                )}
-                            </div>
-                            )}
-                            {p.broll?.layout === 'rise' && (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                    <span className="text-xs text-muted w-14">enters</span>
-                                    {[['rise', 'rises from the edge', 'The small card comes in from the bottom (or the top) edge, growing as it goes.'],
-                                        ['fade', 'fades in', 'The card does not travel: it fades in place and settles a little.']].map(([v, label, hint]) => (
-                                        <button key={v} type="button" title={hint} onClick={() => setIn('broll', { enter: v })}
-                                            className={chip((p.broll?.enter || 'rise') === v)}>{label}</button>
-                                    ))}
-                                </div>
-                            )}
-                            {p.broll?.layout !== 'mixed' && (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                    <span className="text-xs text-muted w-14">edge</span>
-                                    {[['soft', 'soft', 'A thin, see-through edge and a light shadow.'],
-                                        ['strong', 'strong', 'The previous look: a bright white edge and a heavy shadow.'],
-                                        ['none', 'none', 'No edge and no shadow: the picture alone.']].map(([v, label, hint]) => (
-                                        <button key={v} type="button" title={hint} onClick={() => setIn('broll', { border: v })}
-                                            className={chip((p.broll?.border || 'soft') === v)}>{label}</button>
-                                    ))}
-                                </div>
-                            )}
-                            {p.broll?.layout !== 'mixed' && (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                    <span className="text-xs text-muted w-14">zoom out</span>
-                                    {[['off', 'none', 'No zoom: the image just fades away.'],
-                                        ['soft', 'soft', 'It swells about 13 % in the last moments, smoothly, then fades.'],
-                                        ['strong', 'strong', 'It swells about 26 % in the last moments, smoothly, then fades.']].map(([v, label, hint]) => (
-                                        <button key={v} type="button" title={hint} onClick={() => setIn('broll', { zoom: v })}
-                                            className={chip((p.broll?.zoom || 'soft') === v)}>{label}</button>
-                                    ))}
-                                </div>
-                            )}
                             <Toggle checked={p.broll?.real_photos} onChange={(v) => setIn('broll', { real_photos: v })}
                                 label="real photos for famous places & flags"
                                 hint="A famous place, landmark, city, country or a flag (the CN Tower, the Eiffel Tower, the flag of France) is a real photo from Wikimedia Commons (CC0 / public domain / CC BY, the credit goes in the description). Everything else stays generated, and so does a place or flag with no good photo. Needs the Claude brain on the B-roll step." />
                             <div className="flex flex-wrap items-center gap-1.5">
                                 <span className="text-xs text-muted w-14">show</span>
-                                    {[['rise', 'small, rises from the bottom', 'A small card comes up from the bottom edge, growing as it rises, and stops next to the captions — never on them. The video stays sharp around it.'],
-                                    ['full', 'full screen', 'The image takes the whole frame (tall images) or a big card over the blurred podcast.'],
-                                    ['mixed', 'hero + wide cards', 'The premium look: one full-screen picture on the most visual moment of the clip (2.5-3.5 s, slow push-in, crossfade, grain) and 2-3 wide 16:10 cards above the head. Few images, big, moving slowly.']].map(([v, label, hint]) => (
+                                    {[['mixed', 'hero + wide cards', 'One full-screen picture on the most visual moment (2.5-3.5 s, slow push-in, crossfade) and 2-3 wide cards above the head, 4 s apart. The premium look.'],
+                                    ['rise', 'small card (previous)', 'The previous drawing: a small square card under the captions, with the settings this profile saved for it.'],
+                                    ['full', 'full screen (previous)', 'The previous drawing: tall images on the whole frame, 1.2-1.5 s.']].map(([v, label, hint]) => (
                                     <button key={v} type="button" title={hint} onClick={() => setIn('broll', { layout: v })}
                                         className={chip((p.broll?.layout || 'full') === v)}>{label}</button>
                                 ))}
@@ -588,9 +510,6 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                                         ))}
                                     </div>
                                     <p className="text-xs text-muted">cards: wide 16:10 at 60 % of the width, above the head (the one free band of a podcast frame once the hook is gone), each from its word to the end of the sentence (2.2-3.5 s), fade in and out. Fixed, like the hero's 2.5-3.5 s and its slow push-in.</p>
-                                    <BrollCardPreview style={p.edit_style} watermark={(p.watermark || '').trim()}
-                                        position="top" size={60} y={null} border="premium" aspect={0.625} allowY={false} allowSize={false}
-                                        onSize={() => {}} onY={() => {}} />
                                     <Toggle checked={p.broll?.label} onChange={(v) => setIn('broll', { label: v })}
                                         label="a keyword on each card" hint="The image's subject in small capitals, bottom-left of the card." />
                                     <label className="flex flex-col gap-1 text-xs text-muted">
@@ -612,37 +531,6 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                                     <Toggle checked={p.broll?.sfx} onChange={(v) => setIn('broll', { sfx: v })}
                                         label="a soft whoosh when the hero arrives" hint="Mixed under the voice at -18 dB (assets/sfx/whoosh_soft.wav); nothing on the cards." />
                                     <p className="text-[11px] text-muted">In this layout the "auto" style stays photographic (photo / cinematic, neon only for the microscopic); a style chosen above applies to every image instead. Drawing fixed: premium edge, no exit zoom; "fewer" = 3 images, "normal" = 4, 4 s apart, none in the hook's seconds nor in the last 2 s.</p>
-                                </div>
-                            )}
-                            {p.broll?.layout === 'rise' && (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                    <span className="text-xs text-muted w-14">where</span>
-                                    {[['below', 'under the captions'], ['above', 'above the captions'], ['top', 'above the head']].map(([v, label]) => (
-                                        <button key={v} type="button" onClick={() => setIn('broll', { position: v, y: null })}
-                                            className={chip(p.broll?.y == null && (p.broll?.position || 'below') === v)}>{label}</button>
-                                    ))}
-                                    <button type="button" title="Pick the height yourself: drag the card in the preview below, or use its height slider."
-                                        onClick={() => { if (p.broll?.y == null) setIn('broll', { y: 72 }); }}
-                                        className={chip(p.broll?.y != null)}>
-                                        my height{p.broll?.y != null ? ` · ${Math.round(p.broll.y)}%` : ''}
-                                    </button>
-                                    <label className="flex items-center gap-1.5 text-xs text-muted ml-2">
-                                        size
-                                        <input type="number" min="18" max="60" step="2" value={p.broll?.size ?? 28}
-                                            onChange={(e) => setIn('broll', { size: e.target.value })}
-                                            className="input-field text-xs py-1 px-2 w-16" />
-                                        % of the width
-                                    </label>
-                                    <RealSize style={p.edit_style} watermark={(p.watermark || '').trim()}
-                                        position={p.broll?.position || 'below'} size={p.broll?.size ?? 28} y={p.broll?.y ?? null} />
-                                    <div className="w-full">
-                                        <BrollCardPreview style={p.edit_style} watermark={(p.watermark || '').trim()}
-                                            position={p.broll?.position || 'below'} size={p.broll?.size ?? 28}
-                                            y={p.broll?.y ?? null}
-                                            border={p.broll?.border || 'soft'}
-                                            onSize={(v) => setIn('broll', { size: v })}
-                                            onY={(v) => setIn('broll', { y: v })} />
-                                    </div>
                                 </div>
                             )}
                             <div className="flex flex-wrap items-center gap-2">
