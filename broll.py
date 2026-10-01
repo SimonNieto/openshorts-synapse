@@ -1324,9 +1324,14 @@ def facts_of(text):
     return {f for f in facts if f}
 
 
+_NOTION_SENTENCE_RE = re.compile(r"\s*Draw .{1,80}? the channel's usual way: .*$", re.S)
+
+
 def lost_facts(draft, prompt):
     """The facts of ``draft`` (facts_of) missing from ``prompt``: [] when every one is there (a crude plural
-    is forgiven both ways)."""
+    is forgiven both ways). The glossary sentence apply_notions glues to a draft ("Draw X the channel's usual
+    way: ...") names the notion, not a fact of the picture: it is not read."""
+    draft = _NOTION_SENTENCE_RE.sub("", str(draft or ""))
     have = {t.rstrip("s") for t in re.findall(r"[a-z0-9']+", re.sub(r"(?<=\d)[,.](?=\d)", "", str(prompt or "").lower()))}
     return sorted(f for f in facts_of(draft) if f.rstrip("s") not in have)
 

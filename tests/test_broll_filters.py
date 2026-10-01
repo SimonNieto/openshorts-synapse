@@ -95,6 +95,14 @@ class TestTheFactsAreNotAcronymsOrAges:
         assert "or" not in facts and "iv" not in facts and "40" not in facts
 
 
+class TestTheGlossarySentenceIsNotAFact:
+    def test_the_notion_label_glued_by_apply_notions_is_not_read(self):
+        draft = ("A brain MRI scan glows on a lightbox in a dim room. Draw Mesial temporal sclerosis the channel's usual "
+                 "way: A medical brain scan (MRI or CT) showing the temporal lobe region.")
+        assert broll.lost_facts(draft, "a brain mri scan glows on a lightbox, the temporal lobe marked") == []
+        assert broll.lost_facts("The White House behind a cage. Draw UFC the channel's usual way: a cage.", "a cage at night") == ["house", "white"]
+
+
 class TestTheLatestSubjectsMemoryIsGone:
     def test_nothing_left(self):
         for name in ("recent_subjects", "remember_subjects", "RECENT_RULE", "RECENT_MAX", "_recent_path"):
