@@ -142,6 +142,11 @@ CARD_OUT = _knob("BROLL_CARD_OUT", 0.25)    # s: fades out, shrinking CARD_OUT_S
 CARD_OUT_SHRINK = 0.02
 CARD_PUSH = _knob("BROLL_CARD_PUSH", 1.03)  # push-in inside the card over its time on screen
 TOP_BAND = (0.05, 0.34)                     # of the height: above the head of a tracked speaker (crown at ~0.34 H)
+# Pace of the "mixed" layout: few images, far apart (one hero + two or three cards on 30 s), whatever the
+# profile's max / density say; nothing in the hook's seconds nor in the last MIXED_TAIL s.
+MIXED_MAX = int(_knob("BROLL_MIXED_MAX", 4))
+MIXED_GAP = _knob("BROLL_MIXED_GAP", 4.0)
+MIXED_TAIL = 2.0
 HERO_RULE = """HERO IMAGE: one image of the set may be shown FULL SCREEN for about 3 s instead of small: the most VISUAL
 moment of the clip — a concrete scene (an example, a consequence, a place, an action), shot wide or medium, never a
 diagram, never in the hook's first seconds, never on the punchline. Mark it "hero": true (one at most) and make its
@@ -396,8 +401,8 @@ def _numbered_text(words):
     return " ".join(out).strip()
 
 
-def _allowed(t, duration, avoid):
-    return HEAD_FREE <= t <= duration - TAIL_FREE - SEG_DUR and all(abs(t - a) > 1.2 for a in avoid)
+def _allowed(t, duration, avoid, head=HEAD_FREE):
+    return head <= t <= duration - TAIL_FREE - SEG_DUR and all(abs(t - a) > 1.2 for a in avoid)
 
 
 def _stem(text):
@@ -435,16 +440,16 @@ def hero_dur(m):
     return round(min(HERO_DUR_MAX, max(HERO_DUR_MIN, float(m.get("dur") or 0) + HERO_FADE)), 2)
 
 
-def hero_fits(m, duration, avoid):
+def hero_fits(m, duration, avoid, head=HEAD_FREE):
     """A hero never runs into the hook's seconds, the last TAIL_FREE s, or within
     1.2 s of the punchline — on its whole time on screen, not only its first frame."""
     t, d = m["t"], hero_dur(m)
-    if t < HEAD_FREE or t + d > duration - TAIL_FREE:
+    if t < head or t + d > duration - TAIL_FREE:
         return False
     return all(t + d <= a - 1.2 or t >= a + 1.2 for a in avoid)
 
 
-def pick_hero(moments, duration, avoid):
+def pick_hero(moments, duration, avoid, head=HEAD_FREE):
     """Index of the moment shown full screen, or None: a concrete scene (an example
     or a consequence, a wide or medium shot, a photographic style) that fits the
     timing rules. The planner's own "hero" counts for a lot, a moment in the second
@@ -452,7 +457,7 @@ def pick_hero(moments, duration, avoid):
     no moment reads well on a whole phone screen (a diagram, a schematic)."""
     best, best_score = None, 0.0
     for i, m in enumerate(moments):
-        if not hero_fits(m, duration, avoid) or m.get("notion"):
+        if not hero_fits(m, duration, avoid, head) or m.get("notion"):
             continue
         score = 1.0 + HERO_ROLE.get(m.get("role") or "", 0.0) + HERO_SHOT.get(m.get("shot") or "", 0.5)
         score += HERO_STYLE.get(m.get("style") or "photo", 0.0)
@@ -479,11 +484,11 @@ def _find_anchor(words, anchor, near):
     return best
 
 
-def _plan_prompt(clip, words, n, avoid, auto_style):
+def _plan_prompt(clip, words, n, avoid, auto_style, head=HEAD_FREE):
     duration = words[-1]["end"]
     avoid_txt = (", and not within 1.2 s of " + ", ".join(f"{a:.1f}s" for a in avoid)) if avoid else ""
     title = clip.get("video_title_for_youtube_short") or ""
-    return PLAN_PROMPT.format(n=n + 2, lo=HEAD_FREE, hi=duration - TAIL_FREE - SEG_DUR, avoid=avoid_txt,
+    return PLAN_PROMPT.format(n=n + 2, lo=head, hi=duration - TAIL_FREE - SEG_DUR, avoid=avoid_txt,
                               style_rule=STYLE_RULE if auto_style else "",
                               style_field=', "style": "photo"' if auto_style else "",
                               title=f"\nCLIP TITLE: {title}\n" if title else "",
@@ -550,11 +555,13 @@ def _moment_dur(words, i, t, duration, lo=DUR_MIN, hi=DUR_MAX):
     return round(min(dur, max(lo, duration - 1.0 - t)), 2)
 
 
-def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None):
+def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None, head=HEAD_FREE):
     """The planner's answer -> moments that land on a real spoken word, in
     the allowed window, spaced out. Anything that does not check out is
     dropped, whoever the planner was. ``dur_range``: (min, max) s on screen
-    (the "mixed" layout's cards stay longer than the historical ones)."""
+    (the "mixed" layout's cards stay longer than the historical ones);
+    ``tail``: seconds at the end of the clip no image may run into; ``head``:
+    the first seconds left to the face (the hook's)."""
     duration = words[-1]["end"]
     lo, hi = dur_range or (DUR_MIN, DUR_MAX)
     moments = []
@@ -570,8 +577,13 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None):
         n_tok = len(_tokens(m.get("anchor")))
         k = _key_index(words, i, n_tok)
         t = max(0.0, words[k]["start"] - KEY_LEAD)
-        if not _allowed(t, duration, avoid):
+        if not _allowed(t, duration, avoid, head):
             continue
+        dur = _moment_dur(words, k, t, duration, lo, hi)
+        if tail:
+            dur = round(min(dur, duration - tail - t), 2)
+            if dur < lo:
+                continue                       # it would run into the last seconds: the face keeps them
         moments.append({"t": t, "anchor": " ".join(w["text"] for w in words[i:i + n_tok]),
                         "key": words[k]["text"],
                         "query": str(m.get("search_query") or m.get("anchor"))[:60],
@@ -585,7 +597,7 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None):
                         "notion": str(m.get("notion") or "")[:80],
                         "real_photo": bool(m.get("real_photo")) and bool(str(m.get("search_query") or "").strip()),
                         "hero": bool(m.get("hero")),
-                        "dur": _moment_dur(words, k, t, duration, lo, hi),
+                        "dur": dur,
                         "sheet": sheet,
                         "score": 1.0})
     kept = _space(moments, n, gap)
@@ -595,10 +607,11 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None):
     return kept
 
 
-def plan_with_gemini(clip, words, n, avoid, api_key, auto_style=False, dur_range=None):
+def plan_with_gemini(clip, words, n, avoid, api_key, auto_style=False, dur_range=None, gap=MIN_GAP, tail=None,
+                     head=HEAD_FREE):
     from google import genai
     from google.genai import types
-    prompt = _plan_prompt(clip, words, n, avoid, auto_style)
+    prompt = _plan_prompt(clip, words, n, avoid, auto_style, head)
     client = genai.Client(api_key=api_key)
     last = None
     for attempt in range(3):
@@ -613,7 +626,7 @@ def plan_with_gemini(clip, words, n, avoid, api_key, auto_style=False, dur_range
             time.sleep(4 * (attempt + 1))
     else:
         raise RuntimeError(f"moment planning failed: {last}")
-    return _parse_moments(data, words, n, avoid, dur_range=dur_range)
+    return _parse_moments(data, words, n, avoid, gap, dur_range, tail, head)
 
 
 # --- Claude (the user's subscription, through Claude Code) -----------------------
@@ -725,14 +738,16 @@ def apply_notions(moments, brief, clip_text):
 
 def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, start=0.0, end=None,
                      sheets=None, ground=None, mode="mixed", real_photos=False, density="normal", hero=False,
-                     dur_range=None):
+                     dur_range=None, gap_min=0.0, tail=None, head=HEAD_FREE):
     """Claude reads the clip, the conversation around it and (``sheets``) what
     is on screen, and places images that carry the IDEA being said.
     ``ground``: hook_grounding.request()'s (frames, prompt) — the hook is
     rewritten from the screen in this same call instead of a second one.
-    ``hero``: the "mixed" layout — it may name the one image worth the whole screen."""
+    ``hero``: the "mixed" layout — it may name the one image worth the whole
+    screen. ``gap_min`` / ``tail`` / ``head``: that layout's pace (MIXED_*)."""
     import ai_brain
     duration = words[-1]["end"]
+    gap = max(DENSITY[density]["gap"], gap_min)
     before, after = _context(transcript, start, end if end is not None else start + duration)
     avoid_txt = (", and not within 1.2 s of " + ", ".join(f"{a:.1f}s" for a in avoid)) if avoid else ""
     title = clip.get("video_title_for_youtube_short") or ""
@@ -746,8 +761,8 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
                   hook=clip.get("viral_hook_text") or "-", before=before or "-", after=after or "-",
                   brief=brief or "(no brief for this video)", text=_numbered_text(words)[:6000],
                   grounding=GROUNDING_RULE, set_rule=SET_RULE, pace=DENSITY[density]["pace"], names=DENSITY[density]["names"],
-                  gap=DENSITY[density]["gap"])
-    prompt = CLAUDE_PLAN_PROMPT.format(lo=HEAD_FREE, hi=duration - TAIL_FREE - SEG_DUR, **common)
+                  gap=gap)
+    prompt = CLAUDE_PLAN_PROMPT.format(lo=head, hi=duration - TAIL_FREE - SEG_DUR, **common)
     if real_photos:
         prompt += "\n" + REAL_PHOTO_RULE
     schema, attach, shots_dir = PLAN_SCHEMA, list(sheets or []), None
@@ -785,7 +800,7 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     if ground:
         import hook_grounding
         hook_grounding.apply(clip, (data or {}).get("hook"), len(ground[0]))
-    moments = _parse_moments(data, words, n, avoid, DENSITY[density]["gap"], dur_range)
+    moments = _parse_moments(data, words, n, avoid, gap, dur_range, tail, head)
     apply_notions(moments, ai_brain.EPISODE_BRIEF, f"{before} {clip_text} {after}")
     thesis = str((data or {}).get("thesis") or "")[:300]
     if thesis:
@@ -2002,6 +2017,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         raise ComfyDown(f"ComfyUI not reachable at {_comfy_url()} (start it in Pinokio)")
     density = cfg.get("density") if cfg.get("density") in DENSITY else "normal"
     n = image_count(max(1, min(10, int(cfg.get("max") or 6))), density)
+    if cfg.get("layout") == "mixed":
+        n = min(n, MIXED_MAX)                  # the premium pace: few images, far apart
     auto_style = cfg.get("style") == "auto"
     style = cfg.get("style") if cfg.get("style") in STYLES else "photo"
     engine = cfg.get("engine") if cfg.get("engine") in ENGINES else "zimage"
@@ -2028,15 +2045,27 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     # One look for the whole chain (mixed): the house sentence in every prompt, one grade on every picture.
     house = str(cfg.get("house_look") or "").strip() if mixed else ""
     grade = cfg.get("grade") if mixed and cfg.get("grade") in GRADES else "off"
+    # The pace of the mixed layout: MIXED_GAP between images, the last MIXED_TAIL s to the face, and a card above
+    # the head never overlaps a hook longer than the usual head room.
+    gap_min, tail, head = (MIXED_GAP, MIXED_TAIL, HEAD_FREE) if mixed else (0.0, None, HEAD_FREE)
+    if mixed and os.environ.get("AUTO_HOOK") == "1":
+        try:
+            head = max(HEAD_FREE, float(os.environ.get("AUTO_HOOK_SECONDS") or 0) + 0.3)
+        except ValueError:
+            pass
+    gpu = [0.0]      # seconds spent waiting for ComfyUI, for the clip's log line
 
     def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None):
         """(path, "local", None) from ComfyUI; raises ComfyDown when it fails."""
+        t0 = time.time()
         try:
             return local_image(prompt, m_style, raw, engine=engine,
                                size=_gen_size(layout if layout is not None else ("rise" if rise else "full"), hero_res),
                                look=look_text(sheet, m_style), house=house), "local", None
         except Exception as e:
             raise ComfyDown(f"ComfyUI image failed: {str(e)[:200]}") from e
+        finally:
+            gpu[0] += time.time() - t0
 
     try:
         # Planner: Claude (the user's subscription) when chosen and set up —
@@ -2065,7 +2094,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                                                ground=ground,
                                                mode=cfg.get("mode") or "mixed",
                                                real_photos=bool(cfg.get("real_photos")), density=density,
-                                               hero=mixed, dur_range=dur_range)
+                                               hero=mixed, dur_range=dur_range, gap_min=gap_min, tail=tail, head=head)
                     planner = "claude"
                     if not moments:
                         print("   ℹ️ B-roll: Claude found no moment where an image would add meaning — none added.")
@@ -2079,7 +2108,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             try:
                 import ai_brain
                 ai_brain.say("Gemini — Claude unavailable", "B-roll: choosing the images")
-                moments = plan_with_gemini(clip, words, n, avoid, api_key, auto_style, dur_range=dur_range)
+                moments = plan_with_gemini(clip, words, n, avoid, api_key, auto_style, dur_range=dur_range,
+                                           gap=max(MIN_GAP, gap_min), tail=tail, head=head)
                 planner = "gemini"
             except Exception as e:
                 print(f"   ⚠️ B-roll planning via Gemini failed ({e}) — local pick instead.")
@@ -2095,7 +2125,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     if m.get("style") not in PREMIUM_STYLES:
                         m["style"] = "photo"
             # The code has the last word on the hero: the planner's pick counts, the timing rules win.
-            k_hero = pick_hero(moments, words[-1]["end"], avoid)
+            k_hero = pick_hero(moments, words[-1]["end"], avoid, head)
             for i, m in enumerate(moments):
                 m["hero"] = i == k_hero
             if k_hero is None:
@@ -2236,6 +2266,12 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             overlay_items(clip_path, out_path, items)
         for it in items:
             it.pop("_img", None)
+        duration = words[-1]["end"]
+        covered = sum(float(it["dur"]) for it in items)
+        print(f"   🖼️ B-roll {cfg.get('layout') or 'full'}: {len(items)} image(s)"
+              + (f" ({sum(it['layout'] == 'hero' for it in items)} hero)" if mixed else "")
+              + f", {covered:.1f} s of {duration:.0f} s covered ({100 * covered / max(duration, 1.0):.0f} %), "
+              f"ComfyUI {gpu[0]:.0f} s" + (" (manual review: not cut in yet)" if manual else ""))
         return {"items": items, "credits": credits, "planner": planner, "sources": sources, "pending": manual}
     finally:
         if used_local:

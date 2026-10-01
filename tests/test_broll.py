@@ -473,3 +473,76 @@ class TestMixedCards:
         broll.overlay_items("clip.mp4", "out.mp4", [{"t": 2.0, "dur": 1.9, "layout": "rise", "size": 28, "_img": src}])
         graph = cap.cmds[-1][cap.cmds[-1].index("-filter_complex") + 1]
         assert f"/{broll.RISE_IN}" in graph
+
+
+# --- chantier E: the pace of the "mixed" layout -------------------------------------------
+
+class TestPace:
+    def test_nothing_runs_into_the_last_seconds(self):
+        words = _words(TEXT)
+        idx = {w["text"]: i for i, w in enumerate(words)}
+        duration = words[-1]["end"]
+        late = next(w["text"] for w in words if w["start"] > duration - 3.4)      # a word just before the tail
+        data = {"moments": [{"anchor": "soldiers", "time": words[idx["soldiers"]]["start"], "image_prompt": "a"},
+                            {"anchor": late, "time": words[idx[late]]["start"], "image_prompt": "b"}]}
+        # the historical window lets the image start until duration - 3.6 s, 1 s before the end at most
+        plain = broll._parse_moments(data, words, 6, [])
+        assert len(plain) in (1, 2)
+        paced = broll._parse_moments(data, words, 6, [], 4.0, (broll.CARD_DUR_MIN, broll.CARD_DUR_MAX), tail=broll.MIXED_TAIL)
+        assert all(m["t"] + m["dur"] <= duration - broll.MIXED_TAIL + 1e-6 for m in paced)
+        assert all(m["dur"] >= broll.CARD_DUR_MIN for m in paced)
+
+    def test_a_longer_hook_pushes_the_first_image_back(self):
+        words = _words(TEXT)
+        idx = {w["text"]: i for i, w in enumerate(words)}
+        data = {"moments": [{"anchor": "soldiers", "time": words[idx["soldiers"]]["start"], "image_prompt": "a"}]}
+        assert broll._parse_moments(data, words, 3, [])                            # 5.5 s: past the 4.3 s head room
+        assert not broll._parse_moments(data, words, 3, [], head=6.3)             # a 6 s hook: left to the face
+
+    def test_mixed_asks_for_few_images_far_apart(self, monkeypatch):
+        seen = {}
+
+        def fake_plan(clip, words_, n, avoid, *a, **k):
+            seen.update(k, n=n)
+            return []
+
+        monkeypatch.setattr(broll, "comfy_available", lambda timeout=3: True)
+        monkeypatch.setattr(broll, "claude_ready", lambda: True)
+        monkeypatch.setattr(broll, "_frame_sheets", lambda *a, **k: [])
+        monkeypatch.setattr(broll, "plan_with_claude", fake_plan)
+        tr = _transcript(TEXT)
+        end = tr["segments"][0]["words"][-1]["end"] + 1
+        base = {"planner": "claude", "style": "photo", "max": 10, "density": "more"}
+        monkeypatch.setenv("AUTO_HOOK", "1")
+        monkeypatch.setenv("AUTO_HOOK_SECONDS", "6")
+        broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, end, {**base, "layout": "mixed"})
+        assert (seen["n"], seen["gap_min"], seen["tail"], seen["head"]) == (broll.MIXED_MAX, broll.MIXED_GAP, broll.MIXED_TAIL, 6.3)
+        broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, end, {**base, "layout": "rise"})
+        assert (seen["n"], seen["gap_min"], seen["tail"], seen["head"]) == (broll.image_count(10, "more"), 0.0, None, broll.HEAD_FREE)
+
+    def test_the_clip_log_line(self, monkeypatch, capsys):
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
+            Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
+            return out_path
+
+        monkeypatch.setattr(broll, "comfy_available", lambda timeout=3: True)
+        monkeypatch.setattr(broll, "claude_ready", lambda: True)
+        monkeypatch.setattr(broll, "_frame_sheets", lambda *a, **k: [])
+        monkeypatch.setattr(broll, "local_image", fake_image)
+        monkeypatch.setattr(broll, "review_images", lambda cands, words: [{"score": 5} for _ in cands])
+        monkeypatch.setattr(broll, "overlay_items", lambda *a, **k: None)
+        tr = _transcript(TEXT)
+        words = [{"text": w["word"].strip(), "start": w["start"], "end": w["end"]} for w in tr["segments"][0]["words"]]
+        idx = {w["text"]: i for i, w in enumerate(words)}
+        data = {"moments": [{"anchor": a, "time": words[idx[a]]["start"], "image_prompt": a, "role": "example", "shot": "wide"}
+                            for a in ("soldiers", "drill", "sergeant")]}
+        monkeypatch.setattr(broll, "plan_with_claude",
+                            lambda clip, words_, n, avoid, *a, **k: broll._parse_moments(data, words_, n, avoid, 4.0, k.get("dur_range"),
+                                                                                           k.get("tail"), k.get("head")))
+        rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1,
+                              {"planner": "claude", "layout": "mixed", "style": "photo", "max": 4})
+        out = capsys.readouterr().out
+        line = next(l for l in out.splitlines() if "🖼️ B-roll mixed:" in l)
+        assert f"{len(rep['items'])} image(s) (1 hero)" in line and "covered" in line and "ComfyUI" in line
+        for a, b in zip(rep["items"], rep["items"][1:]):
+            assert b["t"] - a["t"] >= broll.MIXED_GAP - 1e-6
