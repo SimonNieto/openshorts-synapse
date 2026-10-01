@@ -194,9 +194,10 @@ class TestRetryPieces:
 
 
 def test_profile_switch():
-    assert "HOOK_CHECK" not in plus.job_env({"name": "t"})
-    assert plus.job_env({"name": "t", "selection": {"hook_check": True}})["HOOK_CHECK"] == "1"
-    assert playbook.hook_check_enabled() is False
+    # The hook check is part of the house recipe since 1-oct-2026: every Clip Generator++ job runs it.
+    assert plus.job_env({"name": "t"})["HOOK_CHECK"] == "1"
+    assert plus.SELECTION["hook_check"] is True
+    assert playbook.hook_check_enabled() is False, "outside a job (no env) the check only flags"
 
 
 # --- the retry itself (needs main) -------------------------------------------------------

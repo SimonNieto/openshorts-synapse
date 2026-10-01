@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { FlaskConical, Music, Film, Clock, User, Zap, Trash2, Copy, Image as ImageIcon, Loader2, Brain, RefreshCw } from 'lucide-react';
+import { Clock, User, Zap, Trash2, Copy, Image as ImageIcon, Loader2, Brain, RefreshCw } from 'lucide-react';
 import Modal from './ui/Modal';
 import { loadNicheHistory } from '../lib/nicheHistory';
 import { apiJson } from '../lib/api';
@@ -7,12 +7,6 @@ import { apiJson } from '../lib/api';
 // What the B-roll test says, in words a user can act on.
 const brollVerdict = (r) => {
     if (!r) return null;
-    const g = r.gemini || '';
-    const gem = g === 'ok' ? 'Gemini images: working on your key ✓'
-        : g === 'no key' ? 'Gemini images: no Gemini key set in Settings'
-        : g.startsWith('billing') ? 'Gemini images: refused on your key (free tier / billing off) — "auto" will use free photos instead'
-        : `Gemini images: failed (${g.replace(/^error: /, '').slice(0, 120)})`;
-    const free = r.free === 'ok' ? 'free photos: working ✓' : `free photos: ${r.free}`;
     const l = r.local || '';
     const local = l.startsWith('ok') ? `local GPU: working ✓ ${l.slice(2).trim()}`
         : l === 'offline' ? 'local GPU: ComfyUI not running (start it in Pinokio)'
@@ -21,7 +15,7 @@ const brollVerdict = (r) => {
     const claude = c.startsWith('ok') ? `Claude: working ✓ ${c.slice(2).trim()}`
         : c === 'not set up' ? 'Claude: not set up (CLAUDE_CODE_OAUTH_TOKEN in .env)'
         : c ? `Claude: failed (${c.replace(/^error: /, '').slice(0, 120)})` : '';
-    return [claude, local, gem, free].filter(Boolean).join(' · ');
+    return [claude, local].filter(Boolean).join(' · ');
 };
 
 // What the clip-selection audit (30 sep 2026) recommends for the "aim for" band and the clip floor.
@@ -224,20 +218,18 @@ function Section({ icon, title, children }) {
  * Edit one Clip Generator++ profile: everything a run of that channel needs.
  * Beta switches change what the AI does and are clearly marked as such.
  */
-export default function PlusProfileEditor({ isOpen, onClose, profile, music = [], accounts = [], geminiApiKey, brainPresets, onSave, onDelete, onDuplicate }) {
+export default function PlusProfileEditor({ isOpen, onClose, profile, accounts = [], geminiApiKey, brainPresets, onSave, onDelete, onDuplicate }) {
     const [p, setP] = useState(profile);
     const [history] = useState(loadNicheHistory);
     const [brollTest, setBrollTest] = useState(null); // null | 'running' | result
     const runBrollTest = async () => {
         setBrollTest('running');
         try {
-            const headers = { 'Content-Type': 'application/json' };
-            if (geminiApiKey) headers['X-Gemini-Key'] = geminiApiKey;
             setBrollTest(await apiJson('/api/plus/broll/test', {
-                method: 'POST', headers, body: JSON.stringify({ style: p?.broll?.style || 'photo', engine: p?.broll?.engine || 'zimage' }),
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
             }));
         } catch (e) {
-            setBrollTest({ gemini: `error: ${e.message}`, free: '?' });
+            setBrollTest({ local: `error: ${e.message}` });
         }
     };
     useEffect(() => { setP(profile); }, [profile]);
@@ -251,9 +243,6 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
         t[i] = v;
         return { ...cur, selection: { ...(cur.selection || {}), clip_target: t[0] !== '' && t[1] !== '' ? t : (t[0] === '' && t[1] === '' ? null : t) } };
     });
-    const moods = music.length ? music : [];
-    const mood = moods.find((m) => m.mood === p.music?.mood);
-
     return (
         <Modal
             isOpen={isOpen}
@@ -282,7 +271,7 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                 <label className="block">
                     <span className="eyebrow">name</span>
                     <input value={p.name || ''} onChange={(e) => set({ name: e.target.value })}
-                        placeholder="e.g. Joe Rogan · punchy" className="input-field text-sm mt-1" />
+                        placeholder="e.g. Joe Rogan · podcast" className="input-field text-sm mt-1" />
                 </label>
 
                 <Section icon={<User size={13} />} title="account & niche">
@@ -302,6 +291,11 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                             ))}
                         </div>
                     )}
+                    <label className="block mt-2">
+                        <span className="text-xs text-muted">channel name under the captions (blank = none)</span>
+                        <input value={p.watermark || ''} onChange={(e) => set({ watermark: e.target.value })}
+                            placeholder="e.g. @TheSynapseCut" className="input-field text-sm mt-1" />
+                    </label>
                 </Section>
 
                 <Section icon={<Clock size={13} />} title="clips">
@@ -340,212 +334,27 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                         onChange={(patch) => setIn('brain', patch)} />
                 </Section>
 
-                <Section icon={<Film size={13} />} title="edit">
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                        {[['natural', 'clean: 2-3 plain words, calm reframes at sentence ends (like the big podcast channels)'],
-                            ['premium', 'the natural look set in Montserrat ExtraBold (72 px, the same footprint as natural\'s 64): the geometric extra-bold the big podcast channels caption in'],
-                            ['punchy', '1-2 big glowing words, zooms every 2-3 s'], ['clean', '2-4 words, softer zooms']].map(([v, hint]) => (
-                            <button key={v} type="button" title={hint} onClick={() => set({ edit_style: v })} className={chip(p.edit_style === v)}>{v}</button>
-                        ))}
-                    </div>
-                    <Toggle beta checked={p.fx?.smooth_camera} onChange={(v) => setIn('fx', { smooth_camera: v })}
-                        label="smooth camera" hint="The frame holds and only glides (eased, never more than once every ~2.5 s) when the speaker has really moved; zoom changes glide instead of jumping; shot changes dissolve over ~4 frames; reaction shots are fewer (max 2), a bit longer and fade in and out." />
-                    <Toggle checked={p.fx?.look} onChange={(v) => setIn('fx', { look: v })}
-                        label="sharp look" hint="Crisper detail, deeper contrast, a faint glow on highlights." />
-                    <Toggle checked={p.fx?.hq_chain} onChange={(v) => setIn('fx', { hq_chain: v })}
-                        label="HQ render chain" hint="Every layer before the captions (reactions, motion, B-roll, hook) is encoded near-lossless and only the delivered file compresses: no more blur and banding in the blacks after five re-encodes. About twice the render time of a clip and a bigger file." />
-                    <Toggle checked={p.fx?.spotlight} onChange={(v) => setIn('fx', { spotlight: v })}
-                        label="spotlight on punchlines" hint="On the 2-3 strongest lines the edges close in softly around the face for half a second. No flash." />
-                    <Toggle checked={p.fx?.streaks} onChange={(v) => setIn('fx', { streaks: v })}
-                        label="light line + motion blur on zoom-ins" hint="Subtle — try it on a test first." />
-                    <Toggle beta checked={p.fx?.reactions} onChange={(v) => setIn('fx', { reactions: v })}
-                        label="reaction shots" hint="Cuts to the other person listening for ~1 s right after a strong line, while the speaker keeps talking — like the big podcast channels. Only when the source films both people; never over a shot that already shows the listener." />
-                    <div className="py-1.5">
-                        <span className="text-sm text-ink">hook at the top</span>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                            {[['bold', 'bold headline', 'Big condensed caps, 1-2 key words in yellow, one line when it fits; fades in and out.'],
-                                ['classic', 'classic box', 'The white card of the classic Clip Generator.'],
-                                ['none', 'none', 'No text: the spoken first line is the hook.']].map(([v, label, hint]) => (
-                                <button key={v} type="button" title={hint} onClick={() => set({ hook_style: v })}
-                                    className={chip((p.hook_style || (p.hook_box ? 'classic' : 'none')) === v)}>{label}</button>
-                            ))}
-                            {(p.hook_style || (p.hook_box ? 'classic' : 'none')) !== 'none' && (
-                                <label className="flex items-center gap-1.5 text-xs text-muted ml-1">
-                                    on screen
-                                    <input type="number" min="2" max="10" value={p.hook_seconds ?? 4}
-                                        onChange={(e) => set({ hook_seconds: e.target.value })}
-                                        className="input-field text-xs py-1 px-2 w-14" />
-                                    s
-                                </label>
-                            )}
-                        </div>
-                        <span className="block text-xs text-muted leading-relaxed mt-1">
-                            The first 1.5 s decide the swipe: the bold headline reads at a glance, above the face and far from the captions.
-                        </span>
-                    </div>
-                    <label className="block mt-2">
-                        <span className="text-xs text-muted">channel name under the captions (blank = none)</span>
-                        <input value={p.watermark || ''} onChange={(e) => set({ watermark: e.target.value })}
-                            placeholder="e.g. ZERO LIMITS" className="input-field text-sm mt-1" />
-                    </label>
-                </Section>
 
-                <Section icon={<Music size={13} />} title="music bed">
-                    <Toggle checked={p.music?.enabled} onChange={(v) => setIn('music', { enabled: v })}
-                        label="music under the voice" hint="Ducked while he talks, whole mix brought to ~-11 LUFS like the reference shorts." />
-                    {p.music?.enabled && (
-                        <div className="mt-1 space-y-2">
-                            {moods.length === 0 && <p className="text-xs text-warn">No music found: put tracks in OpenShorts/music/ (one sub-folder per mood).</p>}
-                            <div className="flex flex-wrap gap-1.5">
-                                {moods.map((m) => (
-                                    <button key={m.mood || 'root'} type="button" onClick={() => setIn('music', { mood: m.mood })} className={chip((p.music?.mood || '') === m.mood)}>
-                                        {m.label} · {m.tracks.length}
-                                    </button>
-                                ))}
-                            </div>
-                            {mood && mood.tracks.length > 0 && <p className="text-[11px] text-muted truncate">{mood.tracks.join(' · ')}</p>}
-                            <label className="flex items-center gap-3 text-xs text-muted">
-                                volume
-                                <input type="range" min="0.05" max="0.5" step="0.01" value={p.music?.volume ?? 0.22}
-                                    onChange={(e) => setIn('music', { volume: Number(e.target.value) })} className="flex-1" />
-                                <span className="readout w-10">{Math.round((p.music?.volume ?? 0.22) * 100)}%</span>
-                            </label>
-                        </div>
-                    )}
-                </Section>
 
                 <Section icon={<ImageIcon size={13} />} title="b-roll images">
                     <Toggle checked={p.broll?.enabled} onChange={(v) => setIn('broll', { enabled: v })}
                         label="images when something concrete is named"
                         hint="Images cut in when the speaker names something concrete, chosen and checked by the AI brain. Clear of the hook, the punchline and the last seconds." />
-                    {p.broll?.enabled && (
-                        <div className="mt-1 space-y-2">
-                            {(
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                    <span className="text-xs text-muted w-14">model</span>
-                                    {[['zimage', 'Z-Image Turbo (fast)', '~12 s per image on the RTX 3060 (~45 s for the first one of a job: model load). The default for clips.'],
-                                        ['flux', 'FLUX schnell (quality)', '~25 s per image (~40 s for the first) and heavier on the GPU; for when the images matter most.']].map(([v, label, hint]) => (
-                                        <button key={v} type="button" title={hint} onClick={() => setIn('broll', { engine: v })}
-                                            className={chip((p.broll?.engine || 'zimage') === v)}>{label}</button>
-                                    ))}
-                                </div>
-                            )}
-                            <p className="text-xs text-muted">
-                                <span className="w-14 inline-block">brain</span>
-                                {(() => {
-                                    const v = p.brain?.stages?.broll || 'sonnet';
-                                    return v === 'gemini' ? 'Gemini' : `Claude ${v[0].toUpperCase()}${v.slice(1)}`;
-                                })()} — set under “ai brain” above (b-roll plan).
-                            </p>
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs text-muted w-14">style</span>
-                                {[['auto', 'auto (AI picks)', 'Per image: a real photo for things you can photograph, neon science for the invisible (neurons, molecules, hormones), a drawing for mechanisms, cinematic for drama, vintage for the past, 3D for a clean object, comic for humour, a diagram for a process.'],
-                                    ['photo', 'documentary photo'], ['neon', 'neon science'], ['drawing', '2D drawing'],
-                                    ['cinematic', 'cinematic', 'Dark, contrasted film still with grain: drama, danger, tension.'],
-                                    ['vintage', 'vintage', 'Black and white or sepia archive photo: the past, historical scenes.'],
-                                    ['3d', '3D render', 'Clean studio 3D render: an object, an organ or a machine.'],
-                                    ['comic', 'comic', 'Comic-book illustration: humour, anecdotes, exaggeration.'],
-                                    ['diagram', 'diagram', 'Simple shapes, icons and arrows: processes, flows, cause and effect (no text).']].map(([v, label, hint]) => (
-                                    <button key={v} type="button" title={hint} onClick={() => setIn('broll', { style: v })}
-                                        className={chip((p.broll?.style || 'photo') === v)}>{label}</button>
-                                ))}
-                            </div>
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs text-muted w-14">review</span>
-                                {[['auto', 'auto', 'The images are cut into the clip straight away.'],
-                                    ['manual', 'manual', 'The images are prepared but not cut in: on each clip, open "check images" to remove, redo or move them, then cut them in.']].map(([v, label, hint]) => (
-                                    <button key={v} type="button" title={hint} onClick={() => setIn('broll', { review: v })}
-                                        className={chip((p.broll?.review || 'auto') === v)}>{label}</button>
-                                ))}
-                            </div>
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs text-muted w-14">images</span>
-                                {[['literal', 'literal', 'Shows exactly what is named: salvia = the plant, knife = a knife.'],
-                                    ['mixed', 'mixed', 'Half literal, half the idea behind the words (a mechanism, a consequence, an analogy).'],
-                                    ['concept', 'idea first', 'Shows what the sentence means; literal only when the word itself is the point.']].map(([v, label, hint]) => (
-                                    <button key={v} type="button" title={hint} onClick={() => setIn('broll', { mode: v })}
-                                        className={chip((p.broll?.mode || 'mixed') === v)}>{label}</button>
-                                ))}
-                            </div>
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs text-muted w-14">amount</span>
-                                {(() => {
-                                    const base = Math.max(1, Math.min(10, Number(p.broll?.max) || 6));
-                                    const mixed = p.broll?.layout === 'mixed';
-                                    // mixed: a fixed pace (broll.MIXED_FEW / MIXED_MAX), the profile's max does not apply
-                                    const counts = mixed ? { less: 3, normal: 4, more: 4 } : {
-                                        less: Math.max(1, Math.floor(base * 0.6 + 0.5)),
-                                        normal: base,
-                                        more: Math.min(12, Math.max(base + 1, Math.floor(base * 1.5 + 0.5))),
-                                    };
-                                    const opts = [['less', 'fewer', mixed ? 'One hero and two cards, 4 s apart.' : 'Only the strongest moments, about one image every 8-10 s, at least 4.5 s apart.'],
-                                        ['normal', 'normal', mixed ? 'One hero and three cards, 4 s apart.' : 'About one image every 4-6 s, at least 3 s apart.'],
-                                        ['more', 'more', 'Every concrete mention, about one image every 3-4 s, at least 2.4 s apart. Images stay short so they can follow each other.']];
-                                    return (mixed ? opts.slice(0, 2) : opts).map(([v, label, hint]) => (
-                                        <button key={v} type="button" title={hint} onClick={() => setIn('broll', { density: v })}
-                                            className={chip((p.broll?.density || 'normal') === v)}>{label} · up to {counts[v]}</button>
-                                    ));
-                                })()}
-                            </div>
-                            <Toggle checked={p.broll?.real_photos} onChange={(v) => setIn('broll', { real_photos: v })}
-                                label="real photos for famous places & flags"
-                                hint="A famous place, landmark, city, country or a flag (the CN Tower, the Eiffel Tower, the flag of France) is a real photo from Wikimedia Commons (CC0 / public domain / CC BY, the credit goes in the description). Everything else stays generated, and so does a place or flag with no good photo. Needs the Claude brain on the B-roll step." />
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs text-muted w-14">show</span>
-                                    {[['mixed', 'hero + wide cards', 'One full-screen picture on the most visual moment (2.5-3.5 s, slow push-in, crossfade) and 2-3 wide cards above the head, 4 s apart. The premium look.'],
-                                    ['rise', 'small card (previous)', 'The previous drawing: a small square card under the captions, with the settings this profile saved for it.'],
-                                    ['full', 'full screen (previous)', 'The previous drawing: tall images on the whole frame, 1.2-1.5 s.']].map(([v, label, hint]) => (
-                                    <button key={v} type="button" title={hint} onClick={() => setIn('broll', { layout: v })}
-                                        className={chip((p.broll?.layout || 'full') === v)}>{label}</button>
-                                ))}
-                            </div>
-                            {p.broll?.layout === 'mixed' && (
-                                <div className="space-y-2 p-2.5 rounded-input border border-rule">
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                        <span className="text-xs text-muted w-14">hero</span>
-                                        {[['std', '896×1600 · ~16 s', 'The full-screen picture, made in 9:16 at 896x1600: about 16 s on an RTX 3060.'],
-                                            ['high', '1024×1792 · ~23 s', 'Bigger (1024x1792, about 23 s): a touch sharper on a 1080p phone, slower.']].map(([v, label, hint]) => (
-                                            <button key={v} type="button" title={hint} onClick={() => setIn('broll', { hero_res: v })}
-                                                className={chip((p.broll?.hero_res || 'std') === v)}>{label}</button>
-                                        ))}
-                                    </div>
-                                    <p className="text-xs text-muted">cards: wide 16:10 at 60 % of the width, above the head (the one free band of a podcast frame once the hook is gone), each from its word to the end of the sentence (2.2-3.5 s), fade in and out. Fixed, like the hero's 2.5-3.5 s and its slow push-in.</p>
-                                    <Toggle checked={p.broll?.label} onChange={(v) => setIn('broll', { label: v })}
-                                        label="a keyword on each card" hint="The image's subject in small capitals, bottom-left of the card." />
-                                    <label className="flex flex-col gap-1 text-xs text-muted">
-                                        house look — one sentence put in every image prompt, before the clip's own style sheet
-                                        <textarea rows={2} maxLength={200} value={p.broll?.house_look || ''}
-                                            onChange={(e) => setIn('broll', { house_look: e.target.value })}
-                                            placeholder="cinematic documentary photograph, 35 mm lens, natural light, teal and amber grade, fine film grain, shallow depth of field"
-                                            className="input-field text-xs w-full py-1 px-2 resize-none" />
-                                    </label>
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                        <span className="text-xs text-muted w-14">grade</span>
-                                        {[['off', 'none', 'The pictures as the model made them (the historical light contrast / colour touch-up).'],
-                                            ['cinematic', 'cinematic', 'One film look on every picture when it is cut in: a touch less saturation, lifted blacks, warm highlights, cool shadows, fine grain.'],
-                                            ['clean', 'clean', 'The same, barely there, no grain.']].map(([v, label, hint]) => (
-                                            <button key={v} type="button" title={hint} onClick={() => setIn('broll', { grade: v })}
-                                                className={chip((p.broll?.grade || 'off') === v)}>{label}</button>
-                                        ))}
-                                    </div>
-                                    <Toggle checked={p.broll?.sfx} onChange={(v) => setIn('broll', { sfx: v })}
-                                        label="a soft whoosh when the hero arrives" hint="Mixed under the voice at -18 dB (assets/sfx/whoosh_soft.wav); nothing on the cards." />
-                                    <p className="text-[11px] text-muted">In this layout the "auto" style stays photographic (photo / cinematic, neon only for the microscopic); a style chosen above applies to every image instead. Drawing fixed: premium edge, no exit zoom; "fewer" = 3 images, "normal" = 4, 4 s apart, none in the hook's seconds nor in the last 2 s.</p>
-                                </div>
-                            )}
-                            <div className="flex flex-wrap items-center gap-2">
-                                <button type="button" onClick={runBrollTest} disabled={brollTest === 'running'}
-                                    className="btn-ghost px-3 py-1.5 text-xs inline-flex items-center gap-1.5">
-                                    {brollTest === 'running' ? <Loader2 size={12} className="animate-spin" /> : <ImageIcon size={12} />}
-                                    {brollTest === 'running' ? 'testing (up to ~1 min)…' : 'test image sources'}
-                                </button>
-                                {brollTest && brollTest !== 'running' && (
-                                    <span className="text-xs text-muted leading-relaxed">{brollVerdict(brollTest)}</span>
-                                )}
-                            </div>
-                            <p className="text-[11px] text-muted">The style applies to generated images (local GPU, Gemini); free photos are real photos. The "brain" picks the moments and what each image shows.</p>
-                        </div>
-                    )}
+                    <p className="text-[11px] text-muted mt-1.5">
+                        One full-screen picture on the most visual moment and two or three wide cards above the head, made on this PC
+                        (ComfyUI, Z-Image Turbo), planned and checked by the AI brain, in the documentary house look. Needs ComfyUI running:
+                        a job without it stops when the images cannot be made.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                        <button type="button" onClick={runBrollTest} disabled={brollTest === 'running'}
+                            className="btn-ghost px-3 py-1.5 text-xs inline-flex items-center gap-1.5">
+                            {brollTest === 'running' ? <Loader2 size={12} className="animate-spin" /> : <ImageIcon size={12} />}
+                            {brollTest === 'running' ? 'testing (up to ~1 min)…' : 'test Claude and the local GPU'}
+                        </button>
+                        {brollTest && brollTest !== 'running' && (
+                            <span className="text-xs text-muted leading-relaxed">{brollVerdict(brollTest)}</span>
+                        )}
+                    </div>
                 </Section>
 
                 <Section icon={<Zap size={13} />} title="publish">
@@ -567,14 +376,6 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, music = []
                     )}
                 </Section>
 
-                <Section icon={<FlaskConical size={13} />} title="beta — changes what the AI picks">
-                    <Toggle beta checked={p.beta?.playbook} onChange={(v) => setIn('beta', { playbook: v })}
-                        label="Synapse Cut playbook" hint="Question titles, never a name in the title (names go in the description's credit line), opens on the hook sentence, a question to the viewer in the description, one stats JSON per clip." />
-                    {p.beta?.playbook && (
-                        <input value={p.beta?.playbook_show || ''} onChange={(e) => setIn('beta', { playbook_show: e.target.value })}
-                            placeholder="show name for the credit line (empty = from the file name)" className="input-field text-sm mt-1" />
-                    )}
-                </Section>
             </div>
         </Modal>
     );

@@ -102,9 +102,10 @@ class TestApplyRetitle:
 
 
 def test_profile_switch():
-    assert "TITLE_VARIETY" not in plus.job_env({"name": "t"})
-    assert plus.job_env({"name": "t", "selection": {"title_variety": True}})["TITLE_VARIETY"] == "1"
-    assert plus.sanitize({})["selection"]["title_variety"] is False
+    # Part of the house recipe since 1-oct-2026: on for every job, no profile switch.
+    assert plus.job_env({"name": "t"})["TITLE_VARIETY"] == "1"
+    assert plus.SELECTION["title_variety"] is True
+    assert "title_variety" not in plus.sanitize({"selection": {"title_variety": False}})["selection"]
     assert playbook.title_variety_enabled() is False
 
 

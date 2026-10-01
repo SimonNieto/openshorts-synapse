@@ -139,13 +139,14 @@ class TestNotionShapes:
 
 
 class TestProfile:
-    def test_layouts_and_hero_size(self):
-        assert plus.sanitize({})["broll"]["layout"] == "full"
-        assert plus.sanitize({"broll": {"layout": "mixed"}})["broll"]["layout"] == "mixed"
-        assert plus.sanitize({"broll": {"layout": "fortune"}})["broll"]["layout"] == "full"
-        assert plus.sanitize({})["broll"]["hero_res"] == "std"
-        assert plus.sanitize({"broll": {"hero_res": "high"}})["broll"]["hero_res"] == "high"
-        assert plus.sanitize({"broll": {"hero_res": "4k"}})["broll"]["hero_res"] == "std"
+    def test_the_drawing_is_the_house_recipe_not_a_profile_choice(self):
+        # Since 1-oct-2026 the profile only says whether a channel wants images; the layout,
+        # the hero size and the rest come from plus.BROLL and reach the job through PLUS_BROLL_JSON.
+        assert (plus.BROLL["layout"], plus.BROLL["hero_res"], plus.BROLL["engine"]) == ("mixed", "std", "zimage")
+        assert plus.sanitize({"broll": {"enabled": True, "layout": "fortune", "hero_res": "4k"}})["broll"] == {"enabled": True}
+        cfg = json.loads(plus.job_env({"name": "t", "broll": {"enabled": True}})["PLUS_BROLL_JSON"])
+        assert cfg["layout"] == "mixed" and cfg["hero_res"] == "std" and cfg["enabled"] is True
+        assert "PLUS_BROLL_JSON" not in plus.job_env({"name": "t"})
 
 
 class TestHeroFrames:
@@ -412,14 +413,11 @@ class TestPremiumCardFrames:
 
 
 class TestMixedCards:
-    def test_profile_keys(self):
-        d = plus.sanitize({})["broll"]
-        assert d["label"] is False and plus.sanitize({"broll": {"label": "1"}})["broll"]["label"] is True
-        # the cards' width and place are fixed by design, not profile settings
-        b = plus.sanitize({"broll": {"card_position": "below", "card_size": 99}})["broll"]
-        assert "card_position" not in b and "card_size" not in b
+    def test_the_cards_are_drawn_one_way(self):
+        # No keyword on the cards, 60 % wide above the head: the house recipe, nothing in the profile.
+        assert plus.BROLL["label"] is False
+        assert "card_position" not in plus.BROLL and "card_size" not in plus.BROLL and "position" not in plus.BROLL
         assert (broll.CARD_SIZE, broll.CARD_POSITION) == (60, "top")
-        assert plus.sanitize({"broll": {"position": "top"}})["broll"]["position"] == "top"
 
     def test_mixed_cards_are_wide_premium_and_above_the_head(self, monkeypatch):
         made = []
@@ -608,7 +606,7 @@ class TestSfx:
         assert cmds[1][cmds[1].index("-c:a") + 1] == "copy" and broll.SFX_PATH not in cmds[1]
 
     def test_only_the_hero_of_a_mixed_clip_gets_the_flag(self, monkeypatch):
-        assert plus.sanitize({})["broll"]["sfx"] is False and plus.sanitize({"broll": {"sfx": "1"}})["broll"]["sfx"] is True
+        assert plus.BROLL["sfx"] is True, "the whoosh is part of the house recipe"
 
         def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
             Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)

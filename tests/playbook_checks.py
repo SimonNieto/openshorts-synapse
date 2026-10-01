@@ -135,10 +135,12 @@ o = json.load(open(playbook.export_clip(sh[0], d3, "f_clip_1.mp4", tk), encoding
 assert o["title_format_ok"] is False and o["title_format_issues"], o
 
 # --- profile -> env -----------------------------------------------------------------------
-env = plus.job_env({"name": "t", "beta": {"playbook": True, "playbook_show": "The Joe Rogan #1 Experience"}})
+env = plus.job_env({"name": "t", "playbook_show": "The Joe Rogan #1 Experience"})
 assert env["SYNAPSE_PLAYBOOK"] == "1" and env["PLAYBOOK_SHOW"] == "The Joe Rogan 1 Experience"
+env = plus.job_env({"name": "t", "beta": {"playbook_show": "Old Block"}})
+assert env["PLAYBOOK_SHOW"] == "Old Block", "the show's name of an old profile (beta block) still counts"
 env = plus.job_env({"name": "t"})
-assert "SYNAPSE_PLAYBOOK" not in env and "PLAYBOOK_SHOW" not in env, "off by default"
+assert env["SYNAPSE_PLAYBOOK"] == "1" and "PLAYBOOK_SHOW" not in env, "the playbook is the house recipe"
 
 # --- start on the hook WITHOUT the V2 punchline end (main.py) ---------------------------------
 import main

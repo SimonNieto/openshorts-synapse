@@ -51,19 +51,14 @@ class TestLayerEncodeArgs:
 
 
 class TestProfile:
-    def test_off_by_default_and_absent_from_the_job_env(self):
-        assert plus.sanitize({})["fx"]["hq_chain"] is False
-        assert "PLUS_HQ_CHAIN" not in plus.job_env({})
-        assert "PLUS_HQ_CHAIN" not in plus.job_env({"fx": {"hq_chain": False}})
-
-    def test_on_sets_the_env_the_layers_read(self):
-        assert plus.job_env({"fx": {"hq_chain": True}})["PLUS_HQ_CHAIN"] == "1"
-        assert plus.sanitize({"fx": {"hq_chain": "1"}})["fx"]["hq_chain"] is True
-
-    def test_the_music_bed_does_not_depend_on_it(self):
-        env = plus.job_env({"music": {"enabled": True, "mood": "calm"}})
-        assert env["PLUS_MUSIC_ON"] == "1" and "PLUS_HQ_CHAIN" not in env
-        assert plus.job_env({"music": {"enabled": True}, "fx": {"hq_chain": True}})["PLUS_MUSIC_ON"] == "1"
+    def test_on_for_every_job_since_the_house_recipe(self):
+        # Was a profile switch (fx.hq_chain, off by default) until 1-oct-2026: now plus.FX, for every job,
+        # whatever an old profile saved; the music bed that rode next to it is gone.
+        assert plus.FX["hq_chain"] is True
+        for profile in ({}, {"fx": {"hq_chain": False}}, {"music": {"enabled": True, "mood": "calm"}}):
+            env = plus.job_env(profile)
+            assert env["PLUS_HQ_CHAIN"] == "1" and "PLUS_MUSIC_ON" not in env
+        assert "fx" not in plus.sanitize({"fx": {"hq_chain": False}})
 
 
 def _codec_args(cmd):

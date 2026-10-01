@@ -20,15 +20,11 @@ def _quiet(monkeypatch):
 
 
 class TestProfile:
-    def test_defaults_off(self):
-        d = plus.sanitize({})["broll"]
-        assert (d["house_look"], d["grade"]) == ("", "off")
-
-    def test_values(self):
-        b = plus.sanitize({"broll": {"house_look": "  teal and  amber,\n35 mm ", "grade": "cinematic"}})["broll"]
-        assert (b["house_look"], b["grade"]) == ("teal and amber, 35 mm", "cinematic")
-        assert plus.sanitize({"broll": {"grade": "sepia"}})["broll"]["grade"] == "off"
-        assert len(plus.sanitize({"broll": {"house_look": "x" * 500}})["broll"]["house_look"]) == 200
+    def test_the_look_is_the_house_recipe(self):
+        # One documentary look and the cinematic grade on every clip (plus.BROLL); a profile cannot change them.
+        assert plus.BROLL["grade"] == "cinematic" and plus.BROLL["grade"] in broll.GRADES
+        assert plus.BROLL["house_look"].startswith("cinematic documentary photograph") and len(plus.BROLL["house_look"]) <= 200
+        assert plus.sanitize({"broll": {"enabled": True, "house_look": "neon", "grade": "sepia"}})["broll"] == {"enabled": True}
 
 
 class TestPrompt:

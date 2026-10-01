@@ -31,6 +31,8 @@ import subprocess
 import sys
 import time
 
+import plus
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 OUT_DIR = os.path.join(HERE, "output", "_test_broll", "premium")
@@ -118,8 +120,8 @@ def render_chain(pre_fx, words, clip, prof, items, img_dir, out_path, tag, log):
     import broll
     import hooks
     import viral_fx
-    style = prof["edit_style"]
-    fx = dict(prof["fx"])
+    style = plus.EDIT_STYLE
+    fx = dict(plus.FX)
     fx.pop("watermark", None)
     if clip.get("punchline_time") is not None:
         fx["hints"] = {"punchline_time": clip["punchline_time"]}
@@ -168,7 +170,7 @@ def cmd_chain(args):
     words = viral_fx.clip_words(meta.get("transcript"), float(clip["start"]), float(clip["end"]))
     items = [it for it in (clip.get("broll") or []) if it.get("image") and os.path.exists(os.path.join(job_dir, it["image"]))]
     print(f"🎬 chain bench: {os.path.basename(pre_fx)[:70]} ({_ffprobe_duration(pre_fx):.1f} s, {len(words)} words, "
-          f"{len(items)} B-roll image(s), style {prof['edit_style']}, hook {prof['hook_style']})")
+          f"{len(items)} B-roll image(s), style {plus.EDIT_STYLE}, hook {plus.HOOK_STYLE})")
     report = {"job": args.job, "clip": args.clip, "variants": {}}
     outs = {}
     # Near-lossless reference: every layer at qp 4 (a visually lossless x264), through the same code path.
@@ -244,8 +246,8 @@ def _render_with_broll(pre_fx, meta, clip, prof, cfg, tag, keep_dir):
     import hooks
     import viral_fx
     start, end = float(clip["start"]), float(clip["end"])
-    style = prof["edit_style"]
-    fx = dict(prof["fx"])
+    style = plus.EDIT_STYLE
+    fx = dict(plus.FX)
     fx.pop("watermark", None)
     if clip.get("punchline_time") is not None:
         fx["hints"] = {"punchline_time": clip["punchline_time"]}
@@ -314,7 +316,7 @@ def cmd_visual(args):
     os.environ["BROLL_NOTION_MEMORY"] = "0"
     dur = _ffprobe_duration(pre_fx)
     print(f"🎬 visual bench: {os.path.basename(pre_fx)[:70]} ({dur:.1f} s), profile '{prof['name']}', "
-          f"style {prof['edit_style']}, hook {prof['hook_style']} {prof['hook_seconds']} s")
+          f"style {plus.EDIT_STYLE}, hook {plus.HOOK_STYLE} {plus.HOOK_SECONDS} s")
     before = os.path.join(OUT_DIR, "visual_before.mp4")
     before_items = os.path.join(OUT_DIR, "visual_before_items.json")
     if args.before_cache and os.path.exists(before) and os.path.exists(before_items):
@@ -323,13 +325,13 @@ def cmd_visual(args):
         b_items, b_times = saved["items"], saved.get("seconds") or {}
         print("   before: reused from the previous run")
     else:
-        cfg = {**prof["broll"], "enabled": True, "review": "auto"}
+        cfg = {**plus.BROLL, "enabled": True}
         with ffu.hq_chain(False):
             before, b_items, b_times = _render_with_broll(pre_fx, meta, clip, prof, cfg, "before",
                                                           os.path.join(OUT_DIR, "visual_before_images"))
     _describe("before", b_items, dur, b_times)
-    cfg = {**prof["broll"], "enabled": True, "review": "auto", **AFTER_BROLL}
-    prof_after = {**prof, "fx": {**prof["fx"], **AFTER_FX}}
+    cfg = {**plus.BROLL, "enabled": True, **AFTER_BROLL}
+    prof_after = dict(prof)   # the look is the house recipe (plus.FX); AFTER_FX kept for the report
     with ffu.hq_chain(True):
         after, a_items, a_times = _render_with_broll(pre_fx, meta, clip, prof_after, cfg, "after",
                                                      os.path.join(OUT_DIR, "visual_after_images"))

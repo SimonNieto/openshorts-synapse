@@ -15,15 +15,14 @@ def _style(ass, name):
 
 
 class TestPresetFont:
-    def test_natural_punchy_and_clean_are_unchanged(self):
+    def test_natural_is_unchanged_and_the_old_presets_are_gone(self):
         ass, _ = viral_fx.build_ass(WORDS, "natural", watermark="@thesynapsecut")
         main = _style(ass, "Main")
         assert main.startswith("Style: Main,Liberation Sans,64,")
         assert main.endswith(",&H70000000,&H99000000,1,0,0,0,100,100,0.5,0,1,2,2,5,0,0,0,1")
         assert _style(ass, "Mark").startswith("Style: Mark,Liberation Sans,18,") and _style(ass, "Mark").split(",")[7] == "1"
-        for preset in ("punchy", "clean"):
-            ass, _ = viral_fx.build_ass(WORDS, preset)
-            assert _style(ass, "Main").startswith(f"Style: Main,Liberation Sans,{viral_fx.PRESETS[preset]['size']},")
+        # punchy / clean (glow, jump zooms, shake) were removed on 1-oct-2026
+        assert set(viral_fx.PRESETS) == {"natural", "premium"}
 
     def test_premium_sets_the_same_captions_in_the_bundled_face(self):
         ass, groups = viral_fx.build_ass(WORDS, "premium", watermark="@thesynapsecut")
@@ -50,8 +49,10 @@ class TestPresetFont:
     def test_premium_is_a_profile_style_and_keeps_the_caption_band(self):
         import broll
         import plus
-        assert plus.sanitize({"edit_style": "premium"})["edit_style"] == "premium"
-        assert plus.sanitize({"edit_style": "fancy"})["edit_style"] == "natural"
+        # premium is the house style: every Clip Generator++ job, whatever an old profile said
+        assert plus.EDIT_STYLE == "premium"
+        assert plus.job_env({"name": "t", "edit_style": "punchy"})["EDIT_STYLE"] == "premium"
+        assert "edit_style" not in plus.sanitize({"edit_style": "punchy"})
         top, bottom = broll._caption_band(1920, "premium", True)
         nt, nb = broll._caption_band(1920, "natural", True)
         assert abs(top - nt) <= 8 and abs(bottom - nb) <= 10     # 72 px instead of 64: a few px, same band

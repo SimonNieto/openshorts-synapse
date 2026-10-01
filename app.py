@@ -2667,9 +2667,8 @@ async def process_endpoint(
     # matter what was saved as default.
     # Viral edit style (viral_fx): jump zooms + shake + grade under the hook,
     # the style's own captions on top. Absent/none = the classic render.
-    if edit_style in ("punchy", "clean"):
-        env["EDIT_STYLE"] = edit_style
-        print(f"[edit-style] job={job_id} style={edit_style}")
+    # The classic generator's "punchy" / "clean" edit styles were removed on
+    # 1-oct-2026 (viral_fx keeps natural / premium, driven by Clip Generator++).
 
     # Clip Generator++: a saved channel profile sets the whole recipe for this
     # job (style + options, length band, hook box, music, beta switches). It
@@ -3260,7 +3259,7 @@ async def viral_edit_clip(job_id: str, clip_index: int, req: ViralEditRequest, r
         prof = _plus.get_profile(req.profile_id)
         if prof:
             prof = _plus.sanitize(prof)
-            opts = dict(prof["fx"])
+            opts = dict(_plus.FX)          # the house recipe: same picture as the job
             watermark = prof["watermark"] or None
     if clip.get("punchline_time") is not None:
         opts["hints"] = {"punchline_time": clip["punchline_time"]}
@@ -3406,12 +3405,16 @@ def _save_broll_meta(meta_file: str, meta: dict):
 
 
 def _broll_cfg(profile_id: Optional[str]) -> dict:
-    if profile_id and not BILLING_ENABLED:
-        import plus as _plus
+    """The B-roll recipe for a manual redo: the house recipe (plus.BROLL), with the profile's own switch."""
+    if BILLING_ENABLED:
+        return {}
+    import plus as _plus
+    cfg = dict(_plus.BROLL)
+    if profile_id:
         prof = _plus.get_profile(profile_id)
         if prof:
-            return dict(_plus.sanitize(prof)["broll"])
-    return {}
+            cfg.update(_plus.sanitize(prof)["broll"])
+    return cfg
 
 
 @app.post("/api/clip/{job_id}/{clip_index}/broll/regenerate")
@@ -6668,8 +6671,7 @@ async def plus_list_profiles():
     # block) arrives with its effective values filled in.
     return {"profiles": [{**p, **_plus.sanitize(p)} for p in _plus.load_profiles()],
             "defaults": _plus.sanitize(_plus.DEFAULT_PROFILE),
-            "brain_presets": _plus.BRAIN_PRESETS,
-            "music": _plus.music_library()}
+            "brain_presets": _plus.BRAIN_PRESETS}
 
 
 @app.post("/api/plus/profiles")
@@ -6687,34 +6689,13 @@ class BrollTestRequest(BaseModel):
 
 @app.post("/api/plus/broll/test")
 async def plus_broll_test(req: BrollTestRequest, request: Request):
-    """Clip Generator++ B-roll: does the local GPU (ComfyUI) answer, can this
-    Gemini key make images (or is it the free tier / billing off), and do
-    free photos come through? One image per source, one photo search."""
+    """Clip Generator++ B-roll: does Claude answer, does the local GPU
+    (ComfyUI) make an image? One image, one small text call."""
     if BILLING_ENABLED:
         raise HTTPException(status_code=404, detail="Not available")
     import broll
-    key = await resolve_gemini(request)
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, broll.test_sources, key, req.style or "photo",
-                                      req.engine or "zimage")
-
-
-@app.get("/api/plus/broll/geometry")
-async def plus_broll_geometry(edit_style: str = "natural", watermark: int = 0, position: str = "below", size: int = 28,
-                              y: Optional[float] = None, aspect: float = 1.0):
-    """The real width of a small B-roll card for this edit style / position (the
-    profile editor shows it next to "size": the free band next to the captions
-    can be narrower than the wanted size). ``aspect``: height / width of the
-    picture (1 for the square cards, 0.625 for the wide cards of the mixed layout)."""
-    if BILLING_ENABLED:
-        raise HTTPException(status_code=404, detail="Not found")
-    import broll as _broll
-    try:
-        aspect = max(0.5, min(2.0, float(aspect)))
-    except (TypeError, ValueError):
-        aspect = 1.0
-    return _broll.rise_geometry(edit_style, bool(watermark), position if position in ("above", "top") else "below", size,
-                                aspect=aspect, y_pct=_broll._free_y(y))
+    return await loop.run_in_executor(None, broll.test_sources)
 
 
 _PREVIEW_JOB = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")

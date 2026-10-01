@@ -3146,24 +3146,6 @@ if __name__ == '__main__':
                     if success and os.environ.get("BACKGROUND_MUSIC") == "1":
                         import background_music
                         background_music.add_background_music(clip_final_path)
-                    # Clip Generator++ music bed: ducked under the voice, mix at
-                    # ~-11 LUFS, into the canonical like BACKGROUND_MUSIC does.
-                    if success and os.environ.get("PLUS_MUSIC_ON") == "1":
-                        try:
-                            import plus as _plus
-                            import viral_fx
-                            track = _plus.pick_track(os.environ.get("PLUS_MUSIC_MOOD", ""), seed=f"{video_title}-{i}")
-                            if track:
-                                mus_tmp = os.path.join(output_dir, f"mustmp_{i + 1}_{int(time.time())}.mp4")
-                                viral_fx.mix_music(clip_final_path, track, mus_tmp,
-                                                   volume=float(os.environ.get("PLUS_MUSIC_VOLUME", "0.22")))
-                                os.replace(mus_tmp, clip_final_path)
-                                clip['music'] = os.path.basename(track)
-                                print(f"   🎵 Music bed: {os.path.basename(track)}")
-                            else:
-                                print("   🎵 Music on, but no track in that mood folder — skipped.")
-                        except Exception as e:
-                            print(f"   ⚠️ Music bed failed ({type(e).__name__}: {e}) — clip kept without it.")
                     # Clip Generator++ reaction cutaways (reactions.py): cut to
                     # the listener for ~0.9 s after a line lands, speaker's
                     # audio untouched. Before the motion layer, so zooms and
@@ -3183,12 +3165,12 @@ if __name__ == '__main__':
                                 clip['reactions'] = rep
                         except Exception as e:
                             print(f"   ⚠️ Reactions failed ({type(e).__name__}: {e}) — clip kept without them.")
-                    # Viral edit style (EDIT_STYLE=punchy|clean): the motion
-                    # layer (jump zooms, shake, grade) goes INTO the canonical,
-                    # under the hook, so the hook text is never zoomed or cut;
-                    # its captions replace the default ones as the last layer.
+                    # Edit style (EDIT_STYLE=natural|premium, Clip Generator++):
+                    # the look layer (grade, vignette) goes INTO the canonical,
+                    # under the hook, so the hook text is never touched; its
+                    # captions replace the default ones as the last layer.
                     edit_style = os.environ.get("EDIT_STYLE", "").strip()
-                    if success and edit_style in ("natural", "punchy", "clean", "premium"):
+                    if success and edit_style in ("natural", "premium"):
                         try:
                             import viral_fx
                             # Pristine copy (music included, no motion): the
@@ -3208,8 +3190,8 @@ if __name__ == '__main__':
                                                            edit_style, fx_tmp, opts=fx_opts)
                             os.replace(fx_tmp, clip_final_path)
                             clip['edit_style'] = edit_style
-                            print(f"   🎬 Edit style '{edit_style}' applied "
-                                  f"({len(report.get('shots', []))} shots, spotlight {report.get('spotlight', [])})")
+                            print(f"   🎬 Edit style '{edit_style}' applied (grade + vignette; "
+                                  f"the frame is held by the reframe)")
                         except Exception as e:
                             print(f"   ⚠️ Edit style failed ({type(e).__name__}: {e}) — plain clip kept.")
                     # B-roll images (Clip Generator++ beta): cut in AFTER the

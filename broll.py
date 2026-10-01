@@ -1,31 +1,27 @@
-"""B-roll images for Clip Generator++ (beta).
+"""B-roll images for Clip Generator++.
 
-2-4 cutaways per clip, ~1.6 s each, exactly when the speaker names something
-concrete (the kratom plant, a brain scan, soldiers...), while the voice goes
-on. They make the clip clearer, hold attention (something changes on screen)
-and make it a real edit rather than a re-upload.
+One full-screen hero and two or three wide cards per clip, exactly when the
+speaker names something concrete (the kratom plant, a brain scan, soldiers...),
+while the voice goes on. They make the clip clearer, hold attention
+(something changes on screen) and make it a real edit rather than a
+re-upload. The house recipe is fixed (plus.BROLL): the profile only says
+whether a channel wants images at all.
 
-* Moments: one small Gemini text call per clip reads the clip's own words and
-  quotes the spoken anchor; the anchor is found in the word timestamps, so the
-  cut lands on the word. Without a key, or when the call fails, a local
-  heuristic (the clip's topic words, numbers, long rare words) picks them.
-* Images, by ``source``:
-  - "gemini": Gemini Image on the user's key (billed per image; the free tier
-    may refuse it — then "auto" moves on);
-  - "free":   real photos from Openverse (WordPress Foundation's search over
-    Wikimedia, Flickr...), licences that allow reuse and edits only: CC0,
-    public domain, CC BY. CC BY needs a credit, collected in ``credits`` and
-    added to the post's description at publish time;
-  - "auto":   Gemini first, free photos for whatever it could not make;
-  - "local":  generated on this machine's GPU by a ComfyUI server (e.g. the
-    Pinokio one, FLUX.1 schnell): free and unlimited. A picture that fails
-    is retried once then skipped; ComfyUI down stops the job. When the last
-    clip still making images is done, the models are unloaded from VRAM so
-    Whisper / NVENC in the container never fight it for the card.
-* Render: a photo card (rounded, white edge, shadow) pops in over the
-  podcast, which keeps playing blurred and dimmed behind it; a tall image
-  (Gemini 9:16) takes the full frame. Slow push-in, fade out. It runs BEFORE the edit style, so the pristine copy the "viral style"
-  button rebuilds from keeps its B-roll.
+* Moments: the AI brain (Claude, Gemini as the fallback) reads the clip inside
+  its episode, SEES the clip (frame sheets) and places images that carry the
+  idea being said; the anchor is found in the word timestamps, so the cut
+  lands on the word. Then it reads each image back (a weak one is redone once).
+* Images: generated on this machine's GPU by a ComfyUI server (Z-Image Turbo,
+  the Pinokio one): free and unlimited. A picture that fails is retried once
+  then skipped; ComfyUI down stops the job. When the last clip still making
+  images is done, the models are unloaded from VRAM so Whisper / NVENC in the
+  container never fight it for the card. (Gemini images, free photos from
+  Openverse and the FLUX graph were removed on 1-oct-2026: never chosen.)
+* The source's own picture (screen_inset): when the programme put an image
+  in a corner of the wide frame, that picture is one of the cards.
+* Render: the hero dissolves over the whole frame; the cards sit above the
+  speaker's head in the premium drawing (broll.CARD_*). It runs AFTER the
+  edit style and the images stay next to the clip, so a restyle re-cuts them.
 """
 import io
 import json
@@ -59,11 +55,7 @@ STYLES = {
 }
 COMMON_RULES = ("One clear subject, centred, filling the frame. No text, no letters, no numbers, "
                 "no logos, no watermark. Never depict a real, identifiable person.")
-IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-image"
 TEXT_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-3.1-flash-lite"
-OPENVERSE = "https://api.openverse.org/v1/images/"
-# Wikimedia's user-agent policy: name the tool and a way to reach it.
-UA = {"User-Agent": "OpenShorts-selfhost/1.0 (https://openshorts.app; b-roll images) httpx"}
 SEG_DUR = 1.6
 HEAD_FREE = 4.3   # the hook's seconds stay on the speaker
 TAIL_FREE = 2.0
@@ -277,16 +269,7 @@ SET_RULE = """THE SET TELLS THE STORY. The images are seen one after the other: 
   identifiable person) and copy that description word for word into every image_prompt where it appears, so the viewer
   recognises the same person from one image to the next. Leave "cast" empty when nobody recurs."""
 
-# Only added to the plan prompt when the profile's broll.real_photos is on.
-REAL_PHOTO_RULE = """
-REAL PHOTOS: only for a famous, identifiable PLACE or a FLAG - a landmark or monument (the CN Tower, the Eiffel Tower),
-a famous building, a city skyline, a country, a natural wonder (the Grand Canyon), or a country's flag - add
-"real_photo": true and "search_query": for a place, 2-4 English words naming it (the name of the place, nothing else);
-for a flag, exactly "flag of <country>". Never for anything else: no object, tool, animal, plant, person, food, machine,
-body part, idea, mechanism or scene with people or action (those are always generated). A place that is not
-famous enough to be recognised at a glance stays generated. When unsure, leave it out."""
-
-CLAUDE_SYSTEM = "You are a meticulous short-form video editor. You answer only with the requested JSON."
+CLAUDE_SYSTEM ="You are a meticulous short-form video editor. You answer only with the requested JSON."
 CLAUDE_SYSTEM_VISION = ("You are a meticulous short-form video editor. The images are attached to the request, in "
                         "order, each right after its file name. Answer only with the requested JSON.")
 
@@ -484,7 +467,6 @@ def pick_hero(moments, duration, avoid, head=HEAD_FREE, block=()):
         score = 1.0 + HERO_ROLE.get(m.get("role") or "", 0.0) + HERO_SHOT.get(m.get("shot") or "", 0.5)
         score += HERO_STYLE.get(m.get("style") or "photo", 0.0)
         score += 3.0 if m.get("hero") else 0.0
-        score += 1.0 if m.get("real_photo") else 0.0
         score += 0.5 if m["t"] > duration * 0.35 else 0.0
         if best is None or score > best_score + 1e-9 or (abs(score - best_score) < 1e-9 and m["t"] > moments[best]["t"]):
             best, best_score = i, score
@@ -771,7 +753,7 @@ def apply_notions(moments, brief, clip_text):
 
 
 def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, start=0.0, end=None,
-                     sheets=None, ground=None, mode="mixed", real_photos=False, density="normal", hero=False,
+                     sheets=None, ground=None, mode="mixed", density="normal", hero=False,
                      dur_range=None, gap_min=0.0, tail=None, head=HEAD_FREE, block=()):
     """Claude reads the clip, the conversation around it and (``sheets``) what
     is on screen, and places images that carry the IDEA being said.
@@ -799,8 +781,6 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
                   grounding=GROUNDING_RULE, set_rule=SET_RULE, pace=DENSITY[density]["pace"], names=DENSITY[density]["names"],
                   gap=gap)
     prompt = CLAUDE_PLAN_PROMPT.format(lo=head, hi=duration - TAIL_FREE - SEG_DUR, **common)
-    if real_photos:
-        prompt += "\n" + REAL_PHOTO_RULE
     schema, attach, shots_dir = PLAN_SCHEMA, list(sheets or []), None
     if hero:
         prompt += "\n" + HERO_RULE
@@ -967,22 +947,6 @@ def plan_locally(clip, words, n, avoid):
 
 # --- images -----------------------------------------------------------------------
 
-def gemini_image(prompt, style, api_key, out_path, aspect="9:16"):
-    from google import genai
-    from google.genai import types
-    client = genai.Client(api_key=api_key)
-    full = f"{prompt}\n\nStyle: {STYLES.get(style, STYLES['photo'])}\n{COMMON_RULES}"
-    r = client.models.generate_content(
-        model=IMAGE_MODEL, contents=[full],
-        config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"],
-                                           image_config=types.ImageConfig(aspect_ratio=aspect, image_size="1K")))
-    for part in (r.parts or []):
-        if part.inline_data is not None and part.inline_data.data:
-            Image.open(io.BytesIO(part.inline_data.data)).convert("RGB").save(out_path, quality=92)
-            return out_path
-    cand = (r.candidates or [None])[0]
-    raise RuntimeError(f"no image (finish_reason={getattr(cand, 'finish_reason', None)})")
-
 
 # --- local GPU (ComfyUI) --------------------------------------------------------
 
@@ -998,7 +962,7 @@ def comfy_available(timeout=3):
         return False
 
 
-ENGINES = ("zimage", "flux")
+ENGINES = ("zimage",)     # the one image engine; the name is kept in the notion library's file names
 
 
 # --- guardrails ---------------------------------------------------------------------
@@ -1262,31 +1226,18 @@ def notion_delete(nid):
 
 
 def _graph(engine, text, seed, width=768, height=1344):
-    """ComfyUI API graph for one image (768x1344 = 9:16 by default; the
-    "rise" layout asks 896x1152, 4:5); node "7" is the
-    PreviewImage (ComfyUI's temp folder, wiped on restart — not its gallery).
+    """ComfyUI API graph for one image (768x1344 = 9:16 by default; the cards
+    ask 1152x720, the hero 896x1600); node "7" is the PreviewImage (ComfyUI's
+    temp folder, wiped on restart — not its gallery).
 
-    * zimage: Z-Image Turbo (int8 model + fp8 Qwen3-4B encoder, 8 steps) —
-      fast, the default for clips;
-    * flux:   FLUX.1 schnell fp8 all-in-one checkpoint (4 steps) — heavier,
-      for when quality matters more than time."""
+    One engine: Z-Image Turbo (int8 model + fp8 Qwen3-4B encoder, 8 steps),
+    ~12 s an image on an RTX 3060. The FLUX.1 schnell graph (25 s an image,
+    never chosen) was removed on 1-oct-2026; ``engine`` stays in the signature
+    because the notion library's file names carry it."""
     latent = {"class_type": "EmptySD3LatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}}
     out = {"6": {"class_type": "VAEDecode", "inputs": {"samples": ["5", 0], "vae": ["v", 0]}},
            "7": {"class_type": "PreviewImage", "inputs": {"images": ["6", 0]}},
            "4": latent}
-    if engine == "flux":
-        out.update({
-            "1": {"class_type": "CheckpointLoaderSimple", "inputs": {
-                "ckpt_name": os.environ.get("COMFYUI_CHECKPOINT") or "flux1-schnell-fp8.safetensors"}},
-            "2": {"class_type": "CLIPTextEncode", "inputs": {"text": text, "clip": ["1", 1]}},
-            "3": {"class_type": "CLIPTextEncode", "inputs": {"text": "", "clip": ["1", 1]}},
-            "5": {"class_type": "KSampler", "inputs": {
-                "model": ["1", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["4", 0],
-                "seed": seed, "steps": int(os.environ.get("COMFYUI_FLUX_STEPS") or 4), "cfg": 1.0,
-                "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0}},
-        })
-        out["6"]["inputs"]["vae"] = ["1", 2]
-        return out
     out.update({
         "u": {"class_type": "UNETLoader", "inputs": {
             "unet_name": os.environ.get("COMFYUI_ZIMAGE_MODEL") or "z_image_turbo_int8_convrot.safetensors",
@@ -1385,180 +1336,6 @@ def _comfy_leave():
         _COMFY_USERS["n"] = max(0, was - 1)
     if was == 1:
         comfy_release()
-
-
-def _wikimedia_thumb(url, width=1280):
-    """upload.wikimedia.org original -> its cached 1280 px rendition (what
-    Wikimedia asks tools to fetch; originals are throttled)."""
-    m = re.match(r"(https://upload\.wikimedia\.org/wikipedia/commons)/(\w/\w\w)/([^/?#]+)$", url or "")
-    if not m:
-        return url
-    base, path, name = m.groups()
-    thumb = f"{base}/thumb/{path}/{name}/{width}px-{name}"
-    return thumb + ".png" if name.lower().endswith((".svg", ".tif", ".tiff")) else thumb
-
-
-# Titles that announce something that is not a clean photo of the thing.
-_UGLY_TITLE = re.compile(
-    r"\b(label(l)?ed|diagram|chart|graph|map|logo|screenshot|screen shot|poster|cover|comic|cartoon|"
-    r"infographic|table|scan of|page|document|text|sign|flag of|coat of arms|stamp|advert|meme|collage|"
-    r"engraving|etching|lithograph|woodcut|painting|caricature|illustration|drawing|print)\b|<", re.I)
-
-
-def _looks_good(path, flat=False):
-    """A photo worth showing: sharp, not too dark / washed out, sane shape.
-    ``flat``: a flag (flat colours, few edges) only has to have a sane size and shape."""
-    try:
-        img = Image.open(path).convert("L")
-    except Exception:
-        return False
-    w, h = img.size
-    if w < (800 if flat else 900) or not 0.5 <= h / w <= 2.0:
-        return False
-    if flat:
-        return True
-    small = img.resize((512, max(1, int(512 * h / w))))
-    mean = ImageStat.Stat(small).mean[0]
-    if not 35 <= mean <= 232:   # a clean product shot on white is fine
-        return False
-    edges = small.filter(ImageFilter.FIND_EDGES)
-    sharp = ImageStat.Stat(edges).var[0]
-    contrast = ImageStat.Stat(small).stddev[0]
-    # Colourfulness (Hasler & Süsstrunk): old engravings, sepia prints and
-    # scans score < 12; a modern colour photo 20+.
-    rgb = Image.open(path).convert("RGB").resize(small.size)
-    r, g, b = [ImageStat.Stat(c) for c in rgb.split()]
-    import math
-    rg_mean, rg_std = r.mean[0] - g.mean[0], math.sqrt(abs(r.var[0] + g.var[0]))
-    yb_mean = 0.5 * (r.mean[0] + g.mean[0]) - b.mean[0]
-    yb_std = math.sqrt(abs(0.25 * (r.var[0] + g.var[0]) + b.var[0]))
-    colourful = math.hypot(rg_std, yb_std) * 0.3 + 0.3 * math.hypot(rg_mean, yb_mean)
-    return sharp >= 90 and contrast >= 28 and colourful >= 14
-
-
-def query_variants(query):
-    """"modern hospital hallway" -> [..., "hospital hallway", "hospital"...];
-    brand-like capitalised words ("Pop-Tarts packaging") are dropped first."""
-    q = re.sub(r"\s+", " ", (query or "").strip())
-    out = [q]
-    no_brand = " ".join(w for w in q.split() if not (w[:1].isupper() and not w.isupper()) or len(q.split()) == 1)
-    if no_brand and no_brand != q:
-        out.append(no_brand)
-    words = (no_brand or q).split()
-    # Shorter phrases, longest first: "emergency room doctors" -> "emergency
-    # room", "room doctors", then the last word alone (the head noun — never
-    # a leading adjective alone).
-    for size in range(len(words) - 1, 1, -1):
-        for k in range(len(words) - size + 1):
-            out.append(" ".join(words[k:k + size]))
-    if len(words) >= 2:
-        out.append(words[-1])
-    seen, uniq = set(), []
-    for v in out:
-        v = v.strip().lower()
-        if v and v not in seen and len(v) >= 3:
-            seen.add(v)
-            uniq.append(v)
-    return uniq[:6]
-
-
-_FLAG_RE = re.compile(r"^\s*flag of\s+(.+?)\s*$", re.I)
-# "Flag of France", "File:Flag of France (2024-present)": the plain national flag, not a pilot / naval /
-# historical / stylised variant.
-_UGLY_TITLE_NOFLAG = re.compile(_UGLY_TITLE.pattern.replace("flag of|", ""), re.I)
-
-
-def _seen_from(title, want):
-    """"Champ de Mars from the Eiffel Tower": a view FROM the place, not OF it."""
-    m = re.search(r"\bfrom\b", (title or "").lower())
-    return bool(m) and not (want & set(_stem(title[:m.start()]).split()))
-
-
-def free_photo(query, out_path, used=None):
-    """openverse_image over the query's variants, most specific first. A flag
-    ("flag of X") is searched as is: no shorter variant ("flag" alone would
-    bring back any flag)."""
-    last = None
-    variants = [re.sub(r"\s+", " ", query.strip().lower())] if _FLAG_RE.match(query or "") else query_variants(query)
-    for v in variants:
-        try:
-            got = openverse_image(v, out_path, used)
-            if v != (query or "").strip().lower():
-                print(f"   🔎 free photo: {query!r} -> {v!r}")
-            return got
-        except Exception as e:
-            last = e
-            time.sleep(0.6)
-    raise RuntimeError(f"no free photo for {query!r} ({last})")
-
-
-def openverse_image(query, out_path, used=None):
-    """Best reusable photo for ``query``: CC0 / public domain / CC BY only
-    (reuse and edits allowed), big enough, and actually ABOUT the query —
-    every word of it in the title or tags ("needle" must not bring back the
-    Space Needle... unless the title is only that). ``used``: URLs already
-    taken by this clip. Returns (path, credit or None)."""
-    import httpx
-    qt = _stem(query).split()
-    want = set(qt)
-    used = used if used is not None else set()
-    fm = _FLAG_RE.match(query or "")
-    flag_name = re.sub(r"\W+", " ", fm.group(1).lower()).strip() if fm else None
-
-    def flag_title(x):
-        t = re.sub(r"^file:", "", (x.get("title") or "").strip().lower())
-        t = re.sub(r"\s*\([^)]*\)\s*$", "", t)                # "(2024-present)"
-        return re.sub(r"\W+", " ", t).strip() == f"flag of {flag_name}"
-
-    def relevance(x):
-        words = set(_stem(" ".join([x.get("title") or ""] + [t.get("name", "") for t in (x.get("tags") or [])])).split())
-        title = set(_stem(x.get("title") or "").split())
-        extra = len(title - want)
-        # A title that BEGINS with the place ("Grand Canyon National Park") is about it;
-        # "Bighorn, Grand Canyon" is a sheep. A flag: the clean flat file (svg) first.
-        toks = _stem(x.get("title") or "").split()
-        starts = int(toks[:len(qt)] == qt)
-        return (int(bool(flag_name) and (x.get("filetype") or "").lower() == "svg"), len(want & words), starts, -extra)
-
-    with httpx.Client(timeout=20, headers=UA, follow_redirects=True) as http:
-        r = http.get(OPENVERSE, params={"q": query, "license": "cc0,pdm,by", "page_size": 20,
-                                        "mature": "false", "extension": "jpg,png,svg" if flag_name else "jpg,png",
-                                        # Wikimedia Commons only: its licences are reviewed; Flickr's
-                                        # are whatever the uploader claimed (a Peanuts strip "CC BY").
-                                        "source": "wikimedia"})
-        r.raise_for_status()
-        min_w, min_h = (800, 500) if flag_name else (1000, 650)
-        results = [x for x in r.json().get("results", [])
-                   if (x.get("width") or 0) >= min_w and (x.get("height") or 0) >= min_h and x.get("url") not in used
-                   and 0.5 <= (x.get("height") or 1) / (x.get("width") or 1) <= 2.0
-                   and not (_UGLY_TITLE_NOFLAG if flag_name else _UGLY_TITLE).search(x.get("title") or "")
-                   and relevance(x)[1] >= max(1, (len(want) + 1) // 2)
-                   and (flag_title(x) if flag_name else not _seen_from(x.get("title"), want))]
-        results.sort(key=relevance, reverse=True)
-        for x in results[:6]:
-            try:
-                img = None
-                for attempt in range(3):
-                    img = http.get(_wikimedia_thumb(x["url"])
-                                   if (x.get("width") or 0) > 1280 or x["url"].lower().endswith(".svg") else x["url"],
-                                   timeout=30)
-                    if img.status_code != 429:
-                        break
-                    time.sleep(2 + 3 * attempt)
-                img.raise_for_status()
-                Image.open(io.BytesIO(img.content)).convert("RGB").save(out_path, quality=92)
-            except Exception:
-                continue
-            used.add(x.get("url"))
-            if not _looks_good(out_path, flat=bool(flag_name)):
-                continue
-            lic = (x.get("license") or "").upper()
-            credit = None
-            if lic == "BY":
-                credit = (f"\"{(x.get('title') or 'image')[:60]}\" by {(x.get('creator') or 'unknown')[:40]} "
-                          f"(CC BY {x.get('license_version') or ''}".strip() + ")")
-            return out_path, credit
-    raise RuntimeError(f"no free photo for {query!r}")
 
 
 def _ease(x):
@@ -2129,7 +1906,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         n = max(1, n - 1)                                      # the source's picture is one of them
     auto_style = cfg.get("style") == "auto"
     style = cfg.get("style") if cfg.get("style") in STYLES else "photo"
-    engine = cfg.get("engine") if cfg.get("engine") in ENGINES else "zimage"
+    engine = "zimage"
     rise = cfg.get("layout") == "rise"
     mixed = cfg.get("layout") == "mixed"     # premium: one full-screen hero + small cards
     hero_res = cfg.get("hero_res") if cfg.get("hero_res") in HERO_GEN else "std"
@@ -2211,7 +1988,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     moments = plan_with_claude(clip, words, n, avoid, auto_style, transcript, start, end, sheets,
                                                ground=ground,
                                                mode=cfg.get("mode") or "mixed",
-                                               real_photos=bool(cfg.get("real_photos")), density=density,
+                                               density=density,
                                                hero=mixed, dur_range=dur_range, gap_min=gap_min, tail=tail, head=head,
                                                block=block)
                     planner = "claude"
@@ -2261,15 +2038,6 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 cands.append({"k": k, "m": m, "style": m_style, "file": kept, "source": "local", "credit": None,
                               "score": 5, "reused": True, "layout": m_layout})
                 continue
-            if cfg.get("real_photos") and m.get("real_photo") and not m.get("notion"):
-                try:
-                    photo, credit = free_photo(m["query"], raw, used_urls)
-                    print(f"   📷 Real photo for \"{m['query']}\"" + (f" (credit: {credit})" if credit else ""))
-                    cands.append({"k": k, "m": m, "style": "photo", "file": photo, "source": "free", "credit": credit,
-                                  "layout": m_layout})
-                    continue
-                except Exception as e:
-                    print(f"   ℹ️ No real photo for \"{m['query']}\" ({str(e)[:80]}) — image generated instead.")
             # A notion's picture is the channel's usual one, kept for other clips:
             # made without this clip's look.
             got, used, credit = make_image(m["prompt"], m_style, raw, m["query"], used_urls,
@@ -2410,7 +2178,7 @@ def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, 
     raises when nothing came."""
     cfg = cfg or {}
     style = style if style in STYLES else "photo"
-    engine = cfg.get("engine") if cfg.get("engine") in ENGINES else "zimage"
+    engine = "zimage"
     rise = cfg.get("layout") == "rise"
     try:
         size = (int(gen[0]), int(gen[1])) if gen else (RISE_GEN if rise else (768, 1344))
@@ -2540,9 +2308,10 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
 
 def test_sources(api_key=None, style="photo", engine="zimage"):
     """For the profile editor's "test" button: does Claude (subscription)
-    answer, does the local GPU (ComfyUI) answer, can Gemini make an image on
-    this key, and do free photos come through? Never raises."""
-    out = {"claude": None, "gemini": None, "free": None, "local": None}
+    answer, and does the local GPU (ComfyUI) make an image? Never raises.
+    ``api_key`` / ``engine`` are accepted for the endpoint's sake and ignored:
+    images are made on this PC only."""
+    out = {"claude": None, "local": None}
     tmp = tempfile.mkdtemp(prefix="broll_test_")
     try:
         if claude_ready():
@@ -2561,7 +2330,7 @@ def test_sources(api_key=None, style="photo", engine="zimage"):
             try:
                 t0 = time.time()
                 local_image("A close-up of fresh green kratom leaves on a wooden table.", style,
-                            os.path.join(tmp, "l.jpg"), engine=engine)
+                            os.path.join(tmp, "l.jpg"))
                 out["local"] = f"ok ({time.time() - t0:.0f} s)"
             except Exception as e:
                 out["local"] = "error: " + str(e)[:220]
@@ -2569,22 +2338,6 @@ def test_sources(api_key=None, style="photo", engine="zimage"):
                 comfy_release()
         else:
             out["local"] = "offline"
-        if api_key:
-            try:
-                gemini_image("A close-up of fresh green kratom leaves on a wooden table.", style, api_key,
-                             os.path.join(tmp, "g.jpg"))
-                out["gemini"] = "ok"
-            except Exception as e:
-                msg = str(e)
-                out["gemini"] = ("billing" if re.search(r"billing|quota|RESOURCE_EXHAUSTED|429|limit: 0", msg, re.I)
-                                 else "error") + ": " + msg[:220]
-        else:
-            out["gemini"] = "no key"
-        try:
-            openverse_image("brain scan", os.path.join(tmp, "f.jpg"))
-            out["free"] = "ok"
-        except Exception as e:
-            out["free"] = "error: " + str(e)[:220]
         return out
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

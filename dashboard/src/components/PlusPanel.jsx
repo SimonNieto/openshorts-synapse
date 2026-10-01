@@ -12,18 +12,11 @@ const chip = (active) => `px-3 py-2 rounded-input border text-left transition-co
 
 // One-line recap of what a profile will do, under its name.
 const recap = (p) => [
-    p.edit_style,
     `${p.clip_min}-${p.clip_max}s`,
-    p.fx?.look && 'sharp',
-    p.fx?.spotlight && 'spotlight',
-    p.fx?.streaks && 'light line',
-    p.fx?.reactions && 'reactions',
-    p.music?.enabled && 'music',
+    p.selection?.clip_target && `aim ${p.selection.clip_target[0]}-${p.selection.clip_target[1]}s`,
     p.broll?.enabled && 'b-roll',
-    ({ bold: 'bold hook', classic: 'hook box', none: 'no hook' })[p.hook_style || (p.hook_box ? 'classic' : 'none')],
     p.watermark && `“${p.watermark}”`,
     p.auto_publish?.enabled && 'auto-publish',
-    p.beta?.playbook && 'playbook',
     ({ gemini: 'gemini only', balanced: 'gemini + claude', claude: 'claude everywhere', claude_max: 'claude max', custom: 'custom brain' })[p.brain?.preset || 'balanced'],
     p.brain?.fresh && 'fresh picks',
 ].filter(Boolean).join(' · ');
@@ -127,7 +120,6 @@ function PlusStats({ uploadPostKey, accounts }) {
 export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [], defaultProfile = '', canAutoPublish, uploadPostKey, geminiApiKey, onProfileChange }) {
     const [profiles, setProfiles] = useState(null);
     const [defaults, setDefaults] = useState(null);
-    const [music, setMusic] = useState([]);
     const [brainPresets, setBrainPresets] = useState(null);
     const [selectedId, setSelectedId] = useState(() => { try { return localStorage.getItem(SELECTED_KEY) || ''; } catch { return ''; } });
     const [editing, setEditing] = useState(null);
@@ -143,7 +135,6 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
             const d = await apiJson('/api/plus/profiles');
             setProfiles(d.profiles || []);
             setDefaults(d.defaults);
-            setMusic(d.music || []);
             setBrainPresets(d.brain_presets || null);
         } catch {
             setError('Could not load the profiles.');
@@ -189,7 +180,7 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
             <p className="eyebrow mb-1.5 flex items-center gap-1.5"><Sparkles size={12} /> CLIP GENERATOR++</p>
             <h1 className="font-display lowercase text-2xl text-ink mb-2">pick a profile, drop a video</h1>
             <p className="text-muted text-sm mb-5 lowercase">
-                Each profile is a channel's full recipe: account, length, edit, effects, music, publishing. The classic Clip Generator stays untouched.
+                Each profile is a channel's full recipe: account, niche, lengths, AI brain, B-roll, publishing; the look itself is the house recipe. The classic Clip Generator stays untouched.
             </p>
             {error && <p className="text-danger text-sm mb-3">{error}</p>}
 
@@ -228,7 +219,6 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
             <PlusProfileEditor
                 isOpen={!!editing}
                 profile={editing}
-                music={music}
                 accounts={accounts}
                 geminiApiKey={geminiApiKey}
                 brainPresets={brainPresets}

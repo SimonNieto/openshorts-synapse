@@ -12,29 +12,32 @@ def _env(selection=None, **profile):
     return plus.job_env(raw)
 
 
-NEW_VARS = ("CLIP_DEDUPE_OVERLAP", "CLIP_DEDUPE_SECONDS", "CLIP_TARGET_MIN_SECONDS",
-            "CLIP_TARGET_MAX_SECONDS", "NICHE_TOPICS", "NICHE_WEIGHT", "NICHE_ONLY", "NICHE_CONTEXT",
-            "CLIP_COUNT_FLOOR", "HOOK_CHECK", "AUDIO_SIGNALS", "TITLE_VARIETY")
+# The channel's own choices: nothing of these without the block.
+CHANNEL_VARS = ("CLIP_TARGET_MIN_SECONDS", "CLIP_TARGET_MAX_SECONDS", "NICHE_TOPICS", "NICHE_WEIGHT",
+                "NICHE_ONLY", "NICHE_CONTEXT", "CLIP_COUNT_FLOOR")
+# The house recipe (plus.SELECTION, 1-oct-2026): on for every job, whatever the profile says.
+RECIPE_VARS = {"CLIP_DEDUPE_OVERLAP": "0.2", "CLIP_DEDUPE_SECONDS": "8", "HOOK_CHECK": "1",
+               "AUDIO_SIGNALS": "1", "TITLE_VARIETY": "1", "SYNAPSE_PLAYBOOK": "1"}
 
 
-def test_a_profile_without_the_block_sets_nothing_new():
+def test_a_profile_without_the_block_sets_nothing_of_its_own():
     env = _env()
-    assert not [k for k in NEW_VARS if k in env]
+    assert not [k for k in CHANNEL_VARS if k in env]
+    assert {k: env[k] for k in RECIPE_VARS} == RECIPE_VARS
     assert plus.sanitize({})["selection"] == plus.DEFAULT_PROFILE["selection"]
 
 
 def test_garbage_falls_back_to_the_defaults():
     assert plus.sanitize({"selection": "x"})["selection"] == plus.DEFAULT_PROFILE["selection"]
-    assert plus.sanitize({"selection": {"dedupe_overlap": "x", "dedupe_seconds": None}})["selection"] \
+    assert plus.sanitize({"selection": {"clip_target": "x", "min_clips": None}})["selection"] \
         == plus.DEFAULT_PROFILE["selection"]
 
 
-def test_dedupe_reaches_the_job():
-    env = _env({"dedupe_overlap": 0.2, "dedupe_seconds": 8})
-    assert env["CLIP_DEDUPE_OVERLAP"] == "0.2" and env["CLIP_DEDUPE_SECONDS"] == "8"
-    # 20 is read as 20 %
-    assert _env({"dedupe_overlap": 20})["CLIP_DEDUPE_OVERLAP"] == "0.2"
-    assert "CLIP_DEDUPE_OVERLAP" not in _env({"dedupe_overlap": 0})
+def test_the_recipe_cannot_be_switched_off_by_a_profile():
+    env = _env({"dedupe_overlap": 0, "hook_check": False, "audio_signals": False, "title_variety": False},
+               beta={"playbook": False})
+    assert {k: env[k] for k in RECIPE_VARS} == RECIPE_VARS
+    assert "dedupe_overlap" not in plus.sanitize({"selection": {"dedupe_overlap": 0}})["selection"]
 
 
 def test_clip_target_reaches_the_job():
@@ -73,8 +76,6 @@ def test_min_clips_is_the_prompt_floor_only():
         assert "CLIP_COUNT_FLOOR" not in _env({"min_clips": off}), off
 
 
-def test_audio_signals_switch():
-    assert _env({"audio_signals": True})["AUDIO_SIGNALS"] == "1"
-    assert "AUDIO_SIGNALS" not in _env({"audio_signals": False})
-    assert _env({"title_variety": True})["TITLE_VARIETY"] == "1"
-    assert "TITLE_VARIETY" not in _env({"title_variety": False})
+def test_audio_signals_and_title_variety_are_always_on():
+    assert _env()["AUDIO_SIGNALS"] == "1" and _env({"audio_signals": False})["AUDIO_SIGNALS"] == "1"
+    assert _env()["TITLE_VARIETY"] == "1" and _env({"title_variety": False})["TITLE_VARIETY"] == "1"
