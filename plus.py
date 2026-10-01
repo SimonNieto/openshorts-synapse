@@ -87,6 +87,9 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          "house_look": ("cinematic documentary photograph, 35 mm lens, natural light, teal and amber grade, "
                         "fine film grain, shallow depth of field"),
          "grade": "cinematic", "sfx": True,
+         # One photographic family per clip (broll.FAMILIES): "auto" = the art director picks it (the default
+         # family without one), else its name.
+         "style_family": "auto",
          # B-roll v2 (1-oct-2026): a second call writes the prompt of every picture of a set in the channel's
          # look (broll.direct_art). Off until the brain bench shows its boards beat the editor's drafts.
          "art_director": False}

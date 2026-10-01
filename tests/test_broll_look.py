@@ -40,7 +40,7 @@ class TestPrompt:
         plain = broll._image_text("A brain.", "photo")
         assert plain == broll._image_text("A brain.", "photo", house="   ")
         # the historical text, spaces included (the image cache keys on it)
-        assert plain == f"A brain.   {broll.STYLES['photo']} {broll.COMMON_RULES}".replace("  ", " ")
+        assert plain == f"A brain. {broll.STYLES['photo']} {broll.COMMON_RULES}"
 
     def test_auto_style_in_the_mixed_layout_is_photographic(self, monkeypatch):
         import ai_brain
@@ -51,7 +51,8 @@ class TestPrompt:
         broll.plan_with_claude({}, words, 4, [], auto_style=True)
         assert '"comic"' in seen["prompt"] and "one series" not in seen["prompt"]
         broll.plan_with_claude({}, words, 4, [], auto_style=True, hero=True)
-        assert '"comic"' not in seen["prompt"] and "one series" in seen["prompt"] and '"neon"' in seen["prompt"]
+        assert '"comic"' not in seen["prompt"] and "one series" in seen["prompt"] and '"neon"' not in seen["prompt"]
+        assert "real micrograph or lab photograph" in seen["prompt"]
         broll.plan_with_claude({}, words, 4, [], auto_style=False, hero=True)
         assert '"style"' not in seen["prompt"]
 
@@ -147,7 +148,7 @@ class TestAddBroll:
         cfg = {"planner": "claude", "layout": "mixed", "style": "auto", "max": 4, "grade": "cinematic",
                "house_look": "teal and amber documentary photograph"}
         rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1, cfg)
-        assert [it["style"] for it in rep["items"]] == ["photo", "neon", "photo"]
+        assert [it["style"] for it in rep["items"]] == ["photo", "photo", "photo"]
         assert all(it["grade"] == "cinematic" for it in rep["items"])
         assert all(h == "teal and amber documentary photograph" for _, h in made)
         # the historical layouts: no house look, no grade on the items, whatever the profile says

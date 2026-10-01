@@ -403,6 +403,7 @@ BRAIN_DIR = os.path.join(HERE, "output", "_test_broll", "brain")
 VERSIONS = {
     "current": {},
     "art": {"art_director": True},            # chantier A: the art director writes the prompts
+    "v2": {"art_director": True},             # the same, run again after each later chantier (its own boards)
 }
 BOARD_W = 1500
 THUMB_W, THUMB_H = 420, 300
@@ -478,7 +479,7 @@ class _Watch:
     size of every picture asked from ComfyUI, and the seconds per step. Patches broll's module globals
     (add_broll looks them up at call time) and puts them back."""
 
-    NAMES = ("plan_with_claude", "plan_with_gemini", "review_images", "local_image", "_graph")
+    NAMES = ("plan_with_claude", "plan_with_gemini", "direct_art", "review_images", "local_image", "_graph")
 
     def __init__(self, broll):
         self.broll = broll
@@ -501,6 +502,9 @@ class _Watch:
             out = self._timed("plan", orig["plan_with_claude"], *a, **kw)
             self.moments = [dict(m) for m in out]
             return out
+
+        def art(*a, **kw):
+            return self._timed("art", orig["direct_art"], *a, **kw)
 
         def plan_gemini(*a, **kw):
             out = self._timed("plan", orig["plan_with_gemini"], *a, **kw)
@@ -526,7 +530,7 @@ class _Watch:
                                                                    "steps": steps}
             return g
 
-        for k, fn in (("plan_with_claude", plan), ("plan_with_gemini", plan_gemini), ("review_images", review),
+        for k, fn in (("plan_with_claude", plan), ("plan_with_gemini", plan_gemini), ("direct_art", art), ("review_images", review),
                       ("local_image", image), ("_graph", graph)):
             setattr(b, k, fn)
         return self
@@ -668,7 +672,8 @@ def _board(res, out_path):
         if it.get("source") == "screen":
             tag = "SOURCE PICTURE"
         line1 = (f"#{it.get('k') if it.get('k') is not None else '-'}  {tag}  {float(it['t']):.1f} s +{float(it['dur']):.1f} s   "
-                 f"{it.get('style') or '-'}   shot {it.get('shot') or '-'} · role {it.get('role') or '-'}")
+                 f"{it.get('style') or '-'}" + (f" / {it['family']}" if it.get("family") else "")
+                 + f"   shot {it.get('shot') or '-'} · role {it.get('role') or '-'}")
         if it.get("notion"):
             line1 += f"   notion « {it['notion']} »" + (" (reused)" if it.get("reused") else "")
         if it.get("planner_hero"):
@@ -718,7 +723,7 @@ def _board(res, out_path):
     if not rows:
         tail += block(f_b, "No picture planned for this clip.", _C_LABEL, BOARD_W - 2 * M)
     s, u = res.get("seconds") or {}, res.get("usage") or {}
-    tail += block(f_t, f"plan {s.get('plan', 0):.0f} s · {res.get('images_made', 0)} picture(s) on ComfyUI {s.get('gpu', 0):.0f} s · "
+    tail += block(f_t, f"plan {s.get('plan', 0):.0f} s · art {s.get('art', 0):.0f} s · {res.get('images_made', 0)} picture(s) on ComfyUI {s.get('gpu', 0):.0f} s · "
                        f"review {s.get('review', 0):.0f} s · total {s.get('total', 0):.0f} s   —   Claude {u.get('calls', 0)} call(s): "
                        f"{u.get('input_tokens', 0):,} read / {u.get('output_tokens', 0):,} written   —   planner {res.get('planner')}",
                   _C_DIM, BOARD_W - 2 * M)

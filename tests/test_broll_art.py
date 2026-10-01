@@ -164,7 +164,7 @@ class TestInTheJob:
     def stubs(self, monkeypatch):
         made = []
 
-        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", art=False):
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", art=False, **kw):
             Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
             made.append({"prompt": prompt, "style": style, "house": house, "art": art, "look": look})
             return out_path

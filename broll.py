@@ -211,13 +211,12 @@ STYLE_RULE_PREMIUM = """
   "photo"     - the default, for everything that exists in the physical world: anonymous people, places, objects,
                 plants, food, animals, tools, events, a scene with action;
   "cinematic" - the same when the moment is dramatic, dark or tense (a night scene, a danger, a fight) - never for
-                a patient, an illness, a disability or a death (use "photo" there);
-  "neon"      - ONLY the microscopic or the invisible (neurons, receptors, molecules, hormones, DNA, cells, brain
-                activity), and then as a real micrograph or lab photograph in real light on a dark background —
-                never glowing neon lines.
-  Nothing else (no drawing, no comic, no diagram, no 3D render, no vintage): the images of a clip are one series
-  shot with one camera."""
-PREMIUM_STYLES = ("photo", "cinematic", "neon")
+                a patient, an illness, a disability or a death (use "photo" there).
+  The microscopic or the invisible (neurons, receptors, molecules, hormones, DNA, cells, brain activity) is "photo"
+  too: a real micrograph or lab photograph in real light, never glowing neon lines.
+  Nothing else (no neon, no drawing, no comic, no diagram, no 3D render, no vintage): the images of a clip are
+  one series shot with one camera."""
+PREMIUM_STYLES = ("photo", "cinematic")
 PLAN_SCHEMA = {
     "type": "object",
     "properties": {
@@ -884,7 +883,7 @@ moments of this clip that get a picture and what each one must show; you write t
 paint from, for EVERY picture of the set at once, so they look shot by one photographer on one day.
 
 THE CHANNEL'S LOOK (every picture of every clip, it always wins): {house}
-THIS CLIP'S STYLE SHEET (the editor's; keep what agrees with the channel's look): {sheet}
+{family}THIS CLIP'S STYLE SHEET (the editor's; keep what agrees with the channel's look): {sheet}
 THE CLIP: title "{title}"; thesis: {thesis}
 {glossary}
 THE PICTURES, in the order they are seen:
@@ -927,9 +926,54 @@ ART_SCHEMA = {
     "properties": {"prompts": {"type": "array", "items": {
         "type": "object",
         "properties": {"k": {"type": "integer"}, "prompt": {"type": "string"}},
-        "required": ["k", "prompt"]}}},
+        "required": ["k", "prompt"]}},
+                   "family": {"type": "string", "enum": ["cinematic_photo", "editorial_photo", "scientific_dark", "archive"]}},
     "required": ["prompts"],
 }
+
+# --- style families (B-roll v2, "mixed" layout): one photographic recipe per clip --------------------
+# In the mixed layout the eight STYLES above give way to four photographic
+# families, each a crafted block (lens, film, light, grade) that follows every
+# prompt of the clip. One family per clip (plus.BROLL["style_family"]: "auto" =
+# the art director picks it, else its name); "neon" is gone from that layout:
+# the invisible is a macro photograph in real light.
+FAMILIES = {
+    "cinematic_photo": ("Cinematic documentary still: 35 mm full-frame camera, Kodak Vision3 500T look, natural and "
+                        "practical light with one soft key, teal shadows and amber highlights, fine film grain, shallow "
+                        "depth of field, true skin tones, air around the subject."),
+    "editorial_photo": ("Editorial magazine photograph: 50 mm lens, soft daylight from a window or an overcast sky, clean "
+                        "neutral palette with a warm tint, fine grain, medium depth of field, honest and composed, the "
+                        "still that runs full page in a Sunday magazine."),
+    "scientific_dark": ("Scientific macro photograph in real light on a dark background: a lab bench or a microscope stage "
+                        "lit by one small lamp, 100 mm macro lens, shallow focus on stained tissue, glass, metal or a "
+                        "printed model, teal shadows and amber highlights, fine grain, a research institute's own "
+                        "photographer."),
+    "archive": ("Archive print from the era of the story: silver-gelatin black and white or faded Ektachrome colour, "
+                "period lens and film grain, slight vignette, as found in a newspaper's archive, the time it shows "
+                "unmistakable."),
+}
+FAMILY_DEFAULT = "cinematic_photo"
+FAMILY_CHOICE = """THE STYLE FAMILY: choose ONE for the whole clip and return its name in "family":
+- "cinematic_photo" (the default, when in doubt): the channel's usual still, for any present-day story;
+- "editorial_photo": calm, human, daylight stories — a home, a street, a consultation, a meal, a conversation;
+- "scientific_dark": ONLY when most pictures of the set are microscopic or laboratory subjects AND the glossary
+  draws them as lab or microscope views;
+- "archive": ONLY when the story happens in the past (the style sheet's era is not present day).
+Every prompt of the set then obeys that family's lens, film, light and grade:
+""" + "\n".join(f'- "{k}": {v}' for k, v in FAMILIES.items())
+# The editor's per-picture style, in the mixed layout, is a tone the art director reads, not a look.
+STYLE_TONE = {"photo": "a plain documentary moment", "cinematic": "a dramatic, dark or tense moment",
+              "neon": "a microscopic or invisible subject: a real micrograph or lab photograph"}
+
+
+def family_text(family):
+    """The art director's family section: a fixed family, the choice, or nothing (historical layouts)."""
+    if family is None:
+        return ""
+    if family in FAMILIES:
+        return f"THE STYLE FAMILY of this clip (its lens, film, light and grade; every prompt obeys it): {FAMILIES[family]}\n"
+    return FAMILY_CHOICE + "\n"
+
 
 
 def _art_frame(m, mixed, rise):
@@ -954,8 +998,10 @@ def _art_glossary(moments, clip_text):
             + "\n".join(f"- {g['term']}: {g.get('visual') or g.get('meaning') or ''}" for g in picked) + "\n")
 
 
-def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, style="photo", clip_text=""):
-    """The art director's request for the whole set of one clip."""
+def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, style="photo", clip_text="",
+                family=None):
+    """The art director's request for the whole set of one clip. ``family``: None (historical layouts: the
+    STYLES are the notes), "auto" (the director chooses one) or a FAMILIES name (fixed)."""
     sheet = next((m.get("sheet") for m in moments if m.get("sheet")), None)
     sheet_txt = "; ".join(f"{k}: {v}" for k, v in (sheet or {}).items()) or "none"
     thesis = next((m.get("thesis") for m in moments if m.get("thesis")), "") or "-"
@@ -972,8 +1018,12 @@ def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, s
         if m.get("idea"):
             lines.append(f"  idea: {m['idea']}")
         lines.append(f"  the editor's draft: {m.get('prompt') or '-'}")
-        lines.append(f"  style note: {STYLES.get(m_style, STYLES['photo'])}")
+        if family is None:
+            lines.append(f"  style note: {STYLES.get(m_style, STYLES['photo'])}")
+        else:
+            lines.append(f"  tone: {STYLE_TONE.get(m_style, STYLE_TONE['photo'])}")
     return ART_PROMPT.format(house=house or "cinematic documentary photograph", sheet=sheet_txt, cliche=CLICHE_RULE,
+                             family=family_text(family),
                              title=clip.get("video_title_for_youtube_short") or "-", thesis=thesis,
                              glossary=_art_glossary(moments, clip_text), moments="\n".join(lines))
 
@@ -982,6 +1032,10 @@ def _apply_art(moments, data):
     """The art director's prompts onto the moments, by index: ``prompt`` becomes the director's (the editor's
     draft kept in ``prompt_editor``, ``art`` set), when it reads like a prompt. Returns how many were taken."""
     taken = 0
+    fam = (data or {}).get("family") if isinstance(data, dict) else None
+    if fam in FAMILIES:
+        for m in moments:
+            m["family"] = fam
     for p in (data or {}).get("prompts") or []:
         try:
             k = int(p.get("k"))
@@ -999,13 +1053,14 @@ def _apply_art(moments, data):
     return taken
 
 
-def direct_art(moments, clip, house, mixed=True, rise=False, auto_style=True, style="photo", clip_text=""):
+def direct_art(moments, clip, house, mixed=True, rise=False, auto_style=True, style="photo", clip_text="",
+               family=None):
     """The second call of the brain: one prompt per picture of the set, in the channel's look. Runs on the
     brain's ``broll_art`` step (a Claude model, or Gemini). Any failure leaves the editor's prompts in place."""
     import ai_brain
     if not moments:
         return 0
-    prompt = _art_prompt(moments, clip, house, mixed, rise, auto_style, style, clip_text)
+    prompt = _art_prompt(moments, clip, house, mixed, rise, auto_style, style, clip_text, family)
     try:
         if ai_brain.route("broll_art") == "gemini":
             ai_brain.say(f"Gemini · {TEXT_MODEL}", "B-roll: art direction of the set")
@@ -1498,21 +1553,24 @@ def _graph(engine, text, seed, width=768, height=1344):
     return out
 
 
-def _image_text(prompt, style, look="", house="", art=False):
+def _image_text(prompt, style, look="", house="", art=False, family=None):
     """The full prompt sent to the image model: the scene (with its guardrails), the channel's house look
     (profile broll.house_look, the same sentence in every image of every clip), this clip's style sheet, the
-    style's own description and the common rules. ``art``: the scene is the art director's prompt, which
-    already states the look, the frame and the light: only the guardrails and the hard rules follow it."""
+    style's own description (or, in the mixed layout, the clip's style ``family``) and the common rules.
+    ``art``: the scene is the art director's prompt, which already states the look, the frame and the light:
+    only the guardrails, the family and the hard rules follow it."""
     prompt, guard = guardrails(prompt) if os.environ.get("BROLL_GUARDRAILS", "1") != "0" else (prompt, "")
+    fam = FAMILIES.get(family) if family else None
     if art:
-        return f"{prompt} {guard} {ART_RULES}".replace("  ", " ")
+        return " ".join(p for p in (prompt, guard, fam, ART_RULES) if p)
     house = re.sub(r"\s+", " ", str(house or "")).strip()
     if house and not house.endswith("."):
         house += "."
-    return f"{prompt} {guard} {house} {look} {STYLES.get(style, STYLES['photo'])} {COMMON_RULES}".replace("  ", " ")
+    return " ".join(p for p in (prompt, guard, house, look, fam or STYLES.get(style, STYLES["photo"]), COMMON_RULES) if p)
 
 
-def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", art=False):
+def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", art=False,
+                family=None):
     """One 9:16 image from ComfyUI. Measured on an RTX 3060 (ComfyUI on
     PyTorch cu130 — the int8 kernels need it): Z-Image Turbo ~12 s per
     image, FLUX.1 schnell ~25 s; the first call of a job also loads the
@@ -1520,7 +1578,7 @@ def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768
     import random
     import uuid
     import httpx
-    text = _image_text(prompt, style, look, house, art)
+    text = _image_text(prompt, style, look, house, art, family)
     graph = _graph(engine if engine in ENGINES else "zimage", text, random.randint(0, 2 ** 48), *size)
     base = _comfy_url()
     with httpx.Client(timeout=30) as http:
@@ -2182,7 +2240,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             pass
     gpu = [0.0]      # seconds spent waiting for ComfyUI, for the clip's log line
 
-    def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None, art=False):
+    def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None, art=False, family=None):
         """(path, "local", None) from ComfyUI, or (None, None, None) when this
         one picture could not be made: a second try with a new seed, then the
         picture is skipped and the clip goes on with the others (one refused
@@ -2194,7 +2252,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             t0 = time.time()
             try:
                 return local_image(prompt, m_style, raw, engine=engine, size=size, look=look_text(sheet, m_style),
-                                   house=house, art=art), "local", None
+                                   house=house, art=art, family=family), "local", None
             except Exception as e:
                 last = e
                 if not comfy_available():
@@ -2270,11 +2328,21 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 m["hero"] = i == k_hero
             if k_hero is None:
                 print("   ℹ️ B-roll: no moment of this clip reads well on a whole screen — small cards only.")
+        # One style family for the clip (mixed): the profile's, or the art director's pick, else the default.
+        family = None
+        if mixed:
+            family = cfg.get("style_family") if cfg.get("style_family") in FAMILIES else "auto"
         if planner == "claude" and cfg.get("art_director"):
             # The second call: the prompts of the whole set, in the channel's look (the editor's drafts stay
             # when it fails).
             direct_art(moments, clip, house, mixed=mixed, rise=rise, auto_style=auto_style, style=style,
-                       clip_text=" ".join(w["text"] for w in words))
+                       clip_text=" ".join(w["text"] for w in words), family=family)
+        if mixed:
+            if family == "auto":
+                family = next((m.get("family") for m in moments if m.get("family") in FAMILIES), FAMILY_DEFAULT)
+            for m in moments:
+                m["family"] = family
+            print(f"   🎞️ Style family: {family}")
 
         used_urls, cands = set(), []
         for k, m in enumerate(moments):
@@ -2291,7 +2359,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # made without this clip's look.
             got, used, credit = make_image(m["prompt"], m_style, raw, m["query"], used_urls,
                                            None if m.get("notion") else m.get("sheet"), layout=m_layout,
-                                           art=bool(m.get("art")))
+                                           art=bool(m.get("art")), family=m.get("family"))
             if got:
                 cands.append({"k": k, "m": m, "style": m_style, "file": got, "source": used, "credit": credit,
                               "layout": m_layout})
@@ -2310,7 +2378,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                         raw = os.path.join(tmp, f"broll_{c['k']}_v2.jpg")
                         got, used, credit = make_image(r["better_prompt"], c["style"], raw, c["m"]["query"],
                                                        used_urls, None if c["m"].get("notion") else c["m"].get("sheet"),
-                                                       layout=c["layout"])
+                                                       layout=c["layout"], family=c["m"].get("family"))
                         if got:
                             # A redo is the editor's kind of prompt again (the reviewer's better_prompt).
                             redo.append((c, {**c, "file": got, "source": used, "credit": credit,
@@ -2356,6 +2424,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             if mixed:
                 # The size the picture was made at: a manual redo asks for the same one.
                 item["gen"] = list(_gen_size(c["layout"], hero_res))
+                if m.get("family"):
+                    item["family"] = m["family"]     # the clip's photographic recipe: a manual redo keeps it
                 if grade != "off":
                     item["grade"] = grade            # applied when the picture is cut in, restyle included
                 if hero and cfg.get("sfx"):
@@ -2428,7 +2498,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, sheet=None, gen=None, art=False):
+def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, sheet=None, gen=None, art=False,
+                     family=None):
     """One image again, from a new prompt / style (the manual review), on the
     local GPU. ``gen``: the (width, height) the first picture was made at (the
     item's "gen"), else the layout's usual size. ``art``: the item's prompt is
@@ -2449,7 +2520,7 @@ def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, 
     try:
         art = bool(art) and len(str(prompt).split()) >= ART_MIN_WORDS
         return local_image(prompt, style, out_path, engine=engine, size=size, look=look_text(sheet, style),
-                           house=house, art=art), "local", None
+                           house=house, art=art, family=family if family in FAMILIES else None), "local", None
     finally:
         comfy_release()
 
