@@ -447,7 +447,8 @@ the title: it has to be understood cold, on its own.
 For each clip below you get its title, the first sentences heard, the
 punchline it closes on, its current hook and what is wrong with it. Write ONE
 better hook per clip:
-- max {max_words} words, in {language};
+- max {max_words} words, in {language} (count them: one word over and the hook
+  is thrown away);
 - it names the concrete thing the clip is about (the substance, the organ, the
   illness, the number, the act) in plain words: someone who reads only these
   words knows the subject;
@@ -481,9 +482,15 @@ HOOK_RETRY_SCHEMA = {
 }
 
 
+# The rewrite asks for one word fewer than the limit: on JRE #2515 sonnet
+# answered "max 8" with 9-word hooks three times out of eight, each thrown
+# away for that alone. Asked for 7 it lands on 7 or 8; the check stays at 8.
+HOOK_RETRY_WORDS = HOOK_MAX_WORDS - 1
+
+
 def hook_retry_prompt(items, language: str = "en") -> str:
     """``items``: [{"id", "title", "opening", "punchline", "hook", "problems"}]."""
-    return HOOK_RETRY_PROMPT.format(max_words=HOOK_MAX_WORDS, language=language or "en",
+    return HOOK_RETRY_PROMPT.format(max_words=HOOK_RETRY_WORDS, language=language or "en",
                                     clips=json.dumps(items, ensure_ascii=False, indent=1))
 
 

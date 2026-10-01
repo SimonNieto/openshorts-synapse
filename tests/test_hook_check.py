@@ -110,9 +110,10 @@ class TestRetryPieces:
     def test_prompt_is_filled(self):
         prompt = playbook.hook_retry_prompt([{"id": 0, "title": "T?", "opening": "O.", "punchline": "P.",
                                               "hook": "H", "problems": ["p"]}], "en")
-        assert "max 8 words, in en" in prompt and '"opening": "O."' in prompt and '"punchline": "P."' in prompt
+        assert "max 7 words, in en" in prompt and '"opening": "O."' in prompt and '"punchline": "P."' in prompt
+        assert playbook.HOOK_RETRY_WORDS == playbook.HOOK_MAX_WORDS - 1, "one word under the limit the check applies"
         assert "it NEVER tells it" in prompt
-        assert '{"hooks": [{"id": <clip id>, "viral_hook_text": "<max 8 words>"}]}' in prompt
+        assert '{"hooks": [{"id": <clip id>, "viral_hook_text": "<max 7 words>"}]}' in prompt
 
     def test_a_better_hook_is_taken(self):
         c = {"video_title_for_youtube_short": "Can psychedelics really reboot your entire identity?",
