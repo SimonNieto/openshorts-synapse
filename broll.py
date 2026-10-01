@@ -56,8 +56,9 @@ STYLES = {
 }
 COMMON_RULES = ("One clear subject, centred, filling the frame. No text, no letters, no numbers, "
                 "no logos, no watermark. Never depict a real, identifiable person.")
-# An art-directed prompt (direct_art) already says the look and the frame: only the hard rules follow it.
-ART_RULES = "No text, no letters, no numbers, no logos, no watermark. Never depict a real, identifiable person."
+# An art-directed prompt (direct_art) already says the look and the frame: only the hard rules follow it, said in
+# the positive (at cfg 1.0 "no text" pulls the model towards text; the director is told the same).
+ART_RULES = "Every sign, screen, page and label is a plain surface. Every person is anonymous and fictional."
 PROMPT_MAX = 900   # characters of an image prompt kept anywhere (the art director writes 80-120 words)
 TEXT_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-3.1-flash-lite"
 SEG_DUR = 1.6
@@ -458,7 +459,9 @@ SPECIFICITY TEST: a picture that would do for any other clip about the same noun
 generic crowd) scores 3 at most; its better_prompt takes the thing from this episode's world and this sentence's
 specifics (the place, the object at its scale, the gesture, the era).
 WRONG FACTS: the wrong organ, tool, animal or place (lungs for a throat, a random building for a named landmark), or
-a key detail that contradicts what is said, scores 2 at most — however pretty.
+a key detail that contradicts what is said, scores 2 at most — however pretty. Judge them against the quoted words
+and the EPISODE FACTS when given, never against your own idea of what is plausible: a surprising scene the speaker
+tells (a cage on a famous lawn) is a true scene, and the picture that shows it is right.
 STOCK OR CLICHÉ: a picture that reads as AI stock on a science channel — """ + "; ".join(CLICHES) + """ — scores 3 at
 most, and its better_prompt shows the concrete case or the thing at its real scale instead.
 THE SET: the images are seen in a row. Compare them with each other: when one looks like an earlier one (same main
@@ -616,7 +619,7 @@ def _clean_sheet(raw):
         return None
     sheet = {}
     for k in SHEET_ALL:
-        v = re.sub(r"\s+", " ", str(raw.get(k) or "")).strip(" .")[:70]
+        v = _short_field(re.sub(r"\s+", " ", str(raw.get(k) or "")).strip(" ."), 70)
         if v:
             sheet[k] = v
     return sheet or None
@@ -662,7 +665,7 @@ def _sheet_with_bible(sheet):
         if look.get(k_look):
             out[k_sheet] = _short_field(re.sub(r"\s+", " ", look[k_look]).strip(" ."))
     if not out.get("mood") and look.get("mood"):
-        out["mood"] = look["mood"][:70]
+        out["mood"] = _short_field(look["mood"], 70)
     return out or None
 
 
@@ -885,6 +888,13 @@ def apply_notions(moments, brief, clip_text):
         if not g:
             m["notion"] = ""
             continue
+        own = ai_brain._content(" ".join(str(m.get(k) or "") for k in ("subject", "anchor", "query")))
+        if not ai_brain._term_matches(g["term"], own):
+            # The tag names a notion the picture does not show (a cardboard box tagged "Ego dissolution"): the
+            # glossary's drawing would be glued onto a stranger, or the library's picture shown in its place.
+            print(f"   ℹ️ Notion \"{g['term']}\" tagged on \"{m.get('subject') or m['anchor']}\", which is not it — tag dropped.")
+            m["notion"] = ""
+            continue
         m["notion"] = g["term"]
         if norm(g["term"]) not in said_names:
             m["prompt"] = f"{m['prompt']} Draw {g['term']} the channel's usual way: {g['visual']}."[:PROMPT_MAX]
@@ -968,6 +978,11 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     moments = _parse_moments(data, words, n, avoid, gap, dur_range, tail, head, block)
     for m in moments:
         m["sheet"] = _sheet_with_bible(m.get("sheet"))
+        if m.get("hero") and m.get("notion"):
+            # The hero is THIS clip's picture, never the channel's usual picture of a notion: the editor's pick
+            # stays the hero (pick_hero refuses a notion), made for this clip and not kept for the others.
+            print(f"   🎯 Hero \"{m['anchor']}\" is also notion \"{m['notion']}\": made for this clip, not from the library.")
+            m["notion"] = ""
     apply_notions(moments, ai_brain.EPISODE_BRIEF, f"{before} {clip_text} {after}")
     thesis = str((data or {}).get("thesis") or "")[:300]
     if thesis:
@@ -1186,9 +1201,38 @@ def _cut_at_sentence(text, limit):
     return head[:end + 1].rstrip() if end >= limit // 2 else head
 
 
+_NUM_RE = re.compile(r"\d[\d,.]*\d|\d")
+_FACT_STOP = {"the", "and", "setting", "composition", "light", "lens", "palette", "material", "mood", "shot",
+              "subject", "draw", "show", "close", "wide", "medium", "macro", "hero", "card", "step", "steps"}
+
+
+def facts_of(text):
+    """The facts of an image draft that must survive any rewrite: its numbers (separators dropped) and its
+    proper nouns (a capitalised word that does not open a sentence, or an acronym), lower-cased."""
+    text = re.sub(r"\s+", " ", str(text or "")).strip()
+    facts = {re.sub(r"[,.]", "", n) for n in _NUM_RE.findall(text)}
+    for sentence in re.split(r"(?<=[.!?:;])\s+", text):
+        for w in sentence.split(" ")[1:]:
+            w = w.strip("()\"',.;:!?")
+            if len(w) < 2 or w.lower() in _FACT_STOP:
+                continue
+            if (w[0].isupper() and len(w) >= 3 and w[1:].islower()) or (w.isupper() and w.isalpha()):
+                facts.add(w.lower())
+    return {f for f in facts if f}
+
+
+def lost_facts(draft, prompt):
+    """The facts of ``draft`` (facts_of) missing from ``prompt``: [] when every one is there (a crude plural
+    is forgiven both ways)."""
+    have = {t.rstrip("s") for t in re.findall(r"[a-z0-9']+", re.sub(r"(?<=\d)[,.](?=\d)", "", str(prompt or "").lower()))}
+    return sorted(f for f in facts_of(draft) if f.rstrip("s") not in have)
+
+
 def _apply_art(moments, data):
     """The art director's prompts onto the moments, by index: ``prompt`` becomes the director's (the editor's
-    draft kept in ``prompt_editor``, ``art`` set), when it reads like a prompt. Returns how many were taken."""
+    draft kept in ``prompt_editor``, ``art`` set), when it reads like a prompt AND keeps the editor's facts
+    (lost_facts: a number, a place, a name the draft had — the one specific thing of the picture is not the
+    director's to drop). Returns how many were taken."""
     taken = 0
     fam = (data or {}).get("family") if isinstance(data, dict) else None
     if fam in FAMILIES:
@@ -1203,6 +1247,11 @@ def _apply_art(moments, data):
         if not 0 <= k < len(moments) or not ART_MIN_WORDS <= len(text.split()) <= ART_MAX_WORDS:
             continue
         m = moments[k]
+        lost = lost_facts(m.get("prompt_editor") or m.get("prompt"), text)
+        if lost:
+            print(f"   ⚠️ Art direction #{k}: the director dropped {', '.join(lost)} — the editor's draft is kept "
+                  f"for this picture.")
+            continue
         if not m.get("art"):
             m["prompt_editor"] = m.get("prompt") or ""
         m["prompt"] = _cut_at_sentence(text, PROMPT_MAX)
@@ -1241,6 +1290,29 @@ def direct_art(moments, clip, house, mixed=True, rise=False, auto_style=True, st
 HERO_REVIEW_PX = 768   # a full-screen picture is judged bigger than a card (512): lettering, hands, faces show
 
 
+def _review_facts(cands):
+    """What the episode established, for the judge: the bible's world and its AVOID list, and the glossary line of
+    every notion among the pictures ("" without any). The review has no transcript: without this it judged a real
+    event of the episode (a cage on the White House lawn) with its general knowledge and marked the right picture
+    wrong."""
+    import ai_brain
+    bible = ai_brain.EPISODE_BIBLE or {}
+    lines = []
+    if bible.get("world"):
+        lines.append("- WORLD of the episode (real things said in it): " + "; ".join(bible["world"]))
+    if bible.get("avoid"):
+        lines.append("- AVOID (pictures the episode's director refused): " + "; ".join(bible["avoid"]))
+    named = {str(c.get("m", {}).get("notion") or "").lower() for c in cands}
+    for g in (ai_brain.EPISODE_BRIEF or {}).get("glossary") or []:
+        if str(g.get("term") or "").lower() in named:
+            lines.append(f"- {g['term']}: {g.get('meaning') or ''} -> drawn as: {g.get('visual') or ''}")
+    if not lines:
+        return ""
+    return ("\nEPISODE FACTS (from a read of the whole episode). They are TRUE for this review, whatever your general "
+            "knowledge says: an event the episode tells happened; a place, a number, an era it gives are right.\n"
+            + "\n".join(lines))
+
+
 def review_with_claude(cands, words, model=None, size=512):
     """Claude looks at each made image and scores it against the idea it must
     carry (1-5) and for its look (1-5), with a better prompt when it falls
@@ -1253,6 +1325,7 @@ def review_with_claude(cands, words, model=None, size=512):
         # Judged against the point of the clip, not only the word under it.
         prompt += (f"\nTHE CLIP'S POINT: {thesis}\nAn image that shows the word but does not help the viewer "
                    f"get that point scores 3 at most.")
+    prompt += _review_facts(cands)
     prompt += _hero_test(cands)
     # Judged at 512 px (same names): the card is ~300 px wide on screen, and a
     # 1024 px image costs Claude ~4x the tokens for nothing it could not see.
@@ -1315,6 +1388,7 @@ def review_with_gemini(cands, words):
     if thesis:
         prompt += (f"\nTHE CLIP'S POINT: {thesis}\nAn image that shows the word but does not help the viewer "
                    f"get that point scores 3 at most.")
+    prompt += _review_facts(cands)
     prompt += _hero_test(cands)
     prompt += '\nReturn only: {"reviews": [{"file": "...", "seen": "...", "score": 1-5, "look": 1-5, "problem": "...", "better_prompt": "..."}]}'
     parts = []
