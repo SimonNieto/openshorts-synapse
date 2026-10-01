@@ -443,6 +443,17 @@ sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eigh
 thousand thousands million millions billion billions half double twice triple percent""".split())
 # Someone / something the viewer has not met.
 _HOOK_PRONOUNS = set("he she him her his hers they them their theirs".split())
+# ...unless the hook itself says who, before the pronoun: "A DMT user asked
+# if he was dead" is read cold; "He asked one question 39 times" is not.
+# (JRE #2515, 1-oct-2026: two rewrites refused for a "he" / "his" whose
+# person the hook had just named.)
+_HOOK_PERSONS = set("""man men woman women guy guys girl girls boy boys kid kids child children baby teen
+teenager person patient patients user users fighter boxer wrestler champion doctor surgeon nurse scientist
+neuroscientist psychologist psychiatrist therapist comedian soldier veteran marine monk mother father mom dad
+parent parents wife husband son daughter brother sister twin friend guest host stranger killer murderer victim
+inmate prisoner cop officer detective pilot athlete runner climber student teacher professor worker ceo founder
+billionaire millionaire addict alcoholic smoker survivor driver hunter farmer chef actor singer rapper
+astronaut scientist writer author monk nun priest someone somebody""".split())
 _HOOK_OPEN_PRONOUNS = _HOOK_PRONOUNS | set("it this that these those".split())
 # Words that carry no picture: not what "a concrete noun" means.
 _HOOK_WEAK = set("""thing things stuff way ways time times life world reality everything nothing something
@@ -479,9 +490,9 @@ def hook_problems(hook: str) -> list:
     if words[0] in _HOOK_OPEN_PRONOUNS:
         out.append(f"opens on '{words[0]}', which points at nothing the viewer has seen")
     else:
-        who = next((w for w in words if w in _HOOK_PRONOUNS), None)
-        if who:
-            out.append(f"'{who}' is someone the viewer has not met")
+        k = next((i for i, w in enumerate(words) if w in _HOOK_PRONOUNS), None)
+        if k is not None and not any(_singular(w) in _HOOK_PERSONS or w in _HOOK_PERSONS for w in words[:k]):
+            out.append(f"'{words[k]}' is someone the viewer has not met")
     image = next((w for w in words if _singular(w) in _HOOK_FIGURATIVE), None)
     if image:
         out.append(f"an image ('{image}') instead of the thing itself")
@@ -605,7 +616,8 @@ better hook per clip:
 - no metaphor and no image that needs the clip to be understood ("The quit
   room has no one in it." and "One labeled folder." are wrong);
 - no "he", "she", "they", "it" or "this" pointing at someone or something the
-  viewer has not met;
+  viewer has not met — unless the hook itself says who, before it ("A DMT
+  user asked if he was dead" is fine; "He asked if he was dead" is not);
 - a statement, not a question. It adds a stake, a tension or a promise: it may
   share the subject with the title but never says the title again;
 - no name of a person or a show; never an explicit word for suicide or

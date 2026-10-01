@@ -94,6 +94,26 @@ class TestHookSpoils:
         assert playbook.hook_issues(c) == [] and c["hook_spoils"] == ""
 
 
+class TestNamedPerson:
+    # JRE #2515 (1-oct-2026): the rewrites refused for a pronoun the hook had just explained.
+    def test_a_pronoun_after_the_person_it_points_at_is_fine(self):
+        for hook in ("A DMT user asked if he was dead.", "A woman prayed for his heart and brain.",
+                     "Two fighters broke faces, then they hugged.", "A patient saw her own surgery.",
+                     "The champion lost his sight mid-fight."):
+            assert playbook.hook_problems(hook) == [], hook
+
+    def test_a_pronoun_before_or_without_the_person_is_not(self):
+        assert playbook.hook_problems("He asked one question 39 times.") == \
+            ["opens on 'he', which points at nothing the viewer has seen"]
+        assert "'his' is someone the viewer has not met" in playbook.hook_problems("Entities performed surgery inside his body.")
+        assert "'he' is someone the viewer has not met" in playbook.hook_problems("The room went silent when he spoke.")
+
+    def test_the_retry_prompt_says_so(self):
+        prompt = playbook.hook_retry_prompt([{"id": 0, "title": "T?", "opening": "O.", "punchline": "P.",
+                                              "hook": "H", "problems": ["p"]}], "en")
+        assert "unless the hook itself says who" in prompt
+
+
 class TestRetryPieces:
     TRANSCRIPT = {"language": "en", "segments": [{"words": [
         {"word": w, "start": 100 + i * 0.4, "end": 100 + i * 0.4 + 0.3} for i, w in enumerate(
