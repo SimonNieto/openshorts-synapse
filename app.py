@@ -6617,7 +6617,13 @@ async def plus_list_notions():
     import broll as _broll
     loop = asyncio.get_event_loop()
     comfy = await loop.run_in_executor(None, _broll.comfy_available)
-    return {"notions": _broll.notion_list(), "engines": list(_broll.ENGINES), "comfy": bool(comfy)}
+    import plus as _plus
+    current = _broll.look_key(_plus.BROLL.get("house_look"))
+    notions = _broll.notion_list()
+    for n in notions:
+        n["current_look"] = n.get("look") == current
+    return {"notions": notions, "engines": list(_broll.ENGINES), "comfy": bool(comfy), "look": current,
+            "variants": _broll.NOTION_VARIANTS}
 
 
 @app.get("/api/plus/notions/{nid}/image")
@@ -6637,9 +6643,12 @@ async def plus_regen_notion(nid: str, req: NotionRegenRequest):
     as the one the next clips use."""
     _notion_guard()
     import broll as _broll
+    import plus as _plus
+    house = _plus.BROLL.get("house_look") or ""
     loop = asyncio.get_event_loop()
     try:
-        return {"notion": await loop.run_in_executor(None, _broll.notion_regenerate, nid, req.prompt, req.engine)}
+        return {"notion": await loop.run_in_executor(
+            None, lambda: _broll.notion_regenerate(nid, req.prompt, req.engine, house=house))}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

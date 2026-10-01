@@ -4,6 +4,7 @@ import { getApiUrl } from '../config';
 import { apiJson } from '../lib/api';
 
 const MODEL_LABEL = { zimage: 'Z-Image Turbo (fast)', flux: 'FLUX schnell (heavier)' };
+const LAYOUT_LABEL = { rise: 'small card', full: 'full frame', hero: 'hero', card: 'wide card' };
 
 /**
  * The channel's kept pictures of glossary notions (Clip Generator++, broll.py's
@@ -16,6 +17,7 @@ export default function NotionLibrary() {
     const [notions, setNotions] = useState(null);
     const [engines, setEngines] = useState(['zimage', 'flux']);
     const [comfy, setComfy] = useState(true);
+    const [variants, setVariants] = useState(2);
     const [drafts, setDrafts] = useState({});   // id -> { prompt, engine }
     const [busy, setBusy] = useState(null);     // id being made / restored / removed
     const [busyText, setBusyText] = useState('making…');
@@ -27,6 +29,7 @@ export default function NotionLibrary() {
             const d = await apiJson('/api/plus/notions');
             setNotions(d.notions || []);
             if (d.engines?.length) setEngines(d.engines);
+            if (d.variants) setVariants(d.variants);
             setComfy(!!d.comfy);
         } catch (e) {
             setError(e.detail || 'Could not load the pictures.');
@@ -107,9 +110,9 @@ export default function NotionLibrary() {
                 </button>
             </div>
             <p className="text-muted text-sm mb-6 lowercase">
-                The first good picture of each glossary notion is kept and shown again, as is, in every clip whose image is simply that
-                notion. Edit the prompt and make it again to change the one used by the next clips, on the model you choose. To change
-                a picture for good, regenerate it here.
+                A glossary notion keeps up to {variants} pictures in the channel’s look (different shots), shown in turn in every clip
+                whose image is simply that notion; a clip makes the missing one. A picture made with an older look is not used any more:
+                forget it, or edit its prompt and make it again here (in the current look).
             </p>
 
             {!comfy && (
@@ -129,24 +132,29 @@ export default function NotionLibrary() {
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {(notions || []).map((n) => {
+                {(notions || []).map((n, i, list) => {
                     const d = draftOf(n);
                     const working = busy === n.id;
                     const dirty = d.prompt !== n.prompt || d.engine !== n.made_with;
+                    const heading = i === 0 || list[i - 1].term !== n.term;
                     return (
-                        <div key={n.id} className="flex gap-3 p-3 rounded-input border border-rule">
+                        <React.Fragment key={n.id}>
+                        {heading && <p className="eyebrow lg:col-span-2 mt-2">{n.term}</p>}
+                        <div className="flex gap-3 p-3 rounded-input border border-rule">
                             <img
                                 src={getApiUrl(`/api/plus/notions/${n.id}/image?v=${n.v}`)}
                                 alt={n.term}
-                                className={`rounded-input bg-paper3 object-cover shrink-0 ${n.layout === 'rise' ? 'w-32 h-32 sm:w-40 sm:h-40' : 'w-24 h-40 sm:w-28 sm:h-48'}`}
+                                className={`rounded-input bg-paper3 object-cover shrink-0 ${n.layout === 'rise' ? 'w-32 h-32 sm:w-40 sm:h-40' : n.layout === 'card' ? 'w-40 h-24 sm:w-48 sm:h-28' : 'w-24 h-40 sm:w-28 sm:h-48'}`}
                             />
                             <div className="grow min-w-0 space-y-2">
                                 <div>
                                     <p className="text-sm text-ink font-medium truncate" title={n.term}>{n.term}</p>
                                     <p className="text-[11px] text-muted">
-                                        {n.style} · {n.layout === 'rise' ? 'card' : 'full frame'} · made with {MODEL_LABEL[n.made_with] || n.made_with}
+                                        {n.style} · {LAYOUT_LABEL[n.layout] || n.layout} · variant {n.variant}/{variants}{n.shot ? ` · ${n.shot} shot` : ''}
+                                        {` · shown ${n.uses || 0}×`} · made with {MODEL_LABEL[n.made_with] || n.made_with}
                                         {n.manual ? ' · redone by hand' : n.score ? ` · score ${n.score}/5` : ''}
                                         {n.saved ? ` · ${n.saved}` : ''}
+                                        {n.current_look === false && <span className="text-danger"> · older look, not used</span>}
                                     </p>
                                     {n.engine !== n.made_with && (
                                         <p className="text-[11px] text-muted">used by profiles set to {MODEL_LABEL[n.engine] || n.engine}</p>
@@ -187,6 +195,7 @@ export default function NotionLibrary() {
                                 </div>
                             </div>
                         </div>
+                        </React.Fragment>
                     );
                 })}
             </div>

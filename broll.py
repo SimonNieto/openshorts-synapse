@@ -1068,7 +1068,10 @@ def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, s
     lines = []
     for k, m in enumerate(moments):
         m_style = (m.get("style") or "photo") if auto_style else style
-        parts = [f"#{k} {_art_frame(m, mixed, rise)}", f"shot: {m.get('shot') or '-'}", f"role: {m.get('role') or '-'}",
+        shot = m.get("notion_shot") or m.get("shot") or "-"
+        if m.get("notion_shot") and m.get("notion_shot") != m.get("shot"):
+            shot += " (the channel keeps another shot of this notion already: take this one)"
+        parts = [f"#{k} {_art_frame(m, mixed, rise)}", f"shot: {shot}", f"role: {m.get('role') or '-'}",
                  f"subject: {m.get('subject') or m.get('query') or '-'}"]
         if m.get("notion"):
             parts.append(f"notion: {m['notion']}")
@@ -1502,42 +1505,107 @@ def _gen_size(layout, hero_res="std"):
     return (768, 1344)
 
 
-def _notion_path(term, style, engine, layout):
+# v2 (1-oct-2026): a notion keeps NOTION_VARIANTS pictures per house look (different shots), shown in turn; the
+# file name carries the look, so a new house look makes the library again as the clips need it. The pictures
+# made before carry no look ("legacy" in the library screen) and are not reused.
+NOTION_VARIANTS = int(os.environ.get("BROLL_NOTION_VARIANTS") or 2)
+NOTION_SHOTS = ("wide", "close", "macro")   # the shots the variants take, the editor's own first
+_USES_LOCK = __import__("threading").Lock()
+
+
+def look_key(house=""):
+    """Six characters naming the house look a notion picture was made with."""
+    h = re.sub(r"\s+", " ", str(house or "")).strip().lower()
+    if not h:
+        return "nolook"
+    import hashlib
+    return hashlib.sha1(h.encode()).hexdigest()[:6]
+
+
+def _notion_base(term, style, engine, layout):
     import hashlib
     norm = re.sub(r"\W+", " ", str(term or "").lower()).strip()
     import unicodedata
     ascii_norm = unicodedata.normalize("NFKD", norm).encode("ascii", "ignore").decode()   # plain file / URL names
     slug = re.sub(r"\s+", "-", ascii_norm.strip())[:40] or "notion"
     h = hashlib.sha1(norm.encode()).hexdigest()[:6]
-    return os.path.join(NOTION_DIR, f"{slug}-{h}__{style}__{engine}__{_shape(layout)}.jpg")
+    return os.path.join(NOTION_DIR, f"{slug}-{h}__{style}__{engine}__{_shape(layout)}")
 
 
-def notion_get(term, style, engine, layout, dest):
-    """Copy the kept picture of ``term`` to ``dest`` and return ``dest``; None if none."""
+def _notion_path(term, style, engine, layout, look=None, variant=None):
+    """The picture's path: ``<base>__<look>_v<variant>.jpg``, or the legacy name (no look) when ``look`` is None."""
+    base = _notion_base(term, style, engine, layout)
+    return base + ".jpg" if look is None else f"{base}__{look}_v{int(variant or 1)}.jpg"
+
+
+def notion_variants(term, style, engine, layout, look):
+    """The kept pictures of ``term`` for this look: [(variant, path, meta)], by variant."""
+    base = os.path.basename(_notion_base(term, style, engine, layout)) + f"__{look}_v"
+    out = []
+    try:
+        names = os.listdir(NOTION_DIR)
+    except OSError:
+        return out
+    for f in names:
+        mv = re.match(re.escape(base) + r"(\d+)\.jpg$", f)
+        if mv:
+            p = os.path.join(NOTION_DIR, f)
+            out.append((int(mv.group(1)), p, _notion_meta(p)))
+    return sorted(out)
+
+
+def notion_missing_shot(term, style, engine, layout, look, shot=None):
+    """The shot the next kept picture of ``term`` should take (the editor's own first, then the shots not kept
+    yet), or None when the library holds NOTION_VARIANTS of them already (or the memory is off)."""
     if os.environ.get("BROLL_NOTION_MEMORY", "1") == "0" or not term:
         return None
-    src = _notion_path(term, style, engine, layout)
-    if not os.path.exists(src):
+    have = notion_variants(term, style, engine, layout, look)
+    if len(have) >= NOTION_VARIANTS:
         return None
+    if not have:
+        return shot if shot in SHOTS else NOTION_SHOTS[0]
+    taken = {str(meta.get("shot") or "") for _n, _p, meta in have}
+    return next((s for s in NOTION_SHOTS if s not in taken), None) or next((s for s in SHOTS if s not in taken), NOTION_SHOTS[0])
+
+
+def notion_get(term, style, engine, layout, dest, look="nolook"):
+    """Copy the kept picture of ``term`` the channel showed the least (its variants take turns) to ``dest`` and
+    return ``dest``; None if none."""
+    if os.environ.get("BROLL_NOTION_MEMORY", "1") == "0" or not term:
+        return None
+    have = notion_variants(term, style, engine, layout, look)
+    if not have:
+        return None
+    _n, src, meta = min(have, key=lambda v: (int(v[2].get("uses") or 0), v[0]))
     shutil.copy2(src, dest)
+    with _USES_LOCK:
+        try:
+            meta["uses"] = int(meta.get("uses") or 0) + 1
+            with open(src[:-4] + ".json", "w", encoding="utf-8") as f:
+                json.dump(meta, f, ensure_ascii=False, indent=1)
+        except OSError:
+            pass
     return dest
 
 
-def notion_put(term, style, engine, layout, src, prompt="", score=None):
-    """Keep ``src`` as the picture of ``term`` unless one is already kept (the
-    first good one stays the channel's picture). Never raises."""
+def notion_put(term, style, engine, layout, src, prompt="", score=None, look="nolook", shot=None, house="", family=None):
+    """Keep ``src`` as the next picture of ``term`` for this look (NOTION_VARIANTS at most: the first good ones
+    stay the channel's pictures). Never raises."""
     if os.environ.get("BROLL_NOTION_MEMORY", "1") == "0" or not term:
         return False
     try:
-        dest = _notion_path(term, style, engine, layout)
-        if os.path.exists(dest):
+        have = notion_variants(term, style, engine, layout, look)
+        if len(have) >= NOTION_VARIANTS:
             return False
+        n = (max(v[0] for v in have) + 1) if have else 1
+        dest = _notion_path(term, style, engine, layout, look, n)
         os.makedirs(NOTION_DIR, exist_ok=True)
         shutil.copy2(src, dest)
         with open(dest[:-4] + ".json", "w", encoding="utf-8") as f:
             json.dump({"term": term, "style": style, "engine": engine, "layout": _layout_of(_shape(layout)),
-                       "prompt": prompt, "score": score, "saved": time.strftime("%Y-%m-%d %H:%M")}, f,
-                      ensure_ascii=False, indent=1)
+                       "prompt": prompt, "score": score, "saved": time.strftime("%Y-%m-%d %H:%M"),
+                       "look": look, "variant": n, "shot": shot or "", "uses": 0, "house": house or "",
+                       "family": family or ""}, f, ensure_ascii=False, indent=1)
         return True
     except OSError:
         return False
@@ -1573,10 +1641,19 @@ def _notion_entry(path):
     meta = _notion_meta(path)
     stem = os.path.basename(path)[:-4]
     parts = stem.split("__")
+    look, variant = "legacy", 1
+    if len(parts) >= 5:
+        mv = re.match(r"^([0-9a-z]+)_v(\d+)$", parts[4])
+        if mv:
+            look, variant = mv.group(1), int(mv.group(2))
+    shape = parts[3] if len(parts) > 3 else stem.rsplit("__", 1)[-1]
     return {"id": stem, "term": meta.get("term") or parts[0],
             "style": meta.get("style") or (parts[1] if len(parts) > 1 else "photo"),
             "engine": meta.get("engine") or (parts[2] if len(parts) > 2 else "zimage"),
-            "layout": meta.get("layout") or _layout_of(stem.rsplit("__", 1)[-1]),
+            "layout": meta.get("layout") or _layout_of(shape),
+            "look": meta.get("look") or look, "variant": int(meta.get("variant") or variant),
+            "shot": meta.get("shot") or "", "uses": int(meta.get("uses") or 0),
+            "house": meta.get("house") or "", "family": meta.get("family") or "",
             "prompt": meta.get("prompt") or "", "score": meta.get("score"), "saved": meta.get("saved") or "",
             "made_with": meta.get("made_with") or meta.get("engine") or "zimage",
             "manual": bool(meta.get("manual")), "has_prev": os.path.exists(path[:-4] + ".prev.jpg"),
@@ -1589,15 +1666,19 @@ def notion_list():
         return []
     out = [_notion_entry(os.path.join(NOTION_DIR, f)) for f in os.listdir(NOTION_DIR)
            if f.endswith(".jpg") and not f.endswith(".prev.jpg")]
-    return sorted(out, key=lambda e: (e["term"].lower(), e["style"], e["layout"]))
+    return sorted(out, key=lambda e: (e["term"].lower(), e["style"], e["layout"], e["look"], e["variant"]))
 
 
-def notion_regenerate(nid, prompt, engine=None):
+def notion_regenerate(nid, prompt, engine=None, house=None, family=None):
     """Make the notion's picture again from ``prompt`` (edited by the user) on the
     chosen model and keep it as THE picture: the previous one is set aside so it
-    can be restored. No clip look, no review. Raises ValueError / RuntimeError."""
+    can be restored. In the house look (``house``, else the one it was made with)
+    and its family; a long prompt goes out as the art director's. No review.
+    Raises ValueError / RuntimeError."""
     path = _notion_file(nid)
     entry = _notion_entry(path)
+    house = entry["house"] if house is None else house
+    family = entry["family"] if family is None else family
     prompt = re.sub(r"\s+", " ", str(prompt or "")).strip()[:PROMPT_MAX]
     if not prompt:
         raise ValueError("the prompt is empty")
@@ -1609,7 +1690,8 @@ def notion_regenerate(nid, prompt, engine=None):
         if not comfy_available():
             raise RuntimeError(f"ComfyUI not reachable at {_comfy_url()} (start it in Pinokio)")
         new = os.path.join(tmp, "new.jpg")
-        local_image(prompt, entry["style"], new, engine=engine, size=_gen_size(entry["layout"]))
+        local_image(prompt, entry["style"], new, engine=engine, size=_gen_size(entry["layout"]), house=house,
+                    family=family if family in FAMILIES else None, art=len(prompt.split()) >= ART_MIN_WORDS)
         base = path[:-4]
         shutil.copy2(path, base + ".prev.jpg")
         if os.path.exists(base + ".json"):
@@ -1617,7 +1699,8 @@ def notion_regenerate(nid, prompt, engine=None):
         shutil.move(new, path)
         meta = _notion_meta(path)
         meta.update(term=entry["term"], style=entry["style"], engine=entry["engine"], layout=entry["layout"],
-                    prompt=prompt, score=None, made_with=engine, manual=True, saved=time.strftime("%Y-%m-%d %H:%M"))
+                    prompt=prompt, score=None, made_with=engine, manual=True, saved=time.strftime("%Y-%m-%d %H:%M"),
+                    house=house or "", family=family or "")
         with open(base + ".json", "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=1)
         return _notion_entry(path)
@@ -2472,6 +2555,15 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         family = None
         if mixed:
             family = cfg.get("style_family") if cfg.get("style_family") in FAMILIES else "auto"
+        # The notion memory: a notion whose library is not complete gets a new picture this time, in the shot the
+        # library lacks (the art director is told); a complete one is reused, its variants in turn.
+        look = look_key(house)
+        for m in moments:
+            if m.get("notion"):
+                want = notion_missing_shot(m["notion"], (m.get("style") or "photo") if auto_style else style, engine,
+                                           item_layout(m), look, m.get("shot"))
+                if want:
+                    m["notion_shot"] = want
         if planner == "claude" and cfg.get("art_director"):
             # The second call: the prompts of the whole set, in the channel's look (the editor's drafts stay
             # when it fails).
@@ -2489,7 +2581,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             m_style = (m.get("style") or "photo") if auto_style else style
             m_layout = item_layout(m)
             raw = os.path.join(tmp, f"broll_{k}.jpg")
-            kept = notion_get(m.get("notion"), m_style, engine, m_layout, raw) if m.get("notion") else None
+            kept = (notion_get(m.get("notion"), m_style, engine, m_layout, raw, look)
+                    if m.get("notion") and not m.get("notion_shot") else None)
             if kept:
                 print(f"   ♻️ Notion \"{m['notion']}\": the channel's picture is reused (no image made, no review).")
                 cands.append({"k": k, "m": m, "style": m_style, "file": kept, "source": "local", "credit": None,
@@ -2544,8 +2637,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 for c in kept:
                     if c["m"].get("notion") and not c.get("reused") and c["score"] >= NOTION_MIN_SCORE:
                         if notion_put(c["m"]["notion"], c["style"], engine, c["layout"], c["file"], c["m"]["prompt"],
-                                      c["score"]):
-                            print(f"   📚 Notion \"{c['m']['notion']}\": picture kept for the next clips.")
+                                      c["score"], look=look, shot=c["m"].get("notion_shot") or c["m"].get("shot"),
+                                      house=house, family=c["m"].get("family")):
+                            print(f"   📚 Notion \"{c['m']['notion']}\": picture kept for the next clips "
+                                  f"({c['m'].get('notion_shot') or c['m'].get('shot') or '-'} shot).")
                 cands = kept
             except ComfyDown:
                 raise
