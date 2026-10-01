@@ -141,3 +141,150 @@ class TestPipeline:
         monkeypatch.setenv("CLEAN_END", "1")
         shorts = run([clip(99.0, 157.5, hook_line="", punchline="it happens to people every day without them knowing.")])
         assert dur(shorts[0]) > 50 and "end_fit_for_target" not in shorts[0]
+
+
+# --- open later: the clips that end on their payoff and still run long ---------------
+# JRE #2515 (1-oct-2026): 5 clips of 6 came back at 50-55 s with the target
+# asked for; trim_to_target could cut none ("payoff needs the length"). The
+# only cut left is a later opening, chosen by the model among the sentence
+# starts the code measured to land inside the target.
+
+def _twelve_sentences():
+    """12 sentences of 10 words (5 s each): a 60 s clip ending on sentence 12."""
+    text = " ".join(f"s{j} one two three four five six seven eight end." for j in range(1, 13))
+    return mk(text)
+
+
+class TestOpenLaterCandidates:
+    def test_sentence_starts_that_leave_the_target_to_the_end(self):
+        w = _twelve_sentences()
+        c = {"start": 0.0, "end": 60.0, "punchline": "s12 one two three four five six seven eight end."}
+        cands = main.open_later_candidates(c, w, 15, (25, 40))
+        assert [(k, left) for k, left, _ in cands] == [(50, 35.1), (60, 30.1), (70, 25.1)]
+        assert cands[0][2] == "s6 one two three four five six seven eight end."
+        for k, left, _ in cands:
+            assert 25 <= 60.0 - (w[k]["s"] - 0.08) <= 40
+
+    def test_filler_is_stepped_over_and_mid_sentence_starts_are_not_offered(self):
+        w = _twelve_sentences()
+        w[60]["w"] = "so"                                    # sentence 7 opens on a filler
+        cands = main.open_later_candidates({"start": 0.0, "end": 60.0}, w, 15, (25, 40))
+        assert [k for k, _, _ in cands] == [50, 61, 70]
+        assert cands[1][2].startswith("one two")
+
+    def test_an_unpunctuated_clip_without_pauses_has_no_candidate(self):
+        w = mk(" ".join("word" for _ in range(120)))
+        assert main.open_later_candidates({"start": 0.0, "end": 60.0}, w, 15, (25, 40)) == []
+
+    def test_rules_say_to_open_later(self):
+        rules = main.target_length_rules((25.0, 40.0), 15.0, 60.0)
+        assert "open LATER" in rules and "never earlier" in rules
+
+
+class TestShortenToTarget:
+    PAYOFF = "s12 one two three four five six seven eight end."
+
+    def _shorts(self):
+        return [{"start": 0.0, "end": 60.0, "punchline": self.PAYOFF, "over_target": "payoff needs the length",
+                 "video_title_for_youtube_short": "Can a long clip open later?", "viral_hook_text": "Old hook here.",
+                 "hook_line": "s1 one two three four five six seven eight end.", "hook_aligned": True},
+                {"start": 100.0, "end": 130.0, "punchline": "x", "video_title_for_youtube_short": "Is this fine?"}]
+
+    def test_the_pick_moves_the_start_the_hook_line_and_the_hook(self, capsys):
+        w = _twelve_sentences()
+        shorts, prompts = self._shorts(), []
+
+        def ask(prompt):
+            prompts.append(prompt)
+            return {"clips": [{"id": 0, "open_on": 2, "viral_hook_text": "Psilocybin  melts the self."}]}
+
+        assert main.shorten_to_target(shorts, w, 15, (25, 40), "en", ask=ask) == 1
+        c = shorts[0]
+        assert c["start"] == 29.92 and c["end"] == 60.0 and 25 <= dur(c) <= 40
+        assert c["hook_line"].startswith("s7 one") and c["hook_aligned"] and c["start_fit_for_target"]
+        assert "over_target" not in c
+        assert c["viral_hook_text"] == "Psilocybin melts the self." and c["hook_before_open_later"] == "Old hook here."
+        assert len(prompts) == 1
+        assert '"seconds_left": 30.1' in prompts[0] and "Can a long clip open later?" in prompts[0]
+        assert "Is this fine?" not in prompts[0], "a clip inside the target is not sent"
+        assert "8 words, in en" in prompts[0]
+        assert shorts[1] == self._shorts()[1]
+        out = capsys.readouterr().out
+        assert "60s -> 30s (opens later" in out and "+ new hook" in out and "Open later: 1/1" in out
+
+    def test_an_empty_hook_keeps_the_old_one(self):
+        w = _twelve_sentences()
+        shorts = self._shorts()
+        main.shorten_to_target(shorts, w, 15, (25, 40), ask=lambda p: {"clips": [{"id": 0, "open_on": 1}]})
+        assert shorts[0]["start"] == 24.92 and shorts[0]["viral_hook_text"] == "Old hook here."
+        assert "hook_before_open_later" not in shorts[0]
+
+    def test_a_bad_pick_a_malformed_answer_or_a_failure_keeps_the_clip(self, capsys):
+        w = _twelve_sentences()
+        for answer in ({"clips": [{"id": 0, "open_on": 9}]}, {"clips": [{"id": 0, "open_on": 0}]}, {}, None,
+                       {"clips": [{"id": "zero", "open_on": 1}, "x"]}):
+            shorts = self._shorts()
+            assert main.shorten_to_target(shorts, w, 15, (25, 40), ask=lambda p, a=answer: a) == 0
+            assert shorts[0]["start"] == 0.0 and shorts[0]["hook_line"].startswith("s1 ")
+            assert shorts[0]["over_target"].endswith("no usable later opening picked")
+        shorts = self._shorts()
+
+        def ask(prompt):
+            raise RuntimeError("model down")
+
+        assert main.shorten_to_target(shorts, w, 15, (25, 40), ask=ask) == 0
+        assert shorts[0]["start"] == 0.0 and shorts[0]["over_target"] == "payoff needs the length"
+        assert "Open later: the call failed" in capsys.readouterr().out
+
+    def test_no_candidate_means_no_call(self):
+        w = mk(" ".join("word" for _ in range(120)))
+        shorts = self._shorts()
+
+        def ask(prompt):
+            raise AssertionError("no call expected")
+
+        assert main.shorten_to_target(shorts, w, 15, (25, 40), ask=ask) == 0
+        assert shorts[0]["over_target"].endswith("no sentence start leaves it inside the target")
+
+    def test_nothing_over_the_target_means_no_call(self):
+        def ask(prompt):
+            raise AssertionError("no call expected")
+        assert main.shorten_to_target([self._shorts()[1]], _twelve_sentences(), 15, (25, 40), ask=ask) == 0
+
+    def test_a_located_punchline_time_follows_the_start(self):
+        w = _twelve_sentences()
+        shorts = self._shorts()
+        shorts[0]["punchline_time"] = 55.0
+        main.shorten_to_target(shorts, w, 15, (25, 40), ask=lambda p: {"clips": [{"id": 0, "open_on": 1}]})
+        assert shorts[0]["punchline_time"] == 30.08
+
+
+class TestOpenLaterPipeline:
+    def test_a_clip_whose_payoff_is_not_located_opens_later(self, run, monkeypatch, capsys):
+        monkeypatch.setenv("SYNAPSE_PLAYBOOK", "1")
+        monkeypatch.setenv("CLEAN_END", "1")
+        monkeypatch.setenv("CLIP_TARGET_MIN_SECONDS", "25")
+        monkeypatch.setenv("CLIP_TARGET_MAX_SECONDS", "40")
+        asked = []
+
+        def ask(prompt):
+            asked.append(prompt)
+            return {"clips": [{"id": 0, "open_on": 1, "viral_hook_text": ""}]}
+
+        monkeypatch.setattr(main, "_ask_open_later", ask)
+        shorts = run([clip(99.0, 157.5, hook_line="", punchline="words nobody said in this transcript")])
+        assert len(asked) == 1 and len(shorts) == 1
+        assert shorts[0]["start_fit_for_target"] and 25 <= dur(shorts[0]) <= 41
+        out = capsys.readouterr().out
+        assert "Target length: 0/1" in out and "Open later: 1/1" in out
+
+    def test_without_the_playbook_no_later_opening(self, run, monkeypatch):
+        monkeypatch.setenv("CLIP_TARGET_MIN_SECONDS", "25")
+        monkeypatch.setenv("CLIP_TARGET_MAX_SECONDS", "40")
+
+        def ask(prompt):
+            raise AssertionError("no call expected")
+
+        monkeypatch.setattr(main, "_ask_open_later", ask)
+        shorts = run([clip(99.0, 157.5, hook_line="", punchline="words nobody said in this transcript")])
+        assert len(shorts) == 1 and "start_fit_for_target" not in shorts[0]

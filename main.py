@@ -2000,6 +2000,121 @@ def trim_to_target(clip, words, min_secs, target, pauses=False):
     return False
 
 
+def open_later_candidates(clip, words, min_secs, target, max_words=25):
+    """The sentence starts inside the clip a shorter cut could open on:
+    [(word index, seconds left to the end, the sentence)], only those that
+    leave the clip inside the target band (and at least ``min_secs``). A
+    start is a full stop or a _PAUSE_BOUNDARY pause before it (_opens_sentence),
+    stepped over its filler ("so", "I mean"...)."""
+    lo, hi = target
+    start, end = float(clip["start"]), float(clip["end"])
+    out, seen = [], set()
+    for k, w in enumerate(words):
+        if w["s"] <= start + 0.5:
+            continue
+        if w["s"] >= end:
+            break
+        if not _opens_sentence(words, k):
+            continue
+        k += _playbook_filler(words, k)
+        if k >= len(words) or k in seen:
+            continue
+        left = end - max(0.0, words[k]["s"] - 0.08)
+        if left > hi or left < max(lo, min_secs):
+            continue
+        seen.add(k)
+        text = []
+        for j in range(k, min(len(words), k + max_words)):
+            if words[j]["s"] >= end:
+                break
+            text.append(words[j]["w"].strip())
+            if _is_boundary(words, j):
+                break
+        out.append((k, round(left, 1), " ".join(text)))
+    return out
+
+
+def _ask_open_later(prompt):
+    """The later-opening pick: one text call on the profile's "detail" brain
+    (the one that cut the clips), the other provider as the fallback."""
+    import ai_brain
+
+    def gemini():
+        return ai_brain.gemini_json([prompt])[0]
+
+    data, _who = ai_brain.think("opening the long clips later", prompt,
+                                gemini_worker.OPEN_LATER_SCHEMA, fallback=gemini, route_key="detail")
+    return data
+
+
+def shorten_to_target(shorts, words, min_secs, target, language="en", ask=None):
+    """Clip Generator++ (selection.clip_target, playbook): the clips still
+    over the target after trim_to_target (``over_target`` set) are sent to
+    the model ONCE, all in one call, each with the sentence starts inside it
+    that would leave lo-hi s to the end (open_later_candidates). The pick
+    becomes the new start (and hook_line); a new on-screen hook is taken when
+    the model wrote one (the hook check runs on it later). Returns how many
+    clips moved. Never raises — a long clip must never cost the clip."""
+    lo, hi = target
+    todo = []
+    for i, c in enumerate(shorts):
+        if not c.get("over_target"):
+            continue
+        cands = open_later_candidates(c, words, min_secs, target)
+        if not cands:
+            c["over_target"] += "; no sentence start leaves it inside the target"
+            continue
+        todo.append((i, cands))
+    if not todo:
+        return 0
+    items = [{"id": i, "title": shorts[i].get("video_title_for_youtube_short") or "",
+              "payoff": str(shorts[i].get("punchline") or "").strip(),
+              "hook": shorts[i].get("viral_hook_text") or "",
+              "openings": [{"n": n + 1, "seconds_left": left, "text": text}
+                           for n, (k, left, text) in enumerate(cands)]} for i, cands in todo]
+    prompt = gemini_worker.OPEN_LATER_PROMPT.format(
+        lo=lo, hi=hi, hook_words=playbook.HOOK_MAX_WORDS, language=language or "en",
+        clips=json.dumps(items, ensure_ascii=False, indent=1))
+    try:
+        answer = (ask or _ask_open_later)(prompt) or {}
+        picks = {}
+        for p in answer.get("clips") or []:
+            try:
+                picks[int(p.get("id"))] = (int(p.get("open_on")), str(p.get("viral_hook_text") or "").strip())
+            except (AttributeError, TypeError, ValueError):
+                continue
+    except Exception as e:
+        print(f"   ⚠️ Open later: the call failed ({type(e).__name__}: {str(e)[:160]}) — "
+              f"the {len(todo)} clip(s) keep their length.")
+        return 0
+    moved = 0
+    for i, cands in todo:
+        c = shorts[i]
+        pick = picks.get(i)
+        if not pick or not 1 <= pick[0] <= len(cands):
+            c["over_target"] += "; no usable later opening picked"
+            print(f"      ⏱️ {c['start']:.0f}s: stays {c['end'] - c['start']:.0f}s (no usable later opening picked).")
+            continue
+        k, left, text = cands[pick[0] - 1]
+        old_start, before = float(c["start"]), float(c["end"]) - float(c["start"])
+        c["start"] = round(max(0.0, words[k]["s"] - 0.08), 3)
+        c["hook_line"] = text
+        c["hook_aligned"] = True
+        c["start_fit_for_target"] = True
+        c.pop("over_target", None)
+        c.pop("start_mid_sentence", None)
+        if c.get("punchline_time") is not None:
+            c["punchline_time"] = round(max(0.0, c["punchline_time"] - (c["start"] - old_start)), 2)
+        if pick[1] and pick[1] != (c.get("viral_hook_text") or "").strip():
+            c["hook_before_open_later"] = c.get("viral_hook_text") or ""
+            c["viral_hook_text"] = re.sub(r"\s+", " ", pick[1])
+        moved += 1
+        print(f"      ✂️ {old_start:.0f}s: {before:.0f}s -> {c['end'] - c['start']:.0f}s "
+              f"(opens later, on \"{text[:70]}\"){' + new hook' if pick[1] else ''}.")
+    print(f"   🎯 Open later: {moved}/{len(todo)} clip(s) over the target now open on a later sentence.")
+    return moved
+
+
 def target_length_rules(target, min_secs, max_secs, payoff=False):
     """The detail prompt's target-length block ("" without a target).
     ``payoff``: the schema has ``punchline`` (selection v2 / playbook)."""
@@ -2429,6 +2544,8 @@ def get_viral_clips(transcript_result, video_duration, video_path=None):
                     print(f"      ⏱️ {s['start']:.0f}s: stays {s['end'] - s['start']:.0f}s, over the target "
                           f"({s['over_target']}).")
             print(f"   🎯 Target length: {cut}/{len(shorts)} clip(s) cut back after their payoff.")
+            if playbook_on and any(s.get("over_target") for s in shorts):
+                shorten_to_target(shorts, words, min_secs, target_secs, language)
         if os.environ.get("CLEAN_END") == "1":
             fixed = 0
             for s in shorts:

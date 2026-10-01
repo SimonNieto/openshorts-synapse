@@ -605,6 +605,10 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         # Target length (main.trim_to_target): cut back after the payoff, or
         # why the clip stayed over the target ("" when it was not over).
         "end_moved_for_target": bool(clip.get("end_fit_for_target")),
+        # The start was moved to a later sentence to land inside the target
+        # (main.shorten_to_target); the hook it replaced, if it wrote one.
+        "start_moved_for_target": bool(clip.get("start_fit_for_target")),
+        "hook_before_open_later": clip.get("hook_before_open_later") or "",
         "over_target": clip.get("over_target") or "",
         # No full stop nor pause near the end (main.end_on_sentence).
         "end_mid_sentence": bool(clip.get("end_mid_sentence")),

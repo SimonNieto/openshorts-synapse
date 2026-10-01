@@ -107,7 +107,50 @@ seconds. {min_secs:g}-{max_secs:g}s stays the hard limit, but a clip longer than
 itself. A moment that lands in {lo:g}-{hi:g}s and stops beats the same moment
 with 20 more seconds of follow-up. Choose `start` and `end` for that length
 from the beginning — do not pick a long passage and hope it gets trimmed.
+The target also wins over STANDS ALONE and "start slightly before the hook":
+when a moment runs long, open LATER, on a later sentence that still stands
+alone, never earlier. One sentence of setup is all a cold viewer needs; the
+payoff stays, the run-up goes.
 """
+
+# Clip Generator++ (selection.clip_target, playbook): the clips still over
+# the target after trim_to_target — every one of them ends on its payoff, so
+# the only cut left is a later opening. One call for all of them
+# (main.shorten_to_target), the model choosing among sentence starts that
+# the code measured to land inside the target.
+OPEN_LATER_PROMPT = """
+These clips run longer than the target of {lo:g}-{hi:g} seconds and each one
+ends on its payoff, so the only way to shorten one is to open it LATER. For
+each clip you get its title, its payoff (the line it ends on), its current
+on-screen hook and the sentences it could open on instead, each with the
+seconds that would remain from there to the end (every candidate lands the
+clip inside the target: choose for quality). Pick, per clip, the opening that:
+- stands alone: a cold viewer who hears nothing before it still follows — no
+  "that", "so anyway", no answer to a question nobody heard;
+- hooks: a claim, a stake, a number, a question in the air; never a filler
+  nor an aside;
+- keeps the clip's point: the payoff must still land from there.
+Return `open_on`, the number of the chosen candidate. If the current hook no
+longer fits the new opening, write a new one in `viral_hook_text` (max
+{hook_words} words, in {language}: a statement, concrete, understood cold, no
+name, it teases the payoff and never tells it); else leave it "".
+
+CLIPS_JSON:
+{clips}
+
+Return only: {{"clips": [{{"id": <clip id>, "open_on": <candidate number>, "viral_hook_text": ""}}]}}
+"""
+
+OPEN_LATER_SCHEMA = {
+    "type": "object",
+    "properties": {"clips": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"id": {"type": "integer"}, "open_on": {"type": "integer"},
+                       "viral_hook_text": {"type": "string"}},
+        "required": ["id", "open_on"]}}},
+    "required": ["clips"],
+}
+
 
 TARGET_PAYOFF_ADDENDUM = """- THE PAYOFF ENDS THE CLIP: return the payoff — the line the clip exists
   for — VERBATIM (exact transcript words) in `punchline`, and place `end` right
