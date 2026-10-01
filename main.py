@@ -3131,7 +3131,7 @@ if __name__ == '__main__':
                     # under the hook, so the hook text is never zoomed or cut;
                     # its captions replace the default ones as the last layer.
                     edit_style = os.environ.get("EDIT_STYLE", "").strip()
-                    if success and edit_style in ("natural", "punchy", "clean"):
+                    if success and edit_style in ("natural", "punchy", "clean", "premium"):
                         try:
                             import viral_fx
                             # Pristine copy (music included, no motion): the

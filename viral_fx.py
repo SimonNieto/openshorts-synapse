@@ -82,9 +82,19 @@ PRESETS = {
                 "shot": (6.0, 9.0), "push": 0.015, "shake": 0.0, "dip": False,
                 "grade": "eq=contrast=1.04:saturation=1.05",
                 "vignette": "PI/7", "caption_y": 1180, "key_every": 2, "key_min": 0.6,
-                "accent": "#FFD84D", "sentence_cuts": True,
+                "accent": "#FFD84D", "sentence_cuts": True, "calm": True,
                 "tight_face": 0.28, "wide_face": 0.22, "zoom_max": 1.18, "tight_min": 1.06, "reframe_step": 0.04},
 }
+# "premium": the natural preset set in a premium face. Liberation Sans is a
+# system stand-in for Arial; the big podcast channels caption in a geometric
+# extra-bold (Montserrat, Inter...). Same words, same colours, same place; the
+# face is already extra bold so libass must not embolden it again (bold 0),
+# its letters are wide so no extra spacing, and 72 px instead of 64: its
+# capitals are lower for the same em size, and 72 is where it fills the same
+# space as Liberation 64 (compared at 64 / 68 / 72 on three clips with
+# broll_bench.py fonts). Montserrat is OFL (fonts/OFL-Montserrat.txt) and
+# ships in fonts/, which the ass filter reads.
+PRESETS["premium"] = {**PRESETS["natural"], "font": "Montserrat ExtraBold", "bold": 0, "spacing": 0, "size": 72}
 
 
 # --- words ---------------------------------------------------------------------
@@ -213,7 +223,7 @@ def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None
             # Layer 0: a blurred halo (white, or the key word's colour); layer 1: crisp text.
             lines.append(f"Dialogue: 0,{s},{e},Glow,,0,0,0,,{{\\an5\\pos({x},{y}){pop}}}{' '.join(parts_glow)}")
             lines.append(f"Dialogue: 1,{s},{e},Main,,0,0,0,,{{\\an5\\pos({x},{y}){pop}}}{' '.join(parts_text)}")
-        elif preset == "natural":
+        elif p.get("calm"):
             # No pop: an 80 ms fade-in reads as calm, not as an effect.
             lines.append(f"Dialogue: 1,{s},{e},Main,,0,0,0,,{{\\an5\\pos({x},{y})\\fad(80,0)}}{' '.join(parts_text)}")
         else:
@@ -223,6 +233,7 @@ def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None
             lines.append(f"Dialogue: 2,{s},{e},Mark,,0,0,0,,{{\\an5\\pos({x},{y + int(p['size'] * 0.95)})}}{_esc(watermark.upper())}")
 
     size = p["size"]
+    font = p.get("font", FONT)          # the preset's face; Liberation Sans for the presets that name none
     if preset == "punchy":
         styles = [
             f"Style: Main,{FONT},{size},&H00FFFFFF,&H00FFFFFF,&H60000000,&H90000000,1,0,0,0,100,100,1,0,1,2,2,5,0,0,0,1",
@@ -230,15 +241,16 @@ def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None
         ]
         # Blur the halo layer.
         lines = [ln.replace(",Glow,,0,0,0,,{", ",Glow,,0,0,0,,{\\blur18") for ln in lines]
-    elif preset == "natural":
+    elif p.get("calm"):
         # Plain white, thin dark edge + soft drop shadow: readable on any
         # background without looking "designed".
-        styles = [f"Style: Main,{FONT},{size},&H00FFFFFF,&H00FFFFFF,&H70000000,&H99000000,1,0,0,0,100,100,0.5,0,1,2,2,5,0,0,0,1"]
+        styles = [f"Style: Main,{font},{size},&H00FFFFFF,&H00FFFFFF,&H70000000,&H99000000,{p.get('bold', 1)},0,0,0,100,100,"
+                  f"{p.get('spacing', 0.5)},0,1,2,2,5,0,0,0,1"]
         lines = [ln.replace(",Main,,0,0,0,,{", ",Main,,0,0,0,,{\\blur0.8") for ln in lines]
     else:
         styles = [f"Style: Main,{FONT},{size},&H00FFFFFF,&H00FFFFFF,&H80000000,&H90000000,1,0,0,0,100,100,0.5,0,1,3,2,5,0,0,0,1"]
         lines = [ln.replace(",Main,,0,0,0,,{", ",Main,,0,0,0,,{\\blur2") for ln in lines]
-    styles.append(f"Style: Mark,{FONT},{max(18, size // 4)},&H90FFFFFF,&H00FFFFFF,&H00000000,&H00000000,1,0,0,0,100,100,2,0,1,0,0,5,0,0,0,1")
+    styles.append(f"Style: Mark,{font},{max(18, size // 4)},&H90FFFFFF,&H00FFFFFF,&H00000000,&H00000000,{p.get('bold', 1)},0,0,0,100,100,2,0,1,0,0,5,0,0,0,1")
 
     return "\n".join([
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {width}", f"PlayResY: {height}",

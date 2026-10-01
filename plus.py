@@ -234,7 +234,7 @@ def sanitize(raw):
         "clip_min": clip_min,
         "clip_max": clip_max,
         "target_clips": _int(target, 1, 15, None) if target not in (None, "", 0, "0") else None,
-        "edit_style": raw.get("edit_style") if raw.get("edit_style") in ("natural", "punchy", "clean") else "natural",
+        "edit_style": raw.get("edit_style") if raw.get("edit_style") in ("natural", "premium", "punchy", "clean") else "natural",
         "hook_style": hook_style,
         "hook_seconds": _int(raw.get("hook_seconds"), 2, 10, d["hook_seconds"]),
         "hook_box": hook_style != "none",
