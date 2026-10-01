@@ -2044,6 +2044,12 @@ def trim_to_target(clip, words, min_secs, target, pauses=False):
     return False
 
 
+# A sentence that opens on what came before it cannot open a clip: "the
+# second thing was they pushed my head back" (picked on JRE #2515, 1-oct-2026)
+# points at a first thing the viewer never heard.
+_OPENS_ON_BEFORE = re.compile(r"^(?:and\s+)?(?:then|also|after that|another|the (?:second|third|next|other|last)\b)")
+
+
 def open_later_candidates(clip, words, min_secs, target, max_words=25):
     """The sentence starts inside the clip a shorter cut could open on:
     [(word index, seconds left to the end, the sentence)], only those that
@@ -2074,7 +2080,10 @@ def open_later_candidates(clip, words, min_secs, target, max_words=25):
             text.append(words[j]["w"].strip())
             if _is_boundary(words, j):
                 break
-        out.append((k, round(left, 1), " ".join(text)))
+        line = " ".join(text)
+        if _OPENS_ON_BEFORE.match(line.lower().lstrip("\"'“‘(")):
+            continue
+        out.append((k, round(left, 1), line))
     return out
 
 

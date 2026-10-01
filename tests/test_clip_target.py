@@ -172,6 +172,18 @@ class TestOpenLaterCandidates:
         assert [k for k, _, _ in cands] == [50, 61, 70]
         assert cands[1][2].startswith("one two")
 
+    def test_a_sentence_that_points_at_what_came_before_is_not_offered(self):
+        w = _twelve_sentences()
+        w[50]["w"], w[51]["w"] = "the", "second"          # "the second thing was..."
+        w[60]["w"] = "then"
+        cands = main.open_later_candidates({"start": 0.0, "end": 60.0}, w, 15, (25, 40))
+        assert [k for k, _, _ in cands] == [70]
+        w = _twelve_sentences()
+        w[50]["w"], w[51]["w"] = "the", "first"           # "the first thing" opens fine
+        w[60]["w"], w[61]["w"] = "and", "then"
+        cands = main.open_later_candidates({"start": 0.0, "end": 60.0}, w, 15, (25, 40))
+        assert [k for k, _, _ in cands] == [50, 70]
+
     def test_an_unpunctuated_clip_without_pauses_has_no_candidate(self):
         w = mk(" ".join("word" for _ in range(120)))
         assert main.open_later_candidates({"start": 0.0, "end": 60.0}, w, 15, (25, 40)) == []
