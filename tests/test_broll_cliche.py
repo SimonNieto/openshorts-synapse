@@ -146,4 +146,4 @@ class TestInTheJob:
         assert not os.path.exists(broll._recent_path())
 
     def test_the_recipe_is_unchanged_by_the_rules(self):
-        assert plus.BROLL["style"] == "auto" and plus.BROLL["art_director"] is False
+        assert plus.BROLL["style"] == "auto" and plus.BROLL["art_director"] is True

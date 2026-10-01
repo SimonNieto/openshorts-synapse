@@ -224,7 +224,7 @@ class TestInTheJob:
         rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1, cfg)
         assert not calls and all(not m["art"] for m in made)
         assert all("art" not in it and "prompt_editor" not in it and it["prompt"].startswith("a scene of ") for it in rep["items"])
-        assert plus.BROLL["art_director"] is False
+        assert plus.BROLL["art_director"] is True
 
     def test_a_redo_from_the_review_is_the_editors_kind_again(self, monkeypatch, stubs):
         made, tr, words = stubs
@@ -263,7 +263,7 @@ class TestTheStage:
         env = plus.job_env({"name": "x", "broll": {"enabled": True}, "brain": {"preset": "claude"}})
         assert env["BRAIN_BROLL_ART"] == "sonnet"
         import json
-        assert json.loads(env["PLUS_BROLL_JSON"])["art_director"] is False
+        assert json.loads(env["PLUS_BROLL_JSON"])["art_director"] is True
 
     def test_an_old_custom_profile_gets_the_preset_value_for_the_new_step(self):
         p = plus.sanitize({"brain": {"preset": "custom", "stages": {"broll": "opus"}}})

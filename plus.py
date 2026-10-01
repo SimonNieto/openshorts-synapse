@@ -91,8 +91,8 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          # family without one), else its name.
          "style_family": "auto",
          # B-roll v2 (1-oct-2026): a second call writes the prompt of every picture of a set in the channel's
-         # look (broll.direct_art). Off until the brain bench shows its boards beat the editor's drafts.
-         "art_director": False}
+         # look (broll.direct_art), validated on the brain bench (JRE #2515 clips 1, 3, 5) the same day.
+         "art_director": True}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set
