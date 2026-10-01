@@ -442,6 +442,22 @@ container before stopping the old one (rolling update) and both share
 Before pushing, still batch small commits (tests, docs) with the next real
 change: every deploy is a ~5 min build plus a handover.
 
+## Clip Generator++ B-roll brain (broll.py, 1-oct-2026)
+- The recipe lives in `plus.BROLL` (no profile field): `art_director` (a second Claude call, step `broll_art`,
+  writes every picture's prompt in a fixed grammar), `style_family` ("auto": one of `broll.FAMILIES` per clip),
+  `faces` ("hero": a clear face on the full-screen picture only), `house_look`, `grade`, `sfx`. Matters of taste are
+  env knobs `BROLL_*` (`_knob`): `BROLL_LOOK_CARD` / `BROLL_LOOK_HERO` (review thresholds), `BROLL_HERO_STEPS`,
+  `BROLL_NOTION_VARIANTS`, `BROLL_MIXED_MAX`...
+- The chain per clip: editor (`plan_with_claude`: what, when, why, hero) -> `direct_art` -> ComfyUI (Z-Image) ->
+  review on two axes (`score` meaning, `look_score` look; a hero is judged at 768 px by the `broll` model, redone
+  twice) -> `_keep_meaningful`. The notion memory (`output/_glossary_images`, two variants per notion and house
+  look) and the latest subjects (`_recent.json`) are channel memory: `BROLL_NOTION_MEMORY=0` switches both off.
+- Judge a prompt change by eye, never from the tests alone: `docker exec -w /app openshorts-backend python
+  broll_bench.py plan --job <id or prefix> --clips 1,3,5 --versions v3` writes one board per clip and version in
+  `output/_test_broll/brain/` (picture, prompt, the exact text sent to ComfyUI, scores, cost) and a `_compare.jpg`
+  of every version on disk; a version is a name of `VERSIONS` or `name:key=value` laid over the recipe.
+- Tests: `tests/test_broll_*.py` (stubbed models and ComfyUI), run in the container with `-p no:cacheprovider`.
+
 ## CI: a green pipeline closes the task, not the push
 - After every `git push`, wait for the commit's workflow and confirm it is green: `ci-wait` (Victor's Mac) or `gh run watch $(gh run list -c $(git rev-parse HEAD) -L1 --json databaseId -q ".[0].databaseId") --exit-status`.
 - If it is red: fix, push, check again. Never report the task as done with a red CI.

@@ -88,6 +88,22 @@ class TestWatch:
         assert broll.plan_with_claude is plan and broll.review_images is review and broll.local_image is image
         assert broll._graph is graph
 
+    def test_a_nested_review_call_is_recorded_once(self, monkeypatch):
+        def outer(cands, words):
+            # like review_images: the hero to one judge, the rest to itself
+            rest = [c for c in cands if c["layout"] != "hero"]
+            inner = broll.review_images(rest, words) if rest and len(rest) < len(cands) else [{"score": 3} for _ in cands]
+            return [{"score": 5} if c["layout"] == "hero" else inner.pop(0) for c in cands]
+
+        monkeypatch.setattr(broll, "review_images", outer)
+        cands = [{"file": "/x/broll_0.jpg", "k": 0, "layout": "card"}, {"file": "/x/broll_1.jpg", "k": 1, "layout": "hero"}]
+        with bench._Watch(broll) as w:
+            out = broll.review_images(cands, [])
+        assert [r["score"] for r in out] == [3, 5]
+        assert [(r["file"], r["score"]) for r in w.reviews] == [("broll_0.jpg", 3), ("broll_1.jpg", 5)]
+        assert bench._dedupe_reviews([{"file": "a", "score": 2}, {"file": "b", "score": 4}, {"file": "a", "score": 5}]) == \
+            [{"file": "a", "score": 5}, {"file": "b", "score": 4}]
+
     def test_k_of(self):
         assert bench._k_of("broll_3.jpg") == 3 and bench._k_of("broll_12_v2.jpg") == 12 and bench._k_of("x.jpg") is None
 

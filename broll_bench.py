@@ -20,6 +20,7 @@ instants (``visual_f*.jpg``). The BEFORE render is kept and reused
 other on the same images.
 
     python broll_bench.py plan --job <job id or prefix> [--clips 1,3,5] [--versions current,v2] [--fresh]
+    python broll_bench.py board --job <job id or prefix> [--clips 1,3,5] [--versions v3]   (boards again, no model)
 
 ``plan`` (the brain): planner + art direction + pictures + review on the chosen
 clips, exactly as a job runs them, but NO video is cut (add_broll in its
@@ -404,6 +405,7 @@ VERSIONS = {
     "current": {},
     "art": {"art_director": True},            # chantier A: the art director writes the prompts
     "v2": {"art_director": True},             # the same, run again after each later chantier (its own boards)
+    "v3": {},                                 # the recipe as it stands (E review, H faces, F notions), its own boards
 }
 BOARD_W = 1500
 THUMB_W, THUMB_H = 420, 300
@@ -484,7 +486,7 @@ class _Watch:
     def __init__(self, broll):
         self.broll = broll
         self.moments, self.reviews, self.sent, self.seconds = [], [], {}, {}
-        self.images, self._current = 0, None
+        self.images, self._current, self._depth = 0, None, 0
 
     def _timed(self, key, fn, *a, **kw):
         t0 = time.time()
@@ -512,10 +514,18 @@ class _Watch:
             return out
 
         def review(cands, words):
-            out = self._timed("review", orig["review_images"], cands, words)
-            for c, r in zip(cands, out):
-                self.reviews.append({"file": os.path.basename(c["file"]), "k": c.get("k"), "layout": c.get("layout"),
-                                     **{kk: vv for kk, vv in (r or {}).items() if kk != "file"}})
+            # review_images calls itself (the hero to the judge, the cards their own way): the outermost call
+            # alone is timed and recorded, once per picture.
+            self._depth += 1
+            try:
+                out = (self._timed("review", orig["review_images"], cands, words) if self._depth == 1
+                       else orig["review_images"](cands, words))
+            finally:
+                self._depth -= 1
+            if self._depth == 0:
+                for c, r in zip(cands, out):
+                    self.reviews.append({"file": os.path.basename(c["file"]), "k": c.get("k"), "layout": c.get("layout"),
+                                         **{kk: vv for kk, vv in (r or {}).items() if kk != "file"}})
             return out
 
         def image(prompt, style, out_path, *a, **kw):
@@ -757,6 +767,42 @@ def _board(res, out_path):
     return out_path
 
 
+def _dedupe_reviews(reviews):
+    """One review per picture file, the last one recorded (runs made before the spy counted its depth)."""
+    by_file = {}
+    for r in reviews or []:
+        by_file[r.get("file")] = r
+    return list(by_file.values())
+
+
+def cmd_board(args):
+    """The boards again from the JSON of an earlier run (no model, no GPU): after a change of the board, or of a
+    run recorded with a flaw."""
+    job_dir, _meta = _find_job(args.job)
+    job8 = os.path.basename(job_dir)[:8]
+    clips = [int(x) for x in str(args.clips).split(",") if x.strip()]
+    names = [v.strip().split(":")[0] for v in str(args.versions).split(",") if v.strip()]
+    for n in clips:
+        for name in names:
+            tag = f"{job8}_clip{n}_{name}"
+            path = os.path.join(BRAIN_DIR, tag + ".json")
+            if not os.path.exists(path):
+                print(f"   no run recorded for {tag}")
+                continue
+            with open(path, encoding="utf-8") as f:
+                res = json.load(f)
+            res["reviews"] = _dedupe_reviews(res.get("reviews"))
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(res, f, indent=1, ensure_ascii=False)
+            _board(res, os.path.join(BRAIN_DIR, tag + ".jpg"))
+            print(f"   {tag}.jpg")
+        on_disk = [p for p in glob.glob(os.path.join(glob.escape(BRAIN_DIR), f"{job8}_clip{n}_*.jpg"))
+                   if not p.endswith("_compare.jpg")]
+        on_disk.sort(key=lambda p: (not p.endswith("_current.jpg"), os.path.getmtime(p)))
+        if len(on_disk) > 1:
+            _hstack(on_disk, os.path.join(BRAIN_DIR, f"{job8}_clip{n}_compare.jpg"))
+
+
 def cmd_plan(args):
     """Planner + art direction + pictures + review on the chosen clips, one board and one JSON per clip and
     version, the versions side by side when there are two. No video is cut."""
@@ -913,6 +959,11 @@ def main():
     p.add_argument("--profile", default=None)
     p.add_argument("--fresh", action="store_true", help="ask Claude again instead of reading the remembered answers")
     p.set_defaults(fn=cmd_plan)
+    p = sub.add_parser("board", help="the boards again from the JSON of an earlier plan run")
+    p.add_argument("--job", required=True)
+    p.add_argument("--clips", default="1")
+    p.add_argument("--versions", default="current")
+    p.set_defaults(fn=cmd_board)
     args = ap.parse_args()
     args.fn(args)
 
