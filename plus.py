@@ -46,7 +46,7 @@ DEFAULT_PROFILE = {
     "broll": {"enabled": False, "source": "local", "engine": "zimage", "planner": "gemini", "style": "photo",
               "max": 6, "mode": "mixed", "density": "normal", "real_photos": False, "review": "auto", "layout": "full", "position": "below", "y": None, "size": 28,
               "hold": None, "enter": "rise", "zoom": "soft", "border": "soft", "hero_res": "std",
-              "card_position": "top", "card_size": 60, "label": False, "house_look": "", "grade": "off"},
+              "card_position": "top", "card_size": 60, "label": False, "house_look": "", "grade": "off", "sfx": False},
     "auto_publish": {"enabled": False, "platforms": ["tiktok", "instagram", "youtube"]},
     "beta": {
              # Synapse Cut playbook: question titles without names, starts on the
@@ -272,6 +272,8 @@ def sanitize(raw):
                   # before the clip's style sheet, and one grade applied to every picture when it is cut in.
                   "house_look": re.sub(r"\s+", " ", str(br.get("house_look") or "")).strip()[:200],
                   "grade": br.get("grade") if br.get("grade") in ("off", "cinematic", "clean") else "off",
+                  # A soft whoosh under the voice when the hero arrives (assets/sfx/whoosh_soft.wav, -18 dB); nothing on the cards.
+                  "sfx": _bool(br.get("sfx")),
                   "position": br.get("position") if br.get("position") in ("below", "above", "top") else "below",
                   # A height chosen by the user (the small card's centre, % from the top of the frame): wins over "position".
                   "y": _free_y(br.get("y")),

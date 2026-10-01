@@ -231,7 +231,7 @@ def cmd_chain(args):
 
 # What the premium chantiers change, applied on top of the saved profile for the AFTER render.
 AFTER_BROLL = {"layout": "mixed", "hold": None, "density": "normal", "max": 4, "hero_res": "std",
-               "grade": "cinematic",
+               "grade": "cinematic", "sfx": True,
                "house_look": "cinematic documentary photograph, 35 mm lens, natural light, teal and amber grade, "
                              "fine film grain, shallow depth of field"}
 AFTER_FX = {"hq_chain": True}
@@ -373,7 +373,7 @@ def cmd_visual(args):
     sheet.save(os.path.join(OUT_DIR, "visual_sheet.jpg"), quality=90)
     # The two clips side by side, to watch.
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", before, "-i", after, "-filter_complex",
-                    "[0:v]scale=540:-2[a];[1:v]scale=540:-2[b];[a][b]hstack=2[v]", "-map", "[v]", "-map", "0:a?",
+                    "[0:v]scale=540:-2[a];[1:v]scale=540:-2[b];[a][b]hstack=2[v]", "-map", "[v]", "-map", "1:a?",
                     "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-c:a", "aac", "-b:a", "160k",
                     "-movflags", "+faststart", os.path.join(OUT_DIR, "visual_side_by_side.mp4")], check=True)
     print(f"✅ visual bench written to {OUT_DIR}: visual_sheet.jpg, visual_f1..6_*.jpg, visual_side_by_side.mp4, "

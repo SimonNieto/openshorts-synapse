@@ -546,3 +546,84 @@ class TestPace:
         assert f"{len(rep['items'])} image(s) (1 hero)" in line and "covered" in line and "ComfyUI" in line
         for a, b in zip(rep["items"], rep["items"][1:]):
             assert b["t"] - a["t"] >= broll.MIXED_GAP - 1e-6
+
+
+# --- chantier G: a sound when the hero arrives --------------------------------------------
+
+class TestSfx:
+    def _run(self, monkeypatch, items, fail_first=False):
+        import subprocess
+        import viral_fx
+        monkeypatch.setattr(viral_fx, "_probe", lambda p: {"w": 108, "h": 192, "fps": 10, "duration": 8.0})
+        cmds = []
+
+        def run(cmd, *a, **k):
+            cmds.append(list(cmd))
+            if fail_first and len(cmds) == 1:
+                raise subprocess.CalledProcessError(1, cmd)
+
+            class R:
+                returncode = 0
+            return R()
+
+        monkeypatch.setattr(broll.subprocess, "run", run)
+        broll.overlay_items("clip.mp4", "out.mp4", items)
+        return cmds
+
+    def _hero(self, sfx=True):
+        tmp = tempfile.mkdtemp(prefix="sfx_")
+        src = os.path.join(tmp, "h.jpg")
+        Image.new("RGB", (224, 400), (90, 60, 30)).save(src)
+        it = {"t": 2.0, "dur": 3.0, "layout": "hero", "_img": src}
+        if sfx:
+            it["sfx"] = True
+        return it
+
+    def test_the_whoosh_is_mixed_under_the_voice_when_asked(self, monkeypatch):
+        assert os.path.exists(broll.SFX_PATH)
+        cmd = self._run(monkeypatch, [self._hero()])[-1]
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        assert broll.SFX_PATH in cmd and "adelay=1880|1880" in graph and f"volume={broll.SFX_GAIN_DB:g}dB" in graph
+        assert "amix=inputs=2:duration=first:normalize=0[a]" in graph
+        assert cmd[cmd.index("-c:a") + 1] == "aac" and "[a]" in cmd
+
+    def test_no_flag_or_no_file_means_the_audio_is_copied(self, monkeypatch):
+        cmd = self._run(monkeypatch, [self._hero(sfx=False)])[-1]
+        assert cmd[cmd.index("-c:a") + 1] == "copy" and "adelay" not in cmd[cmd.index("-filter_complex") + 1]
+        monkeypatch.setattr(broll, "SFX_PATH", os.path.join(tempfile.gettempdir(), "no_such_whoosh.wav"))
+        cmd = self._run(monkeypatch, [self._hero()])[-1]
+        assert cmd[cmd.index("-c:a") + 1] == "copy"
+
+    def test_a_failed_mix_falls_back_to_the_plain_cut(self, monkeypatch):
+        cmds = self._run(monkeypatch, [self._hero()], fail_first=True)
+        assert len(cmds) == 2 and "adelay" in cmds[0][cmds[0].index("-filter_complex") + 1]
+        assert cmds[1][cmds[1].index("-c:a") + 1] == "copy" and broll.SFX_PATH not in cmds[1]
+
+    def test_only_the_hero_of_a_mixed_clip_gets_the_flag(self, monkeypatch):
+        assert plus.sanitize({})["broll"]["sfx"] is False and plus.sanitize({"broll": {"sfx": "1"}})["broll"]["sfx"] is True
+
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
+            Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
+            return out_path
+
+        monkeypatch.setattr(broll, "comfy_available", lambda timeout=3: True)
+        monkeypatch.setattr(broll, "claude_ready", lambda: True)
+        monkeypatch.setattr(broll, "_frame_sheets", lambda *a, **k: [])
+        monkeypatch.setattr(broll, "local_image", fake_image)
+        monkeypatch.setattr(broll, "review_images", lambda cands, words: [{"score": 5} for _ in cands])
+        monkeypatch.setattr(broll, "overlay_items", lambda *a, **k: None)
+        tr = _transcript(TEXT)
+        words = [{"text": w["word"].strip(), "start": w["start"], "end": w["end"]} for w in tr["segments"][0]["words"]]
+        idx = {w["text"]: i for i, w in enumerate(words)}
+        data = {"moments": [{"anchor": a, "time": words[idx[a]]["start"], "image_prompt": a, "role": "example", "shot": "wide"}
+                            for a in ("soldiers", "drill", "sergeant")]}
+        monkeypatch.setattr(broll, "plan_with_claude",
+                            lambda clip, words_, n, avoid, *a, **k: broll._parse_moments(data, words_, n, avoid, 4.0, k.get("dur_range"),
+                                                                                           k.get("tail"), k.get("head")))
+        for layout, want in (("mixed", True), ("rise", False)):
+            rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1,
+                                  {"planner": "claude", "layout": layout, "style": "photo", "max": 4, "sfx": True})
+            assert [bool(it.get("sfx")) for it in rep["items"]] == [it["layout"] == "hero" and want for it in rep["items"]]
+        rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1,
+                              {"planner": "claude", "layout": "mixed", "style": "photo", "max": 4})
+        assert not any(it.get("sfx") for it in rep["items"])

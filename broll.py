@@ -147,6 +147,11 @@ TOP_BAND = (0.05, 0.34)                     # of the height: above the head of a
 MIXED_MAX = int(_knob("BROLL_MIXED_MAX", 4))
 MIXED_GAP = _knob("BROLL_MIXED_GAP", 4.0)
 MIXED_TAIL = 2.0
+# A sound when the hero arrives (profile broll.sfx): a soft whoosh made by assets/sfx/make_sfx.py (ours, no
+# licence), mixed under the voice. -18 dB on a -6 dBFS peak: heard as air moving, never as an effect.
+SFX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "sfx", "whoosh_soft.wav")
+SFX_GAIN_DB = _knob("BROLL_SFX_DB", -18.0)
+SFX_LEAD = 0.12       # s before the picture: the sound announces it
 HERO_RULE = """HERO IMAGE: one image of the set may be shown FULL SCREEN for about 3 s instead of small: the most VISUAL
 moment of the clip — a concrete scene (an example, a consequence, a place, an action), shot wide or medium, never a
 diagram, never in the hook's first seconds, never on the punchline. Mark it "hero": true (one at most) and make its
@@ -2219,6 +2224,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 item["gen"] = list(_gen_size(c["layout"], hero_res))
                 if grade != "off":
                     item["grade"] = grade            # applied when the picture is cut in, restyle included
+                if hero and cfg.get("sfx"):
+                    item["sfx"] = True               # the whoosh, on the hero only
             if m.get("sheet") and not m.get("notion"):
                 item["sheet"] = m["sheet"]      # kept: a manual redo keeps the clip's look
             if m.get("notion"):
@@ -2376,10 +2383,38 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
             cur = f"[b{k}]"
         graph[-1] = graph[-1][:graph[-1].rfind("[")] + "[v]"
         # An intermediate layer: the hook and the captions re-encode it (ffmpeg_utils.layer_encode_args).
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", clip_path, *inputs, "-filter_complex", ";".join(graph),
-                        "-map", "[v]", "-map", "0:a?",
-                        *layer_encode_args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "19"]),
-                        "-c:a", "copy", "-movflags", "+faststart", out_path], check=True)
+        enc = layer_encode_args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "19"])
+        # The whoosh of a hero (item "sfx"): mixed into the clip's own track at SFX_GAIN_DB, which means
+        # re-encoding the audio (AAC) in this pass only; without it the audio is copied as always.
+        sfx_at = [float(it["t"]) for it in items if it.get("sfx") and it.get("layout") == "hero"
+                  and any(ly.get("hero") and abs(ly["t"] - float(it["t"])) < 1e-6 for ly in layers)]
+        audio_in, audio_graph = [], []
+        if sfx_at and os.path.exists(SFX_PATH):
+            for j, t in enumerate(sfx_at):
+                audio_in += ["-i", SFX_PATH]
+                ms = max(0, int(round((t - SFX_LEAD) * 1000)))
+                audio_graph.append(f"[{1 + len(layers) + j}:a]adelay={ms}|{ms},volume={SFX_GAIN_DB:g}dB[sx{j}]")
+            audio_graph.append(f"[0:a]{''.join(f'[sx{j}]' for j in range(len(sfx_at)))}"
+                               f"amix=inputs={len(sfx_at) + 1}:duration=first:normalize=0[a]")
+
+        def cut(with_sfx):
+            if with_sfx:
+                cmd = ["ffmpeg", "-y", "-v", "error", "-i", clip_path, *inputs, *audio_in,
+                       "-filter_complex", ";".join(graph + audio_graph), "-map", "[v]", "-map", "[a]", *enc,
+                       "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out_path]
+            else:
+                cmd = ["ffmpeg", "-y", "-v", "error", "-i", clip_path, *inputs, "-filter_complex", ";".join(graph),
+                       "-map", "[v]", "-map", "0:a?", *enc, "-c:a", "copy", "-movflags", "+faststart", out_path]
+            subprocess.run(cmd, check=True)
+
+        if audio_graph:
+            try:
+                cut(True)
+            except subprocess.CalledProcessError:
+                print("   ⚠️ B-roll sound: the mix failed (no audio track?) — cut in without the whoosh.")
+                cut(False)
+        else:
+            cut(False)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
