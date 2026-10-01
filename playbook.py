@@ -757,6 +757,17 @@ def pause_before(clip: dict, transcript=None):
     return None
 
 
+def broll_summary(clip: dict) -> list:
+    """The clip's B-roll items, the fields the stats need (never the prompts)."""
+    out = []
+    for it in clip.get("broll") or []:
+        if not isinstance(it, dict):
+            continue
+        out.append({k: it.get(k) for k in ("t", "dur", "layout", "subject", "style", "family", "score", "look_score",
+                                           "art", "notion", "reused", "source") if it.get(k) is not None})
+    return out
+
+
 def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcript=None) -> str:
     """<clip>_playbook.json next to the clip: what the stats need later."""
     check_title(clip, tokens)
@@ -806,6 +817,9 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "hook_before_retry": (clip.get("hook_check") or {}).get("before") or "",
         # The hook tells the ending (hook_spoils): "" when it teases.
         "hook_tells_ending": clip.get("hook_spoils") or "",
+        # The B-roll pictures cut in (broll.add_broll): when, what, how the judge scored their meaning and
+        # their look — for the views <-> B-roll stats.
+        "broll": broll_summary(clip),
         "score": clip.get("predicted_score"),
         # Outside the profile's niche_topics: the score above lost the niche
         # weight, score_raw is what the model gave (apply_niche).

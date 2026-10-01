@@ -440,16 +440,25 @@ most, and its better_prompt shows the concrete case or the thing at its real sca
 THE SET: the images are seen in a row. Compare them with each other: when one looks like an earlier one (same main
 subject, same framing, same look), the later one scores 3 at most and its better_prompt shows another side of the
 idea (the person, the object, the effect, another scale).
+STEP 3 - THE LOOK. For each image, "look" 1-5, as a photo editor rates a still for a documentary channel: the
+light (a real source with a direction and a quality, not flat, not a glow), the composition (one subject, air
+around it, readable at the size it is shown), the coherence of palette and light with the other images of the
+set, the artefacts (hands, faces, lettering, melted objects), the stock or AI-cliché feel, the legibility at its
+size. 5 = a still a magazine would print, 4 = good, 3 = correct but flat, 2 or 1 = artefacts, stock or unreadable.
 For each image, by "file": "seen", "score" 1-5 (5 = instantly clear and on point, 4 = good, 3 = acceptable, 2 or 1 =
-weak, wrong or confusing), "problem" (a few words, empty if none) and "better_prompt": an English image prompt that
-would fix it (one clear scene, one main subject, no text) - empty when the score is 4 or 5."""
+weak, wrong or confusing), "look" 1-5, "problem" (a few words, empty if none) and "better_prompt": an English image
+prompt that would fix it (one clear scene, one main subject, no text) - empty when the score is 4 or 5 AND the
+look is 4 or 5. When the image's own prompt is given below as ART-DIRECTED, write better_prompt in that same
+grammar, 80 to 120 words, in this order: subject and action, setting, composition for its frame, lens and point
+of view, light (source, direction, quality), palette and grade, material and detail, mood - keep what worked,
+change what failed, state only what IS in the frame."""
 REVIEW_SCHEMA = {
     "type": "object",
     "properties": {"reviews": {"type": "array", "items": {
         "type": "object",
         "properties": {"file": {"type": "string"}, "seen": {"type": "string"}, "score": {"type": "integer"},
-                       "problem": {"type": "string"}, "better_prompt": {"type": "string"}},
-        "required": ["file", "seen", "score"]}}},
+                       "look": {"type": "integer"}, "problem": {"type": "string"}, "better_prompt": {"type": "string"}},
+        "required": ["file", "seen", "score", "look"]}}},
     "required": ["reviews"],
 }
 
@@ -1128,9 +1137,13 @@ def direct_art(moments, clip, house, mixed=True, rise=False, auto_style=True, st
     return taken
 
 
-def review_with_claude(cands, words, model=None):
+HERO_REVIEW_PX = 768   # a full-screen picture is judged bigger than a card (512): lettering, hands, faces show
+
+
+def review_with_claude(cands, words, model=None, size=512):
     """Claude looks at each made image and scores it against the idea it must
-    carry (1-5), with a better prompt when it falls short."""
+    carry (1-5) and for its look (1-5), with a better prompt when it falls
+    short. ``size``: the pixels the pictures are judged at."""
     thesis = next((c["m"].get("thesis") for c in cands if c["m"].get("thesis")), "")
     files = [c["file"] for c in cands]
     lines = _review_lines(cands, words)
@@ -1147,7 +1160,7 @@ def review_with_claude(cands, words, model=None):
         for f in files:
             p = os.path.join(small_dir, os.path.basename(f))
             im = Image.open(f).convert("RGB")
-            im.thumbnail((512, 512))
+            im.thumbnail((size, size))
             im.save(p, quality=88)
             small.append(p)
         data = claude_json(prompt, REVIEW_SCHEMA, timeout=240, attach=small, stage="B-roll: checking each image",
@@ -1172,7 +1185,8 @@ def _review_lines(cands, words):
                (["shown FULL SCREEN for ~3 s: judge it at that size"] if c["m"].get("hero") else [])
         lines.append(f'- file "{os.path.basename(c["file"])}": idea "{c["m"].get("idea") or c["m"]["prompt"]}"'
                      f'{" (" + "; ".join(tags) + ")" if tags else ""}; '
-                     f'said: "{c["m"].get("said") or "..." + near + "..."}"')
+                     f'said: "{c["m"].get("said") or "..." + near + "..."}"'
+                     + (f'; prompt (ART-DIRECTED): "{c["m"]["prompt"]}"' if c["m"].get("art") else ""))
     return lines
 
 
@@ -1207,10 +1221,23 @@ def review_images(cands, words):
     """The image check, on the profile's choice (ai_brain "image_review").
     Gemini: it checks every image and only the doubtful ones (score 3 —
     neither clearly good nor clearly wrong) go to Claude, the B-roll's judge,
-    for the final say. A Claude model: it checks them all itself."""
+    for the final say. A Claude model: it checks them all itself. A hero
+    (full screen) is always judged by the B-roll's judge, at HERO_REVIEW_PX."""
     import ai_brain
     if not cands:
         return []
+    heroes = [k for k, c in enumerate(cands) if c.get("layout") == "hero"]
+    if heroes and len(heroes) < len(cands) and claude_ready():
+        out = [None] * len(cands)
+        for k, r in zip(heroes, review_with_claude([cands[k] for k in heroes], words,
+                                                   model=ai_brain.stage_model("broll"), size=HERO_REVIEW_PX)):
+            out[k] = r
+        rest = [k for k in range(len(cands)) if k not in heroes]
+        for k, r in zip(rest, review_images([cands[k] for k in rest], words)):
+            out[k] = r
+        return out
+    if heroes and claude_ready():
+        return review_with_claude(cands, words, model=ai_brain.stage_model("broll"), size=HERO_REVIEW_PX)
     if ai_brain.route("image_review") == "gemini":
         try:
             reviews = review_with_gemini(cands, words)
@@ -1335,14 +1362,43 @@ NOTION_DIR = os.environ.get("BROLL_NOTION_DIR") or os.path.join(
 # fills in when fewer than KEEP_FLOOR images would be left: a clip is better with fewer images that mean something.
 KEEP_SCORE = int(os.environ.get("BROLL_KEEP_SCORE") or 4)
 KEEP_FLOOR = 2
+# The second axis (the look, 1-5): a card needs LOOK_CARD, a full-screen hero LOOK_HERO. A review without a look
+# (an old answer, Gemini off its schema) judges on the meaning alone.
+LOOK_CARD = int(os.environ.get("BROLL_LOOK_CARD") or 3)
+LOOK_HERO = int(os.environ.get("BROLL_LOOK_HERO") or 4)
+REDO_CARD, REDO_HERO = 1, 2   # pictures made again from the reviewer's better prompt, at most
+
+
+def _look_ok(c):
+    look = c.get("look_score")
+    return look is None or look >= (LOOK_HERO if c.get("layout") == "hero" else LOOK_CARD)
+
+
+def _take_review(c, r):
+    """The reviewer's answer onto a candidate: score, look_score (None when not given), problem, better_prompt."""
+    c["score"] = int(r.get("score") or 3)
+    look = r.get("look")
+    c["look_score"] = int(look) if isinstance(look, (int, float)) and not isinstance(look, bool) and 1 <= int(look) <= 5 else None
+    c["problem"] = str(r.get("problem") or "")[:300]
+    c["better_prompt"] = re.sub(r"\s+", " ", str(r.get("better_prompt") or "")).strip()[:PROMPT_MAX]
+    return c
+
+
+def _needs_redo(c):
+    return c["score"] <= 3 or not _look_ok(c)
+
+
+def _better(c2, c):
+    """The redo beats the first picture: a higher meaning score, or the same with a higher look."""
+    return (c2["score"], c2.get("look_score") or 0) > (c["score"], c.get("look_score") or 0)
 
 
 def _keep_meaningful(cands):
-    """The candidates worth showing, in their order: every one scored KEEP_SCORE+,
-    topped up with the best 3s (never below 3) up to KEEP_FLOOR."""
-    good = [c for c in cands if c["score"] >= KEEP_SCORE]
+    """The candidates worth showing, in their order: every one scored KEEP_SCORE+ whose look passes
+    (_look_ok), topped up with the best 3s (never below 3, look passing) up to KEEP_FLOOR."""
+    good = [c for c in cands if c["score"] >= KEEP_SCORE and _look_ok(c)]
     if len(good) < KEEP_FLOOR:
-        spare = sorted((c for c in cands if 3 <= c["score"] < KEEP_SCORE), key=lambda c: -c["score"])
+        spare = sorted((c for c in cands if 3 <= c["score"] < KEEP_SCORE and _look_ok(c)), key=lambda c: -c["score"])
         good += spare[:KEEP_FLOOR - len(good)]
     return [c for c in cands if c in good]
 
@@ -2433,26 +2489,37 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         if planner == "claude" and any(not c.get("reused") for c in cands):
             try:
                 checked = [c for c in cands if not c.get("reused")]
-                reviews = review_images(checked, words)
-                redo = []
-                for c, r in zip(checked, reviews):
-                    c["score"] = int(r.get("score") or 3)
-                    if c["score"] <= 3 and r.get("better_prompt"):
-                        raw = os.path.join(tmp, f"broll_{c['k']}_v2.jpg")
-                        got, used, credit = make_image(r["better_prompt"], c["style"], raw, c["m"]["query"],
+                for c, r in zip(checked, review_images(checked, words)):
+                    _take_review(c, r)
+                redone = 0
+                for _round in range(max(REDO_CARD, REDO_HERO)):
+                    # A weak picture is made again from the reviewer's better prompt: once for a card, twice for
+                    # the hero. The better prompt of an art-directed picture is in the director's grammar and
+                    # goes out as such; a short one is the editor's kind again.
+                    todo = [c for c in checked if _needs_redo(c) and c.get("better_prompt")
+                            and c.get("tries", 0) < (REDO_HERO if c["layout"] == "hero" else REDO_CARD)]
+                    pairs = []
+                    for c in todo:
+                        c["tries"] = c.get("tries", 0) + 1
+                        raw = os.path.join(tmp, f"broll_{c['k']}_v{c['tries'] + 1}.jpg")
+                        art = bool(c["m"].get("art")) and len(c["better_prompt"].split()) >= ART_MIN_WORDS
+                        got, used, credit = make_image(c["better_prompt"], c["style"], raw, c["m"]["query"],
                                                        used_urls, None if c["m"].get("notion") else c["m"].get("sheet"),
-                                                       layout=c["layout"], family=c["m"].get("family"))
+                                                       layout=c["layout"], art=art, family=c["m"].get("family"))
                         if got:
-                            # A redo is the editor's kind of prompt again (the reviewer's better_prompt).
-                            redo.append((c, {**c, "file": got, "source": used, "credit": credit, "seed": seeds.get(got),
-                                             "m": {**c["m"], "prompt": r["better_prompt"], "art": False}}))
-                if redo:
-                    for (c, c2), r2 in zip(redo, review_images([c2 for _, c2 in redo], words)):
-                        if int(r2.get("score") or 3) > c["score"]:
-                            c.update(c2, score=int(r2.get("score") or 3))
+                            pairs.append((c, {**c, "file": got, "source": used, "credit": credit, "seed": seeds.get(got),
+                                             "m": {**c["m"], "prompt": c["better_prompt"], "art": art}}))
+                    if not pairs:
+                        break
+                    redone += len(pairs)
+                    for (c, c2), r2 in zip(pairs, review_images([c2 for _, c2 in pairs], words)):
+                        _take_review(c2, r2)
+                        if _better(c2, c):
+                            c.update(c2)
                 kept = _keep_meaningful(cands)
-                print(f"   🔎 B-roll review: scores {[c['score'] for c in cands]}"
-                      f"{f', {len(redo)} redone' if redo else ''}, {len(kept)}/{len(cands)} kept")
+                print(f"   🔎 B-roll review: scores {[c['score'] for c in cands]}, looks "
+                      f"{[c.get('look_score') for c in cands]}"
+                      f"{f', {redone} redone' if redone else ''}, {len(kept)}/{len(cands)} kept")
                 for c in kept:
                     if c["m"].get("notion") and not c.get("reused") and c["score"] >= NOTION_MIN_SCORE:
                         if notion_put(c["m"]["notion"], c["style"], engine, c["layout"], c["file"], c["m"]["prompt"],
@@ -2505,6 +2572,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     item["reused"] = True
             if c.get("score"):
                 item["score"] = c["score"]
+            if c.get("look_score") is not None:
+                item["look_score"] = c["look_score"]
             if c.get("seed") is not None:
                 item["seed"] = c["seed"]        # the picture can be made again: same seed, another size or steps
             if mixed:
