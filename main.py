@@ -479,12 +479,26 @@ def detect_face_candidates(frame):
         y = int(bboxC.ymin * height)
         w = int(bboxC.width * width)
         h = int(bboxC.height * height)
-        
+
+        # Where the face looks (framing.py's look-room): the nose tip's
+        # offset from the midpoint of the eyes, over the face width. Zero when
+        # frontal, positive when turned toward the image's right. MediaPipe's
+        # six keypoints: right eye, left eye, nose tip, mouth, right ear, left
+        # ear (the subject's right, i.e. the image's left on a plain camera).
+        yaw = None
+        try:
+            kp = detection.location_data.relative_keypoints
+            if len(kp) >= 3 and bboxC.width > 0:
+                yaw = (kp[2].x - (kp[0].x + kp[1].x) / 2.0) / bboxC.width
+        except (AttributeError, IndexError, TypeError):
+            yaw = None
+
         candidates.append({
             'box': [x, y, w, h],
-            'score': w * h # Area as score
+            'score': w * h, # Area as score
+            'yaw': yaw,
         })
-            
+
     return candidates
 
 def detect_person_yolo(frame):

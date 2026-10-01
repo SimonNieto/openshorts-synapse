@@ -275,6 +275,8 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
 
     xs = []
     targets = []   # where the camera WANTS to be (crop x), before its own smoothing
+    heads = []     # the tracked head per frame: (cx, cy, w, h, yaw) in source px, None between detections
+    last_face_f = -10 ** 9
     frame_number = 0
     current_scene_index = 0
     try:
@@ -301,6 +303,7 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
                 cameraman.target_center_x = orig_w / 2
                 xs.append(None)
                 targets.append(None)
+                heads.append(None)
             else:
                 is_scene_start = (
                     current_scene_index < len(scenes_boundaries)
@@ -312,6 +315,7 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
                     tracker.reset()
                     cameraman.begin_scene()
 
+                head = None
                 if frame_number % m.DETECT_STRIDE == 0 or cut:
                     candidates = m.detect_face_candidates(frame)
                     for cand in candidates:
@@ -320,21 +324,37 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
                     target_box = tracker.get_target(candidates, frame_number, orig_w)
                     if target_box:
                         cameraman.update_target(target_box)
+                        bx, by, bw, bh = target_box
+                        chosen = next((c for c in candidates if c['box'] == target_box), None)
+                        head = (bx + bw / 2.0, by + bh / 2.0, bw, bh, chosen.get('yaw') if chosen else None)
+                        last_face_f = frame_number
                     elif frame_number % m.YOLO_FALLBACK_STRIDE == 0 or cut:
                         person_box = m.detect_person_yolo(frame)
                         if person_box:
-                            cameraman.update_target([int(v * scale) for v in person_box])
+                            person_box = [int(v * scale) for v in person_box]
+                            cameraman.update_target(person_box)
+                            # The top of the person box, for the premium framing
+                            # only when the face has been lost for a while: the
+                            # box is the BODY's width, so its centre is the torso,
+                            # 150 px off a head leaning to the mic (JRE, 1-oct-2026)
+                            # — the stray readings that used to pull the frame
+                            # off the face. A blink or a turned head holds the
+                            # last face instead.
+                            if frame_number - last_face_f > fps * 1.0:
+                                px, py, pw, ph = person_box
+                                head = (px + pw / 2.0, py + ph / 2.0, min(pw, ph * 1.1), ph, None)
 
                 x1, _y1, _x2, _y2 = cameraman.get_crop_box(force_snap=is_scene_start)
                 xs.append(x1)
                 targets.append(cameraman.target_center_x - cameraman.crop_width / 2)
+                heads.append(head)
 
             frame_number += 1
     finally:
         proc.stdout.close()
         proc.wait()
 
-    return xs, targets
+    return xs, targets, heads
 
 
 # --- smooth camera (Clip Generator++ option, SMOOTH_CAMERA=1) ---------------------
@@ -611,22 +631,46 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     cameraman = m.SmoothedCameraman(out_w, out_h, orig_w, orig_h, aspect_ratio=aspect_ratio)
     tracker = m.SpeakerTracker(cooldown_frames=30)
 
-    xs, targets = _analyze_trajectory(input_video, scene_boundaries, strategies, fps,
-                                      orig_w, orig_h, cameraman, tracker)
+    xs, targets, heads = _analyze_trajectory(input_video, scene_boundaries, strategies, fps,
+                                             orig_w, orig_h, cameraman, tracker)
     if not xs:
         raise RuntimeError("analysis produced no frames")
     smooth = os.environ.get("SMOOTH_CAMERA", "0") == "1"
+    # Premium framing (framing.py): per TRACK shot, one box per frame — fixed
+    # framing with look-room when the head fits one, hold-and-glide when it
+    # travels, a bounded punch-in for the eye line. calm_path (x only, full
+    # height) remains the fallback for a shot where no head was seen, and the
+    # whole thing is skipped for a scene framed by hand (crop_overrides).
+    premium = {}
     if smooth:
+        import framing
         max_x = max(0, orig_w - cameraman.crop_width)
-        calmed = 0
+        calmed, reports = 0, []
+        by_hand = {scene_boundaries[i][0] for i in (crop_overrides or {}) if 0 <= int(i) < len(scene_boundaries)}
         for idx, (s_f, e_f) in enumerate(scene_boundaries):
             e_f = min(e_f, len(xs))
             if idx < len(strategies) and strategies[idx] == 'TRACK' and e_f > s_f:
                 seg = targets[s_f:e_f]
-                if all(v is not None for v in seg):
+                if not all(v is not None for v in seg):
+                    continue
+                res = None
+                if s_f not in by_hand:
+                    try:
+                        res = framing.shot_boxes(heads[s_f:e_f], fps, cameraman.crop_width,
+                                                 cameraman.crop_height, orig_w, orig_h)
+                    except Exception as e:
+                        print(f"   ⚠️ Premium framing failed on scene {idx} ({type(e).__name__}: {e}) — calm camera.")
+                if res:
+                    premium[s_f] = res[0]
+                    reports.append(res[1])
+                    xs[s_f:e_f] = [b[2] for b in res[0]]
+                else:
                     xs[s_f:e_f] = calm_path(seg, fps, cameraman.crop_width, max_x)
                     calmed += 1
-        print(f"   🎥 Smooth camera on {calmed} scene(s), soft cuts between shots")
+        if reports:
+            print(f"   🎥 Premium framing on {len(reports)} shot(s): {framing.describe(reports)}")
+        if calmed:
+            print(f"   🎥 Smooth camera on {calmed} scene(s), soft cuts between shots")
 
     # Beats are found once per clip; each scene takes the ones inside it.
     beats = []
@@ -688,7 +732,17 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
             else:
                 seg_xs = [x if x is not None else 0 for x in xs[start_f:end_f]]
                 cmd_path = os.path.join(workdir, f"cmd_{idx:03d}.txt")
-                if beats:
+                if start_f in premium and strategy == 'TRACK':
+                    import framing
+                    boxes = premium[start_f][:end_f - start_f]
+                    boxes += [boxes[-1]] * (end_f - start_f - len(boxes))
+                    if beats:
+                        zooms = punch_in.zoom_curve(len(boxes), fps, beats, start_offset=ss)
+                        boxes = framing.with_zoom(boxes, zooms, orig_w, orig_h)
+                    lines = punch_in.sendcmd_lines(boxes, fps)
+                    first = boxes[0]
+                    init = f"w={first[0]}:h={first[1]}:x={first[2]}:y={first[3]}"
+                elif beats:
                     zooms = punch_in.zoom_curve(len(seg_xs), fps, beats,
                                                 start_offset=ss)
                     boxes = punch_in.crop_boxes(seg_xs, zooms, crop_w, crop_h,
