@@ -90,8 +90,10 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          # One photographic family per clip (broll.FAMILIES): "auto" = the art director picks it (the default
          # family without one), else its name.
          "style_family": "auto",
-         # A clear, natural face on the hero only (broll.FACE_MODES: never / hero / always).
-         "faces": "hero",
+         # A clear, natural face on every picture (broll.FACE_MODES: never / hero / always): the "turned away" rule
+         # dated from FLUX's faces; Z-Image draws them right, the review marks a waxy one down, and a card of
+         # anonymous backs reads cold (audit « sens », 1-oct-2026 evening).
+         "faces": "always",
          # B-roll v2 (1-oct-2026): a second call writes the prompt of every picture of a set in the channel's
          # look (broll.direct_art), validated on the brain bench (JRE #2515 clips 1, 3, 5) the same day.
          "art_director": True}

@@ -1,4 +1,4 @@
-"""Faces (B-roll v2, chantier H): a clear, natural face is allowed on the hero only (plus.BROLL["faces"] = "hero";
+"""Faces (B-roll v2, chantier H): a clear, natural face is allowed everywhere (plus.BROLL["faces"] = "always";
 "never" / "always" the other ways), the other guardrails stay, nobody real and recognisable ever. No model called."""
 import pytest
 from PIL import Image
@@ -125,8 +125,8 @@ class TestInTheJob:
         self._run(tr, words, faces="always", art_director=True)
         assert seen["faces"] == "always"
 
-    def test_the_recipe_allows_a_face_on_the_hero(self):
-        assert plus.BROLL["faces"] == "hero" and broll.FACE_MODES == ("never", "hero", "always")
+    def test_the_recipe_allows_a_face_everywhere(self):
+        assert plus.BROLL["faces"] == "always" and broll.FACE_MODES == ("never", "hero", "always")
 
 
 class TestRegenerate:

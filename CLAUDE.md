@@ -445,11 +445,19 @@ change: every deploy is a ~5 min build plus a handover.
 ## Clip Generator++ B-roll brain (broll.py, 1-oct-2026)
 - The recipe lives in `plus.BROLL` (no profile field): `art_director` (a second Claude call, step `broll_art`,
   writes every picture's prompt in a fixed grammar), `style_family` ("auto": one of `broll.FAMILIES` per clip),
-  `faces` ("hero": a clear face on the full-screen picture only), `house_look`, `grade`, `sfx`. Matters of taste are
+  `faces` ("always": a clear, natural face on every picture), `house_look`, `grade`, `sfx`. Matters of taste are
   env knobs `BROLL_*` (`_knob`): `BROLL_LOOK_CARD` / `BROLL_LOOK_HERO` (review thresholds), `BROLL_HERO_STEPS`,
   `BROLL_NOTION_VARIANTS`, `BROLL_MIXED_MAX`...
-- The chain per clip: editor (`plan_with_claude`: thesis, visual argument, what, when, why, three hero concepts
-  and one pick) -> `direct_art` -> ComfyUI (Z-Image; the hero in `HERO_TAKES` takes) -> review on two axes
+- The rule of the editor (audit « sens », 1-oct-2026 evening): THE THING NAMED, FIRST (`MODE_RULES["mixed"]`) —
+  every picture shows something the speaker names or tells; an allegory only when he says it himself; no image
+  where nothing is named (zero beats one allegory); a hero only for a real scene (`HERO_MIN_SCORE` 2.5). The
+  prestige allegories (open palms, a glowing doorway, water through fingers, a lone figure before the vastness)
+  are in `CLICHES` with the neon brain. Three guards keep the one specific picture of a clip alive: a hero loses
+  its notion tag (`pick_hero` refuses a notion), `lost_facts` keeps the editor's draft when the director drops a
+  number or a proper noun, `_review_facts` gives the judge the bible's WORLD / AVOID and the glossary line of
+  every notion judged (the review has no transcript: it once called a cage on the White House lawn implausible).
+- The chain per clip: editor (`plan_with_claude`: thesis, what, when, why, three hero concepts and one pick or
+  none) -> `direct_art` -> ComfyUI (Z-Image; the hero in `HERO_TAKES` takes) -> review on two axes
   (`score` meaning, `look_score` look; a hero is judged at 768 px by the `broll` model, its takes together, redone
   twice) -> `_keep_meaningful`. Before the clips, `ai_brain.episode_bible` reads the episode once (world, look,
   motifs, avoid, hero ideas): every editor and art director of the job reads it. The notion memory (`output/_glossary_images`, two variants per notion and house
