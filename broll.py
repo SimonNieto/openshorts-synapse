@@ -18,9 +18,10 @@ and make it a real edit rather than a re-upload.
     added to the post's description at publish time;
   - "auto":   Gemini first, free photos for whatever it could not make;
   - "local":  generated on this machine's GPU by a ComfyUI server (e.g. the
-    Pinokio one, FLUX.1 schnell): free and unlimited. ComfyUI down or
-    failing -> free photos. After each clip the models are unloaded from
-    VRAM so Whisper / NVENC in the container never fight it for the card.
+    Pinokio one, FLUX.1 schnell): free and unlimited. A picture that fails
+    is retried once then skipped; ComfyUI down stops the job. When the last
+    clip still making images is done, the models are unloaded from VRAM so
+    Whisper / NVENC in the container never fight it for the card.
 * Render: a photo card (rounded, white edge, shadow) pops in over the
   podcast, which keeps playing blurred and dimmed behind it; a tall image
   (Gemini 9:16) takes the full frame. Slow push-in, fade out. It runs BEFORE the edit style, so the pristine copy the "viral style"
@@ -1334,6 +1335,28 @@ def comfy_release(full=False):
         pass
 
 
+# Clips render in parallel (main.py CLIP_WORKERS, 3 by default) and each one
+# used to unload the models when it was done, so the next image of the clips
+# still running paid the model load again (~15 s on the 3060, measured). The
+# VRAM is now given back by the LAST clip of this process still making images.
+_COMFY_USERS = {"n": 0}
+_COMFY_USERS_LOCK = __import__("threading").Lock()
+
+
+def _comfy_enter():
+    with _COMFY_USERS_LOCK:
+        _COMFY_USERS["n"] += 1
+
+
+def _comfy_leave():
+    """One clip is done with ComfyUI: unload the models only if no other clip is still using them."""
+    with _COMFY_USERS_LOCK:
+        was = _COMFY_USERS["n"]
+        _COMFY_USERS["n"] = max(0, was - 1)
+    if was == 1:
+        comfy_release()
+
+
 def _wikimedia_thumb(url, width=1280):
     """upload.wikimedia.org original -> its cached 1280 px rendition (what
     Wikimedia asks tools to fetch; originals are throttled)."""
@@ -2004,8 +2027,10 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off"):
 
 
 class ComfyDown(RuntimeError):
-    """The local GPU (ComfyUI) is off or failed: B-roll images are made only
-    there, so the whole job stops instead of shipping clips without them."""
+    """The local GPU (ComfyUI) is off or stopped answering: B-roll images are
+    made only there, so the whole job stops instead of shipping clips without
+    them. A single picture that fails while ComfyUI is up is not this: it is
+    retried once, then skipped (add_broll.make_image)."""
 
 
 def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=None, keep_dir=None, keep_prefix="",
@@ -2061,17 +2086,29 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     gpu = [0.0]      # seconds spent waiting for ComfyUI, for the clip's log line
 
     def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None):
-        """(path, "local", None) from ComfyUI; raises ComfyDown when it fails."""
-        t0 = time.time()
-        try:
-            return local_image(prompt, m_style, raw, engine=engine,
-                               size=_gen_size(layout if layout is not None else ("rise" if rise else "full"), hero_res),
-                               look=look_text(sheet, m_style), house=house), "local", None
-        except Exception as e:
-            raise ComfyDown(f"ComfyUI image failed: {str(e)[:200]}") from e
-        finally:
-            gpu[0] += time.time() - t0
+        """(path, "local", None) from ComfyUI, or (None, None, None) when this
+        one picture could not be made: a second try with a new seed, then the
+        picture is skipped and the clip goes on with the others (one refused
+        prompt used to stop the whole job). Only a ComfyUI that stopped
+        answering raises ComfyDown: images are made nowhere else."""
+        size = _gen_size(layout if layout is not None else ("rise" if rise else "full"), hero_res)
+        last = None
+        for attempt in range(2):
+            t0 = time.time()
+            try:
+                return local_image(prompt, m_style, raw, engine=engine, size=size, look=look_text(sheet, m_style),
+                                   house=house), "local", None
+            except Exception as e:
+                last = e
+                if not comfy_available():
+                    raise ComfyDown(f"ComfyUI stopped answering ({str(e)[:160]})") from e
+            finally:
+                gpu[0] += time.time() - t0
+        print(f"   ⚠️ B-roll: no image for \"{str(query)[:40]}\" after two tries ({str(last)[:120]}) — skipped, "
+              f"the clip keeps the others.")
+        return None, None, None
 
+    _comfy_enter()
     try:
         # Planner: Claude (the user's subscription) when chosen and set up —
         # it reads the conversation around the clip and SEES the clip (frame
@@ -2282,7 +2319,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         return {"items": items, "credits": credits, "planner": planner, "sources": sources, "pending": manual}
     finally:
         if used_local:
-            comfy_release()
+            _comfy_leave()
         shutil.rmtree(tmp, ignore_errors=True)
 
 

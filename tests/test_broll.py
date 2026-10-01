@@ -627,3 +627,82 @@ class TestSfx:
         rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1,
                               {"planner": "claude", "layout": "mixed", "style": "photo", "max": 4})
         assert not any(it.get("sfx") for it in rep["items"])
+
+
+# --- robustness: one failed picture, several clips at once ----------------------------------
+
+class TestRobustness:
+    def _setup(self, monkeypatch, fail):
+        """``fail``: {prompt substring: how many times local_image raises for it}."""
+        calls = []
+
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
+            calls.append(prompt)
+            for key, n in fail.items():
+                if key in prompt and sum(key in c for c in calls) <= n:
+                    raise RuntimeError("ComfyUI error: CUDA out of memory")
+            Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
+            return out_path
+
+        monkeypatch.setattr(broll, "comfy_available", lambda timeout=3: True)
+        monkeypatch.setattr(broll, "claude_ready", lambda: True)
+        monkeypatch.setattr(broll, "_frame_sheets", lambda *a, **k: [])
+        monkeypatch.setattr(broll, "local_image", fake_image)
+        monkeypatch.setattr(broll, "review_images", lambda cands, words: [{"score": 5} for _ in cands])
+        monkeypatch.setattr(broll, "overlay_items", lambda *a, **k: None)
+        tr = _transcript(TEXT)
+        words = [{"text": w["word"].strip(), "start": w["start"], "end": w["end"]} for w in tr["segments"][0]["words"]]
+        idx = {w["text"]: i for i, w in enumerate(words)}
+        data = {"moments": [{"anchor": a, "time": words[idx[a]]["start"], "image_prompt": "scene of " + a}
+                            for a in ("soldiers", "drill", "sergeant")]}
+        monkeypatch.setattr(broll, "plan_with_claude",
+                            lambda clip, words_, n, avoid, *a, **k: broll._parse_moments(data, words_, n, avoid, 4.0))
+        return tr, words, calls
+
+    def test_a_picture_that_fails_twice_is_skipped_and_the_clip_keeps_the_others(self, monkeypatch, capsys):
+        tr, words, calls = self._setup(monkeypatch, {"drill": 5})
+        rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1,
+                              {"planner": "claude", "layout": "rise", "style": "photo", "max": 4})
+        assert [it["anchor"] for it in rep["items"]] == ["soldiers", "sergeant"]
+        assert sum("drill" in c for c in calls) == 2            # one retry, not more
+        assert "no image for" in capsys.readouterr().out
+
+    def test_a_transient_failure_is_retried_and_the_picture_kept(self, monkeypatch):
+        tr, words, calls = self._setup(monkeypatch, {"drill": 1})
+        rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1,
+                              {"planner": "claude", "layout": "rise", "style": "photo", "max": 4})
+        assert [it["anchor"] for it in rep["items"]] == ["soldiers", "drill", "sergeant"]
+
+    def test_comfyui_that_stopped_answering_still_stops_the_job(self, monkeypatch):
+        tr, words, calls = self._setup(monkeypatch, {"drill": 5})
+        monkeypatch.setattr(broll, "comfy_available", lambda timeout=3: len(calls) < 2)   # up for the check, down after
+        with pytest.raises(broll.ComfyDown):
+            broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1,
+                            {"planner": "claude", "layout": "rise", "style": "photo", "max": 4})
+
+    def test_the_vram_is_given_back_by_the_last_clip_only(self, monkeypatch):
+        released = []
+        monkeypatch.setattr(broll, "comfy_release", lambda full=False: released.append(full))
+        monkeypatch.setattr(broll, "_COMFY_USERS", {"n": 0})
+        broll._comfy_enter()
+        broll._comfy_enter()
+        broll._comfy_leave()
+        assert released == []
+        broll._comfy_leave()
+        assert released == [False]
+        broll._comfy_leave()                                     # never below zero, never a second release
+        assert released == [False] and broll._COMFY_USERS["n"] == 0
+
+    def test_add_broll_counts_itself_in_and_out(self, monkeypatch):
+        tr, words, calls = self._setup(monkeypatch, {})
+        released = []
+        monkeypatch.setattr(broll, "comfy_release", lambda full=False: released.append(full))
+        monkeypatch.setattr(broll, "_COMFY_USERS", {"n": 1})    # another clip of this job is still making images
+        seen = []
+        real = broll.local_image
+        monkeypatch.setattr(broll, "local_image", lambda *a, **k: seen.append(broll._COMFY_USERS["n"]) or real(*a, **k))
+        broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1,
+                        {"planner": "claude", "layout": "rise", "style": "photo", "max": 4})
+        assert seen and all(n == 2 for n in seen) and released == [] and broll._COMFY_USERS["n"] == 1
+        broll._comfy_leave()                                     # the other clip finishes: now the GPU is freed
+        assert released == [False]
