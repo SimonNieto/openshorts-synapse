@@ -6,7 +6,7 @@ import urllib.request
 import uuid
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-from ffmpeg_utils import video_encode_args, QUALITY, METADATA_SCRUB
+from ffmpeg_utils import video_encode_args, layer_encode_args, QUALITY, METADATA_SCRUB
 
 
 def _truncate_bytes(text, max_bytes):
@@ -531,7 +531,8 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
             '-filter_complex', f"[0:v][1:v]overlay={overlay_x}:{overlay_y}"
                 + (f":enable='between(t,0,{float(duration)})'" if duration else ""),
             '-c:a', 'copy',
-            *video_encode_args(QUALITY),
+            # The captions re-encode the hooked file: near-lossless under the HQ chain.
+            *layer_encode_args(video_encode_args(QUALITY)),
             *METADATA_SCRUB,
             '-movflags', '+faststart',
             output_path
@@ -584,7 +585,8 @@ def _add_bold_hook(video_path, text, output_path, png_path, video_width, video_h
     graph = (f"{chain}[h];[0:v][h]overlay=x={x}:y='{y}-{slide}*max(0,1-t/0.2)':{tail}[v]")
     print(f"🎬 Overlaying bold hook: '{text}' at {x},{y}")
     cmd = ["ffmpeg", "-y", *inputs, "-filter_complex", graph, "-map", "[v]", "-map", "0:a?",
-           "-c:a", "copy", *video_encode_args(QUALITY), *METADATA_SCRUB, "-movflags", "+faststart", output_path]
+           "-c:a", "copy", *layer_encode_args(video_encode_args(QUALITY)), *METADATA_SCRUB,
+           "-movflags", "+faststart", output_path]
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1800)
     finally:

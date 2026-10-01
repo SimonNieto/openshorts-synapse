@@ -3333,8 +3333,15 @@ async def viral_edit_clip(job_id: str, clip_index: int, req: ViralEditRequest, r
             viral_fx.apply(src, words, req.style, out, watermark=watermark, opts=opts, topic=topic)
         return os.path.basename(out)
 
+    def run_chain():
+        # The profile's HQ render chain applies to a restyle too: this process
+        # has no job env, so the setting travels as a context (None = the env).
+        import ffmpeg_utils as _ffu
+        with _ffu.hq_chain(bool(opts.get("hq_chain")) if "hq_chain" in opts else None):
+            return run()
+
     try:
-        served = await asyncio.get_event_loop().run_in_executor(None, run)
+        served = await asyncio.get_event_loop().run_in_executor(None, run_chain)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Edit style failed: {str(e)[:300]}")
 

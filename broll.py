@@ -38,6 +38,8 @@ from typing import List, Optional
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageStat
 
+from ffmpeg_utils import layer_encode_args
+
 STYLES = {
     "photo": "Realistic documentary photograph, natural light, shallow depth of field, rich but true colours.",
     "neon": ("Clean scientific illustration on a deep navy background, glowing cyan and violet neon lines "
@@ -1963,8 +1965,10 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                 graph.append(f"{cur}[{k + 1}:v]overlay={ly['x']}:{ly['y']}:eof_action=pass:enable='{win}'[b{k}]")
             cur = f"[b{k}]"
         graph[-1] = graph[-1][:graph[-1].rfind("[")] + "[v]"
+        # An intermediate layer: the hook and the captions re-encode it (ffmpeg_utils.layer_encode_args).
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", clip_path, *inputs, "-filter_complex", ";".join(graph),
-                        "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+                        "-map", "[v]", "-map", "0:a?",
+                        *layer_encode_args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "19"]),
                         "-c:a", "copy", "-movflags", "+faststart", out_path], check=True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

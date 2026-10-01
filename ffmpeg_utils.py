@@ -9,6 +9,8 @@ FFMPEG_ENCODER env values:
 Only the codec/quality args live here; surrounding args (-movflags, -pix_fmt,
 audio codecs, filters) stay at each call site.
 """
+import contextlib
+import contextvars
 import os
 import subprocess
 import threading
@@ -204,6 +206,52 @@ def video_encode_args(tier=QUALITY):
               f"(FFMPEG_ENCODER={mode})")
 
     return list((_NVENC_ARGS if use_nvenc else _X264_ARGS)[tier])
+
+
+# --- the render chain of one clip (Clip Generator++ profile fx.hq_chain) ----------
+# A clip is re-encoded once per layer (reactions, motion, B-roll, hook,
+# captions). With the historical settings every layer compresses (x264
+# veryfast crf 18-19, NVENC cq 25), so the delivered file carries five lossy
+# generations after the cut and the reframe, and a dark podcast set shows it:
+# soft detail, banding in the blacks. With the HQ chain on, every layer but
+# the last is near-lossless (x264 crf 13, preset fast: about twice the file of
+# a crf 19 veryfast and a few % more CPU, measured in broll_bench.py) and only
+# the delivered layer compresses, at the QUALITY tier. Off (the default), every
+# call site gets exactly the args it always used.
+HQ_CHAIN_CRF = int(os.environ.get("PLUS_HQ_CHAIN_CRF") or 13)
+_hq_chain_ctx = contextvars.ContextVar("hq_chain", default=None)
+
+
+def hq_chain_on():
+    """Is the HQ render chain on? The context (a restyle in the API process,
+    which has no job env) wins over the job's env (PLUS_HQ_CHAIN=1, set by
+    plus.job_env from the profile)."""
+    v = _hq_chain_ctx.get()
+    if v is None:
+        return os.environ.get("PLUS_HQ_CHAIN", "").strip() == "1"
+    return bool(v)
+
+
+@contextlib.contextmanager
+def hq_chain(on):
+    """Run a render chain with the HQ setting ``on`` (None = follow the env)."""
+    tok = _hq_chain_ctx.set(None if on is None else bool(on))
+    try:
+        yield
+    finally:
+        _hq_chain_ctx.reset(tok)
+
+
+def layer_encode_args(legacy, final=False):
+    """Encoder args for one layer of a clip's render chain. ``legacy``: the
+    args that layer used before the HQ chain existed, returned unchanged (as a
+    copy) when the chain is off. ``final``: the delivered layer (the captions),
+    which compresses at the QUALITY tier when the chain is on."""
+    if not hq_chain_on():
+        return list(legacy)
+    if final:
+        return video_encode_args(QUALITY)
+    return ["-c:v", "libx264", "-preset", "fast", "-crf", str(HQ_CHAIN_CRF)]
 
 
 def escape_filter_value(value):

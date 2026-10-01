@@ -40,6 +40,8 @@ import subprocess
 import sys
 import tempfile
 
+from ffmpeg_utils import layer_encode_args
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 FONT_DIR = os.path.join(HERE, "fonts")
 FONT = "Liberation Sans"
@@ -671,9 +673,11 @@ def _render(clip_path, words, preset, out_path, motion, captions, watermark=None
         loud = loudness_track(clip_path) if motion and (opts.get("smart_framing") or opts.get("spotlight")) else []
         graph, extra, report = build_graph(words, info, preset, opts, faces, loud, tmp,
                                            ass_path=ass_path, motion=motion)
+        # The captions are the delivered layer; the motion alone is re-encoded
+        # again by the B-roll, the hook and the captions (ffmpeg_utils.layer_encode_args).
         cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", clip_path, *extra,
                "-filter_complex", graph, "-map", "[vout]", "-map", "0:a?",
-               "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+               *layer_encode_args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "19"], final=captions),
                "-c:a", "copy", "-movflags", "+faststart", out_path]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:

@@ -35,7 +35,12 @@ DEFAULT_PROFILE = {
     "hook_box": True,
     "watermark": "",
     "fx": {"smart_framing": True, "look": False, "spotlight": False, "streaks": False, "reactions": False,
-           "smooth_camera": False},
+           "smooth_camera": False,
+           # HQ render chain: the layers before the captions (reactions, motion,
+           # B-roll, hook) are encoded near-lossless and only the delivered
+           # layer compresses (ffmpeg_utils.layer_encode_args). Off = the
+           # historical crf 18-19 at every layer.
+           "hq_chain": False},
     "music": {"enabled": False, "mood": "", "volume": 0.22},
     # BETA: 2-4 image cutaways when something concrete is named (broll.py).
     "broll": {"enabled": False, "source": "local", "engine": "zimage", "planner": "gemini", "style": "photo",
@@ -405,6 +410,9 @@ def job_env(profile):
         # Read by reframe_v2 (calm tracking + soft cuts); the zoom glides come
         # through PLUS_FX_JSON like every other fx option.
         env["SMOOTH_CAMERA"] = "1"
+    if p["fx"].get("hq_chain"):
+        # Read by ffmpeg_utils.layer_encode_args at every layer of the clip's render chain.
+        env["PLUS_HQ_CHAIN"] = "1"
     if p["music"]["enabled"]:
         env["PLUS_MUSIC_MOOD"] = p["music"]["mood"]
         env["PLUS_MUSIC_VOLUME"] = str(p["music"]["volume"])

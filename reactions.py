@@ -39,6 +39,14 @@ REACT_FADE = 0.13       # s: dissolve in and out, smooth camera only
 FACE_MIN_H = 0.18       # dominant face height (fraction of frame) — a close shot
 
 
+def _encode_args():
+    """x264 veryfast crf 18 historically; near-lossless when the profile's HQ
+    render chain is on (the motion, the B-roll, the hook and the captions all
+    re-encode this layer): ffmpeg_utils.layer_encode_args."""
+    from ffmpeg_utils import layer_encode_args
+    return layer_encode_args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"])
+
+
 def _frames(src, t0, t1):
     """RGB frames at FPS, WIDTH wide, from t0..t1 (s). Returns (list, h)."""
     import numpy as np
@@ -298,7 +306,7 @@ def add_reactions(src, clip_path, clip_start, clip_end, transcript, out_path,
             seg = os.path.join(tmp, f"r{k}.mp4")
             r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{c['start']:.3f}", "-t", f"{c['dur']:.3f}",
                                 "-i", src, "-vf", f"crop={crop_w}:{crop_h}:{x}:0,scale={cw}:{ch},setsar=1,fps={fps}",
-                                "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", seg],
+                                "-an", *_encode_args(), seg],
                                capture_output=True, text=True)
             if r.returncode != 0:
                 raise RuntimeError(r.stderr[-400:])
@@ -315,7 +323,7 @@ def add_reactions(src, clip_path, clip_start, clip_end, transcript, out_path,
         graph.append(f"{cur}format=yuv420p[v]")
         r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", clip_path, *inputs,
                             "-filter_complex", ";".join(graph), "-map", "[v]", "-map", "0:a?",
-                            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "copy",
+                            *_encode_args(), "-c:a", "copy",
                             "-movflags", "+faststart", out_path], capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError(r.stderr[-600:])
