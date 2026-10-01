@@ -561,6 +561,17 @@ def check_hook(clip: dict) -> bool:
 
 
 _HOOK_REPEAT = "says the title again"
+HOOK_REPEAT = _HOOK_REPEAT
+
+
+def title_words(title: str) -> list:
+    """The title's own words a rewritten hook must stay away from (main.retry_unclear_hooks, when the hook
+    says the title again): its words of three letters or more that are not stopwords, in order."""
+    out = []
+    for w in _hook_words(title):
+        if len(w) >= 3 and w not in _HOOK_STOPWORDS and w not in out:
+            out.append(w)
+    return out
 
 
 def hook_issues(clip: dict) -> list:
@@ -619,7 +630,9 @@ better hook per clip:
   viewer has not met — unless the hook itself says who, before it ("A DMT
   user asked if he was dead" is fine; "He asked if he was dead" is not);
 - a statement, not a question. It adds a stake, a tension or a promise: it may
-  share the subject with the title but never says the title again;
+  share the subject with the title but never says the title again. When a clip
+  lists "title_words_not_to_reuse", the hook is built from OTHER words (at most
+  one of those): the hook and the title must say two different things;
 - no name of a person or a show; never an explicit word for suicide or
   self-harm; a drug is shown from its risk, never as fun;
 - it teases the payoff, it NEVER tells it: nothing from the punchline, no

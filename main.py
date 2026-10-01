@@ -2212,32 +2212,54 @@ def retry_unclear_hooks(shorts, transcript, ask=None):
             todo.append((i, hook, issues))
     if not todo:
         return 0
-    items = [{"id": i, "title": shorts[i].get("video_title_for_youtube_short") or "",
-              "opening": playbook.opening_sentences(shorts[i], transcript),
-              "punchline": str(shorts[i].get("punchline") or "").strip(),
-              "hook": hook, "problems": issues} for i, hook, issues in todo]
     language = str((transcript or {}).get("language") or "en")
-    try:
-        answer = (ask or _ask_hook_retry)(playbook.hook_retry_prompt(items, language)) or {}
-        new = {}
-        for h in answer.get("hooks") or []:
-            try:
-                new[int(h.get("id"))] = h.get("viral_hook_text")
-            except (AttributeError, TypeError, ValueError):
-                continue
-    except Exception as e:
-        print(f"   ⚠️ Hook check: the rewrite failed ({type(e).__name__}: {str(e)[:160]}) — "
-              f"keeping the {len(todo)} hook(s) as they are.")
-        return 0
-    changed = 0
-    for i, hook, issues in todo:
-        c = shorts[i]
-        if playbook.apply_hook_retry(c, new.get(i)):
-            changed += 1
-            print(f"   🪝 Hook rewritten ({'; '.join(issues)}): \"{hook}\" -> \"{c['viral_hook_text']}\"")
-        else:
-            print(f"   🪝 Hook kept, {c['hook_check'].get('kept')} ({'; '.join(issues)}): \"{hook}\"")
-        c["hook_check"]["checked"] = c.get("viral_hook_text")
+
+    def rewrite(batch, label):
+        """One call for ``batch`` [(i, hook, issues)]; returns how many hooks changed."""
+        items = []
+        for i, hook, issues in batch:
+            item = {"id": i, "title": shorts[i].get("video_title_for_youtube_short") or "",
+                    "opening": playbook.opening_sentences(shorts[i], transcript),
+                    "punchline": str(shorts[i].get("punchline") or "").strip(),
+                    "hook": hook, "problems": issues}
+            if playbook.HOOK_REPEAT in issues:
+                item["title_words_not_to_reuse"] = playbook.title_words(item["title"])
+            items.append(item)
+        try:
+            answer = (ask or _ask_hook_retry)(playbook.hook_retry_prompt(items, language)) or {}
+            new = {}
+            for h in answer.get("hooks") or []:
+                try:
+                    new[int(h.get("id"))] = h.get("viral_hook_text")
+                except (AttributeError, TypeError, ValueError):
+                    continue
+        except Exception as e:
+            print(f"   ⚠️ Hook check: the rewrite failed ({type(e).__name__}: {str(e)[:160]}) — "
+                  f"keeping the {len(batch)} hook(s) as they are.")
+            return set()
+        done = set()
+        for i, hook, issues in batch:
+            c = shorts[i]
+            if playbook.apply_hook_retry(c, new.get(i)):
+                done.add(i)
+                print(f"   🪝 Hook rewritten{label} ({'; '.join(issues)}): \"{hook}\" -> \"{c['viral_hook_text']}\"")
+            else:
+                print(f"   🪝 Hook kept{label}, {c['hook_check'].get('kept')} ({'; '.join(issues)}): \"{hook}\"")
+            c["hook_check"]["checked"] = c.get("viral_hook_text")
+        return done
+
+    rewritten = rewrite(todo, "")
+    # A rewrite that made the hook say the title (JRE #2515, 1-oct-2026: "This
+    # image will break your brain." -> "The universe and a brain cell look
+    # identical" under the title "Does the universe actually look like a human
+    # brain cell?") was taken, as clearer, and never looked at again. One more
+    # round for those, with the title's words to stay away from.
+    again = [(i, c.get("viral_hook_text"), issues2) for i, hook, _ in todo
+             for c in [shorts[i]] if c.get("viral_hook_text") != hook
+             for issues2 in [playbook.hook_issues(c)] if playbook.HOOK_REPEAT in issues2]
+    if again:
+        rewritten |= rewrite(again, " again")
+    changed = len(rewritten)
     print(f"   🪝 Hook check: {changed}/{len(todo)} unclear hook(s) rewritten.")
     return changed
 
