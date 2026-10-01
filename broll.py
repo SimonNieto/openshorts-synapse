@@ -89,16 +89,18 @@ DENSITY = {
 # The "mixed" layout (premium): an image only when it adds meaning, two to four per 30 s plus the hero. The texts
 # above stay for the historical layouts, whose pace is the ticker's.
 DENSITY_MIXED = {
-    "less": {"pace": "Be SELECTIVE: one or two images per 30 s of clip, plus the hero — only the moments where a picture "
-                     "says what the voice alone cannot.",
+    "less": {"pace": "Be SELECTIVE: one or two images per 30 s of clip, plus the hero when the clip has a real scene for it "
+                     "— only where the speaker names or tells something worth seeing.",
              "names": "Show something the speaker names only when it is a case, a place or an object at real scale that "
                       "carries the point (skip passing mentions):"},
-    "normal": {"pace": "An image only when it adds meaning the voice alone does not give: two to four per 30 s of clip, "
-                       "plus the hero. The face alone is fine; a picture that merely repeats the noun is not.",
+    "normal": {"pace": "An image only where the speaker names or tells something that can be shown: up to three per 30 s "
+                       "of clip, plus the hero when the clip has a real scene for it. The face alone is fine; a picture "
+                       "of an idea is not.",
                "names": "Show something the speaker names only when it is a case, a place or an object at real scale that "
                         "carries the point (skip passing mentions):"},
-    "more": {"pace": "An image only when it adds meaning the voice alone does not give: three or four per 30 s of clip, "
-                     "plus the hero. A picture that merely repeats the noun is not worth the cut.",
+    "more": {"pace": "An image wherever the speaker names or tells something that can be shown: three or four per 30 s of "
+                     "clip, plus the hero when the clip has a real scene for it. The face alone is fine; a picture of an "
+                     "idea is not.",
              "names": "Show something the speaker names when it is a case, a place or an object at real scale that "
                       "carries the point, and the strongest passing mentions:"},
 }
@@ -195,14 +197,16 @@ SCREEN_CARD_SIZE = 86      # % of the width: the viewer must READ this one (labe
 SFX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "sfx", "whoosh_soft.wav")
 SFX_GAIN_DB = _knob("BROLL_SFX_DB", -18.0)
 SFX_LEAD = 0.12       # s before the picture: the sound announces it
-HERO_RULE = """HERO IMAGE: one image of the set is shown FULL SCREEN for about 3 s: the clip's poster, the frame a cold
-viewer stops on. First list "hero_options": THREE different candidate concepts (each: "anchor", the verbatim words
-where it would land; "picture", the scene in one sentence; "why", what it proves) — take them from the episode's
-HERO IDEAS when one fits, or find better — then pick the strongest (clear at a glance, specific to this clip, felt,
-never a cliché) and mark that moment "hero": true (one at most) with "hero_why" (one sentence). A hero is a concrete
-scene (an example, a consequence, a place, an action), shot wide or medium, never a diagram, never in the hook's
-first seconds, never on the punchline; make its image_prompt a complete scene with depth (foreground, subject,
-background): it fills a phone screen."""
+HERO_RULE = """HERO IMAGE: one image of the set MAY be shown FULL SCREEN for about 3 s: the clip's poster, the frame a cold
+viewer stops on. A hero is a concrete scene the speaker names or a story of the brief tells — a thing at its real
+scale, a place, an action, a creature — shot wide or medium, never a diagram, never an allegory (no lone figure
+before the vastness, no doorway for a threshold), never in the hook's first seconds, never on the punchline.
+First list "hero_options": THREE different candidate concepts (each: "anchor", the verbatim words where it would
+land; "picture", the scene in one sentence; "why", what the viewer sees) — take them from the episode's HERO IDEAS
+when one fits, or find better — then pick the strongest (clear at a glance, specific to this clip, the thing itself)
+and mark that moment "hero": true (one at most) with "hero_why" (one sentence). When the clip has no such scene,
+mark no hero: the cards alone beat a poster of an idea. Make the hero's image_prompt a complete scene with depth
+(foreground, subject, background): it fills a phone screen."""
 STOPWORDS = set("""a an the of to in on at by for with from and or but so as is are was were be been it its this that
 these those he she they we you i me him her them us my your his their our there here then than very just not no
 some any all one two three""".split())
@@ -262,7 +266,6 @@ PLAN_SCHEMA = {
     "properties": {
         "thesis": {"type": "string"},
         "arc": {"type": "string"},
-        "visual_argument": {"type": "string"},
         "style_sheet": {"type": "object", "properties": {k: {"type": "string"} for k in
                         ("palette", "light", "era", "camera", "mood", "cast")}},
         "moments": {"type": "array", "items": {
@@ -323,9 +326,14 @@ CLICHES = ("a glowing brain, a brain floating in space or in blue light", "neuro
            "a light bulb for an idea", "a handshake", "pills or capsules on a plain white background",
            "a dark silhouette with glowing eyes", "a holographic screen, a floating interface or a HUD",
            "a head with gears, puzzle pieces, a maze or a chess board for the mind",
-           "people grinning at the camera like a stock photo", "a DNA helix glowing on black")
-CLICHE_RULE = ("NEVER THE AI CLICHÉ. These pictures are what every generator draws first and what marks a cheap channel; "
-               "none of them, whatever the words: " + "; ".join(CLICHES) + """.
+           "people grinning at the camera like a stock photo", "a DNA helix glowing on black",
+           # the allegories a clever editor reaches for: as empty as the neon brain, only better dressed
+           "a lone small figure facing a vast landscape, a starry sky or the sea", "open empty palms held out",
+           "a hand reaching toward a light", "a doorway or threshold glowing with light",
+           "water or sand running through fingers", "a person seen from behind at a window",
+           "an empty corridor or a long empty road", "a clock, an hourglass or a crossroads for time or a choice")
+CLICHE_RULE = ("NEVER THE AI CLICHÉ. These pictures are what every generator draws first, what a clever editor reaches "
+               "for when nothing concrete was said, and what marks a cheap channel; none of them, whatever the words: " + "; ".join(CLICHES) + """.
 - A DETAIL THAT TELLS instead: every picture holds one specific, real-world thing at its true scale, as a documentary
   photographer would find it — the pill bottle on a kitchen counter at 7 am, the patient's hand on the bed rail, the
   stained slice of tissue on a microscope slide, the worn stairs of the named building, a gesture, a texture in macro.
@@ -355,24 +363,28 @@ CLAUDE_SYSTEM_VISION = ("You are a meticulous short-form video editor. The image
 MODE_RULES = {
     "literal": "Be LITERAL: show exactly the thing named, as a plain picture of it. Two nearby moments may use two "
                "different images.",
-    "mixed": ("MIX literal and conceptual images, roughly half and half. Literal: the thing named, plain "
-              "(\"salvia\" -> the plant, \"knife\" -> a knife). Conceptual: when the words carry a bigger idea "
-              "(a claim, a mechanism, an analogy, a consequence), show that idea in one clear scene. "
-              "Alternate them so the edit never feels repetitive."),
+    # The recipe (plus.BROLL["mode"]): the thing named, first — the audit of 1-oct-2026 found 8 allegories out of 11
+    # pictures (open palms, a doorway, water through fingers), and the 3 that worked showed the thing named.
+    "mixed": ("THE THING NAMED, FIRST. Every image shows something the speaker NAMES or TELLS: an object, a substance, "
+              "an animal, a place, a device, a kind of person doing what is said, a scene of a story of the brief — the "
+              "thing itself, at its real scale, in its real setting. A picture of an idea (an allegory: open hands for "
+              "honesty, a doorway for a threshold, water through fingers for forgetting, a lone figure before the "
+              "vastness, a hand reaching for the light) is allowed ONLY when the speaker says that image himself (\"a "
+              "security blanket\", \"like decorator crabs\", \"it slides through your fingers\") — and then it shows "
+              "exactly what he says, nothing cleverer. When a sentence names nothing, it gets no image: the face is the "
+              "picture. Zero images beats one allegory."),
     "concept": ("Favour the IDEA over the noun: show what the sentence MEANS in one clear scene (the mechanism, "
                 "the consequence, the analogy), and use a plain literal picture only when the word itself is the "
                 "point."),
 }
 CLAUDE_PLAN_PROMPT = """You are the editor of a short-form clip cut from a longer conversation. Add up to {n} B-roll
-images. {frame}
+images — fewer when the clip names little, none when it names nothing. {frame}
 
 FIRST understand the clip inside its episode (the EPISODE BRIEF below: who talks, what the episode is about, the
 visual glossary, the real stories told). Then write:
 - "thesis": in one sentence, what the viewer must take away from THIS clip;
-- "arc": setup -> claim -> payoff of the clip, in a few words each;
-- "visual_argument": the ONE thing a viewer must SEE to believe the thesis, in one sentence: a scene, an object at
-  its real scale, a gesture — the hero usually shows it. Then plan the set as a documentary sequence that builds
-  that argument (where we are, the case, the mechanism, the consequence): no two images make the same point.
+- "arc": setup -> claim -> payoff of the clip, in a few words each.
+{mode_rule}
 Also write "style_sheet": ONE visual direction for the whole set of images of this clip, so they look shot by the
 same person on the same day, in plain words a few words long each: "palette" (the 2-4 dominant colours), "light"
 (kind and direction of the light), "era" (the period the story is in, or "present day"), "camera" (lens, angle,
@@ -380,9 +392,9 @@ grain), "mood". Take them from the topic, the era and the tone of the stories, n
 When an EPISODE VISUAL BIBLE is given below, its LOOK is the style_sheet of every clip of the episode: copy its
 palette, light and lens, add only this clip's era and mood; take the pictures from its WORLD (the things this
 episode really contains), return to its MOTIFS, and never show what its AVOID list names.
-The images serve that thesis and that arc — never an isolated word. Typical roles ("role" of each moment):
-"concept" (the notion the point rests on, when it is introduced), "example" (the concrete case, with the REAL
-details from the stories: place, year, kind of people, study), "consequence" (what it leads to — often the payoff).
+Each image has a "role": "example" (a case, a place, an object, a creature, a scene the speaker tells — the usual
+picture), "concept" (the notion itself, only when it is introduced, drawn as the glossary says: a real object,
+instrument or place, never a symbol), "consequence" (what it leads to, when the speaker says it in concrete terms).
 When a notion of the visual glossary is shown, draw it exactly as the glossary says (the channel always shows it the
 same way).
 
@@ -391,16 +403,17 @@ same way).
 - substances, plants, drugs, food and drinks ("salvia" -> the plant, "cigar" -> a lit cigar, "coffee", "pills");
 - objects, tools, weapons, vehicles, clothes ("knife", "gun", "car", "phone", "syringe");
 - places, buildings, landscapes, eras, events; animals; body parts and organs; kinds of people (soldiers, surgeons);
-- a mechanism, a number or a scale, an analogy ("like a hike at dawn" -> a mountain trail at sunrise);
-- an action or a situation the viewer cannot see in the video.
-{mode_rule}
+- a scene of a story: who, where, doing what, with the real details the brief gives;
+- an analogy the speaker says himself ("like a hike at dawn" -> a mountain trail at sunrise), shown as he says it;
+- a number or a scale, shown as the things counted; an action the viewer cannot see in the video.
 {grounding}
 {set_rule}
 {cliche_rule}
 {specific_rule}
 {recent}Never: something already visible in the video (look at the frame sheets), a named real person,
-a brand (use a generic equivalent), an abstraction nobody can draw. Aim for {n} images; return fewer only when the clip
-truly has nothing concrete to show.
+a brand (use a generic equivalent), an abstraction nobody can draw. At most {n} images; one or two when the clip
+names little, none when it names nothing — a cold viewer forgives a face alone, never a picture that has nothing to do
+with the words.
 
 Frame sheets: {sheets} — thumbnails of the clip every 2.5 s, each stamped with its time. Look at them first.
 
@@ -410,14 +423,14 @@ For each image give:
   water", not "two") is spoken, so choose words whose key word is the one that shows the thing;
 - "time": the second the anchor is spoken (from the markers);
 - "said": the sentence (about 8-15 words, verbatim) this image illustrates;
-- "idea": what this image PROVES or makes felt for the thesis, in one sentence a picture editor would write
-  ("the ordeal was real: a dented canteen was all they had"), never what it depicts;
+- "idea": the link the viewer makes between the picture and the words, in one sentence ("he says security blanket:
+  a blanket pulled tight around someone on a bed"), never a thesis the picture would prove;
 - "subject": the main thing seen, 1-3 words ("brain", "patient in bed", "implant") — two images never share it;
 - "shot": wide | medium | close | macro | schematic;
 - "notion": only when the image is simply THE usual picture of a notion of the brief's glossary (VISUAL GLOSSARY or
   OTHER NOTIONS, even if the speaker says it in other words), with no detail of this particular case (number, person,
   scene, era): its name exactly as listed. If the image must show a specific case, leave it empty;
-- "image_prompt": one or two English sentences describing ONE clear scene that shows that idea, keeping the
+- "image_prompt": one or two English sentences describing ONE clear scene: the thing named or told, with the
   specifics of "said" (number, place, era, who, action, mood): subject, action, setting, light. It must read on a phone at a third of the screen width: one main subject, simple background, no text.{style_rule}
 Only moments between {lo:.1f}s and {hi:.1f}s{avoid}, at least {gap:g} s apart.
 
@@ -541,7 +554,8 @@ def _space(moments, n, gap=MIN_GAP):
 HERO_ROLE = {"example": 2.0, "consequence": 2.0, "concept": 0.0}
 HERO_SHOT = {"wide": 1.5, "medium": 1.0, "close": 0.5, "macro": 0.0, "schematic": -1.0}
 HERO_STYLE = {"diagram": -2.0, "drawing": -1.0, "neon": -1.0, "comic": -1.0, "3d": -0.5}
-HERO_MIN_SCORE = 1.5   # a plain photo of a concept, close-up, just makes it; a schematic or a diagram never does
+HERO_MIN_SCORE = 2.5   # a plain photo of a concept fills the screen only as a medium shot in the payoff half; a close-up,
+                       # a schematic or a diagram never does (an example or a consequence passes from a close-up on)
 
 
 def hero_dur(m):
@@ -987,9 +1001,6 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     thesis = str((data or {}).get("thesis") or "")[:300]
     if thesis:
         print(f"   💡 Clip thesis: {thesis}")
-    argument = re.sub(r"\s+", " ", str((data or {}).get("visual_argument") or "")).strip()[:300]
-    if argument:
-        print(f"   👁️ Visual argument: {argument}")
     options = [{k: re.sub(r"\s+", " ", str(o.get(k) or "")).strip()[:200] for k in ("anchor", "picture", "why")}
                for o in ((data or {}).get("hero_options") or []) if isinstance(o, dict) and str(o.get("picture") or "").strip()][:3]
     chosen = next((m for m in moments if m.get("hero")), None)
@@ -1004,7 +1015,6 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
         print(f"   🎞️ Sequence: {' -> '.join(subjects)}")
     for m in moments:
         m["thesis"] = thesis
-        m["argument"] = argument
         m["hero_options"] = options
     return moments
 
@@ -1035,7 +1045,7 @@ paint from, for EVERY picture of the set at once, so they look shot by one photo
 
 THE CHANNEL'S LOOK (every picture of every clip, it always wins): {house}
 {family}{bible}THIS CLIP'S STYLE SHEET (the editor's; keep what agrees with the channel's look): {sheet}
-THE CLIP: title "{title}"; thesis: {thesis}{argument}
+THE CLIP: title "{title}"; thesis: {thesis}
 {glossary}
 THE PICTURES, in the order they are seen:
 {moments}
@@ -1060,8 +1070,9 @@ RULES
 - One series: the same direction and quality of light, the same palette and grade in every prompt of the set.
   Vary the shots (wide, medium, close, macro) so no two pictures look alike; the HERO is the widest and most
   cinematic frame of the set.
-- THE HERO is the clip's poster: one unforgettable frame that proves the visual argument. Spend your best sentences
-  on it: a real place, a real scale, a human presence or a telling object, depth, the light of the episode.
+- THE HERO is the clip's poster: one unforgettable frame of the thing or the scene the editor chose, as it really
+  is — never an allegory. Spend your best sentences on it: a real place, a real scale, a human presence or a telling
+  object, depth, the light of the episode.
 - Describe what IS in the frame, never what is not: the image model ignores negations ("no text", "without
   people" do nothing). Say "a bare plaster wall", not "no poster on the wall".
 - Photographic, real-world vocabulary: a documentary still. The style note of a picture is the editor's hint;
@@ -1159,7 +1170,6 @@ def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, s
     sheet = next((m.get("sheet") for m in moments if m.get("sheet")), None)
     sheet_txt = "; ".join(f"{k}: {v}" for k, v in (sheet or {}).items()) or "none"
     thesis = next((m.get("thesis") for m in moments if m.get("thesis")), "") or "-"
-    argument = next((m.get("argument") for m in moments if m.get("argument")), "")
     lines = []
     for k, m in enumerate(moments):
         m_style = (m.get("style") or "photo") if auto_style else style
@@ -1185,8 +1195,6 @@ def _art_prompt(moments, clip, house, mixed=True, rise=False, auto_style=True, s
     return ART_PROMPT.format(house=house or "cinematic documentary photograph", sheet=sheet_txt, cliche=CLICHE_RULE,
                              family=family_text(family), bible=_bible_block(),
                              title=clip.get("video_title_for_youtube_short") or "-", thesis=thesis,
-                             argument=(f"; the visual argument (what the viewer must SEE to believe it, the hero's job): "
-                                       f"{argument}") if argument else "",
                              glossary=_art_glossary(moments, clip_text), moments="\n".join(lines),
                              faces=FACE_TEXT.get(faces, FACE_TEXT["never"]))
 

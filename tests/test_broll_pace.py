@@ -1,5 +1,5 @@
 """The pace of the mixed layout (B-roll v2, chantier G): the editor is asked for an image only when it adds
-meaning, two to four per 30 s plus the hero, and told how the pictures really sit on screen (wide cards above
+meaning, up to three per 30 s plus the hero, and told how the pictures really sit on screen (wide cards above
 the head, one full-screen hero); the reviewer too. The historical layouts keep their texts. No model is called."""
 import pytest
 
@@ -39,7 +39,7 @@ def _plan_prompt(monkeypatch, **kw):
 class TestTheEditor:
     def test_mixed_asks_for_meaning_not_a_ticker(self, monkeypatch):
         text = _plan_prompt(monkeypatch, hero=True, density="normal")
-        assert "two to four per 30 s of clip, plus the hero" in text and "ALWAYS have something to look at" not in text
+        assert "up to three per 30 s of clip, plus the hero" in text and "ALWAYS have something to look at" not in text
         assert "skip passing mentions" in text and "even if it is a passing mention" not in text
         assert "wide card above the speaker's head (about 60 % of the screen width, 2.2-3.5 s)" in text
         assert "except the one HERO, full screen for about 3 s" in text
@@ -57,7 +57,7 @@ class TestTheEditor:
         text = _plan_prompt(monkeypatch, hero=False, density="normal")
         assert "ALWAYS have something to look at" in text and "even if it is a passing mention" in text
         assert "about a third of the screen width, under the captions" in text and "HERO" not in text
-        assert "two to four per 30 s" not in text
+        assert "up to three per 30 s" not in text
         less = _plan_prompt(monkeypatch, hero=False, density="less")
         assert broll.DENSITY["less"]["pace"] in less
 

@@ -107,7 +107,10 @@ class TestHero:
 
     def test_a_diagram_or_a_schematic_never_fills_the_screen(self):
         assert broll.pick_hero([_moment(20.0, role="example", shot="schematic", style="diagram")], self.DUR, []) is None
-        assert broll.pick_hero([_moment(20.0, role="concept", shot="close", style="photo")], self.DUR, []) == 0
+        assert broll.pick_hero([_moment(20.0, role="concept", shot="close", style="photo")], self.DUR, []) is None
+        assert broll.pick_hero([_moment(10.0, role="concept", shot="medium", style="photo")], self.DUR, []) is None
+        assert broll.pick_hero([_moment(20.0, role="concept", shot="medium", style="photo")], self.DUR, []) == 0
+        assert broll.pick_hero([_moment(10.0, role="example", shot="close", style="photo")], self.DUR, []) == 0
 
     def test_a_kept_notion_picture_is_not_a_hero(self):
         assert broll.pick_hero([_moment(20.0, role="example", shot="wide", notion="Dopamine")], self.DUR, []) is None

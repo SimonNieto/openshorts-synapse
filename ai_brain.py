@@ -773,13 +773,14 @@ to THIS episode (nothing generic that would fit any episode):
   WHERE they live: "indigo in the windows, amber on the skin"), "light" (sources, direction, quality, time of
   day), "lens" (focal lengths and distances the episode calls for), "texture" (surfaces, grain, materials), "mood"
   (3-4 words). Choose it from what the episode is about and how it feels, so its clips look like one series.
-- "motifs": 3 to 5 recurring visual motifs the clips can return to (a hand, a window at dawn, a vial, a doorway...),
-  each with when to use it, in one line.
+- "motifs": 3 to 5 recurring visual motifs the clips can return to, each a real thing of the episode (a hand on the
+  pump's dial, a vial held to the light, the lawn at dusk) with when to use it, in one line — never an allegory (no
+  doorway for a threshold, no hand reaching into the dark, no lone figure before the vastness).
 - "avoid": 3 to 8 pictures never to use for this episode (the clichés of its subject, the wrong scale, the wrong
   era, the misleading image), one line each.
 - "heroes": for each story or big theme of the brief, ONE picture that would make a cold viewer stop on a phone
-  (full screen, one second): "story" (its name), "picture" (one sentence: scene, subject, action, place, light),
-  "why" (what it proves or makes felt). 6 to 12 of them.
+  (full screen, one second): "story" (its name), "picture" (one sentence: a real scene of the story — place, subject,
+  action, light — never an allegory of its idea), "why" (what the viewer sees). 6 to 12 of them.
 Never invent a fact: a place, a year, a person must be in the transcript or the brief."""
 BIBLE_SCHEMA = {
     "type": "object",
