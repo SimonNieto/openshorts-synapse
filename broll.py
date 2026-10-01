@@ -187,6 +187,19 @@ STYLE_RULE = """
   "comic"   - humour, an anecdote, an exaggerated situation, a caricature-like moment (never a real person);
   "diagram" - a process, a flow, a comparison or a cause and effect that reads better as shapes and arrows.
   Keep the clip coherent: one style should dominate, use the others only when the moment clearly calls for it."""
+# "auto" style in the "mixed" layout: one photographic look for the whole clip (the reference shorts never mix a
+# comic, a 3D render and a photo); neon stays for what no camera can see.
+STYLE_RULE_PREMIUM = """
+- "style": how to show it, one of:
+  "photo"     - the default, for everything that exists in the physical world: anonymous people, places, objects,
+                plants, food, animals, tools, events, a scene with action;
+  "cinematic" - the same when the moment is dramatic, dark or tense (a night scene, a danger, a fight) - never for
+                a patient, an illness, a disability or a death (use "photo" there);
+  "neon"      - ONLY the microscopic or the invisible: neurons, receptors, molecules, hormones, DNA, cells, brain
+                activity.
+  Nothing else (no drawing, no comic, no diagram, no 3D render, no vintage): the images of a clip are one series
+  shot with one camera."""
+PREMIUM_STYLES = ("photo", "cinematic", "neon")
 PLAN_SCHEMA = {
     "type": "object",
     "properties": {
@@ -727,7 +740,8 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     brief = ai_brain.brief_for_clip(ai_brain.EPISODE_BRIEF, f"{before} {clip_text} {after}", start,
                                     end if end is not None else start + duration)
     common = dict(n=n, avoid=avoid_txt, sheets=", ".join(os.path.basename(p) for p in sheets or []) or "none",
-                  style_rule=STYLE_RULE if auto_style else "", mode_rule=MODE_RULES.get(mode, MODE_RULES["mixed"]),
+                  style_rule=((STYLE_RULE_PREMIUM if hero else STYLE_RULE) if auto_style else ""),
+                  mode_rule=MODE_RULES.get(mode, MODE_RULES["mixed"]),
                   title=title or "-",
                   hook=clip.get("viral_hook_text") or "-", before=before or "-", after=after or "-",
                   brief=brief or "(no brief for this video)", text=_numbered_text(words)[:6000],
@@ -1241,7 +1255,18 @@ def _graph(engine, text, seed, width=768, height=1344):
     return out
 
 
-def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look=""):
+def _image_text(prompt, style, look="", house=""):
+    """The full prompt sent to the image model: the scene (with its guardrails), the channel's house look
+    (profile broll.house_look, the same sentence in every image of every clip), this clip's style sheet, the
+    style's own description and the common rules."""
+    prompt, guard = guardrails(prompt) if os.environ.get("BROLL_GUARDRAILS", "1") != "0" else (prompt, "")
+    house = re.sub(r"\s+", " ", str(house or "")).strip()
+    if house and not house.endswith("."):
+        house += "."
+    return f"{prompt} {guard} {house} {look} {STYLES.get(style, STYLES['photo'])} {COMMON_RULES}".replace("  ", " ")
+
+
+def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
     """One 9:16 image from ComfyUI. Measured on an RTX 3060 (ComfyUI on
     PyTorch cu130 — the int8 kernels need it): Z-Image Turbo ~12 s per
     image, FLUX.1 schnell ~25 s; the first call of a job also loads the
@@ -1249,8 +1274,7 @@ def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768
     import random
     import uuid
     import httpx
-    prompt, guard = guardrails(prompt) if os.environ.get("BROLL_GUARDRAILS", "1") != "0" else (prompt, "")
-    text = f"{prompt} {guard} {look} {STYLES.get(style, STYLES['photo'])} {COMMON_RULES}".replace("  ", " ")
+    text = _image_text(prompt, style, look, house)
     graph = _graph(engine if engine in ENGINES else "zimage", text, random.randint(0, 2 ** 48), *size)
     base = _comfy_url()
     with httpx.Client(timeout=30) as http:
@@ -1772,7 +1796,7 @@ def _label_card(card, text, cw, ch):
 
 
 def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=None, enter="rise", zoom="soft",
-                 border="soft", look=None, label=None):
+                 border="soft", look=None, label=None, grade="off"):
     """PNG sequence of the rising card, drawn in a fixed canvas; the canvas
     itself moves up through the overlay's ``y`` expression. Returns
     (pattern, x, motion) where motion = (y_start, y_end, drift, canvas_h[,
@@ -1782,12 +1806,18 @@ def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=
     3 % radius that fades in while rising CARD_RISE_PX over CARD_IN s (no
     travel from the edge of the screen), pushes in CARD_PUSH while it stays,
     and fades out over CARD_OUT s shrinking CARD_OUT_SHRINK. ``label``: a
-    small-caps word drawn in its corner."""
+    small-caps word drawn in its corner. ``grade``: the profile's colour grade
+    (GRADES) in place of the historical touch-up, with its grain per frame."""
     prem = look == "premium"
     img = Image.open(src).convert("RGB")
-    img = ImageEnhance.Contrast(img).enhance(1.07)
-    img = ImageEnhance.Color(img).enhance(1.08)
+    if grade in GRADES:
+        img = _grade_colour(img, grade)
+    else:
+        img = ImageEnhance.Contrast(img).enhance(1.07)
+        img = ImageEnhance.Color(img).enhance(1.08)
     img = ImageEnhance.Sharpness(img).enhance(1.15)
+    grain = GRADES[grade]["grain"] if grade in GRADES else 0.0
+    rng = __import__("numpy").random.default_rng(11) if grain else None
     iw, ih = img.size
     cap_top, cap_bottom = _caption_band(H)
     shadow = max(8, int(W * 0.016))
@@ -1821,6 +1851,8 @@ def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=
         vw, vh = cw * zmax / zoom, ch * zmax / zoom
         x0, y0 = (big.width - vw) / 2, (big.height - vh) / 2
         photo = big.crop((int(x0), int(y0), int(x0 + vw), int(y0 + vh))).resize((cw, ch), Image.BILINEAR)
+        if rng is not None:
+            photo = _grain(photo, grain, rng)
         unit = shade.copy()
         card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
         card.paste(photo, (0, 0), mask)
@@ -1861,7 +1893,45 @@ def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=
     return os.path.join(folder, "c%03d.png"), (W - cvw) // 2, (y_start, y_end, 0, cvh)
 
 
-def _hero_frames(src, folder, fps, dur, W, H):
+# One grade for every picture of a clip (profile broll.grade), applied when the
+# picture is cut in (so a restyle keeps it and the image review judges the raw
+# picture): a touch less saturation, lifted blacks, warm highlights / cool
+# shadows, and (cards) a fine grain. "cinematic" is the documentary-film look of
+# the reference shorts; "clean" the same, barely there.
+GRADES = {
+    "cinematic": {"sat": 0.88, "contrast": 1.04, "lift": 10, "warm": 10, "cool": 10, "grain": 4.0},
+    "clean": {"sat": 0.94, "contrast": 1.02, "lift": 4, "warm": 4, "cool": 4, "grain": 0.0},
+}
+
+
+def _grade_colour(img, name):
+    """The colour part of a grade on a PIL RGB image (vignette and grain are drawn per frame by the renderers)."""
+    g = GRADES.get(name)
+    if not g:
+        return img
+    import numpy as np
+    arr = np.asarray(img.convert("RGB"), dtype=np.float32)
+    lum = arr @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
+    arr = lum[..., None] + (arr - lum[..., None]) * g["sat"]
+    arr = np.clip((arr - 128.0) * g["contrast"] + 128.0, 0, 255)
+    arr = g["lift"] + arr * (255.0 - g["lift"]) / 255.0
+    t = (np.clip(lum, 0, 255) / 255.0)[..., None]
+    arr[..., 0:1] += g["warm"] * t * t
+    arr[..., 1:2] += g["warm"] * 0.45 * t * t
+    arr[..., 2:3] += g["cool"] * (1 - t) * (1 - t)
+    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
+
+
+def _grain(img, sigma, rng):
+    """Fine film grain on a PIL RGB image (a new field every call)."""
+    if not sigma:
+        return img
+    import numpy as np
+    arr = np.asarray(img, dtype=np.float32) + rng.normal(0.0, sigma, (img.height, img.width, 1)).astype(np.float32)
+    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
+
+
+def _hero_frames(src, folder, fps, dur, W, H, grade="off"):
     """PNG sequence (RGBA) of a full-screen "hero" picture, the way a cutaway is
     cut in a documentary: the image covers the frame (centre crop), pushes in
     slowly (1.00 -> HERO_PUSH, eased over its whole time on screen) and
@@ -1870,11 +1940,16 @@ def _hero_frames(src, folder, fps, dur, W, H):
     a sub-pixel box, so the move is smooth (zoompan rounds its window to whole
     pixels and shimmers on a slow zoom). A soft vignette, a dark gradient at the
     bottom (the captions stay readable on a bright picture) and a fine film
-    grain that changes every frame finish it. Returns the frame pattern."""
+    grain that changes every frame finish it. ``grade``: the profile's colour
+    grade (GRADES) in place of the historical contrast / colour touch-up.
+    Returns the frame pattern."""
     import numpy as np
     img = Image.open(src).convert("RGB")
-    img = ImageEnhance.Contrast(img).enhance(1.07)
-    img = ImageEnhance.Color(img).enhance(1.08)
+    if grade in GRADES:
+        img = _grade_colour(img, grade)
+    else:
+        img = ImageEnhance.Contrast(img).enhance(1.07)
+        img = ImageEnhance.Color(img).enhance(1.08)
     img = ImageEnhance.Sharpness(img).enhance(1.2)      # the source is smaller than the frame (896 px -> 1080 px)
     iw, ih = img.size
     if iw / ih > W / H:
@@ -1950,13 +2025,16 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     card_size = int(cfg.get("card_size") or CARD_SIZE)
     card_position = cfg.get("card_position") if cfg.get("card_position") in ("top", "above", "below") else "top"
     dur_range = (CARD_DUR_MIN, CARD_DUR_MAX) if mixed else None
+    # One look for the whole chain (mixed): the house sentence in every prompt, one grade on every picture.
+    house = str(cfg.get("house_look") or "").strip() if mixed else ""
+    grade = cfg.get("grade") if mixed and cfg.get("grade") in GRADES else "off"
 
     def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None):
         """(path, "local", None) from ComfyUI; raises ComfyDown when it fails."""
         try:
             return local_image(prompt, m_style, raw, engine=engine,
                                size=_gen_size(layout if layout is not None else ("rise" if rise else "full"), hero_res),
-                               look=look_text(sheet, m_style)), "local", None
+                               look=look_text(sheet, m_style), house=house), "local", None
         except Exception as e:
             raise ComfyDown(f"ComfyUI image failed: {str(e)[:200]}") from e
 
@@ -2011,6 +2089,11 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             print("   ℹ️ B-roll skipped: moments need the Claude or Gemini planner (not set up or call failed).")
             return None
         if mixed:
+            if auto_style:
+                # One photographic series: whatever the planner picked outside photo / cinematic / neon is a photo.
+                for m in moments:
+                    if m.get("style") not in PREMIUM_STYLES:
+                        m["style"] = "photo"
             # The code has the last word on the hero: the planner's pick counts, the timing rules win.
             k_hero = pick_hero(moments, words[-1]["end"], avoid)
             for i, m in enumerate(moments):
@@ -2104,6 +2187,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             if mixed:
                 # The size the picture was made at: a manual redo asks for the same one.
                 item["gen"] = list(_gen_size(c["layout"], hero_res))
+                if grade != "off":
+                    item["grade"] = grade            # applied when the picture is cut in, restyle included
             if m.get("sheet") and not m.get("notion"):
                 item["sheet"] = m["sheet"]      # kept: a manual redo keeps the clip's look
             if m.get("notion"):
@@ -2173,8 +2258,11 @@ def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, 
         size = RISE_GEN if rise else (768, 1344)
     if not comfy_available():
         raise RuntimeError("ComfyUI is not reachable (start it in Pinokio)")
+    # A hero or a wide card belongs to a "mixed" clip: it gets the house look like the first picture did.
+    house = str(cfg.get("house_look") or "").strip() if cfg.get("layout") in ("hero", "card", "mixed") else ""
     try:
-        return local_image(prompt, style, out_path, engine=engine, size=size, look=look_text(sheet, style)), "local", None
+        return local_image(prompt, style, out_path, engine=engine, size=size, look=look_text(sheet, style),
+                           house=house), "local", None
     finally:
         comfy_release()
 
@@ -2204,8 +2292,9 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
             except (TypeError, ValueError):
                 dur = RISE_DUR if rise else SEG_DUR
             dur = max(1.0, min(4.0, dur))
+            grade = it.get("grade") if it.get("grade") in GRADES else "off"
             if hero:
-                pattern = _hero_frames(src, folder, fps, dur, w, h)
+                pattern = _hero_frames(src, folder, fps, dur, w, h, grade=grade)
                 layers.append({"t": it["t"], "dur": dur, "rise": False, "hero": True, "pattern": pattern, "x": 0, "y": 0})
             elif rise:
                 pattern, x, motion = _rise_frames(src, folder, fps, dur, w, h, int(it.get("size") or RISE_SIZE),
@@ -2213,7 +2302,7 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                                                   it.get("enter") if it.get("enter") in ENTER_MODES else "rise",
                                                   it.get("zoom") if it.get("zoom") in ZOOM_LEVELS else "soft",
                                                   it.get("border") if it.get("border") in BORDERS else "soft",
-                                                  look=it.get("look"), label=it.get("label"))
+                                                  look=it.get("look"), label=it.get("label"), grade=grade)
                 layers.append({"t": it["t"], "dur": dur, "rise": True, "pattern": pattern, "x": x, "y": motion})
             else:
                 pattern, x, y, _full = _card_frames(src, folder, fps, dur, w, h,

@@ -232,7 +232,7 @@ class TestAddBroll:
     def stubs(self, monkeypatch):
         made = []
 
-        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look=""):
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
             Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
             made.append(tuple(size))
             return out_path
@@ -423,7 +423,7 @@ class TestMixedCards:
     def test_mixed_cards_are_wide_premium_and_above_the_head(self, monkeypatch):
         made = []
 
-        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look=""):
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house=""):
             Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
             made.append(tuple(size))
             return out_path

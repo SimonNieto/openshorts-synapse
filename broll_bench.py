@@ -230,7 +230,10 @@ def cmd_chain(args):
 # --- the look (before / after) ----------------------------------------------------------
 
 # What the premium chantiers change, applied on top of the saved profile for the AFTER render.
-AFTER_BROLL = {"layout": "mixed", "hold": None, "density": "normal", "max": 4, "hero_res": "std"}
+AFTER_BROLL = {"layout": "mixed", "hold": None, "density": "normal", "max": 4, "hero_res": "std",
+               "grade": "cinematic",
+               "house_look": "cinematic documentary photograph, 35 mm lens, natural light, teal and amber grade, "
+                             "fine film grain, shallow depth of field"}
 AFTER_FX = {"hq_chain": True}
 
 
@@ -307,6 +310,8 @@ def cmd_visual(args):
     prof = _profile(args.profile)
     _job_env(prof)
     os.environ.pop("PLUS_HQ_CHAIN", None)
+    # A bench never writes into (nor reads from) the channel's notion memory: every picture is made afresh.
+    os.environ["BROLL_NOTION_MEMORY"] = "0"
     dur = _ffprobe_duration(pre_fx)
     print(f"🎬 visual bench: {os.path.basename(pre_fx)[:70]} ({dur:.1f} s), profile '{prof['name']}', "
           f"style {prof['edit_style']}, hook {prof['hook_style']} {prof['hook_seconds']} s")
@@ -375,13 +380,79 @@ def cmd_visual(args):
           f"visual_before.mp4, visual_after.mp4")
 
 
+# --- the caption face (chantier F) --------------------------------------------------------
+
+def cmd_fonts(args):
+    """Captions only, on the pristine clip, natural (Liberation Sans 64) next to premium (Montserrat ExtraBold) at
+    64 / 68 / 72, on up to three clips: one frame per clip at a caption with an accent word, the caption band
+    cropped and stacked (``fonts_sheet.jpg``), plus the full frames of the first clip."""
+    import viral_fx
+    from PIL import Image
+    os.makedirs(OUT_DIR, exist_ok=True)
+    prof = _profile(args.profile)
+    _job_env(prof)
+    rows = []
+    full = []
+    for k, spec in enumerate([s for s in (args.clips or f"{args.job}:{args.clip}").split(",") if s]):
+        job, _, n = spec.partition(":")
+        job_dir, meta, clip, pre_fx = _find_clip(job, int(n or 1))
+        words = viral_fx.clip_words(meta.get("transcript"), float(clip["start"]), float(clip["end"]))
+        topic = viral_fx.topic_words(clip.get("video_title_for_youtube_short"), clip.get("viral_hook_text"))
+        # An instant with an accent word, past the first third of the clip.
+        _, groups = viral_fx.build_ass(words, "natural", topic=topic)
+        dur = _ffprobe_duration(pre_fx)
+        t = None
+        for g in groups:
+            if g[0]["start"] > dur / 3 and any(viral_fx.keyword_score(w["text"], topic) >= 0.6 for w in g):
+                t = g[0]["start"] + 0.25
+                break
+        t = t if t is not None else dur / 2
+        tiles = []
+        variants = [("natural", 64), ("premium", 64), ("premium", 68), ("premium", 72)]
+        for preset, size in variants:
+            keep = viral_fx.PRESETS[preset]["size"]
+            viral_fx.PRESETS[preset]["size"] = size
+            try:
+                out = os.path.join(OUT_DIR, f"_font_{k}_{preset}_{size}.mp4")
+                viral_fx.apply_captions(pre_fx, words, preset, out, watermark=prof["watermark"] or None, topic=topic)
+            finally:
+                viral_fx.PRESETS[preset]["size"] = keep
+            png = _frame(out, t, os.path.join(OUT_DIR, f"_font_{k}_{preset}_{size}.png"))
+            os.remove(out)
+            _label(png, f"{preset} {size}")
+            if k == 0:
+                full.append(png)
+            im = Image.open(png).convert("RGB")
+            W, H = im.size
+            tiles.append(im.crop((0, int(H * 0.52), W, int(H * 0.70))))
+        row = Image.new("RGB", (sum(t_.width for t_ in tiles) + 6 * (len(tiles) - 1), tiles[0].height), (24, 24, 24))
+        x = 0
+        for im in tiles:
+            row.paste(im, (x, 0))
+            x += im.width + 6
+        rows.append(row)
+        print(f"   clip {spec}: frame at {t:.1f} s")
+    sheet = Image.new("RGB", (max(r.width for r in rows), sum(r.height for r in rows) + 6 * (len(rows) - 1)), (24, 24, 24))
+    y = 0
+    for r in rows:
+        sheet.paste(r, (0, y))
+        y += r.height + 6
+    sheet.save(os.path.join(OUT_DIR, "fonts_sheet.jpg"), quality=92)
+    if full:
+        _hstack(full, os.path.join(OUT_DIR, "fonts_full.jpg"), height=960)
+    for p in glob.glob(os.path.join(OUT_DIR, "_font_*.png")):
+        os.remove(p)
+    print(f"✅ fonts bench written to {OUT_DIR}: fonts_sheet.jpg (caption bands), fonts_full.jpg (first clip)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name, fn in (("chain", cmd_chain), ("visual", cmd_visual)):
+    for name, fn in (("chain", cmd_chain), ("visual", cmd_visual), ("fonts", cmd_fonts)):
         p = sub.add_parser(name)
-        p.add_argument("--job", required=True)
+        p.add_argument("--job", required=name != "fonts")
         p.add_argument("--clip", type=int, default=1)
+        p.add_argument("--clips", default=None, help="fonts: several clips, as job:clip,job:clip")
         p.add_argument("--profile", default=None)
         p.add_argument("--before-cache", action="store_true")
         p.set_defaults(fn=fn)
