@@ -126,7 +126,8 @@ class TestFrames:
     def test_the_timeline_covers_the_clip_and_a_second_more(self, tmp_path):
         made = self._make(tmp_path)
         assert abs(sum(d for _, d in made["segments"]) - 7.0) < 1e-6
-        assert abs(made["title_end"] - (int(round((1.0 + DOCLINE["out"]) * FPS)) + 1) / FPS) < 1e-9
+        exit_len = max(DOCLINE["out"], sum(DOCLINE["rule_out"]), sum(DOCLINE["eyebrow_out"]))
+        assert abs(made["title_end"] - (int(round((1.0 + exit_len) * FPS)) + 1) / FPS) < 1e-9
         for png, _ in made["segments"]:
             assert os.path.exists(png)
         assert made["lines"] == ["He asked “am I dead?”", "39 times."]
@@ -189,6 +190,31 @@ class TestFrames:
         # ...while the eyebrow and the rule are there with the title.
         held = _frame(made, int(0.8 * FPS))
         assert _alpha_max(held, (0, int(H * DOCLINE["top"]), W, int(H * 0.15))) == 255
+
+    def test_the_eyebrow_leaves_the_way_it_came_after_the_title(self, tmp_path):
+        made = self._make(tmp_path)               # the title leaves at 1.0 s
+        eyebrow = (0, int(H * DOCLINE["top"]), W, int(H * DOCLINE["top"]) + 14)
+        title = (0, int(H * 0.17), W, int(H * 0.25))
+        left = int(W * DOCLINE["left"])
+        full = int(W * DOCLINE["rule_width"])
+
+        def rule_px(img):
+            a = img.getchannel("A")
+            return max(sum(1 for x in range(left, left + full + 2) if a.getpixel((x, y)) == 255
+                           and img.getpixel((x, y))[:3] == (255, 255, 255))
+                       for y in range(int(H * DOCLINE["top"]), int(H * 0.17)))
+
+        r0, rl = DOCLINE["rule_out"]
+        e0, el = DOCLINE["eyebrow_out"]
+        gone = _at(made, 1.0 + DOCLINE["out"] + 0.02)          # the title is gone...
+        assert _alpha_max(gone, title) < 120                  # (only the veil's tail there)
+        assert _alpha_max(gone, eyebrow) == 255 and abs(rule_px(gone) - full) <= 2   # ...the eyebrow and the rule not yet
+        mid = _at(made, 1.0 + r0 + rl / 2)
+        assert 0 < rule_px(mid) < full - 5                    # the rule retracting to the left
+        assert _alpha_max(mid, eyebrow) == 255
+        fading = _at(made, 1.0 + e0 + el / 2)
+        assert 0 < _alpha_max(fading, eyebrow) < 255          # then the eyebrow fading
+        assert hooks.docline_frame_at(made, 1.0 + e0 + el + 0.05) == made["rest"]
 
     def test_kept_the_eyebrow_and_the_rule_stay(self, tmp_path):
         made = self._make(tmp_path, cfg={"keep_eyebrow": True})

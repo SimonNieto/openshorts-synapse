@@ -657,6 +657,11 @@ DOCLINE = {
     # clip (H3); since 2-oct-2026 the channel wants them to leave with the
     # title. True brings the resting eyebrow back (the quiet windows apply).
     "keep_eyebrow": False,
+    # Without it, the eyebrow leaves the way it came, a little after the
+    # title (which goes at ``seconds`` over ``out``): the rule retracts to
+    # the left, then the eyebrow and the veil fade — (start after
+    # ``seconds``, length) in seconds, the entrance's lengths.
+    "rule_out": (0.15, 0.35), "eyebrow_out": (0.40, 0.15),
     "fps": 30,
 }
 DOCLINE_ACCENT = BOLD_ACCENT   # the captions' yellow, one word per hook
@@ -924,21 +929,23 @@ def create_docline_frames(text, category, video_width, video_height, out_dir,
         title_cache[key] = shadow
         return shadow
 
-    def compose(e, r, ti, g):
+    def compose(e, r, ti, g, ro=0.0, eo=0.0):
         """One frame: e = eyebrow and veil in, r = rule drawn, ti = title in,
-        g = title out (its veil turning into the resting one). Without
-        keep_eyebrow, the eyebrow, the rule and the veil leave with the title."""
+        g = title out (its veil turning into the resting one), then, without
+        keep_eyebrow, the entrance played backwards a little after the title:
+        ro = rule retracting to the left, eo = eyebrow and veil fading."""
         alpha = Image.blend(veil_title, veil_rest, g) if g > 0 else veil_title
-        stay = 1.0 if c["keep_eyebrow"] else 1.0 - g      # what is left of the eyebrow, the rule and the veil
-        if e * stay < 1:
-            alpha = alpha.point(lambda v: int(v * e * stay))
+        stay = e * (1.0 - eo)                               # what is left of the eyebrow and the veil
+        if stay < 1:
+            alpha = alpha.point(lambda v: int(v * stay))
         frame = Image.merge("RGBA", (black, black, black, alpha))
-        if category and e * stay > 0:
-            frame.alpha_composite(_scale_alpha(eyebrow, e * stay))
-        if r > 0 and stay > 0:
-            w = max(1, int(rule_w * _ease_out(r)))
+        if category and stay > 0:
+            frame.alpha_composite(_scale_alpha(eyebrow, stay))
+        drawn = _ease_out(r) if ro <= 0 else _ease_out(1.0 - ro)   # the draw, mirrored
+        if r > 0 and drawn > 0:
+            w = max(1, int(rule_w * drawn))
             ImageDraw.Draw(frame).rectangle([left, rule_y, left + w, rule_y + rule_h - 1],
-                                            fill=(255, 255, 255, int(255 * e * stay)))
+                                            fill=(255, 255, 255, int(255 * e)))
         if ti > 0 and g < 1:
             frame.alpha_composite(_scale_alpha(title_layer(ti), (ti ** 2) * (1 - g)))
         return frame
@@ -963,17 +970,23 @@ def create_docline_frames(text, category, video_width, video_height, out_dir,
 
     # The entrance, the hold and the title's exit, frame by frame.
     step = 1.0 / fps
-    count = int(round((float(seconds) + c["out"]) * fps)) + 1
+    keep = bool(c["keep_eyebrow"])
+    secs = float(seconds)
+    exit_len = c["out"] if keep else max(c["out"], *(a + b for a, b in (c["rule_out"], c["eyebrow_out"])))
+    count = int(round((secs + exit_len) * fps)) + 1
     for k in range(count):
         t = k * step
         state = (round(_ramp(t, *c["eyebrow"]), 3), round(_ramp(t, *c["rule"]), 3),
-                 round(_ramp(t, *c["title"]), 3), round(_ramp(t, float(seconds), c["out"]), 3))
+                 round(_ramp(t, *c["title"]), 3), round(_ramp(t, secs, c["out"]), 3),
+                 0.0 if keep else round(_ramp(t, secs + c["rule_out"][0], c["rule_out"][1]), 3),
+                 0.0 if keep else round(_ramp(t, secs + c["eyebrow_out"][0], c["eyebrow_out"][1]), 3))
         push(png_for(state, lambda s=state: compose(*s)), step)
     title_end = count * step
 
-    # Then the eyebrow and the rule, out of the way of every card.
-    rest_img = compose(1.0, 1.0, 1.0, 1.0)
-    rest = png_for((1.0, 1.0, 1.0, 1.0), lambda: rest_img)        # the exit's last state, already drawn
+    # Then what stays (the kept eyebrow and rule, out of the way of every card; else nothing).
+    done = 0.0 if keep else 1.0
+    rest_img = compose(1.0, 1.0, 1.0, 1.0, done, done)
+    rest = png_for((1.0, 1.0, 1.0, 1.0, done, done), lambda: rest_img)   # the exit's last state, already drawn
 
     def rest_at(k):
         """The resting layer at opacity ``k`` (0-1)."""
