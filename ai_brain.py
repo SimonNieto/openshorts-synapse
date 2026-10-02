@@ -757,8 +757,10 @@ def brief_for_clip(brief, clip_words_text, start, end):
 
 # --- the episode's visual bible (B-roll v2, 1-oct-2026) ------------------------------------
 # One read of the brief and the transcript per episode, by the art director's
-# model: the concrete WORLD the pictures are taken from, the episode's own LOOK
-# inside the house look, recurring MOTIFS, pictures to AVOID, and a hero
+# model: the concrete WORLD the pictures are taken from, the episode's MOOD (the
+# levels of visual_mood, B-roll « ambiance » 2-oct-2026: one vote in every
+# clip's base mood, never a look laid over the clips), recurring MOTIFS,
+# pictures to AVOID, the REGISTERS of what a camera cannot shoot, and a hero
 # concept per story. Every clip's editor and art director read it; kept in the
 # job's metadata (episode_bible) and remembered by ai_cache.
 EPISODE_BIBLE = None
@@ -769,35 +771,34 @@ to THIS episode (nothing generic that would fit any episode):
   places with their time of day, objects and instruments at their true scale, kinds of people and what they wear
   or do, materials and textures. Each a short phrase ("a lab bench with a petri dish under one lamp"). Never a
   symbol, a glowing brain, a neon neuron, a light bulb, a floating interface.
-- "look": the episode's own photographic look, inside a cinematic documentary style: "palette" (3-4 colours and
-  WHERE they live: "indigo in the windows, amber on the skin"), "light" (sources, direction, quality, time of
-  day), "lens" (focal lengths and distances the episode calls for), "texture" (surfaces, grain, materials), "mood"
-  (3-4 words). Choose it from what the episode is about and how it feels, so its clips look like one series.
+- "mood": how the episode as a whole is lived and told, one level per question (each level defined below), and
+  "why" (one line, from what it is about and how it is told):
+{mood_levels}
 - "motifs": 3 to 5 recurring visual motifs the clips can return to, each a real thing of the episode (a hand on the
   pump's dial, a vial held to the light, the lawn at dusk) with when to use it, in one line — never an allegory (no
   doorway for a threshold, no hand reaching into the dark, no lone figure before the vastness).
 - "avoid": 0 to 6 pictures that would state a FALSE FACT about this episode (a smoked pipe when the drug was an IV
   infusion, an indoor arena when the fight was on a lawn, the wrong era, the wrong instrument), one line each —
   never a matter of taste or style: that is the registers' job.
-- "registers": for every kind of thing this episode talks about that a camera cannot shoot as it is — an inner
-  experience (a psychedelic trip, a dream, a near-death, a vision), the cosmos, a mathematical or physical notion,
-  the microscopic, a past era — ONE register, 0 to 4 in all, and nothing for what a camera can photograph: "name"
-  (one lower-case word: vision, cosmos, math, micro, archive...), "when" (which moments of the episode call for it,
-  one line), "look" (80 to 120 words: what such a picture shows and how — the known iconography of that experience
-  or field AND the speaker's own words when he describes it: content, geometry, scale, colours, light, medium,
-  texture — written so an image model paints it; a vision may be impossible, saturated and strange when that is
-  how it is told, a cosmos has the scale and light of a telescope image, a math picture is shapes, curves and
-  surfaces in a real medium, never symbols), "judge" (one sentence: what a good picture of this register is),
+- "registers": the episode's own way of showing each KIND of thing it talks about that a camera cannot shoot as
+  it is — what only an instrument sees, an abstraction (a mechanism, a quantity, a law), an inner experience lived
+  by someone — ONE register per kind, 0 to 4 in all, and nothing for what
+  a camera can photograph: "name" (one lower-case word naming that kind of thing), "when" (which moments of the
+  episode call for it, one line), "look" (80 to 120 words: what such a picture shows and how — from what that kind of
+  thing is known to look like AND from the speaker's own words when he describes it: content, geometry, scale,
+  colours, light, medium, texture — written so an image model paints it, as strange, vast, exact or saturated as
+  the thing is and as it is told, never a symbol), "judge" (one sentence: what a good picture of this register is),
   "cheap" (one line: the version that would look cheap or generic, to stay away from).
 - "heroes": for each story or big theme of the brief, ONE picture that would make a cold viewer stop on a phone
   (full screen, one second): "story" (its name), "picture" (one sentence: a real scene of the story — place, subject,
   action, light — never an allegory of its idea), "why" (what the viewer sees). 6 to 12 of them.
 Never invent a fact: a place, a year, a person must be in the transcript or the brief."""
+BIBLE_MOOD_AXES = ("valence", "intensity", "era", "gravity", "distance")
 BIBLE_SCHEMA = {
     "type": "object",
     "properties": {
         "world": {"type": "array", "items": {"type": "string"}},
-        "look": {"type": "object", "properties": {k: {"type": "string"} for k in ("palette", "light", "lens", "texture", "mood")}},
+        "mood": {"type": "object", "properties": {"why": {"type": "string"}}},
         "motifs": {"type": "array", "items": {"type": "string"}},
         "avoid": {"type": "array", "items": {"type": "string"}},
         "heroes": {"type": "array", "items": {"type": "object", "properties": {
@@ -806,11 +807,28 @@ BIBLE_SCHEMA = {
         "registers": {"type": "array", "items": {"type": "object", "properties": {
             k: {"type": "string"} for k in ("name", "when", "look", "judge", "cheap")}, "required": ["name", "look"]}},
     },
-    "required": ["world", "look", "motifs", "avoid", "heroes"],
+    "required": ["world", "mood", "motifs", "avoid", "heroes"],
 }
+
+
+def _bible_schema():
+    """BIBLE_SCHEMA with the mood's levels as enums (visual_mood: the same anchored levels as a picture's)."""
+    import json as _json
+    import visual_mood
+    schema = _json.loads(_json.dumps(BIBLE_SCHEMA))
+    props = schema["properties"]["mood"]["properties"]
+    for axis in BIBLE_MOOD_AXES:
+        props[axis] = {"type": "string", "enum": list(visual_mood.LEVELS[axis])}
+    schema["properties"]["mood"]["required"] = list(BIBLE_MOOD_AXES)
+    return schema
+
+
+def bible_rules():
+    """BIBLE_RULES with the mood's levels written out."""
+    import visual_mood
+    return BIBLE_RULES.replace("{mood_levels}", visual_mood.levels_text(BIBLE_MOOD_AXES, indent="    "))
 REGISTER_MAX = 4
 REGISTER_RESERVED = ("photo", "cinematic", "neon", "drawing", "vintage", "3d", "comic", "diagram")
-BIBLE_LOOK_KEYS = ("palette", "light", "lens", "texture", "mood")
 
 
 def brief_text(brief):
@@ -845,9 +863,12 @@ def _clean_bible(data, who):
     """The model's answer -> the bible kept (short strings, bounded lists), or None when it has no world."""
     if not isinstance(data, dict):
         return None
-    look_raw = data.get("look") if isinstance(data.get("look"), dict) else {}
-    look = {k: re.sub(r"\s+", " ", str(look_raw.get(k) or "")).strip()[:200] for k in BIBLE_LOOK_KEYS}
-    look = {k: v for k, v in look.items() if v}
+    import visual_mood
+    mood_raw = data.get("mood") if isinstance(data.get("mood"), dict) else {}
+    mood = {a: str(mood_raw.get(a) or "").strip().lower() for a in BIBLE_MOOD_AXES}
+    mood = {a: v for a, v in mood.items() if v in visual_mood.LEVELS[a]}
+    if mood and str(mood_raw.get("why") or "").strip():
+        mood["why"] = re.sub(r"\s+", " ", str(mood_raw["why"])).strip()[:200]
     heroes = []
     for h in data.get("heroes") if isinstance(data.get("heroes"), list) else []:
         if isinstance(h, dict) and str(h.get("picture") or "").strip():
@@ -863,7 +884,7 @@ def _clean_bible(data, who):
         seen_names.add(name)
         regs.append({"name": name, "look": look_r,
                      **{k: re.sub(r"\s+", " ", str(r.get(k) or "")).strip()[:300] for k in ("when", "judge", "cheap")}})
-    bible = {"world": _strs(data.get("world"), 15), "look": look, "motifs": _strs(data.get("motifs"), 5, 200),
+    bible = {"world": _strs(data.get("world"), 15), "mood": mood, "motifs": _strs(data.get("motifs"), 5, 200),
              "avoid": _strs(data.get("avoid"), 8), "heroes": heroes[:12], "registers": regs[:REGISTER_MAX], "by": who}
     return bible if bible["world"] else None
 
@@ -879,7 +900,7 @@ def episode_bible(brief, transcript=None):
     text = _marked_text(words) if words else ""
     if len(text) > 60_000:
         text = text[:45_000] + "\n[...]\n" + text[-15_000:]
-    prompt = BIBLE_RULES + "\n\nEPISODE BRIEF:\n" + brief_text(brief)
+    prompt = bible_rules() + "\n\nEPISODE BRIEF:\n" + brief_text(brief)
     if text:
         prompt += "\n\nTRANSCRIPT ([mm:ss] markers):\n" + text
 
@@ -888,14 +909,16 @@ def episode_bible(brief, transcript=None):
         return gemini_json([prompt], model=model)[0]
 
     try:
-        data, who = think("the episode's visual bible (B-roll)", prompt, BIBLE_SCHEMA, fallback=gemini, timeout=600,
+        data, who = think("the episode's visual bible (B-roll)", prompt, _bible_schema(), fallback=gemini, timeout=600,
                           route_key="broll_art", effort="high")
     except Exception as e:
         print(f"   ⚠️ Episode visual bible failed ({str(e)[:160]}) — the clips are planned without it.", flush=True)
         return None
     bible = _clean_bible(data, who)
     if bible:
-        print(f"   🎨 Episode visual bible ({who}): {len(bible['world'])} things of its world, look « {bible['look'].get('mood') or '-'} », "
+        import visual_mood
+        print(f"   🎨 Episode visual bible ({who}): {len(bible['world'])} things of its world, mood « "
+              f"{visual_mood.describe(bible['mood']) or '-'} »{(' (' + bible['mood']['why'] + ')') if bible['mood'].get('why') else ''}, "
               f"{len(bible['motifs'])} motifs, {len(bible['heroes'])} hero ideas", flush=True)
     else:
         print("   ⚠️ Episode visual bible: nothing usable in the answer — the clips are planned without it.", flush=True)
@@ -911,8 +934,6 @@ def bible_text(bible=None, heroes=12):
     lines = ["EPISODE VISUAL BIBLE (one read of the whole episode — the pictures come from this world and wear this look):"]
     if bible.get("world"):
         lines.append("WORLD: " + "; ".join(bible["world"]))
-    if bible.get("look"):
-        lines.append("LOOK: " + "; ".join(f"{k}: {v}" for k, v in bible["look"].items()))
     if bible.get("motifs"):
         lines.append("MOTIFS: " + " | ".join(bible["motifs"]))
     if bible.get("registers"):

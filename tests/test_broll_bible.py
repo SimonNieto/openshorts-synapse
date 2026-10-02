@@ -1,6 +1,6 @@
-"""The episode's visual bible (B-roll v2, chantier J): one read per episode gives the world, the look, the
-motifs, the pictures to avoid and a hero idea per story; every clip's editor and art director read it, and the
-clip's style sheet wears the episode's look. No model is called."""
+"""The episode's visual bible (B-roll v2, chantier J): one read per episode gives the world, the mood (B-roll
+« ambiance », 2-oct-2026: the anchored levels of visual_mood, one vote in every clip's base mood), the motifs, the
+pictures to avoid and a hero idea per story; every clip's editor and art director read it. No model is called."""
 import pytest
 
 import ai_brain
@@ -23,8 +23,8 @@ BRIEF = {"speakers": [{"name": "Joe", "role": "host"}], "topic": "Night marches 
          "tone": "calm", "glossary": [{"term": "Drill", "meaning": "m", "visual": "a whistle"}],
          "stories": [{"summary": "The 1998 march", "details": "two gallons of water", "quote": "two gallons of water", "t": 5.0}]}
 BIBLE_RAW = {"world": ["a desert camp at dawn, three canvas tents", "a dented steel canteen", "  "],
-             "look": {"palette": "sand ochre on the ground, teal in the pre-dawn sky", "light": "first sun from the right, low",
-                      "lens": "24 and 50 mm, waist height", "texture": "dust, worn cotton", "mood": "spent, resolute"},
+             "look": {"palette": "sand ochre on the ground, teal in the pre-dawn sky"},
+             "mood": {"valence": "Uneasy", "intensity": "charged", "era": "recent", "gravity": "nope", "why": "  a hard   night  "},
              "motifs": ["the canteen (whenever water is said)", "the horizon line"], "avoid": ["a glowing brain", "a parade"],
              "heroes": [{"story": "The 1998 march", "picture": "A lone soldier on the cracked desert floor at dawn.", "why": "the ordeal at scale"},
                         {"story": "junk", "picture": ""}]}
@@ -50,11 +50,14 @@ class TestTheBible:
         monkeypatch.setattr(ai_brain, "think", fake_think)
         tr = {"segments": [{"words": [{"word": " " + w["text"], "start": w["start"], "end": w["end"]} for w in _words(TEXT)]}]}
         bible = ai_brain.episode_bible(BRIEF, tr)
-        assert seen["route_key"] == "broll_art" and seen["effort"] == "high" and seen["schema"] is ai_brain.BIBLE_SCHEMA
+        assert seen["route_key"] == "broll_art" and seen["effort"] == "high"
+        assert seen["schema"]["properties"]["mood"]["properties"]["valence"]["enum"] == ["grim", "uneasy", "neutral", "warm", "elated"]
+        assert "look" not in seen["schema"]["properties"] and "mood" in seen["schema"]["required"]
         assert "TOPIC: Night marches and discipline" in seen["prompt"] and "- Drill: m -> a whistle" in seen["prompt"]
         assert "TRANSCRIPT ([mm:ss] markers)" in seen["prompt"] and "[00:00]" in seen["prompt"] and "soldiers" in seen["prompt"]
         assert bible["world"] == ["a desert camp at dawn, three canvas tents", "a dented steel canteen"]
-        assert bible["look"]["palette"].startswith("sand ochre") and bible["motifs"][0].startswith("the canteen")
+        assert bible["mood"] == {"valence": "uneasy", "intensity": "charged", "era": "recent", "why": "a hard night"}
+        assert "look" not in bible and bible["motifs"][0].startswith("the canteen")
         assert bible["heroes"] == [{"story": "The 1998 march", "picture": "A lone soldier on the cracked desert floor at dawn.", "why": "the ordeal at scale"}]
         assert bible["by"] == "claude" and ai_brain.EPISODE_BIBLE is bible
 
@@ -74,9 +77,29 @@ class TestTheBible:
         text = ai_brain.bible_text(ai_brain._clean_bible(BIBLE_RAW, "claude"))
         assert text.startswith("EPISODE VISUAL BIBLE")
         assert "WORLD: a desert camp at dawn, three canvas tents; a dented steel canteen" in text
-        assert "LOOK: palette: sand ochre" in text and "MOTIFS: the canteen" in text and "WRONG FACTS (never show): a glowing brain; a parade" in text
+        assert "LOOK:" not in text and "MOTIFS: the canteen" in text and "WRONG FACTS (never show): a glowing brain; a parade" in text
         assert "- The 1998 march: A lone soldier on the cracked desert floor at dawn. (the ordeal at scale)" in text
         assert "junk" not in text
+
+
+class TestTheMoodOfTheEpisode:
+    def test_the_rules_ask_for_the_levels_and_name_no_subject(self):
+        rules = ai_brain.bible_rules()
+        assert '"mood": how the episode as a whole is lived and told' in rules and "{mood_levels}" not in rules
+        assert "grim = loss, suffering, threat, fear, disgust" in rules and "explained = a fact, a mechanism" in rules
+        assert '"look": the episode\'s own photographic look' not in rules
+        # the registers are asked by kind of visibility, never from a list of topics
+        for topic in ("psychedelic", "cosmos", "math", "near-death", "vision, cosmos"):
+            assert topic not in rules, topic
+        assert "what only an instrument sees, an abstraction" in rules
+
+    def test_the_episode_is_one_vote_in_the_clips_base(self, monkeypatch):
+        import visual_mood
+        bible = ai_brain._clean_bible(BIBLE_RAW, "claude")
+        ep = visual_mood.episode_levels(bible)
+        assert ep == {"valence": "uneasy", "intensity": "charged", "era": "recent"}
+        # one picture and its episode meet half-way (uneasy and elated -> warm)
+        assert visual_mood.base([visual_mood.clean({"valence": "elated"})], ep)["valence"] == "warm"
 
 
 class TestInTheEditor:

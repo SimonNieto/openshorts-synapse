@@ -24,7 +24,7 @@ TEXT = ("Well you know this is the setup for the story. When the DMT hit, these 
 VISION = ("Impossible interior space seen from inside a DMT trip: a breathing dome of jewelled tiles in saturated magenta, "
           "gold and electric green, tall translucent beings with no faces leaning in, geometry folding into itself, light "
           "coming from inside every surface, no horizon, no shadow, hyper-detailed, the scale of a cathedral felt from a bed.")
-BIBLE_RAW = {"world": ["an IV pump with a digital readout", "a vial of DMT"], "look": {"palette": "indigo and amber"},
+BIBLE_RAW = {"world": ["an IV pump with a digital readout", "a vial of DMT"], "mood": {"valence": "elated"},
              "motifs": ["the vial"], "avoid": ["a smoked DMT pipe"], "heroes": [{"story": "trip", "picture": "p"}],
              "registers": [
                  {"name": "Vision", "when": "what Chase saw and felt on DMT", "look": VISION,
@@ -53,8 +53,8 @@ def bible(monkeypatch):
 
 class TestTheBible:
     def test_the_rules_ask_for_registers_and_only_false_facts_to_avoid(self):
-        assert '"registers": for every kind of thing this episode talks about that a camera cannot shoot' in ai_brain.BIBLE_RULES
-        assert "a vision may be impossible, saturated and strange" in ai_brain.BIBLE_RULES
+        assert "\"registers\": the episode's own way of showing each KIND of thing it talks about that a camera cannot shoot" in ai_brain.BIBLE_RULES
+        assert "as strange, vast, exact or saturated as\n  the thing is and as it is told" in ai_brain.BIBLE_RULES
         assert "never a matter of taste or style" in ai_brain.BIBLE_RULES
         assert "registers" in ai_brain.BIBLE_SCHEMA["properties"] and "registers" not in ai_brain.BIBLE_SCHEMA["required"]
 
