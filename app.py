@@ -5897,7 +5897,7 @@ class HookRequest(BaseModel):
     position: Optional[str] = "top" # top, center, bottom
     size: Optional[str] = "M" # S, M, L
     duration_seconds: Optional[float] = None  # None = hook visible for the whole clip
-    style: Optional[str] = "classic"  # classic/dark/yellow/red/outline/outline_yellow
+    style: Optional[str] = "classic"  # classic/dark/yellow/red/outline/outline_yellow/bold/docline
     remove: Optional[bool] = False  # strip the burned hook instead of adding one
 
 @app.post("/api/hook")
@@ -5972,8 +5972,17 @@ async def add_hook(req: HookRequest, request: Request):
 
         try:
             # Run in thread pool
+            # The documentary line draws the clip's topic above its rule and
+            # the brain's payoff word in yellow (the auto-hook does the same).
+            doc_extra = {}
+            if req.style == "docline":
+                import playbook
+                doc_extra = {"category": playbook.hook_category(clip_data),
+                             "accent": str(clip_data.get("hook_accent") or "")}
+
             def run_hook():
-                add_hook_to_video(input_path, req.text, output_path, position=req.position, font_scale=font_scale, duration=req.duration_seconds, style=req.style)
+                add_hook_to_video(input_path, req.text, output_path, position=req.position, font_scale=font_scale,
+                                  duration=req.duration_seconds, style=req.style, **doc_extra)
 
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, run_hook)

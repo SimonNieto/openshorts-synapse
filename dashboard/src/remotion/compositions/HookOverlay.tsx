@@ -8,7 +8,12 @@ import {
   interpolate,
 } from "remotion";
 import type { HookConfig } from "../lib/types";
-import { notoSerifFontFace, NOTO_SERIF_FONT_FAMILY } from "../lib/fonts";
+import {
+  notoSerifFontFace,
+  NOTO_SERIF_FONT_FAMILY,
+  montserratFontFace,
+  MONTSERRAT_FONT_FAMILY,
+} from "../lib/fonts";
 
 interface HookOverlayProps {
   config: HookConfig;
@@ -49,12 +54,99 @@ export const HookOverlay: React.FC<HookOverlayProps> = ({ config }) => {
   const { fps } = useVideoConfig();
   const displayFrames = Math.round(config.displayDurationSec * fps);
 
+  if (config.style === "docline") {
+    return (
+      <AbsoluteFill>
+        <style>{montserratFontFace}</style>
+        <Sequence from={0} durationInFrames={displayFrames} layout="none">
+          <DoclineBox config={config} displayFrames={displayFrames} />
+        </Sequence>
+      </AbsoluteFill>
+    );
+  }
+
   return (
     <AbsoluteFill>
       <style>{notoSerifFontFace}</style>
       <Sequence from={0} durationInFrames={displayFrames} layout="none">
         <HookBox config={config} displayFrames={displayFrames} />
       </Sequence>
+    </AbsoluteFill>
+  );
+};
+
+// The documentary line (hooks.py DOCLINE): a short rule that draws itself,
+// then the title, left-aligned, its letter-spacing closing in, under a soft
+// veil. The burn also draws the clip's topic above the rule, colours the
+// brain's payoff word and keeps the topic and the rule once the title has
+// gone; the preview knows neither word, so it shows the title's own life.
+// Timings in seconds, as in DOCLINE: veil (0, .15), rule (.1, .35),
+// title (.25, .4), exit .2.
+const ramp = (t: number, start: number, length: number) =>
+  Math.min(1, Math.max(0, (t - start) / length));
+const easeOut = (f: number) => 1 - Math.pow(1 - f, 3);
+
+const DoclineBox: React.FC<HookBoxProps> = ({ config, displayFrames }) => {
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+  const px = width / 1080;
+  const t = frame / fps;
+  const veil = ramp(t, 0, 0.15);
+  const rule = easeOut(ramp(t, 0.1, 0.35));
+  const title = ramp(t, 0.25, 0.4);
+  const out = interpolate(frame, [displayFrames - 0.2 * fps, displayFrames], [1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const tracking = 0.25 + (0.01 - 0.25) * easeOut(title);
+  const fontSize = Math.round(56 * px * (SIZE_SCALE[config.size] ?? 1.0));
+
+  return (
+    <AbsoluteFill>
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: 0,
+          height: "32%",
+          opacity: veil * out,
+          background:
+            "linear-gradient(rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.6) 17%, rgba(0,0,0,0) 100%)",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          left: "6%",
+          right: "10%",
+          top: `${0.11 * height}px`,
+        }}
+      >
+        <div
+          style={{
+            height: Math.max(2, Math.round(4 * px)),
+            width: `${30 * rule}%`,
+            background: "#FFFFFF",
+            opacity: veil,
+            marginBottom: Math.round(18 * px),
+          }}
+        />
+        <div
+          style={{
+            fontFamily: `'${MONTSERRAT_FONT_FAMILY}', Montserrat, 'Arial Black', sans-serif`,
+            fontWeight: 800,
+            fontSize,
+            lineHeight: 1.22,
+            letterSpacing: `${tracking}em`,
+            color: "#FFFFFF",
+            opacity: title * title * out,
+            textShadow: `0 ${Math.round(3 * px)}px ${Math.round(10 * px)}px rgba(0,0,0,0.9)`,
+          }}
+        >
+          {config.text}
+        </div>
+      </div>
     </AbsoluteFill>
   );
 };

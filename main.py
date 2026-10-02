@@ -1184,11 +1184,15 @@ def auto_hook_clip(clip_path, clip):
         output_dir = os.path.dirname(clip_path)
         out_path = os.path.join(
             output_dir, f"hooked_{int(time.time())}_{os.path.basename(clip_path)}")
+        import playbook
+        # The documentary line's eyebrow (the clip's topic) and yellow word.
+        category = playbook.hook_category(clip)
+        accent = str(clip.get("hook_accent") or "").strip()
         add_hook_to_video(clip_path, text, out_path, position="top",
-                          duration=seconds, style=style)
+                          duration=seconds, style=style, category=category, accent=accent)
         print(f"   🪝 Hook burned ({style}, {seconds:g}s): {text}")
         return out_path, {"text": text, "style": style, "position": "top",
-                          "duration_seconds": seconds}
+                          "duration_seconds": seconds, "category": category, "accent": accent}
     except Exception as e:
         print(f"   ⚠️ Auto-hook failed ({type(e).__name__}: {e}) — "
               f"delivering the clip without it.")
@@ -2244,7 +2248,7 @@ def retry_unclear_hooks(shorts, transcript, ask=None):
             new = {}
             for h in answer.get("hooks") or []:
                 try:
-                    new[int(h.get("id"))] = h.get("viral_hook_text")
+                    new[int(h.get("id"))] = (h.get("viral_hook_text"), h.get("hook_accent"))
                 except (AttributeError, TypeError, ValueError):
                     continue
         except Exception as e:
@@ -2254,7 +2258,7 @@ def retry_unclear_hooks(shorts, transcript, ask=None):
         done = set()
         for i, hook, issues in batch:
             c = shorts[i]
-            if playbook.apply_hook_retry(c, new.get(i)):
+            if playbook.apply_hook_retry(c, *(new.get(i) or (None, None))):
                 done.add(i)
                 print(f"   🪝 Hook rewritten{label} ({'; '.join(issues)}): \"{hook}\" -> \"{c['viral_hook_text']}\"")
             else:

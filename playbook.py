@@ -25,6 +25,22 @@ TOPIC_BUCKETS = ("brain_danger", "substances", "psychosis_mental_illness", "crim
                  # a fight recap it filed it under science_other or self_improvement.
                  "sports_combat", "entertainment", "business_money", "other")
 
+# The eyebrow of the documentary line (hooks "docline"): the bucket's name as
+# a topic label, in the channel's caption language (English clips). "other"
+# and an unknown bucket show no eyebrow, the rule alone.
+HOOK_CATEGORY = {
+    "brain_danger": "Brain", "substances": "Substances", "psychosis_mental_illness": "Mental health",
+    "crime_dark": "True crime", "medical_mystery": "Medicine", "mind_psychology": "Psychology",
+    "self_improvement": "Self-improvement", "science_other": "Science", "sports_combat": "Combat sports",
+    "entertainment": "Entertainment", "business_money": "Money",
+}
+
+
+def hook_category(clip) -> str:
+    """The topic label shown above the hook (HOOK_CATEGORY), "" when none."""
+    return HOOK_CATEGORY.get(str((clip or {}).get("topic_bucket") or ""), "")
+
+
 # What each bucket means, in the words the niche sentence of the prompts uses.
 BUCKET_LABELS = {
     "brain_danger": "what damages or threatens the brain (injury, tumors, disease, the toll of addiction)",
@@ -644,14 +660,15 @@ better hook per clip:
 CLIPS_JSON:
 {clips}
 
-Return only: {{"hooks": [{{"id": <clip id>, "viral_hook_text": "<max {max_words} words>"}}]}}
+Return only: {{"hooks": [{{"id": <clip id>, "viral_hook_text": "<max {max_words} words>", "hook_accent": "<the one or two words of that hook carrying its payoff, copied verbatim>"}}]}}
 """
 
 HOOK_RETRY_SCHEMA = {
     "type": "object",
     "properties": {"hooks": {"type": "array", "items": {
         "type": "object",
-        "properties": {"id": {"type": "integer"}, "viral_hook_text": {"type": "string"}},
+        "properties": {"id": {"type": "integer"}, "viral_hook_text": {"type": "string"},
+                       "hook_accent": {"type": "string"}},
         "required": ["id", "viral_hook_text"]}}},
     "required": ["hooks"],
 }
@@ -669,10 +686,11 @@ def hook_retry_prompt(items, language: str = "en") -> str:
                                     clips=json.dumps(items, ensure_ascii=False, indent=1))
 
 
-def apply_hook_retry(clip: dict, new_hook: str) -> bool:
+def apply_hook_retry(clip: dict, new_hook: str, accent=None) -> bool:
     """Take the rewritten hook when it is better than the current one
     (_hook_rank of their hook_issues); what happened is kept in
-    clip['hook_check']. True when the hook changed."""
+    clip['hook_check']. ``accent``: the payoff word(s) the model named for
+    the new hook (hook_accent), kept with it. True when the hook changed."""
     old = (clip.get("viral_hook_text") or "").strip()
     before = hook_issues(clip)
     new_hook = re.sub(r"\s+", " ", str(new_hook or "")).strip()
@@ -688,6 +706,7 @@ def apply_hook_retry(clip: dict, new_hook: str) -> bool:
                               "issues_rejected": after}
         return False
     clip["viral_hook_text"] = new_hook
+    clip["hook_accent"] = re.sub(r"\s+", " ", str(accent or "")).strip()
     check_hook(clip)
     clip["hook_check"] = record
     return True
@@ -804,6 +823,9 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "title_format_ok": bool(clip.get("title_format_ok")),
         "title_format_issues": clip.get("title_format_issues") or [],
         "on_screen_hook": clip.get("viral_hook_text") or "",
+        # The hook's payoff word(s) drawn in yellow, as the brain named them
+        # (hooks.docline_accent falls back to a number or the last long word).
+        "hook_accent": clip.get("hook_accent") or "",
         # The set check (title_set_problems): the title it replaced when the
         # model was asked again, or why the repeat stayed (apply_retitle).
         "title_before_retitle": (clip.get("title_check") or {}).get("before") or "",

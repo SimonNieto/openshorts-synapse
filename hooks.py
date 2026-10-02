@@ -206,6 +206,11 @@ HOOK_STYLES = {
     # strongest words in yellow, one line whenever it fits. Rendered by
     # create_bold_hook_image and faded/slid in (add_hook_to_video).
     "bold":    {"box": (0, 0, 0, 0),         "text": (255, 255, 255), "outline": ((0, 0, 0), 10), "shadow": True},
+    # Documentary line: a yellow eyebrow (the topic), a short rule, the hook in
+    # sentence case with its payoff word in yellow, under a soft veil; the
+    # eyebrow and the rule stay for the whole clip. create_docline_frames and
+    # _add_docline_hook (H3 of the hook study, 2-oct-2026).
+    "docline": {"box": (0, 0, 0, 0),         "text": (255, 255, 255), "outline": None, "shadow": True},
 }
 
 BOLD_FONT_CANDIDATES = [
@@ -467,12 +472,15 @@ def create_hook_image(text, target_width, output_image_path="hook_overlay.png", 
     img.save(output_image_path)
     return output_image_path, canvas_w, canvas_h
 
-def add_hook_to_video(video_path, text, output_path, position="top", font_scale=1.0, duration=None, style="classic"):
+def add_hook_to_video(video_path, text, output_path, position="top", font_scale=1.0, duration=None, style="classic",
+                      category="", accent=None):
     """
     Overlays text hook onto video.
     position: 'top', 'center', 'bottom'
     font_scale: float multiplier (1.0 = default)
     style: hook look (see HOOK_STYLES)
+    category, accent: the "docline" style only: the topic shown above the
+    rule, and the word(s) of the hook drawn in yellow (docline_accent).
     """
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video {video_path} not found")
@@ -507,6 +515,9 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
         if style == "bold":
             return _add_bold_hook(video_path, text, output_path, hook_filename, video_width, video_height,
                                   position, font_scale, duration)
+        if style == "docline":
+            return _add_docline_hook(video_path, text, output_path, video_width, video_height, duration,
+                                     category=category, accent=accent, font_scale=font_scale)
         img_path, box_w, box_h = create_hook_image(text, target_box_width, hook_filename, font_scale=font_scale, style=style)
         
         # 3. Calculate Overlay Position
@@ -592,5 +603,383 @@ def _add_bold_hook(video_path, text, output_path, png_path, video_width, video_h
     finally:
         if os.path.exists(png_path):
             os.remove(png_path)
+    print(f"✅ Hook added to {output_path}")
+    return True
+
+
+# ---------------------------------------------------------------------------
+# "docline": the documentary line (H3 of the hook study, 2-oct-2026).
+#
+# A small yellow eyebrow (the clip's topic), a short white rule that draws
+# itself, then the hook in sentence case with its payoff word in yellow, all
+# left-aligned under a soft dark veil that tames the studio's neon sign. At
+# ``seconds`` the title fades out; the eyebrow, the rule and a lighter veil
+# stay for the whole clip (the channel's mark, same place on every clip).
+# Everything is drawn by PIL as a PNG sequence (the only clean way to animate
+# letter-spacing with ffmpeg), then a static PNG for the rest of the clip.
+# ---------------------------------------------------------------------------
+
+import shutil
+import tempfile
+
+MONT_FONT_CANDIDATES = [
+    "/usr/local/share/fonts/openshorts/Montserrat-ExtraBold.ttf",
+    os.path.join(FONT_DIR, "Montserrat-ExtraBold.ttf"),
+]
+
+DOCLINE = {
+    # Where it sits, as fractions of the frame: the top of the eyebrow, the
+    # left margin, the right margin. The Shorts icons live above 10 %.
+    "top": 0.11, "left": 0.06, "right": 0.10,
+    # Sizes in px on a 1080-wide frame, scaled with the width.
+    "eyebrow_px": 26, "eyebrow_tracking": 0.22, "eyebrow_gap": 10,
+    "rule_px": 4, "rule_width": 0.30, "rule_gap": 18,
+    # title_nice_scale: how far the title may shrink to break its two lines
+    # on a clause or a phrase; title_min_scale: how far to fit in two lines.
+    "title_px": 56, "title_leading": 1.22, "title_lines": 2,
+    "title_nice_scale": 0.85, "title_min_scale": 0.7,
+    "title_tracking_from": 0.25, "title_tracking_to": 0.01,
+    # The veil: black at veil_alpha from the top edge down to the middle of
+    # the title, easing out to nothing veil_tail (of the frame's height)
+    # under it — the yellow neon sign of the JRE studio sits right behind
+    # the title (2-oct-2026: a straight 55 % -> 0 gradient left ~25 % there).
+    # rest_*: the lighter veil that stays under the eyebrow and the rule.
+    "veil_alpha": 0.60, "veil_tail": 0.10, "rest_alpha": 0.30, "rest_tail": 0.05,
+    # The timeline in seconds, (start, length) of each movement, and how long
+    # the title takes to go.
+    "eyebrow": (0.0, 0.15), "rule": (0.10, 0.35), "title": (0.25, 0.40), "out": 0.20,
+    "fps": 30,
+}
+DOCLINE_ACCENT = BOLD_ACCENT   # the captions' yellow, one word per hook
+DOCLINE_SECONDS = 3.3          # when the title leaves (the eyebrow stays)
+# A word ending a clause: the title prefers to break its two lines there.
+_SENSE_BREAK = re.compile(r"[,.;:!?…”’\"')]$")
+# Words a phrase starts with (the second line may open on one) and words a
+# line never ends on ("The universe and a" / "brain cell..." is the classic
+# orphan; "The universe" / "and a brain cell..." is a phrase break).
+_BREAK_BEFORE = {"a", "an", "the", "and", "or", "but", "so", "because", "if", "when", "while",
+                 "that", "which", "who", "of", "to", "in", "on", "at", "for", "with", "from",
+                 "into", "about", "by", "like", "than", "as", "after", "before", "without", "until"}
+_NO_END = _BREAK_BEFORE | {"my", "your", "his", "her", "its", "our", "their", "very", "just", "not", "no"}
+
+
+def _mont_font(size):
+    """Montserrat ExtraBold (the captions' face) at ``size`` px; Anton when
+    the font file is missing, so a hook is never lost to a font."""
+    path = next((p for p in MONT_FONT_CANDIDATES if os.path.exists(p)), None)
+    return ImageFont.truetype(path or _bold_font_path(), max(8, int(size)))
+
+
+def _tracked_width(font, text, tracking):
+    """Width of ``text`` drawn glyph by glyph with ``tracking`` px added
+    after each glyph but the last."""
+    if not text:
+        return 0.0
+    return sum(font.getlength(ch) for ch in text) + tracking * (len(text) - 1)
+
+
+def _draw_tracked(draw, xy, text, font, fill, tracking):
+    """Draw ``text`` glyph by glyph (letter-spacing is not a PIL feature).
+    Returns the x after the last glyph."""
+    x, y = xy
+    for ch in text:
+        draw.text((x, y), ch, font=font, fill=fill)
+        x += font.getlength(ch) + tracking
+    return x
+
+
+def _bare_word(word):
+    return re.sub(r"[^\w'’]", "", word).lower()
+
+
+def docline_accent(text, accent=None):
+    """Indexes of the words drawn in yellow: the brain's ``accent`` (one or
+    two words copied from the hook) when they are in the text, else the
+    first number, else the last long non-filler word. Never two choices."""
+    words = (text or "").split()
+    bare = [_bare_word(w) for w in words]
+    target = [t for t in (_bare_word(w) for w in str(accent or "").split()) if t]
+    if target:
+        n = len(target)
+        for i in range(len(bare) - n + 1):
+            if bare[i:i + n] == target:
+                return set(range(i, i + n))
+    for i, w in enumerate(bare):
+        if re.search(r"\d", w):
+            return {i}
+    long_ones = [i for i, w in enumerate(bare) if len(w) >= 4 and w.upper() not in _BOLD_STOP]
+    return {long_ones[-1]} if long_ones else set()
+
+
+def docline_break(words, width, max_w):
+    """The best place to break ``words`` into two lines that both fit
+    ``max_w`` (``width``: words -> px). Returns (tier, k), line 2 starting
+    at words[k], or None when no split fits. Tiers, best first:
+    1 after a clause ("He asked “am I dead?”" / "39 times."),
+    2 before a phrase ("The universe" / "and a brain cell..."),
+    3 anywhere a line does not end on "a", "and", "of"...,
+    4 anywhere. Tiers 1 to 3 keep some balance (the short line at least 30 %
+    of the long one); within a tier the most balanced split wins."""
+    best = None
+    for k in range(1, len(words)):
+        a, b = width(words[:k]), width(words[k:])
+        if max(a, b) > max_w:
+            continue
+        balanced = min(a, b) / max(a, b, 1.0) >= 0.3
+        last, first = _bare_word(words[k - 1]), _bare_word(words[k])
+        if balanced and _SENSE_BREAK.search(words[k - 1]):
+            tier = 1
+        elif balanced and last not in _NO_END and first in _BREAK_BEFORE:
+            tier = 2
+        elif balanced and last not in _NO_END:
+            tier = 3
+        else:
+            tier = 4
+        key = (tier, max(a, b))
+        if best is None or key < best[0]:
+            best = (key, k)
+    return (best[0][0], best[1]) if best else None
+
+
+def docline_layout(text, video_width, cfg=None):
+    """Lay the title out: one line when it fits, else two lines broken where
+    they read best (docline_break). The size is title_px; it may shrink to
+    title_nice_scale when that buys a single line or a clause / phrase break
+    the full size does not have, and down to title_min_scale to fit two
+    lines at all (the brain keeps hooks short; words are never dropped: past
+    the minimum the lines just wrap). Returns (lines, font, tracking_px)."""
+    c = {**DOCLINE, **(cfg or {})}
+    words = re.sub(r"\s+", " ", _EMOJI_RE.sub("", text or "")).strip().split() or [""]
+    scale = video_width / 1080.0
+    max_w = video_width * (1 - c["left"] - c["right"])
+    base = int(round(c["title_px"] * scale))
+    nice = int(base * c["title_nice_scale"])
+    smallest = int(base * c["title_min_scale"])
+
+    def at(size):
+        """(tier, lines, font, tracking) at ``size``; tier 0 = one line;
+        None when the title needs more than two lines."""
+        font = _mont_font(size)
+        tracking = size * c["title_tracking_to"]
+
+        def width(ws):
+            return _tracked_width(font, " ".join(ws), tracking)
+        if width(words) <= max_w or c["title_lines"] < 2:
+            return 0, [words], font, tracking
+        split = docline_break(words, width, max_w)
+        if split is None:
+            return None
+        tier, k = split
+        return tier, [words[:k], words[k:]], font, tracking
+
+    first = None
+    size = base
+    while size >= smallest:
+        laid = at(size)
+        if laid:
+            if laid[0] <= 2:
+                return laid[1:]
+            first = first or laid
+            if size <= nice:
+                break
+        size -= 2
+    if first:
+        return first[1:]
+    # Too long even at the smallest size: wrap greedily, nothing dropped.
+    font = _mont_font(smallest)
+    tracking = smallest * c["title_tracking_to"]
+    lines, line = [], []
+    for w in words:
+        if line and _tracked_width(font, " ".join(line + [w]), tracking) > max_w:
+            lines.append(line)
+            line = [w]
+        else:
+            line.append(w)
+    return lines + [line] if line else lines, font, tracking
+
+
+def _ramp(t, start, length):
+    """0 before ``start``, 1 after ``start + length``, linear between."""
+    if length <= 0:
+        return 1.0 if t >= start else 0.0
+    return min(1.0, max(0.0, (t - start) / length))
+
+
+def _ease_out(f):
+    return 1 - (1 - f) ** 3
+
+
+def _scale_alpha(layer, k):
+    """A copy of the RGBA ``layer`` with its alpha multiplied by ``k``."""
+    if k >= 1.0:
+        return layer.copy()
+    r, g, b, a = layer.split()
+    return Image.merge("RGBA", (r, g, b, a.point(lambda v: int(v * k))))
+
+
+def _veil_alpha(width, canvas_h, full_to, gone_at, alpha):
+    """Alpha (mode L) of a black veil: ``alpha`` from the top edge down to
+    ``full_to``, easing out (smoothstep) to nothing at ``gone_at``."""
+    rows = []
+    for y in range(canvas_h):
+        if y <= full_to:
+            f = 1.0
+        elif y >= gone_at:
+            f = 0.0
+        else:
+            u = (y - full_to) / float(gone_at - full_to)
+            f = 1.0 - u * u * (3 - 2 * u)
+        rows.append(int(round(255 * alpha * f)))
+    column = Image.new("L", (1, canvas_h))
+    column.putdata(rows)
+    return column.resize((width, canvas_h), Image.NEAREST)
+
+
+def create_docline_frames(text, category, video_width, video_height, out_dir,
+                          accent=None, seconds=DOCLINE_SECONDS, cfg=None):
+    """Write the documentary line as PNG frames in ``out_dir``: f_%04d.png
+    for the entrance, the hold and the title's exit (0 to seconds + out),
+    and rest.png, what stays for the remainder of the clip. Every frame is
+    the top band of the picture (video_width x band height), to be overlaid
+    at 0,0. Identical states are written once and copied.
+
+    Returns {"pattern", "count", "rest", "height", "lines", "accent"}."""
+    c = {**DOCLINE, **(cfg or {})}
+    fps = int(c["fps"])
+    scale = video_width / 1080.0
+    text = re.sub(r"\s+", " ", _EMOJI_RE.sub("", text or "")).strip()
+    category = re.sub(r"\s+", " ", _EMOJI_RE.sub("", category or "")).strip().upper()
+    lines, font, _tracking_to = docline_layout(text, video_width, c)
+    words = [w for line in lines for w in line]
+    accents = docline_accent(" ".join(words), accent)
+
+    left = int(video_width * c["left"])
+    y = int(video_height * c["top"])
+    eyebrow_font = _mont_font(c["eyebrow_px"] * scale)
+    eyebrow_h = sum(eyebrow_font.getmetrics())
+    eyebrow_tracking = eyebrow_font.size * c["eyebrow_tracking"]
+    rule_y = y + (eyebrow_h + int(c["eyebrow_gap"] * scale) if category else 0)
+    rule_h = max(2, int(round(c["rule_px"] * scale)))
+    rule_w = int(video_width * c["rule_width"])
+    title_y = rule_y + rule_h + int(c["rule_gap"] * scale)
+    pitch = int(round(font.size * c["title_leading"]))
+    ascent, descent = font.getmetrics()
+    bottom = title_y + (len(lines) - 1) * pitch + ascent + descent
+    veil_gone = bottom + int(video_height * c["veil_tail"])
+    canvas_h = veil_gone + 1
+    size = (video_width, canvas_h)
+
+    # The veil behind the title, and the lighter one that stays.
+    veil_title = _veil_alpha(video_width, canvas_h, (title_y + bottom) // 2, veil_gone, c["veil_alpha"])
+    rule_bottom = rule_y + rule_h
+    veil_rest = _veil_alpha(video_width, canvas_h, rule_bottom,
+                            rule_bottom + int(video_height * c["rest_tail"]), c["rest_alpha"])
+    black = Image.new("L", size, 0)
+
+    eyebrow = Image.new("RGBA", size, (0, 0, 0, 0))
+    if category:
+        _draw_tracked(ImageDraw.Draw(eyebrow), (left, y), category, eyebrow_font,
+                      DOCLINE_ACCENT, eyebrow_tracking)
+
+    title_cache = {}
+
+    def title_layer(f):
+        """The title at progress ``f`` of its entrance: the tracking closes
+        from title_tracking_from to title_tracking_to (eased); the alpha is
+        the caller's."""
+        key = round(f, 3)
+        if key in title_cache:
+            return title_cache[key]
+        tr = font.size * (c["title_tracking_from"]
+                          + (c["title_tracking_to"] - c["title_tracking_from"]) * _ease_out(f))
+        layer = Image.new("RGBA", size, (0, 0, 0, 0))
+        d = ImageDraw.Draw(layer)
+        # A soft shadow under the letters (the look has no outline).
+        shadow = Image.new("RGBA", size, (0, 0, 0, 0))
+        sd = ImageDraw.Draw(shadow)
+        idx = 0
+        for li, line in enumerate(lines):
+            x, ly = left, title_y + li * pitch
+            for wi, word in enumerate(line):
+                fill = DOCLINE_ACCENT if idx in accents else (255, 255, 255)
+                _draw_tracked(sd, (x, ly + int(3 * scale)), word, font, (0, 0, 0, 230), tr)
+                x = _draw_tracked(d, (x, ly), word, font, fill, tr)
+                if wi < len(line) - 1:
+                    x += font.getlength(" ") + tr
+                idx += 1
+        shadow = shadow.filter(ImageFilter.GaussianBlur(max(2, int(5 * scale))))
+        shadow.alpha_composite(layer)
+        title_cache[key] = shadow
+        return shadow
+
+    def compose(e, r, ti, g):
+        """One frame: e = eyebrow and veil in, r = rule drawn, ti = title in,
+        g = title out (its veil turning into the resting one)."""
+        alpha = Image.blend(veil_title, veil_rest, g) if g > 0 else veil_title
+        if e < 1:
+            alpha = alpha.point(lambda v: int(v * e))
+        frame = Image.merge("RGBA", (black, black, black, alpha))
+        if category and e > 0:
+            frame.alpha_composite(_scale_alpha(eyebrow, e))
+        if r > 0:
+            w = max(1, int(rule_w * _ease_out(r)))
+            ImageDraw.Draw(frame).rectangle([left, rule_y, left + w, rule_y + rule_h - 1],
+                                            fill=(255, 255, 255, int(255 * e)))
+        if ti > 0 and g < 1:
+            frame.alpha_composite(_scale_alpha(title_layer(ti), (ti ** 2) * (1 - g)))
+        return frame
+
+    os.makedirs(out_dir, exist_ok=True)
+    pattern = os.path.join(out_dir, "f_%04d.png")
+    count = int(round((float(seconds) + c["out"]) * fps)) + 1
+    written = {}
+    for k in range(count):
+        t = k / fps
+        state = (round(_ramp(t, *c["eyebrow"]), 3), round(_ramp(t, *c["rule"]), 3),
+                 round(_ramp(t, *c["title"]), 3), round(_ramp(t, float(seconds), c["out"]), 3))
+        path = pattern % k
+        if state in written:
+            shutil.copyfile(written[state], path)
+        else:
+            compose(*state).save(path)
+            written[state] = path
+    rest = os.path.join(out_dir, "rest.png")
+    compose(1.0, 1.0, 1.0, 1.0).save(rest)
+    return {"pattern": pattern, "count": count, "rest": rest, "height": canvas_h,
+            "lines": [" ".join(l) for l in lines], "accent": sorted(words[i] for i in accents)}
+
+
+def docline_graph(seq_end):
+    """The ffmpeg filter graph: the frame sequence (input 1) over the video
+    until it ends, then the resting PNG (input 2, looped) to the end."""
+    return ("[1:v]format=rgba[s];[2:v]format=rgba[r];"
+            "[0:v][s]overlay=0:0:eof_action=pass[a];"
+            f"[a][r]overlay=0:0:enable='gte(t,{seq_end:.3f})':shortest=1[v]")
+
+
+def _add_docline_hook(video_path, text, output_path, video_width, video_height, duration,
+                      category="", accent=None, font_scale=1.0):
+    """Burn the documentary line (see DOCLINE). ``duration``: when the title
+    leaves; the eyebrow and the rule stay to the end of the clip.
+    ``font_scale``: the editor's S / M / L, on the title only."""
+    seconds = max(1.0, float(duration or DOCLINE_SECONDS))
+    fps = int(DOCLINE["fps"])
+    cfg = {"title_px": DOCLINE["title_px"] * float(font_scale or 1.0)}
+    work = tempfile.mkdtemp(prefix="docline_", dir=os.path.dirname(os.path.abspath(output_path)))
+    try:
+        made = create_docline_frames(text, category, video_width, video_height, work,
+                                     accent=accent, seconds=seconds, cfg=cfg)
+        seq_end = made["count"] / float(fps)
+        print(f"🎬 Overlaying documentary line: {made['lines']} (accent {made['accent']}, "
+              f"topic '{category or '-'}', title leaves at {seconds:g}s)")
+        cmd = ["ffmpeg", "-y", "-i", video_path,
+               "-framerate", str(fps), "-i", made["pattern"],
+               "-loop", "1", "-framerate", str(fps), "-i", made["rest"],
+               "-filter_complex", docline_graph(seq_end), "-map", "[v]", "-map", "0:a?",
+               "-c:a", "copy", *layer_encode_args(video_encode_args(QUALITY)), *METADATA_SCRUB,
+               "-movflags", "+faststart", output_path]
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1800)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     print(f"✅ Hook added to {output_path}")
     return True

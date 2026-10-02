@@ -61,7 +61,9 @@ export type HookStyle =
   | "yellow"
   | "red"
   | "outline"
-  | "outline_yellow";
+  | "outline_yellow"
+  | "bold"
+  | "docline";
 
 export interface HookConfig {
   text: string;
@@ -134,7 +136,7 @@ export const hookConfigSchema = z.object({
   position: z.enum(["top", "center", "bottom"]),
   size: z.enum(["S", "M", "L"]),
   style: z
-    .enum(["classic", "dark", "yellow", "red", "outline", "outline_yellow"])
+    .enum(["classic", "dark", "yellow", "red", "outline", "outline_yellow", "bold", "docline"])
     .default("classic"),
   entranceAnimation: z.enum(["spring", "fade", "slide-up", "none"]),
   displayDurationSec: z.number().positive(),

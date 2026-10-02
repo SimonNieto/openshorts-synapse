@@ -71,8 +71,11 @@ DEFAULT_PROFILE = {
 # --- the house recipe: what every Clip Generator++ job does -----------------------------
 # Captions: the natural look set in Montserrat ExtraBold (viral_fx.PRESETS["premium"]).
 EDIT_STYLE = "premium"
-# Hook at the top: the bold headline (hooks.HOOK_STYLES["bold"]), 3 s on screen.
-HOOK_STYLE, HOOK_SECONDS = "bold", 3
+# Hook at the top: the documentary line (hooks.HOOK_STYLES["docline"], H3 of
+# the hook study of 2-oct-2026): the topic as a small yellow eyebrow, a short
+# rule, the hook in sentence case with its payoff word in yellow (the brain's
+# hook_accent); the title leaves at 3.3 s, the eyebrow and the rule stay.
+HOOK_STYLE, HOOK_SECONDS = "docline", 3.3
 # The picture: zooms aimed at the measured face; the premium framing of the
 # reframe (framing.py, SMOOTH_CAMERA); reaction shots of the listener after a
 # strong line (reactions.py); every layer before the captions encoded

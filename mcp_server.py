@@ -96,7 +96,7 @@ TOOLS = [
                 },
                 "hook_style": {
                     "type": "string",
-                    "enum": ["classic", "dark", "yellow", "red", "outline", "outline_yellow"],
+                    "enum": ["classic", "dark", "yellow", "red", "outline", "outline_yellow", "bold", "docline"],
                     "description": "Look of the hook text (with auto_hook). Default classic.",
                 },
                 "captions": {

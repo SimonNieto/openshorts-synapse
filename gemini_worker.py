@@ -71,6 +71,9 @@ class DetailResponseV2(BaseModel):
 # topic family of the moment, for the channel's stats (playbook.py).
 class DetailClipModelPlaybook(DetailClipModelV2):
     topic_bucket: str = ""
+    # The one or two words of viral_hook_text drawn in colour on screen
+    # (hooks.docline_accent falls back to a number or the last long word).
+    hook_accent: str = ""
 
 
 class DetailResponsePlaybook(BaseModel):
@@ -337,6 +340,9 @@ SYNAPSE CUT PLAYBOOK — CUT, DESCRIPTIONS, TOPIC:
 - `topic_bucket`: exactly one of brain_danger, substances,
   psychosis_mental_illness, crime_dark, medical_mystery, mind_psychology,
   self_improvement, science_other.
+- `hook_accent`: the one or two words of `viral_hook_text` that carry its
+  payoff (a number, a name, the surprising word), copied verbatim: they are
+  drawn in colour on screen. One choice, never the whole hook.
 """
 
 # regenerate-copy (rework.COPY_PROMPT) with the playbook on: same description

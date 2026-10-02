@@ -63,6 +63,7 @@ class TestHookStyles:
     def test_expected_style_names(self):
         assert set(HOOK_STYLES) == {
             "classic", "dark", "yellow", "red", "outline", "outline_yellow", "bold",
+            "docline",
         }
 
     def test_boxed_styles_have_opaque_box_and_shadow(self):

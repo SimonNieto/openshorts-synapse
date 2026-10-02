@@ -16,6 +16,21 @@ export const notoSerifFontFace = `
 `;
 
 /**
+ * Montserrat ExtraBold, the face of the "premium" captions and of the
+ * documentary-line hook (hooks.py "docline"), for the hook preview.
+ */
+export const MONTSERRAT_FONT_FAMILY = "Montserrat-ExtraBold";
+
+export const montserratFontFace = `
+@font-face {
+  font-family: '${MONTSERRAT_FONT_FAMILY}';
+  src: url('${staticFile("fonts/Montserrat-ExtraBold.ttf")}') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+}
+`;
+
+/**
  * Map of subtitle font families to the faces the BURN actually renders with,
  * not to the name on the picker button. openshorts-fontmap.conf aliases the
  * picker's names to the fonts installed in the render container, so mirroring
