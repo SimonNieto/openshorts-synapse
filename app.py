@@ -3309,7 +3309,10 @@ async def viral_edit_clip(job_id: str, clip_index: int, req: ViralEditRequest, r
                     if os.path.exists(tmp_path):
                         os.remove(tmp_path)
             out = os.path.join(output_dir, f"subtitled_{ts}_{os.path.basename(hooked)}")
-            viral_fx.apply_captions(hooked, words, req.style, out, watermark=watermark, topic=topic)
+            # The captions start once the hook has left the frame.
+            from hooks import hook_gone_at
+            viral_fx.apply_captions(hooked, words, req.style, out, watermark=watermark, topic=topic,
+                                    after=hook_gone_at(hook))
         elif no_caps == clean and br_items:
             # No hook, but B-roll to put back between motion and captions.
             motion = os.path.join(output_dir, f"fxtmp_{ts}_{clean}")

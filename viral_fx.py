@@ -206,8 +206,11 @@ def _lit_word(text, at, accent=None):
     return f"{{\\c&HFFFFFF&{dim}\\t({t0},{t0 + LIT_RISE},{lit})}}{text}"
 
 
-def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None):
+def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None, after=0.0):
+    """``after``: the seconds the hook is on screen (hooks.hook_gone_at): the
+    captions start with the first word said once it is gone, never under it."""
     p = PRESETS[preset]
+    words = [w for w in words if w["start"] >= after - 1e-6]
     groups = group_words(words, p["max_words"], p["max_chars"])
     # Colour one word in every ``key_every`` groups — the strongest of the group.
     lines = []
@@ -315,7 +318,8 @@ def build_graph(words, info, preset, opts, tmp, ass_path=None, motion=True):
     return ";".join(graph), extra, report
 
 
-def _render(clip_path, words, preset, out_path, motion, captions, watermark=None, opts=None, topic=None):
+def _render(clip_path, words, preset, out_path, motion, captions, watermark=None, opts=None, topic=None,
+            after=0.0):
     if preset not in PRESETS:
         raise ValueError(f"unknown preset {preset}")
     opts = dict(opts or {})
@@ -326,7 +330,8 @@ def _render(clip_path, words, preset, out_path, motion, captions, watermark=None
     try:
         ass_path, n_caps = None, 0
         if captions:
-            ass_text, groups = build_ass(words, preset, info["w"], info["h"], opts.get("watermark"), topic=topic)
+            ass_text, groups = build_ass(words, preset, info["w"], info["h"], opts.get("watermark"), topic=topic,
+                                         after=after)
             n_caps = len(groups)
             ass_path = os.path.join(tmp, "captions.ass")
             with open(ass_path, "w", encoding="utf-8") as f:
@@ -352,10 +357,11 @@ def apply_motion(clip_path, words, preset, out_path, opts=None):
     return _render(clip_path, words, preset, out_path, motion=True, captions=False, opts=opts)
 
 
-def apply_captions(clip_path, words, preset, out_path, watermark=None, topic=None):
-    """The preset's captions only: the last layer, like every caption burn."""
+def apply_captions(clip_path, words, preset, out_path, watermark=None, topic=None, after=0.0):
+    """The preset's captions only: the last layer, like every caption burn.
+    ``after``: when the hook under them has left (see build_ass)."""
     return _render(clip_path, words, preset, out_path, motion=False, captions=True, watermark=watermark,
-                   topic=topic)
+                   topic=topic, after=after)
 
 
 def apply(clip_path, words, preset, out_path, watermark=None, opts=None, topic=None):

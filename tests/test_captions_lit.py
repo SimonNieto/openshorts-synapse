@@ -89,3 +89,34 @@ class TestLit:
         assert [viral_fx._dimmed(a, viral_fx.LIT_DIM) for a in viral_fx.LIT_ALPHAS] == [0x94, 0xC3, 0xD4]
         assert all(viral_fx._dimmed(a, 1.0) == a for a in viral_fx.LIT_ALPHAS)
         assert all(viral_fx._dimmed(a, 0.0) == 255 for a in viral_fx.LIT_ALPHAS)
+
+
+class TestCaptionsWaitForTheHook:
+    """Since 2-oct-2026 the captions start once the hook has left the frame."""
+
+    def test_the_docline_hook_is_gone_after_its_exit(self):
+        import hooks
+        hook = {"text": "The universe and a brain cell look identical", "style": "docline",
+                "duration_seconds": 3.3}
+        exit_len = max(hooks.DOCLINE["out"], *(a + b for a, b in (hooks.DOCLINE["rule_out"],
+                                                                    hooks.DOCLINE["eyebrow_out"])))
+        assert abs(hooks.hook_gone_at(hook) - (3.3 + exit_len)) < 1e-9
+        assert abs(hooks.hook_gone_at(hook) - 3.85) < 1e-9
+
+    def test_other_hooks_go_at_their_duration_and_none_waits_for_nothing(self):
+        import hooks
+        assert hooks.hook_gone_at({"text": "x", "style": "bold", "duration_seconds": 5}) == 5.0
+        assert hooks.hook_gone_at({"text": "x", "style": "classic"}) == 0.0    # stays all clip
+        assert hooks.hook_gone_at(None) == 0.0
+        assert hooks.hook_gone_at({"text": " ", "style": "docline", "duration_seconds": 3.3}) == 0.0
+
+    def test_no_caption_before_the_hook_is_gone(self):
+        ass, groups = viral_fx.build_ass(WORDS, "premium", topic=TOPIC, after=3.85)
+        starts = [l.split(",")[1] for l in _lines(ass, "Main")]
+        assert starts and all(s >= "0:00:03.85" for s in starts)
+        assert groups[0][0]["text"] == "human"              # the first word said after 3.85 s
+        assert all(w["start"] >= 3.85 for g in groups for w in g)
+
+    def test_without_a_hook_nothing_changes(self):
+        assert viral_fx.build_ass(WORDS, "premium", topic=TOPIC, after=0.0) == \
+            viral_fx.build_ass(WORDS, "premium", topic=TOPIC)

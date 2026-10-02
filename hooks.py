@@ -972,7 +972,7 @@ def create_docline_frames(text, category, video_width, video_height, out_dir,
     step = 1.0 / fps
     keep = bool(c["keep_eyebrow"])
     secs = float(seconds)
-    exit_len = c["out"] if keep else max(c["out"], *(a + b for a, b in (c["rule_out"], c["eyebrow_out"])))
+    exit_len = _docline_exit(c)
     count = int(round((secs + exit_len) * fps)) + 1
     for k in range(count):
         t = k * step
@@ -1023,6 +1023,30 @@ def create_docline_frames(text, category, video_width, video_height, out_dir,
         push(rest, end - t)
     return {"segments": segments, "rest": rest, "height": canvas_h, "title_end": title_end,
             "lines": [" ".join(l) for l in lines], "accent": sorted(words[i] for i in accents)}
+
+
+def _docline_exit(c=DOCLINE):
+    """Seconds from the title's exit to the last layer gone (the title alone
+    when the eyebrow is kept: it stays, out of the captions' way)."""
+    if c["keep_eyebrow"]:
+        return c["out"]
+    return max(c["out"], *(a + b for a, b in (c["rule_out"], c["eyebrow_out"])))
+
+
+def hook_gone_at(hook):
+    """When the burned hook (its config, as stored in ``clip["auto_hook"]``)
+    has fully left the frame, in clip seconds: the captions start there, so
+    the two never share the screen (2-oct-2026). 0 without a hook, or for a
+    hook that stays on the whole clip (no duration): the captions can't wait."""
+    if not isinstance(hook, dict) or not str(hook.get("text") or "").strip():
+        return 0.0
+    try:
+        secs = float(hook.get("duration_seconds") or 0)
+    except (TypeError, ValueError):
+        secs = 0.0
+    if hook.get("style") == "docline":
+        return max(1.0, secs or DOCLINE_SECONDS) + _docline_exit()   # as _add_docline_hook times it
+    return max(0.0, secs)
 
 
 def docline_quiet(broll_items):
