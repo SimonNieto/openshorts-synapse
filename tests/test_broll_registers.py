@@ -54,7 +54,7 @@ def bible(monkeypatch):
 class TestTheBible:
     def test_the_rules_ask_for_registers_and_only_false_facts_to_avoid(self):
         assert "\"registers\": the episode's own way of showing each KIND of thing it talks about that a camera cannot shoot" in ai_brain.BIBLE_RULES
-        assert "as strange, vast, exact or saturated as\n  the thing is and as it is told" in ai_brain.BIBLE_RULES
+        assert "the STYLE only" in ai_brain.BIBLE_RULES and "never a scene, a place, a subject or a person" in ai_brain.BIBLE_RULES
         assert "never a matter of taste or style" in ai_brain.BIBLE_RULES
         assert "registers" in ai_brain.BIBLE_SCHEMA["properties"] and "registers" not in ai_brain.BIBLE_SCHEMA["required"]
 
@@ -125,7 +125,8 @@ class TestTheDirector:
         ms = [{"t": 5.0, "anchor": "a", "prompt": "p", "subject": "s", "style": "vision", "hero": True, "thesis": "T"},
               {"t": 9.0, "anchor": "b", "prompt": "q", "subject": "cup", "style": "photo"}]
         text = broll._art_prompt(ms, {"video_title_for_youtube_short": "Title"})
-        assert 'REGISTER "vision" (not a photograph): Impossible interior' in text and "Cheap version to stay away from: a kaleidoscope" in text
+        assert ('REGISTER "vision" (not a photograph) — its style; the scene is this sentence\'s: Impossible interior' in text
+                and "Cheap version to stay away from: a kaleidoscope" in text)
         assert "- REGISTER PICTURES: a picture marked REGISTER below is not a photograph" in text
         assert "EACH PICTURE'S LOOK comes with it below" in text
         assert 'For EVERY picture also write "judge"' in text and '"judge": "..."' in text

@@ -129,7 +129,10 @@ def test_words_follow_the_levels_not_a_subject():
     assert "dignity" not in vm.words({"valence": "grim", "gravity": "real"})["light"]
     assert vm.key_of({"valence": "grim", "intensity": "charged", "gravity": "real"}) == "low"
     assert vm.words({"intensity": "extreme", "gravity": "real"})["light"].endswith("hard directional light, crisp shadows")
-    assert "with restraint" in vm.words({"visibility": "inner", "gravity": "real"})["medium"]
+    assert "with restraint" in vm.words({"visibility": "inner", "gravity": "real", "valence": "uneasy"})["medium"]
+    # an experience lived as positive, or one that heals, keeps all its colours (v14)
+    assert "with restraint" not in vm.words({"visibility": "inner", "gravity": "real", "valence": "elated"})["medium"]
+    assert "never the person seen from outside" in vm.words({"visibility": "inner"})["medium"]
     assert "a violet glow" in vm.words({"colours_said": "a violet glow", "true_colours": "grey"})["palette"]
     assert "grey, white" in vm.words({"true_colours": "grey, white"})["palette"]
     assert "50-85 mm" in vm.words({"scale": "body", "distance": "lived"})["lens"]

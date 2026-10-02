@@ -268,3 +268,29 @@ class TestTheSameMoments:
         with open(tmp_path / "content_t.json", encoding="utf-8") as f:
             table = json.load(f)["table"]["v8"]
         assert table["all"] == {"empty_place": 1, "object_set_down": 1} and table["hero"] == {"empty_place": 1}
+
+
+class TestRepeats:
+    def test_repeats_groups_the_same_composition_within_an_episode(self, tmp_path, monkeypatch):
+        import argparse
+        import ai_brain
+        monkeypatch.setattr(bench, "BRAIN_DIR", str(tmp_path))
+        for n, seens in ((1, ["a man walking a neon street at night", "a brain on a tray"]),
+                         (2, ["a lone man walking a wet neon street", "a crowd at a stadium"])):
+            items = [{"k": k} for k in range(len(seens))]
+            reviews = [{"k": k, "file": f"broll_{k}.jpg", "seen": s} for k, s in enumerate(seens)]
+            with open(tmp_path / f"j_clip{n}_v14.json", "w", encoding="utf-8") as f:
+                json.dump({"items": items, "reviews": reviews}, f)
+        seen = {}
+
+        def fake(prompt, schema, **kw):
+            seen.update(prompt=prompt, **kw)
+            return {"groups": [{"label": "neon street walker", "ids": ["clip1#0", "clip2#0", "clip9#9"]},
+                               {"label": "alone", "ids": ["clip1#1"]}]}
+
+        monkeypatch.setattr(ai_brain, "claude_json", fake)
+        bench.cmd_repeats(argparse.Namespace(jobs="j:1,j:2", versions="v14", name="t"))
+        assert seen["model"] == "haiku" and "clip2#0: a lone man walking a wet neon street" in seen["prompt"]
+        with open(tmp_path / "repeats_t.json", encoding="utf-8") as f:
+            row = json.load(f)["j|v14"]
+        assert row == {"pictures": 4, "repeated": 2, "groups": [{"label": "neon street walker", "ids": ["clip1#0", "clip2#0"]}]}

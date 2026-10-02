@@ -783,13 +783,14 @@ to THIS episode (nothing generic that would fit any episode):
   it is — what only an instrument sees, an abstraction (a mechanism, a quantity, a law), an inner experience lived
   by someone — ONE register per kind, 0 to 6 in all, and nothing for what a camera can photograph. EVERY inner
   experience the episode names — something taken or practised for its effect on the mind, a state lived from
-  inside — gets its own register, even when it is named in passing: its look is the experience as it is known to
-  look when it is lived and as the speaker tells it, as impossible, saturated or strange as it is, never the room
-  it happens in nor its medical version. For each: "kind" (instrument, model or inner), "name" (one lower-case
-  word naming that kind of thing), "when" (which moments of the episode call for it, one line), "look" (80 to 120
-  words: what such a picture shows and how — from what that kind of thing is known to look like AND from the speaker's own words when he describes it: content, geometry, scale,
-  colours, light, medium, texture — written so an image model paints it, as strange, vast, exact or saturated as
-  the thing is and as it is told, never a symbol), "judge" (one sentence: what a good picture of this register is),
+  inside — gets its own register, even when it is named in passing. A REGISTER IS A STYLE, NEVER A SCENE: the
+  scene of each picture comes from its own sentence. For each: "kind" (instrument, model or inner), "name" (one
+  lower-case word naming that kind of thing), "when" (which moments of the episode call for it, one line), "look"
+  (40 to 80 words: the STYLE only — the medium, the palette, the light, the texture, the kind of geometry and scale
+  it uses, how strange, saturated, vast or exact it is — from how that kind of thing is known to look and how the
+  speaker tells it; an inner register is the experience as it is perceived from inside, as impossible, saturated or
+  strange as it is lived; never a scene, a place, a subject or a person, never the room it happens in nor its
+  medical version, never a symbol), "judge" (one sentence: what a good picture of this register is),
   "cheap" (one line: the version that would look cheap or generic, to stay away from).
 - "heroes": for each story or big theme of the brief, ONE picture that would make a cold viewer stop on a phone
   (full screen, one second): "story" (its name), "picture" (one sentence: a real scene of the story — place, subject,

@@ -46,7 +46,7 @@ class TestThePrompt:
     def test_the_reviewer_is_asked_for_the_look(self):
         text = broll.REVIEW_PROMPT.format(frame=broll._review_frame([{"layout": "card"}]), items="- x")
         assert "STEP 3 - THE LOOK" in text and '"look" 1-5' in text and "artefacts (hands, faces, lettering" in text
-        assert "ART-DIRECTED, write better_prompt in that same" in text and "80 to 120 words" in text
+        assert "ART-DIRECTED, write both in that same grammar" in text and "80 to 120 words" in text
         assert broll.REVIEW_SCHEMA["properties"]["reviews"]["items"]["properties"]["look"] == {"type": "integer"}
         assert "look" in broll.REVIEW_SCHEMA["properties"]["reviews"]["items"]["required"]
 
@@ -169,15 +169,54 @@ class TestInTheJob:
         assert all(it["score"] == 5 and it["look_score"] == 4 for it in rep["items"])
 
     def test_a_hero_is_made_again_twice_then_dropped(self, monkeypatch, stubs):
+        """v15: the first redo is the same idea made to work; once it has failed twice, the next one is another idea
+        (new_prompt), never the same scene reworded."""
         made, tr, words = stubs
         monkeypatch.setattr(broll, "review_images",
-                            lambda cands, words_: [{"score": 4, "look": 2, "better_prompt": "Brighter."} if c["layout"] == "hero"
-                                                   else {"score": 4, "look": 4} for c in cands])
+                            lambda cands, words_: [{"score": 4, "look": 2, "better_prompt": "Brighter.", "new_prompt": "Another scene."}
+                                                   if c["layout"] == "hero" else {"score": 4, "look": 4} for c in cands])
         rep = self._run(tr, words)
         hero_tries = [m for m in made if m["size"] == (896, 1600)]
         k = hero_tries[0]["out"][len("broll_"):-len(".jpg")]
         assert len(hero_tries) == 3 and [m["out"] for m in hero_tries][1:] == [f"broll_{k}_v2.jpg", f"broll_{k}_v3.jpg"]
+        assert [m["prompt"] for m in hero_tries][1:] == ["Brighter.", "Another scene."]
+        assert broll.FILTERS["redo: a new idea"] == 1
         assert not any(it["layout"] == "hero" for it in rep["items"]) and len(rep["items"]) == 2
+
+    def test_a_card_failed_twice_gets_another_idea(self, monkeypatch, stubs):
+        """v15b: a card's take and its redo both failed — one more attempt, with another idea, then the best one."""
+        made, tr, words = stubs
+        monkeypatch.setattr(broll, "review_images",
+                            lambda cands, words_: [{"score": 5, "look": 5} if c["layout"] == "hero" or c["file"].endswith("_v3.jpg")
+                                                   else {"score": 3, "look": 2, "better_prompt": "Closer.", "new_prompt": "Another scene."}
+                                                   for c in cands])
+        rep = self._run(tr, words)
+        cards = [m for m in made if m["size"] == (1152, 720)]
+        assert [m["prompt"] for m in cards if m["out"].endswith("_v2.jpg")] == ["Closer.", "Closer."]
+        assert [m["prompt"] for m in cards if m["out"].endswith("_v3.jpg")] == ["Another scene.", "Another scene."]
+        assert broll.FILTERS["redo: a new idea"] == 2
+        kept = [it for it in rep["items"] if it["layout"] == "card"]
+        assert len(kept) == 2 and all(it["prompt"] == "Another scene." and it["score"] == 5 for it in kept)
+
+    def test_an_unsafe_card_gets_another_idea_at_once(self, monkeypatch, stubs):
+        made, tr, words = stubs
+        monkeypatch.setattr(broll, "review_images",
+                            lambda cands, words_: [{"score": 5, "look": 5} if c["layout"] == "hero" or c["file"].endswith("_v2.jpg")
+                                                   else {"score": 4, "look": 4, "safe": False, "better_prompt": "Closer.",
+                                                         "new_prompt": "Another scene."} for c in cands])
+        rep = self._run(tr, words)
+        cards = [m for m in made if m["size"] == (1152, 720)]
+        assert [m["prompt"] for m in cards if m["out"].endswith("_v2.jpg")] == ["Another scene.", "Another scene."]
+        assert not any(m["out"].endswith("_v3.jpg") for m in cards)
+        assert len([it for it in rep["items"] if it["layout"] == "card"]) == 2
+
+    def test_without_another_idea_a_twice_failed_hero_stops(self, monkeypatch, stubs):
+        made, tr, words = stubs
+        monkeypatch.setattr(broll, "review_images",
+                            lambda cands, words_: [{"score": 4, "look": 2, "better_prompt": "Brighter."} if c["layout"] == "hero"
+                                                   else {"score": 4, "look": 4} for c in cands])
+        self._run(tr, words)
+        assert len([m for m in made if m["size"] == (896, 1600)]) == 2
 
     def test_a_card_is_made_again_once_and_the_better_one_wins(self, monkeypatch, stubs):
         made, tr, words = stubs

@@ -336,13 +336,28 @@ def premium_style(style):
 # the mind, or a state lived from inside, is shown as it is lived — not the room it is taken in — even named in
 # passing; real suffering comes first (sober), and a clip never turns into a string of such pictures.
 EXPERIENCE_RULE = """THE EXPERIENCE, NOT THE SETTING: when the speaker names something taken or practised for its effect on the
-mind, or a state lived from inside, its picture is the experience as it is lived ("visibility": inner, in its
-REGISTER when the bible gives one) — not the room, the clinic or the object it comes from — even when he names it
+mind, or a state lived from inside, its picture is the experience as it is lived — what the person perceives from
+inside, through their own eyes and senses, never the person seen from outside nor a pensive face ("visibility": inner,
+in its REGISTER when the bible gives one) — not the room, the clinic or the object it comes from — even when he names it
 in passing or for its results (this wins over the substances line above). ONE such picture in a clip that names it in passing; more only when he describes
 the experience itself. A DEATH FIRST: when the moment is about a death, a victim or someone dying ("gravity"
-grave), no experience picture — a sober, dignified photograph instead. An illness or an addiction ("gravity" real) is
-shown from inside with RESTRAINT: muted colours, few effects, never spectacular or glorifying, never horror, never a
-caricature of the illness."""
+grave), no experience picture — a sober, dignified photograph instead. An illness or an addiction ("gravity" real)
+lived as negative is shown from inside with RESTRAINT: muted colours, few effects, never spectacular or glorifying,
+never horror, never a caricature of the illness; an experience lived as positive, or one that heals, keeps all its
+colours."""
+# A clip about a death (the editor's clip_gravity "grave", v14): its pictures are absences.
+ABSENCE_LINE = ("  ABSENCE (the clip is about a death; this overrules the editor's draft): the places and things the person "
+                "left, as they are — nobody who could be taken for him or for his close ones.")
+# Safety (v14, the user's rule): nothing that evokes an overdose, a means of suicide or a symbol of death.
+SAFETY_RULE = """NOTHING THAT EVOKES AN OVERDOSE, A MEANS OF SUICIDE OR A SYMBOL OF DEATH, not even as a visual cliché: no
+pills spilled or heaped, no empty or tipped-over bottle by a bed, no rope, no blade near skin, no weapon aimed at
+anyone, no skull, no coffin, no grave, no wilted flowers or burnt-out candle standing for a death."""
+# The editor's flags (v14): a picture with one of them is not made (in the bench's fixed moments: skipped, with why).
+FLAGS = ("set_phrase", "negated", "precise_structure")
+FLAGS_RULE = """FLAGS, for every picture: "set_phrase" true when the words that name the thing are a figure of speech used for
+emphasis (he does not mean that thing); "negated" true when the speaker says it is NOT that thing, or that it had
+nothing to do with what is told; "precise_structure" true when the picture would need a precise chemical structure, a
+formula, an equation, a chart or a labelled diagram. A picture with a flag true is not made."""
 # A place with nobody in it says someone is missing: kept for that (B-roll « ambiance » v12, 2-oct-2026: the boards
 # were full of empty clinics and objects set on trays).
 EMPTY_RULE = """AN EMPTY PLACE IS AN ABSENCE: a place with nobody in it is for a death or a loss only; elsewhere places have
@@ -581,6 +596,8 @@ When an EPISODE VISUAL BIBLE is given below, take the pictures from its WORLD (t
 contains), return to its MOTIFS, and never show its WRONG FACTS."""
 SHEET_RULE_MOOD = """THE LOOK of every picture comes from its "mood" (below): what kind of thing it is for a camera and how THIS moment
 is lived, read from the words said, not from the topic. Write "style_sheet" only for "cast" (see CAST below).
+Also write "clip_gravity": what the clip AS A WHOLE is about — "grave" when someone's death is its subject (a death, a
+suicide, a killing, a victim), "real" when an illness or an addiction is, "none" otherwise.
 When an EPISODE VISUAL BIBLE is given below, take the pictures from its WORLD (the things this episode really
 contains), return to its MOTIFS, and never show its WRONG FACTS."""
 
@@ -604,7 +621,12 @@ picture, then hears the words, links them within a second. 5 = instantly and exa
 not what was said about it, or a link that needs explaining; 2 or 1 = another thing, or nothing to do with the words,
 or A SET PHRASE TAKEN LITERALLY: the speaker uses a figure of speech for emphasis (his words name a thing, he means
 "very", "obvious", "huge") and the picture shows that thing, however well it matches the words.
-When a picture carries a "judge it on" line, that line says what must be seen: rate the sense against it first.
+When a picture carries a "judge it on" line, that line says what must be seen: rate the sense against it first (only
+what a still picture can show of it).
+JUDGE WHAT A STILL PICTURE CAN SHOW: a name (a medicine, a brand, a label), a motion, a sequence or a change over time,
+a sound or a voice cannot be seen — never lower the sense for them, nor because a precise prop is missing. A false
+fact is still false (a person asleep when he was awake, the wrong place, era or number). A picture marked "fx" gets
+its effect at the edit: judge the sharp still.
 "facts_ok" (true / false): false when the picture states a false fact - the wrong organ, tool, animal or place, a
 number or an era that contradicts the words or the EPISODE FACTS given below, or a precise chemical structure,
 formula or labelled diagram (the image model invents their details). Judge facts against the quoted words and
@@ -623,20 +645,34 @@ never on a real light source; its cheap line is its only stock test. 5 = a still
 3 = correct but flat, 2 or 1 = artefacts, stock or unreadable. A face, when one shows, must be natural and in focus with normal eyes,
 teeth and hands; a deformed, waxy or doubled face scores look 2 at most.
 
-For each image, by "file": "seen", "score" 1-5, "facts_ok" true / false, "look" 1-5, "problem" (a few words, empty
-if none) and "better_prompt": an English image prompt that would fix it (one clear scene, one main subject, no text)
-- empty when the score and the look are both 4 or 5 and facts_ok is true. When the image's own prompt is given below
-as ART-DIRECTED, write better_prompt in that same grammar, 80 to 120 words, in this order: subject and action,
-setting, composition for its frame, lens and point of view, light (source, direction, quality), palette and grade,
-material and detail, mood - keep what worked, change what failed, state only what IS in the frame."""
+"safe" (true / false): false when the picture evokes an overdose, a means of suicide or a symbol of death, even as a
+cliché (pills spilled or heaped, an empty or tipped-over bottle by a bed, a rope, a blade near skin, a weapon aimed
+at someone, a skull, a coffin, a grave, wilted flowers or a burnt-out candle for a death) — such a picture is never
+shown, however well it matches the words.
+
+For each image, by "file": "seen", "score" 1-5, "facts_ok" true / false, "safe" true / false, "look" 1-5, "problem" (a few words, empty
+if none), "better_prompt" and "new_prompt" — both empty when the score and the look are both 4 or 5 and facts_ok and
+safe are true; a picture that fails ALWAYS gets both, written in full:
+- "better_prompt": the same idea, made to work — the scene rewritten IN THE POSITIVE: describe only what IS in the
+  frame, never "no", "not", "without" or "instead of" (the image model ignores negations), and take out the words
+  that caused the problem (if a window caused it, there is no window in the new prompt);
+- "new_prompt": a DIFFERENT picture for the same words — another subject, setting or point of view, never the same
+  scene reworded — in the positive too; it is used when this idea has already failed twice or when the picture is
+  not safe.
+When the image's own prompt is given below as ART-DIRECTED, write both in that same grammar, 80 to 120 words, in this
+order: subject and action, setting, composition for its frame, lens and point of view, light (source, direction,
+quality), palette and grade, material and detail, mood - keep what worked, change what failed."""
 REVIEW_SCHEMA = {
     "type": "object",
     "properties": {"reviews": {"type": "array", "items": {
         "type": "object",
         "properties": {"file": {"type": "string"}, "seen": {"type": "string"}, "score": {"type": "integer"},
-                       "facts_ok": {"type": "boolean"},
-                       "look": {"type": "integer"}, "problem": {"type": "string"}, "better_prompt": {"type": "string"}},
-        "required": ["file", "seen", "score", "look"]}}},
+                       "facts_ok": {"type": "boolean"}, "safe": {"type": "boolean"},
+                       "look": {"type": "integer"}, "problem": {"type": "string"}, "better_prompt": {"type": "string"},
+                       "new_prompt": {"type": "string"}},
+        # v15b: both prompts asked every time (empty for a picture that passes) — optional, the review left the
+        # other idea out 9 times in 11, and a picture that failed twice had nothing left to try.
+        "required": ["file", "seen", "score", "look", "better_prompt", "new_prompt"]}}},
     "required": ["reviews"],
 }
 
@@ -871,6 +907,13 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None
             near = float(m.get("time", 0))
         except (TypeError, ValueError):
             continue
+        flagged = [f for f in FLAGS if m.get(f) is True]
+        if flagged:
+            why = "flagged " + ", ".join(f.replace("_", " ") for f in flagged)
+            if fixed:
+                LAST_SKIPS.append({"t": near, "anchor": str(m.get("anchor") or "")[:80], "why": why})
+            filter_hit(f"editor: {why}", f'Moment "{m.get("anchor")}" at {near:.1f} s not made: {why}.')
+            continue
         if fixed and m.get("skip"):
             why = re.sub(r"\s+", " ", str(m.get("skip_why") or "")).strip()[:200]
             LAST_SKIPS.append({"t": near, "anchor": str(m.get("anchor") or "")[:80], "why": why})
@@ -1092,7 +1135,7 @@ def apply_notions(moments, brief, clip_text):
 
 def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, start=0.0, end=None,
                      sheets=None, ground=None, mode="mixed", density="normal", hero=False,
-                     dur_range=None, gap_min=0.0, tail=None, head=HEAD_FREE, block=(), fixed=None):
+                     dur_range=None, gap_min=0.0, tail=None, head=HEAD_FREE, block=(), fixed=None, parallel=False):
     """Claude reads the clip, the conversation around it and (``sheets``) what
     is on screen, and places images that carry the IDEA being said.
     ``ground``: hook_grounding.request()'s (frames, prompt) — the hook is
@@ -1131,6 +1174,8 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     else:
         count_rule = f"Add up to {n} B-roll images — fewer when the clip names little, none when it names nothing."
     mode_rule = MODE_RULES.get(mode, MODE_RULES["mixed"]).replace(" PARALLEL_PLACEHOLDER", " " + PARALLEL_RULE.replace("\n", " "))
+    if parallel and "A PARALLEL" not in mode_rule:
+        mode_rule += " " + PARALLEL_RULE.replace("\n", " ")
     common = dict(n=n, cap=cap, count_rule=count_rule, avoid=avoid_txt,
                   sheets=", ".join(os.path.basename(p) for p in sheets or []) or "none",
                   frame=FRAME_TEXT["mixed" if hero else "small"],
@@ -1142,7 +1187,8 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
                   hook=clip.get("viral_hook_text") or "-", before=before or "-", after=after or "-",
                   brief=brief or "(no brief for this video)", bible=_bible_block(), text=_numbered_text(words)[:6000],
                   grounding=GROUNDING_RULE, set_rule=SET_RULE, cliche_line=CLICHE_LINE,
-                  experience_rule=(EXPERIENCE_RULE + "\n" + EMPTY_RULE + "\n" + PRECISION_RULE + "\n") if hero else "",
+                  experience_rule=("\n".join((EXPERIENCE_RULE, EMPTY_RULE, PRECISION_RULE, SAFETY_RULE, FLAGS_RULE)) + "\n")
+                  if hero else "",
                   pace=pace, names=pace_of[density]["names"],
                   gap=gap)
     prompt = CLAUDE_PLAN_PROMPT.format(lo=head, hi=duration - TAIL_FREE - SEG_DUR, **common)
@@ -1155,7 +1201,11 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
         item = schema["properties"]["moments"]["items"]
         item["properties"]["style"]["enum"] = list(PREMIUM_STYLES) + register_names()
         item["properties"]["mood"] = visual_mood.SCHEMA
-        item["required"] = list(item["required"]) + ["mood", "worth"]
+        item["required"] = list(item["required"]) + ["mood", "worth"] + list(FLAGS)
+        for flag in FLAGS:
+            item["properties"][flag] = {"type": "boolean"}
+        schema["properties"]["clip_gravity"] = {"type": "string", "enum": ["none", "real", "grave"]}
+        schema["required"] = list(schema.get("required") or []) + ["clip_gravity"]
         if mode == "adaptive":
             item["properties"]["show"] = {"type": "string", "enum": ["thing", "meaning"]}
             item["properties"]["point"] = {"type": "string"}
@@ -1240,9 +1290,15 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     missing = sorted({a for m in moments if m.get("mood") for a in m["mood"]["defaulted"]})
     if missing:
         filter_hit("mood: level missing", f"Mood levels missing, the plain level used: {', '.join(missing)}.")
+    clip_gravity = (data or {}).get("clip_gravity") if (data or {}).get("clip_gravity") in ("none", "real", "grave") else None
+    if clip_gravity == "grave":
+        print("   🕯️ The clip is about a death: every picture sober, an absence.")
     for m in moments:
         m["thesis"] = thesis
         m["hero_options"] = options
+        m["clip_gravity"] = clip_gravity
+        if parallel:
+            m["parallel"] = True
     return moments
 
 
@@ -1311,20 +1367,28 @@ RULES
 - {faces} Nobody real and recognisable, ever.
 
 For EVERY picture also write "judge": one sentence, what a good picture of THIS one is (what must be seen, what
-would make it wrong) — the reviewer rates the picture against it.
+would make it wrong) — the reviewer rates the picture against it — only what a STILL picture can show: never a name
+or a label, a motion, a sequence or a change over time, a sound or a voice; a false fact stays wrong.
+And "fx": "none", or what the edit adds to the sharp picture because the image model cannot draw it — "double" (a
+faint copy of the picture that drifts beside it: a presence doubled, a voice that is another person, a split) or
+"tremble" (a fine shake: a perception that shivers, a panic). With an fx, the prompt paints ONE sharp, single image
+(never a doubled, ghosted, blurred or shaking subject).
 
-Return JSON: {{"prompts": [{{"k": 0, "prompt": "...", "judge": "..."}}, ...]}} with the "k" of every picture above."""
+Return JSON: {{"prompts": [{{"k": 0, "prompt": "...", "judge": "...", "fx": "none"}}, ...]}} with the "k" of every picture above."""
 REGISTER_TEXT = """- REGISTER PICTURES: a picture marked REGISTER below is not a photograph and has no look sheet: its register
-  is its look. Write it in this order instead: 1. what is seen (the content: the experience, the object, the notion
-  — from the speaker's words and the register's iconography), 2. geometry and scale, 3. colours and light (the
-  register's), 4. composition for its frame, 5. medium and texture, 6. mood. Make it as
-  strange, saturated or vast as its register says; its "cheap" line is what to stay away from. Still 80 to 120
-  words, still nothing written anywhere, still nobody real."""
+  is its STYLE, never its scene — the scene comes from THIS picture's sentence (what the speaker says happens or is
+  perceived here), so two pictures of one register never share a scene. An inner register shows what the person
+  perceives from inside, through their own eyes and senses — never the person seen from outside. Write it in this
+  order: 1. what is seen (this sentence's content), 2. geometry and scale, 3. colours and light (the register's),
+  4. composition for its frame, 5. medium and texture, 6. mood. Make it as strange, saturated or vast as its register
+  says; its "cheap" line is what to stay away from. Still 80 to 120 words, still nothing written anywhere, still
+  nobody real."""
 ART_SCHEMA = {
     "type": "object",
     "properties": {"prompts": {"type": "array", "items": {
         "type": "object",
-        "properties": {"k": {"type": "integer"}, "prompt": {"type": "string"}, "judge": {"type": "string"}},
+        "properties": {"k": {"type": "integer"}, "prompt": {"type": "string"}, "judge": {"type": "string"},
+                       "fx": {"type": "string", "enum": ["none", "double", "tremble"]}},
         "required": ["k", "prompt"]}}},
     "required": ["prompts"],
 }
@@ -1395,9 +1459,9 @@ def _art_prompt(moments, clip, mixed=True, rise=False, auto_style=True, style="p
         lines.append(f"  the editor's draft: {m.get('prompt') or '-'}")
         reg = register_of(m_style)
         if reg:
-            lines.append(f"  REGISTER \"{reg['name']}\" (not a photograph): {reg['look']}"
+            lines.append(f"  REGISTER \"{reg['name']}\" (not a photograph) — its style; the scene is this sentence's: {reg['look']}"
                          + (f" Cheap version to stay away from: {reg['cheap']}" if reg.get("cheap") else ""))
-            if (m.get("mood") or {}).get("gravity") == "real":
+            if visual_mood._restrained(m.get("mood")):
                 lines.append(RESTRAINT_LINE)
         elif mixed:
             mood = m.get("mood") or visual_mood.clean(None)
@@ -1405,6 +1469,8 @@ def _art_prompt(moments, clip, mixed=True, rise=False, auto_style=True, style="p
             if m.get("show"):
                 lines.append(f"  show: {m['show']}" + (f" — point: {m['point']}" if m.get("point") else "")
                              + (" (what the sentence means, as a real event or process)" if m["show"] == "meaning" else ""))
+            if mood.get("absence"):
+                lines.append(ABSENCE_LINE)
             if mood.get("sober"):
                 lines.append("  SOBER, REAL SUFFERING (this overrules the editor's draft): show only the person or the place "
                              "as a camera sees them; nothing he sees, hears or feels inside appears in the frame — no "
@@ -1412,7 +1478,7 @@ def _art_prompt(moments, clip, mixed=True, rise=False, auto_style=True, style="p
         else:
             lines.append(f"  style note: {STYLES.get(m_style, STYLES['photo'])}")
     any_register = any(register_of((m.get("style") or "photo") if auto_style else style) for m in moments)
-    extra = [EMPTY_RULE, PRECISION_RULE] + ([PARALLEL_RULE] if any(m.get("show") for m in moments) else [])
+    extra = [EMPTY_RULE, PRECISION_RULE, SAFETY_RULE] + ([PARALLEL_RULE] if any(m.get("show") or m.get("parallel") for m in moments) else [])
     return ART_PROMPT.format(extra_rules="\n- ".join(r.replace("\n", "\n  ") for r in extra) if mixed else
                              "Everything in the frame is something the image model can draw right.",
                              look_rule=LOOK_RULE_MOOD if mixed else LOOK_RULE_HISTORICAL,
@@ -1497,6 +1563,7 @@ def _apply_art(moments, data):
         judge = re.sub(r"\s+", " ", str(p.get("judge") or "")).strip()[:300]
         if judge:
             m["judge"] = judge
+        m["fx"] = p.get("fx") if p.get("fx") in FX_KINDS else None
         taken += 1
     return taken
 
@@ -1616,6 +1683,7 @@ def _review_lines(cands, words):
                      f'said: "{c["m"].get("said") or "..." + near + "..."}"'
                      + (f'; judge it on: "{c["m"]["judge"]}"' if c["m"].get("judge") else "")
                      + (f'; REGISTER "{reg["name"]}" (not a photograph; its cheap version: {reg.get("cheap") or "-"})' if reg else "")
+                     + (f'; fx: {c["m"]["fx"]} (added at the edit, not in this still)' if c["m"].get("fx") else "")
                      + (f'; prompt (ART-DIRECTED): "{c["m"]["prompt"]}"' if c["m"].get("art") else ""))
     return lines
 
@@ -1631,7 +1699,8 @@ def review_with_gemini(cands, words):
         prompt += f"\nTHE CLIP'S POINT: {thesis} (context: say in \"problem\" when a picture works against it)."
     prompt += _review_facts(cands)
     prompt += _hero_test(cands)
-    prompt += '\nReturn only: {"reviews": [{"file": "...", "seen": "...", "score": 1-5, "facts_ok": true, "look": 1-5, "problem": "...", "better_prompt": "..."}]}'
+    prompt += ('\nReturn only: {"reviews": [{"file": "...", "seen": "...", "score": 1-5, "facts_ok": true, "safe": true, '
+               '"look": 1-5, "problem": "...", "better_prompt": "...", "new_prompt": "..."}]}')
     parts = []
     for c in cands:
         im = Image.open(c["file"]).convert("RGB")
@@ -1821,6 +1890,7 @@ KEEP_FLOOR = 2
 LOOK_CARD = int(os.environ.get("BROLL_LOOK_CARD") or 3)
 LOOK_HERO = int(os.environ.get("BROLL_LOOK_HERO") or 4)
 REDO_CARD, REDO_HERO = 1, 2   # pictures made again from the reviewer's better prompt, at most
+REDO_NEW_IDEA = 1             # v15b: a card's one more attempt when it is another idea (two failed, or unsafe)
 
 
 def _look_ok(c):
@@ -1833,32 +1903,79 @@ def _take_review(c, r):
     look_score (None when not given), problem, better_prompt."""
     c["score"] = int(r.get("score") or 3)
     c["facts_ok"] = r.get("facts_ok") is not False
+    c["safe"] = r.get("safe") is not False
     look = r.get("look")
     c["look_score"] = int(look) if isinstance(look, (int, float)) and not isinstance(look, bool) and 1 <= int(look) <= 5 else None
     c["problem"] = str(r.get("problem") or "")[:300]
-    c["better_prompt"] = re.sub(r"\s+", " ", str(r.get("better_prompt") or "")).strip()[:PROMPT_MAX]
+    c["better_prompt"] = positive(re.sub(r"\s+", " ", str(r.get("better_prompt") or "")).strip())[:PROMPT_MAX]
+    c["new_prompt"] = positive(re.sub(r"\s+", " ", str(r.get("new_prompt") or "")).strip())[:PROMPT_MAX]
     return c
+
+
+# A redo never carries a negation (v15): the image model ignores them, and the word they name comes back in the
+# picture ("not behind a window" brought the window back four times on one hero).
+_NEGATION_RE = re.compile(r"\b(no|not|never|without|instead of|rather than|nor|none|nothing|nobody|avoid\w*|free of|"
+                          r"don't|doesn't|isn't|aren't|won't|can't)\b", re.I)
+
+
+def positive(text):
+    """``text`` without its sentences that carry a negation (counted). "" when nothing positive is left."""
+    text = str(text or "").strip()
+    if not text:
+        return ""
+    sentences = re.split(r"(?<=[.!?;])\s+", text)
+    kept = [s for s in sentences if not _NEGATION_RE.search(s)]
+    if len(kept) < len(sentences):
+        filter_hit("redo: negation taken out")
+    return " ".join(kept).strip()
+
+
+def _next_prompt(c):
+    """The prompt of a picture's next attempt: the same idea made to work (better_prompt), or another idea
+    (new_prompt) once this one has failed twice, when the picture is not safe, or when nothing of the same idea is
+    left once its negations are out (v15b); never a prompt already tried; None when there is nothing to try."""
+    tried = c.get("tried") or ()
+    if not _safe(c) or c.get("failed", 0) >= 2:
+        order = (c.get("new_prompt"),)
+    else:
+        order = (c.get("better_prompt"), c.get("new_prompt"))
+    return next((p for p in order if p and p not in tried), None)
+
+
+def _redo_budget(c):
+    """How many times a picture may be made again: the hero twice (its takes count as attempts); a card once, and once
+    more when the next attempt is another idea — without it, a card that failed twice would never get one."""
+    if c["layout"] == "hero":
+        return REDO_HERO
+    return REDO_CARD + (REDO_NEW_IDEA if not _safe(c) or c.get("failed", 0) >= 2 else 0)
 
 
 def _facts_ok(c):
     return c.get("facts_ok", True) is not False
 
 
+def _safe(c):
+    return c.get("safe", True) is not False
+
+
 def _needs_redo(c):
-    return c["score"] <= 3 or not _look_ok(c) or not _facts_ok(c)
+    # An unsafe picture is never made again with the same idea: only another idea (v15, _next_prompt).
+    return not _safe(c) or c["score"] <= 3 or not _look_ok(c) or not _facts_ok(c)
 
 
 def _better(c2, c):
     """The redo beats the first picture: true facts first, then a higher sense, then a higher look."""
-    return (_facts_ok(c2), c2["score"], c2.get("look_score") or 0) > (_facts_ok(c), c["score"], c.get("look_score") or 0)
+    return ((_safe(c2), _facts_ok(c2), c2["score"], c2.get("look_score") or 0)
+            > (_safe(c), _facts_ok(c), c["score"], c.get("look_score") or 0))
 
 
 def _keep_meaningful(cands):
     """The candidates worth showing, in their order: every one with true facts, a sense of KEEP_SCORE+ and a look
     that passes (_look_ok), topped up with the best 3s (never below 3, facts true, look passing) up to KEEP_FLOOR."""
-    good = [c for c in cands if _facts_ok(c) and c["score"] >= KEEP_SCORE and _look_ok(c)]
+    good = [c for c in cands if _safe(c) and _facts_ok(c) and c["score"] >= KEEP_SCORE and _look_ok(c)]
     if len(good) < KEEP_FLOOR:
-        spare = sorted((c for c in cands if _facts_ok(c) and 3 <= c["score"] < KEEP_SCORE and _look_ok(c)), key=lambda c: -c["score"])
+        spare = sorted((c for c in cands if _safe(c) and _facts_ok(c) and 3 <= c["score"] < KEEP_SCORE and _look_ok(c)),
+                       key=lambda c: -c["score"])
         good += spare[:KEEP_FLOOR - len(good)]
     return [c for c in cands if c in good]
 
@@ -2561,7 +2678,7 @@ def _label_card(card, text, cw, ch):
 
 
 def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=None, enter="rise", zoom="soft",
-                 border="soft", look=None, label=None, grade="off", min_aspect=None):
+                 border="soft", look=None, label=None, grade="off", min_aspect=None, fx=None):
     """PNG sequence of the rising card, drawn in a fixed canvas; the canvas
     itself moves up through the overlay's ``y`` expression. Returns
     (pattern, x, motion) where motion = (y_start, y_end, drift, canvas_h[,
@@ -2584,6 +2701,7 @@ def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=
         img = ImageEnhance.Color(img).enhance(1.08)
     img = ImageEnhance.Sharpness(img).enhance(1.15)
     grain = float(params.get("grain") or 0.0) if params else 0.0
+    fx_rng = __import__("numpy").random.default_rng(13)
     rng = __import__("numpy").random.default_rng(11) if grain else None
     iw, ih = img.size
     cap_top, cap_bottom = _caption_band(H)
@@ -2617,7 +2735,13 @@ def _rise_frames(src, folder, fps, dur, W, H, size_pct, position="below", y_pct=
         zoom = (1.0 + (CARD_PUSH - 1.0) * f / max(1, n - 1)) if prem else _push_in(f, n, zmax)
         vw, vh = cw * zmax / zoom, ch * zmax / zoom
         x0, y0 = (big.width - vw) / 2, (big.height - vh) / 2
+        if fx == "tremble":
+            dx, dy = _fx_shift(fx_rng, x0, y0, vw)
+            x0, y0 = x0 + dx, y0 + dy
         photo = big.crop((int(x0), int(y0), int(x0 + vw), int(y0 + vh))).resize((cw, ch), Image.BILINEAR)
+        if fx == "double":
+            import numpy as np
+            photo = Image.fromarray(np.clip(_fx_double(np.asarray(photo, dtype=np.float32), f / fps), 0, 255).astype(np.uint8), "RGB")
         if rng is not None:
             photo = _grain(photo, grain, rng)
         unit = shade.copy()
@@ -2727,7 +2851,31 @@ def _grain(img, sigma, rng):
     return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
 
 
-def _hero_frames(src, folder, fps, dur, W, H, grade="off"):
+# What the image model cannot draw (v15), added at the edit on a sharp picture: "double" a faint copy that drifts
+# beside it, "tremble" a fine shake. The director asks for it (fx), the item keeps it, every frame gets it.
+FX_KINDS = ("double", "tremble")
+FX_DOUBLE_ALPHA = 0.3      # the copy's weight
+FX_DOUBLE_DRIFT = 0.024    # of the width: how far the copy drifts (it comes and goes)
+FX_TREMBLE = 0.004         # of the width: the shake (a standard deviation)
+
+
+def _fx_double(arr, t):
+    """The picture with a faint copy of itself drifting beside it (``arr``: H x W x 3 float)."""
+    import numpy as np
+    h, w = arr.shape[:2]
+    dx = int(round(w * FX_DOUBLE_DRIFT * (0.5 + 0.5 * np.sin(2 * np.pi * t / 2.2))))
+    dy = int(round(h * 0.004 * np.sin(2 * np.pi * t / 3.1)))
+    return arr * (1.0 - FX_DOUBLE_ALPHA) + np.roll(arr, (dy, dx), axis=(0, 1)) * FX_DOUBLE_ALPHA
+
+
+def _fx_shift(rng, room_x, room_y, w):
+    """The tremble's offset for one frame, within the room the crop leaves."""
+    dx = max(-room_x, min(room_x, float(rng.normal(0.0, FX_TREMBLE * w))))
+    dy = max(-room_y, min(room_y, float(rng.normal(0.0, FX_TREMBLE * w))))
+    return dx, dy
+
+
+def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None):
     """PNG sequence (RGBA) of a full-screen "hero" picture, the way a cutaway is
     cut in a documentary: the image covers the frame (centre crop), pushes in
     slowly (1.00 -> HERO_PUSH, eased over its whole time on screen) and
@@ -2763,13 +2911,22 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off"):
     rng = np.random.default_rng(7)
     noise = rng.normal(0.0, HERO_GRAIN, (H, W, 1)).astype(np.float32) if HERO_GRAIN > 0 else None
     n = max(2, int(round(dur * fps)))
+    fx_rng = np.random.default_rng(13)
     for f in range(n):
         t = f / fps
         z = 1.0 + (HERO_PUSH - 1.0) * _smooth(t / dur)
+        if fx == "tremble":
+            z *= 1.025                                        # room for the shake inside the picture
         bw, bh = sw / z, sh / z
         x0, y0 = (iw - bw) / 2, (ih - bh) / 2
+        if fx == "tremble":
+            dx, dy = _fx_shift(fx_rng, x0, y0, bw)
+            x0, y0 = x0 + dx, y0 + dy
         frame = img.resize((W, H), Image.LANCZOS, box=(x0, y0, x0 + bw, y0 + bh))
-        arr = np.asarray(frame, dtype=np.float32) * shade
+        arr = np.asarray(frame, dtype=np.float32)
+        if fx == "double":
+            arr = _fx_double(arr, t)
+        arr = arr * shade
         if noise is not None:
             # The same grain field moved around: new grain every frame for the price of a copy.
             arr += np.roll(noise, (int(rng.integers(0, H)), int(rng.integers(0, W))), axis=(0, 1))
@@ -2950,7 +3107,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                                                mode=cfg.get("mode") or "mixed",
                                                density=density,
                                                hero=mixed, dur_range=dur_range, gap_min=gap_min, tail=tail, head=head,
-                                               block=block, fixed=fixed)
+                                               block=block, fixed=fixed, parallel=bool(cfg.get("parallel")))
                     planner = "claude"
                     if not moments:
                         print("   ℹ️ B-roll: Claude found no moment where an image would add meaning — none added.")
@@ -2984,6 +3141,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             import ai_brain
             for m in moments:
                 m["mood"] = m.get("mood") or visual_mood.clean(None)
+            if any(m.get("clip_gravity") == "grave" for m in moments):
+                # The whole clip is about a death: every picture is grave and an absence (the editor's clip_gravity).
+                for m in moments:
+                    m["mood"] = {**m["mood"], "gravity": "grave", "absence": not register_of(m.get("style"))}
             # Experience pictures: real suffering first (sober), and a cap per clip.
             moments = experience_guard(moments)
             clip_base = visual_mood.base([m["mood"] for m in moments], visual_mood.episode_levels(ai_brain.EPISODE_BIBLE))
@@ -3013,9 +3174,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
         if mixed:
             # A picture made sober (real suffering) needs the director's rewrite: the editor's draft still paints
             # what the person lives inside. Without it, no picture.
-            for m in [m for m in moments if (m.get("mood") or {}).get("sober") and not m.get("art")]:
+            for m in [m for m in moments if ((m.get("mood") or {}).get("sober") or (m.get("mood") or {}).get("absence"))
+                      and not m.get("art")]:
                 filter_hit("experience: sober picture not rewritten",
-                           f'Moment "{m.get("anchor")}" dropped: made sober, but its prompt is still the editor\'s draft.')
+                           f'Moment "{m.get("anchor")}" dropped: made sober (or an absence), but its prompt is still the editor\'s draft.')
                 moments.remove(m)
             if not moments:
                 return screen_only()
@@ -3074,39 +3236,52 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     for c in best.values():
                         print(f"   🎬 Hero: take {c['take']} kept (score {c['score']}, look {c.get('look_score')}) of "
                               f"{1 + len([d for d in drop if d['k'] == c['k']])}.")
+                for c in checked:
+                    # the best take still failing means every take failed: as many failures as takes
+                    c["failed"] = (1 + len([d for d in (drop if best else []) if d["k"] == c["k"]])) if _needs_redo(c) else 0
                 redone = 0
-                for _round in range(max(REDO_CARD, REDO_HERO)):
-                    # A weak picture is made again from the reviewer's better prompt: once for a card, twice for
-                    # the hero. The better prompt of an art-directed picture is in the director's grammar and
-                    # goes out as such; a short one is the editor's kind again.
-                    todo = [c for c in checked if _needs_redo(c) and c.get("better_prompt")
-                            and c.get("tries", 0) < (REDO_HERO if c["layout"] == "hero" else REDO_CARD)]
+                for _round in range(max(REDO_CARD + REDO_NEW_IDEA, REDO_HERO)):
+                    # A weak picture is made again from the reviewer's better prompt: once for a card (and once
+                    # more with another idea when that one failed too), twice for the hero. The better prompt of an
+                    # art-directed picture is in the director's grammar and goes out as such; a short one is the
+                    # editor's kind again.
+                    todo = [c for c in checked if _needs_redo(c) and _next_prompt(c)
+                            and c.get("tries", 0) < _redo_budget(c)]
                     pairs = []
                     for c in todo:
                         c["tries"] = c.get("tries", 0) + 1
+                        nxt = _next_prompt(c)
+                        c.setdefault("tried", []).append(nxt)
+                        if nxt is not c.get("better_prompt") and nxt == c.get("new_prompt"):
+                            filter_hit("redo: a new idea", f'Picture "{c["m"]["anchor"]}": '
+                                       + ("not safe" if not _safe(c) else f'{c.get("failed")} failed attempts')
+                                       + " — another idea, not the same scene reworded.")
                         raw = os.path.join(tmp, f"broll_{c['k']}_v{c['tries'] + 1}.jpg")
-                        art = bool(c["m"].get("art")) and len(c["better_prompt"].split()) >= ART_MIN_WORDS
-                        got, used, credit = make_image(c["better_prompt"], c["style"], raw, c["m"]["query"],
+                        art = bool(c["m"].get("art")) and len(nxt.split()) >= ART_MIN_WORDS
+                        got, used, credit = make_image(nxt, c["style"], raw, c["m"]["query"],
                                                        used_urls, None if c["m"].get("notion") else c["m"].get("sheet"),
                                                        layout=c["layout"], art=art, register=register_look(c["m"]),
                                                        mood=c["m"].get("mood"))
                         if got:
                             pairs.append((c, {**c, "file": got, "source": used, "credit": credit, "seed": seeds.get(got),
-                                             "m": {**c["m"], "prompt": c["better_prompt"], "art": art}}))
+                                             "m": {**c["m"], "prompt": nxt, "art": art}}))
                     if not pairs:
                         break
                     redone += len(pairs)
                     for (c, c2), r2 in zip(pairs, review_images([c2 for _, c2 in pairs], words)):
                         _take_review(c2, r2)
+                        failed = c.get("failed", 0) + (1 if _needs_redo(c2) else 0)
                         if _better(c2, c):
                             c.update(c2)
+                        c["failed"] = failed
                 kept = _keep_meaningful(cands)
                 print(f"   🔎 B-roll review: scores {[c['score'] for c in cands]}, looks "
                       f"{[c.get('look_score') for c in cands]}"
                       f"{f', {redone} redone' if redone else ''}, {len(kept)}/{len(cands)} kept")
                 for c in cands:
                     if c not in kept:
-                        why = "false fact" if not _facts_ok(c) else "sense" if c["score"] < KEEP_SCORE else "look"
+                        why = ("unsafe" if not _safe(c) else "false fact" if not _facts_ok(c)
+                               else "sense" if c["score"] < KEEP_SCORE else "look")
                         filter_hit(f"review: dropped ({why})", f'Picture "{c["m"]["anchor"]}" dropped by the review ({why}: sense '
                                                                f'{c["score"]}, look {c.get("look_score")}): {c.get("problem") or "-"}')
                 for c in kept:
@@ -3150,6 +3325,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             if mixed:
                 # The size the picture was made at: a manual redo asks for the same one.
                 item["gen"] = list(_gen_size(c["layout"], hero_res))
+                if m.get("fx") in FX_KINDS:
+                    item["fx"] = m["fx"]                               # added at render, on the sharp picture
                 if m.get("mood") and not reg:
                     item["mood"] = visual_mood.compact(m["mood"])      # its look: a manual redo keeps it
                     item["mood_base"] = dict(m.get("mood_base") or {})  # the clip's, for its grade
@@ -3302,7 +3479,8 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
             dur = max(1.0, min(SCREEN_DUR_MAX if screen else 4.0, dur))
             grade = it.get("grade") if _grade_params(it.get("grade")) else "off"
             if hero:
-                pattern = _hero_frames(src, folder, fps, dur, w, h, grade=grade)
+                fx = it.get("fx") if it.get("fx") in FX_KINDS else None
+                pattern = _hero_frames(src, folder, fps, dur, w, h, grade=grade, fx=fx)
                 layers.append({"t": it["t"], "dur": dur, "rise": False, "hero": True, "pattern": pattern, "x": 0, "y": 0})
             elif rise:
                 pattern, x, motion = _rise_frames(src, folder, fps, dur, w, h, int(it.get("size") or RISE_SIZE),
@@ -3311,6 +3489,7 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                                                   it.get("zoom") if it.get("zoom") in ZOOM_LEVELS else "soft",
                                                   it.get("border") if it.get("border") in BORDERS else "soft",
                                                   look=it.get("look"), label=it.get("label"), grade=grade,
+                                                  fx=it.get("fx") if it.get("fx") in FX_KINDS else None,
                                                   min_aspect=SCREEN_ASPECT_MIN if screen else None)
                 layers.append({"t": it["t"], "dur": dur, "rise": True, "pattern": pattern, "x": x, "y": motion})
             else:

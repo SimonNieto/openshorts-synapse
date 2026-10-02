@@ -194,8 +194,9 @@ MEDIUM = {
                    "high-speed frame), in that instrument's real light and colours"),
     "model": ("a physical model of the notion in real materials (shapes, wire, glass, paper, water, light) on a table "
               "or in a room, photographed"),
-    "inner": ("the experience as the person lives it, painted from the speaker's own words: what is seen inside, its "
-              "colours, shapes and scale, as strange as it is told"),
+    "inner": ("what the person perceives from inside, through their own eyes and senses — what they see, hear or feel, "
+              "turned into what is seen — never the person seen from outside, never a face that looks pensive; painted "
+              "from the speaker's own words, its colours, shapes and scale as strange as it is told"),
 }
 FRAME_BY_FUNCTION = {
     "setup": "a wide establishing frame that shows where we are",
@@ -248,9 +249,18 @@ TEXTURE = {
 # place as a camera sees them, never the inside of the experience.
 SOBER = ("the person or the place as a camera sees them, with dignity — never what is seen, heard or felt inside, "
          "nothing imagined around them")
-# An illness or an addiction lived from inside (gravity "real", B-roll « ambiance » v12): shown, with restraint.
+# An illness or an addiction lived from inside (gravity "real", B-roll « ambiance » v12): shown, with restraint —
+# when it is lived as negative only (v14): an experience lived as positive, or one that heals, keeps all its colours.
 RESTRAINT = ("with restraint: muted colours, few effects, never spectacular or glorifying, never horror, never a "
              "caricature of the illness")
+# A clip about a death (the editor's clip_gravity "grave", v14): every picture is an absence.
+ABSENCE = ("an absence: the places and things the person left, as they are, with nobody in them who could be taken "
+           "for him or for his close ones")
+
+
+def _restrained(m):
+    """Restraint: an illness or an addiction ("real") lived as negative (grim, uneasy)."""
+    return (m or {}).get("gravity") == "real" and (m or {}).get("valence") in ("grim", "uneasy")
 VAL_WORD = {"grim": "sombre", "uneasy": "uneasy", "neutral": "matter-of-fact", "warm": "warm", "elated": "luminous"}
 INT_WORD = {"still": "quiet", "steady": "measured", "charged": "tense", "extreme": "overwhelming"}
 
@@ -260,7 +270,7 @@ def key_of(m):
     brighter when it is lived as good; never low around a death (gravity "grave": dignity, not menace)."""
     m = {**DEFAULT, **(m or {})}
     v, a = _VAL[m["valence"]], _INT[m["intensity"]]
-    k = _BUDGET[m["gravity"]] * (0.06 * v - 0.04 * max(0, a - 1))
+    k = _budget(m) * (0.06 * v - 0.04 * max(0, a - 1))
     level = "low" if k <= -0.07 else "high" if k >= 0.07 else "mid"
     return "mid" if level == "low" and m["gravity"] == "grave" else level
 
@@ -272,8 +282,10 @@ def words(m):
     medium = MEDIUM[(vis, era)] if vis == "eye" else MEDIUM[vis]
     if m.get("sober"):
         medium += f"; {SOBER}"
-    elif vis == "inner" and m["gravity"] == "real":
+    elif vis == "inner" and _restrained(m):
         medium += f"; {RESTRAINT}"
+    if m.get("absence"):
+        medium += f"; {ABSENCE}"
     frame = f"{FRAME_BY_FUNCTION.get(m.get('function'), FRAME_BY_FUNCTION[None])}; {FRAME_BY_INTENSITY[m['intensity']]}"
     if m["scale"] == "body":
         lens = LENS_BY_DISTANCE[m["distance"]]
@@ -290,7 +302,7 @@ def words(m):
         palette = "the true colours of the scene's things and light sources"
     texture = TEXTURE[era] if vis == "eye" else TEXTURE[vis]
     mood = (f"{VAL_WORD[m['valence']]}, {INT_WORD[m['intensity']]}"
-            + (", dignified" if m["gravity"] == "grave" else ", restrained" if m["gravity"] == "real" else ""))
+            + (", dignified" if m["gravity"] == "grave" else ", restrained" if _restrained(m) else ""))
     return {"medium": medium, "composition": frame, "lens": lens, "light": light, "palette": palette,
             "texture": texture, "mood": mood}
 
@@ -316,10 +328,19 @@ _ERA = {"now": {"sat": 1.0, "temp": 0.0, "lift": 0.0, "grain": 0.0},
         "before": {"sat": 0.95, "temp": 6.0, "lift": 4.0, "grain": 0.0}}
 
 
+def _budget(m):
+    """How much style a picture may carry: tempered by gravity, except a "real" moment lived as positive (a healing,
+    a relief): it keeps all its colours."""
+    m = {**DEFAULT, **(m or {})}
+    if m["gravity"] == "real" and m["valence"] in ("warm", "elated"):
+        return 1.0
+    return _BUDGET[m["gravity"]]
+
+
 def _feeling(m):
     """The grade of a feeling (valence, intensity, gravity): saturation, contrast, black level, temperature."""
     m = {**DEFAULT, **(m or {})}
-    v, a, b = _VAL[m["valence"]], _INT[m["intensity"]], _BUDGET[m["gravity"]]
+    v, a, b = _VAL[m["valence"]], _INT[m["intensity"]], _budget(m)
     return {"sat": 1.0 + b * (0.08 * v + 0.05 * (a - 1)),
             "contrast": 1.0 + b * (0.05 * (a - 1) - 0.02 * v),
             "lift": 6.0 - 2.0 * (a - 1),
@@ -433,7 +454,7 @@ def targets(m):
     lo, hi = 0.0, 200.0
     if m["era"] == "early":
         hi = 4.0                                     # a black-and-white picture
-    elif m["gravity"] != "none" or m["valence"] == "grim":
+    elif m["gravity"] == "grave" or m["valence"] == "grim" or _restrained(m):
         hi = 32.0                                    # never garish where it hurts
     if m["valence"] == "elated" and m["era"] != "early":
         lo = 10.0                                    # wonder is not grey

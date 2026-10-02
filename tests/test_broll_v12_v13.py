@@ -44,7 +44,8 @@ class TestNoPositiveExample:
     def test_the_prompts_keep_principles_not_scenes_to_copy(self, monkeypatch):
         seen, _m = _plan(monkeypatch)
         p = seen["prompt"]
-        for copied in ("pill bottle", "bed rail", "pills", "syringe", "a blade against a bone", "hike at dawn",
+        # (the safety rule names pills and blades in its ban list: the check is on the positive examples)
+        for copied in ("pill bottle", "bed rail", '"pills"', "syringe", "a blade against a bone", "hike at dawn",
                        "security blanket", "decorator crabs", "a bare plaster wall"):
             assert copied not in p, copied
         assert "a glowing brain" in broll.CLICHE_RULE           # the ban list stays
@@ -142,7 +143,7 @@ class TestRestraint:
             {"name": "voices", "kind": "inner", "when": "x", "look": "A room where the walls murmur " * 3}]}, "claude")
         monkeypatch.setattr(ai_brain, "EPISODE_BIBLE", b)
         ms = [{"t": 5.0, "anchor": "a", "prompt": "p", "subject": "s", "style": "voices",
-               "mood": visual_mood.clean({"visibility": "inner", "gravity": "real"})}]
+               "mood": visual_mood.clean({"visibility": "inner", "gravity": "real", "valence": "grim"})}]
         assert broll.RESTRAINT_LINE in broll._art_prompt(ms, {})
         ms[0]["mood"] = visual_mood.clean({"visibility": "inner"})
         assert broll.RESTRAINT_LINE not in broll._art_prompt(ms, {})

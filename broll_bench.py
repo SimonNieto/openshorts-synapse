@@ -26,6 +26,7 @@ other on the same images.
     python broll_bench.py plan ... --moments aligned:v8,v9,v10,v11      (the SAME moments as those versions)
     python broll_bench.py select --job <job> --clips 5 --runs 4 [--versions v12] [--focus 33.6]
     python broll_bench.py content --jobs 88a7e7c1:5,e9e44926:9 --versions v8,v12
+    python broll_bench.py repeats --jobs 88a7e7c1:5,88a7e7c1:2 --versions v12,v14
 
 ``plan`` (the brain): planner + art direction + pictures + review on the chosen
 clips, exactly as a job runs them, but NO video is cut (add_broll in its
@@ -54,7 +55,9 @@ sentence) — and answers for each, a picture or a reason to skip it: versions c
 ``select``: the editor alone, fresh, --runs times on a clip, free choice as in a job: how often each moment is chosen
 (--focus: the moment to watch). ``content``: what fills every kept picture (the review's "seen", one Haiku call):
 people, a place with people, an empty place, an object set down, an object in use, an inner or abstract picture —
-counted per version, for all pictures and for the heroes.
+counted per version, for all pictures and for the heroes. ``repeats`` (v14): the pictures of one episode
+that share a composition (the same kind of scene and arrangement: a figure in a swirl, a lone walker on a neon street)
+— one Haiku call per episode and version, on the review's "seen": how many pictures repeat, and the groups.
 
 Everything lands in output/_test_broll/premium/ (``plan``: output/_test_broll/brain/).
 """
@@ -436,6 +439,11 @@ VERSIONS = {
     "v11": {},                                # v10 + a set phrase is not an image (editor and review)
     "v12": {},                                # gravity: only a death is sober; no positive example; empty place; candidates
     "v13": {"mode": "adaptive"},              # v12 + thing or meaning moment by moment, the strongest hero, the parallel
+    "v14": {},                                # registers a style; restraint when lived as negative; inner = perceived;
+                                              # a clip about a death = absences; safety; the editor's flags
+    "v14p": {"parallel": True},               # v14 + the visual parallel
+    "v15": {},                                # v14 + the review and the redos: positive, a new idea, still-only, fx
+    "v15b": {},                               # v15 + a card failed twice gets its new idea (one more attempt)
 }
 GROUP_S = 2.5   # two pictures closer than this (or on the same sentence) show the same moment
 BOARD_W = 1500
@@ -939,6 +947,35 @@ def _signature_sheet(res, sigs, out_path):
     return out_path
 
 
+def _fx_previews(res, tag):
+    """A short animated preview (GIF) of every kept picture with an fx, as it is cut in (graded): a board cannot show
+    a drift or a shake. -> BRAIN_DIR/<tag>_fx<k>.gif"""
+    import tempfile
+    from PIL import Image
+    import broll
+    out = []
+    for it in res.get("items") or []:
+        if it.get("fx") not in getattr(broll, "FX_KINDS", ()) or not it.get("image"):
+            continue
+        src = os.path.join(res.get("images_dir") or "", it["image"])
+        if not os.path.exists(src):
+            continue
+        tmp = tempfile.mkdtemp(prefix="fxprev_")
+        broll._hero_frames(src, tmp, 12, 2.5, 360, 640, grade=it.get("grade") or "off", fx=it["fx"])
+        frames = []
+        for p in sorted(glob.glob(os.path.join(tmp, "c*.png"))):
+            fr = Image.open(p).convert("RGBA")
+            bg = Image.new("RGB", fr.size, (0, 0, 0))
+            bg.paste(fr, (0, 0), fr)
+            frames.append(bg)
+        shutil.rmtree(tmp, ignore_errors=True)
+        if frames:
+            path = os.path.join(BRAIN_DIR, f"{tag}_fx{it.get('k')}.gif")
+            frames[0].save(path, save_all=True, append_images=frames[1:], duration=83, loop=0)
+            out.append(path)
+    return out
+
+
 def _sigs(spec):
     return [float(x) for x in str(spec or "").split(",") if x.strip()]
 
@@ -1040,6 +1077,8 @@ def cmd_plan(args):
                 with open(os.path.join(BRAIN_DIR, tag + ".json"), "w", encoding="utf-8") as f:
                     json.dump(res, f, indent=1, ensure_ascii=False)
                 boards.append(_board(res, os.path.join(BRAIN_DIR, tag + ".jpg")))
+                for gif in _fx_previews(res, tag):
+                    print(f"   🎞️ fx preview: {os.path.basename(gif)}", flush=True)
                 if _sigs(args.signatures):
                     _signature_sheet(res, _sigs(args.signatures), os.path.join(BRAIN_DIR, tag + "_signatures.jpg"))
                 scores = [it.get("score") for it in res["items"] if it.get("score") is not None]
@@ -1299,6 +1338,49 @@ def cmd_content(args):
     print(f"✅ {out}")
 
 
+def cmd_repeats(args):
+    """Per episode and version: the kept pictures that share a composition with another picture of the episode."""
+    import ai_brain
+    by = {}
+    for spec in str(args.jobs).split(","):
+        job, n = spec.split(":")
+        for v in str(args.versions).split(","):
+            path = os.path.join(BRAIN_DIR, f"{job[:8]}_clip{int(n)}_{v}.json")
+            if not os.path.exists(path):
+                continue
+            with open(path, encoding="utf-8") as f:
+                res = json.load(f)
+            for it in res.get("items") or []:
+                seen = _seen_of(res, it)
+                if seen:
+                    by.setdefault((job[:8], v), []).append({"id": f"clip{n}#{it.get('k')}", "seen": seen,
+                                                            "subject": it.get("subject")})
+    schema = {"type": "object", "properties": {"groups": {"type": "array", "items": {"type": "object", "properties": {
+        "label": {"type": "string"}, "ids": {"type": "array", "items": {"type": "string"}}}, "required": ["label", "ids"]}}},
+        "required": ["groups"]}
+    table = {}
+    for (job8, v), entries in sorted(by.items()):
+        prompt = ("The pictures below are all from one episode; each line is what is really in one of them. Group the "
+                  "pictures that share a COMPOSITION — the same kind of scene and arrangement, whatever their subject "
+                  "(the same setting and framing, the same figure placed the same way, the same pattern) — so that a "
+                  "viewer of the episode would feel he sees the same picture again. Only groups of 2 or more; a "
+                  "picture is in one group at most. Return JSON {\"groups\": [{\"label\": \"...\", \"ids\": [...]}]}.\n\n"
+                  + "\n".join(f"{e['id']}: {e['seen']}" for e in entries))
+        data = ai_brain.claude_json(prompt, schema, timeout=300, model="haiku")
+        ids = {e["id"] for e in entries}
+        groups = [{"label": str(g.get("label") or "")[:120], "ids": [i for i in g.get("ids") or [] if i in ids]}
+                  for g in (data or {}).get("groups") or []]
+        groups = [g for g in groups if len(g["ids"]) >= 2]
+        repeated = sum(len(g["ids"]) for g in groups)
+        table[f"{job8}|{v}"] = {"pictures": len(entries), "repeated": repeated, "groups": groups}
+        print(f"   {job8} {v}: {repeated}/{len(entries)} picture(s) share a composition"
+              + "".join(f"\n      - {g['label']}: {', '.join(g['ids'])}" for g in groups))
+    out = os.path.join(BRAIN_DIR, f"repeats_{args.name}.json")
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(table, f, indent=1, ensure_ascii=False)
+    print(f"✅ {out}")
+
+
 # --- the caption face (chantier F) --------------------------------------------------------
 
 def cmd_fonts(args):
@@ -1411,6 +1493,11 @@ def main():
     p.add_argument("--versions", required=True)
     p.add_argument("--name", default="run")
     p.set_defaults(fn=cmd_content)
+    p = sub.add_parser("repeats", help="the compositions that come back within one episode, per version")
+    p.add_argument("--jobs", required=True, help="job:clip,job:clip (the clips of one or more episodes)")
+    p.add_argument("--versions", required=True)
+    p.add_argument("--name", default="run")
+    p.set_defaults(fn=cmd_repeats)
     args = ap.parse_args()
     args.fn(args)
 

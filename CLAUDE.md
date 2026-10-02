@@ -497,6 +497,19 @@ change: every deploy is a ~5 min build plus a handover.
   editor lists up to n + `CANDIDATES_MORE` moments with a required `worth`; the code keeps the n best (worth >=
   `KEEP_WORTH`), a named experience (not grave) gets `INNER_PRIORITY` — the choice is the code's, stable from a run to
   the next (the DMT moment of 88a7e7c1 clip 5: 3/4 then 4/4 runs, 0/4 before).
+- v14 / v15 / v15b (2-oct-2026 night, a save point, not for real clips before v16): a register is a STYLE, never a
+  scene (the scene comes from the sentence); RESTRAINT only when the experience is lived as negative
+  (`visual_mood._restrained`: gravity real + valence grim / uneasy); an inner picture is what the person perceives,
+  never the person seen from outside; `clip_gravity` grave (the whole clip tells of a death) makes every picture
+  grave + `absence`; `SAFETY_RULE` (editor, director) and the review's `safe` verdict (never kept, never redone with
+  the same idea); the editor's `FLAGS` (`set_phrase`, `negated`, `precise_structure`) drop a moment; option
+  `parallel` (bench). v15: a redo is in the positive (`positive` takes out the sentences with a negation), the
+  judge asks only what a still picture shows, the director's `fx` (`double` / `tremble`) is added at render time.
+  v15b: a card that failed twice gets one more attempt with another idea (`REDO_NEW_IDEA`, `_redo_budget`), the
+  review must write `better_prompt` and `new_prompt`, never the same text twice (`c["tried"]`). KNOWN BUG, fixed in
+  v16: `guardrails` finds people by words (`_PERSON_RE`), so "first-person" (also "man-made", "north face",
+  "portrait-format", "the patient's chart") adds "An anonymous person… the face natural" to a picture with nobody
+  in it — a selfie in front of the DMT vision (88a7e7c1 clip 2).
 - Compare versions on the SAME clips and the SAME moments, one aligned sheet per clip: `broll_bench.py plan ...
   --moments aligned:v8,v9` (the editor answers on those versions' moments or skips with a reason),
   `output/_test_broll/compare_aligned.py` (not tracked). `select` measures how stable the choice of moments is,

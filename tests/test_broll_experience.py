@@ -35,7 +35,8 @@ class TestTheBible:
     def test_every_inner_experience_gets_a_register_with_a_kind(self, bible):
         rules = ai_brain.bible_rules()
         assert "EVERY inner\n  experience the episode names" in rules and "even when it is named in passing" in rules
-        assert "never the room\n  it happens in nor its medical version" in rules and "0 to 6 in all" in rules
+        assert "never the room it happens in nor its\n  medical version" in rules and "0 to 6 in all" in rules
+        assert "A REGISTER IS A STYLE, NEVER A SCENE" in rules
         for topic in ("psychedelic", "DMT", "dream", "trip", "cosmos", "math"):
             assert topic not in rules, topic
         reg = ai_brain._bible_schema()["properties"]["registers"]["items"]
@@ -73,7 +74,7 @@ class TestTheGuard:
         """v12 (2-oct-2026): "real" (an illness, an addiction) is shown from inside with restraint; only "grave" (a
         death, a victim) turns an experience picture into a sober photograph."""
         grave = _m("deaths", style="vision", visibility="inner", gravity="grave")
-        real = _m("voices", visibility="inner", gravity="real")
+        real = _m("voices", visibility="inner", gravity="real", valence="uneasy")
         free = _m("trip", style="vision", visibility="inner")
         out = broll.experience_guard([grave, real, free])
         assert out == [grave, real, free]
