@@ -20,7 +20,9 @@ instants (``visual_f*.jpg``). The BEFORE render is kept and reused
 other on the same images.
 
     python broll_bench.py plan --job <job id or prefix> [--clips 1,3,5] [--versions current,v2] [--fresh]
-    python broll_bench.py board --job <job id or prefix> [--clips 1,3,5] [--versions v3]   (boards again, no model)
+                               [--signatures 0,0.2]
+    python broll_bench.py board --job <job id or prefix> [--clips 1,3,5] [--versions v3] [--signatures 0,0.2]
+    python broll_bench.py moods --job <job id or prefix> [--clips 1,3,5] [--from v9] [--runs 5]
 
 ``plan`` (the brain): planner + art direction + pictures + review on the chosen
 clips, exactly as a job runs them, but NO video is cut (add_broll in its
@@ -31,7 +33,17 @@ dropped, the seconds and the tokens) with its JSON; two versions are also put
 side by side (``_compare.jpg``). A version is a name of ``VERSIONS`` (cfg keys
 laid over the house recipe) or ``name:key=value;key=value``. A job made without
 B-roll has no glossary in its brief: the episode is read again (ai_cache keeps
-the answer). The notion memory is never read nor written.
+the answer). The notion memory is never read nor written. ``--signatures``: one
+more sheet per clip and version (``_signatures.jpg``) with every kept picture raw
+and graded at each signature strength — the same pictures, only the stamp moves.
+
+``moods`` (B-roll « ambiance », 2-oct-2026): the pictures of an earlier ``plan``
+run (``--from`` its version) are rated again ``--runs`` times, fresh each time
+(visual_mood.rate, the editor's own mood rule), to measure how much the anchored
+levels move on the SAME segments: per question the share of answers on the most
+frequent level and the mean largest gap in levels, then what it does to the
+pictures (the largest ΔE between two runs' grades on the kept picture).
+``brain/<job>_clip<N>_moods.json``.
 
 Everything lands in output/_test_broll/premium/ (``plan``: output/_test_broll/brain/).
 """
@@ -408,6 +420,7 @@ VERSIONS = {
     "v6": {},                                 # the episode's registers (vision, cosmos, math...) written by the bible
     "v7": {},                                 # the prohibitions rebuilt (three verdicts, worth, counted filters, lighter editor)
     "v8": {},                                 # the editor cut to its nine rules, the schema enum as the style rule
+    "v9": {},                                 # the look read from what is said: moods, look sheets, computed grades
 }
 BOARD_W = 1500
 THUMB_W, THUMB_H = 420, 300
@@ -690,6 +703,7 @@ def _board(res, out_path):
         line1 = (f"#{it.get('k') if it.get('k') is not None else '-'}  {tag}  {float(it['t']):.1f} s +{float(it['dur']):.1f} s   "
                  f"{it.get('style') or '-'}" + (f" / {it['family']}" if it.get("family") else "")
                  + f"   shot {it.get('shot') or '-'} · role {it.get('role') or '-'}")
+        mood_line = _mood_line(it)
         if it.get("notion"):
             line1 += f"   notion « {it['notion']} »" + (" (reused)" if it.get("reused") else "")
         if it.get("planner_hero"):
@@ -697,6 +711,8 @@ def _board(res, out_path):
         if it.get("take"):
             line1 += f"   take {it['take']}"
         lines += block(f_b, line1, _C_LABEL)
+        if mood_line:
+            lines += block(f_s, mood_line, _C_SENT)
         if it.get("hero_why"):
             lines += block(f_s, f"why this hero: {it['hero_why']}", _C_DIM)
         # "look" on an item is the card's drawing ("premium"); the review's look score (chantier E) is "look_score".
@@ -777,6 +793,76 @@ def _board(res, out_path):
     return out_path
 
 
+def _mood_line(it):
+    """The picture's mood, grade and pixel check, in one line for its board row ("" without a mood)."""
+    import visual_mood
+    m, g, px = it.get("mood") or {}, it.get("grade"), it.get("pixels") or {}
+    if not m:
+        return ""
+    out = f"MOOD {visual_mood.describe(m)}" + (f" («{m['cue']}»)" if m.get("cue") else "")
+    if m.get("colours_said"):
+        out += f" — speaker's colours: {m['colours_said']}"
+    if it.get("mood_base"):
+        out += f" — clip base {visual_mood.describe(it['mood_base'])}"
+    if isinstance(g, dict):
+        out += (f"   GRADE sat {g.get('sat')} contrast {g.get('contrast')} temp {g.get('temp'):+g} lift {g.get('lift')} "
+                f"gamma {g.get('gamma')} sig {g.get('sig')}")
+    if px.get("raw"):
+        t = px.get("target") or {}
+        out += "   PIXELS " + ", ".join(f"{k} {px['raw'][k]}->{(px.get('after') or {}).get(k)}"
+                                       + (f" [{t[k][0]:g}-{t[k][1]:g}]" if k in t else "") for k in ("key", "contrast", "chroma"))
+        if px.get("moved"):
+            out += f" (moved {', '.join(px['moved'])})"
+        if px.get("gap"):
+            out += f" GAP {'; '.join(px['gap'])}"
+    return out
+
+
+def _signature_sheet(res, sigs, out_path):
+    """Every kept picture of a run, raw then graded at each signature strength in ``sigs`` (the same picture, the
+    same grade, only the stamp moves; a picture whose colours the speaker gives keeps none). None without one."""
+    from PIL import Image, ImageDraw
+    import broll
+    rows = []
+    for it in res.get("items") or []:
+        if not isinstance(it.get("grade"), dict) or not it.get("image"):
+            continue
+        path = os.path.join(res.get("images_dir") or "", it["image"])
+        if not os.path.exists(path):
+            continue
+        im = Image.open(path).convert("RGB")
+        k = 300 / im.height
+        im = im.resize((max(1, int(im.width * k)), 300), Image.LANCZOS)
+        said = bool((it.get("mood") or {}).get("colours_said"))
+        cells = [("raw", im)] + [(f"signature {int(round(s * 100))} %" + (" (speaker's colours: none)" if said else ""),
+                                  broll._grade_colour(im, {**it["grade"], "sig": 0.0 if said else s})) for s in sigs]
+        rows.append((f"#{it.get('k')} {it.get('subject') or it.get('anchor') or ''} — {_mood_line(it)[:150]}", cells))
+    if not rows:
+        return None
+    f_l = _font(16)
+    pad, head = 12, 26
+    w = max(sum(c.width for _l, c in cells) + pad * (len(cells) + 1) for _t, cells in rows)
+    h = sum(head + 300 + 22 + pad for _r in rows) + pad
+    sheet = Image.new("RGB", (w, h), _C_BG)
+    d = ImageDraw.Draw(sheet)
+    y = pad
+    for title, cells in rows:
+        d.text((pad, y), title, fill=_C_LABEL, font=f_l)
+        y += head
+        x = pad
+        for label, im in cells:
+            sheet.paste(im, (x, y))
+            d.text((x, y + 304), label, fill=_C_BODY, font=f_l)
+            x += im.width + pad
+        y += 300 + 22 + pad
+    sheet.save(out_path, quality=90)
+    return out_path
+
+
+def _sigs(spec):
+    return [float(x) for x in str(spec or "").split(",") if x.strip()]
+
+
 def _dedupe_reviews(reviews):
     """One review per picture file, the last one recorded (runs made before the spy counted its depth)."""
     by_file = {}
@@ -806,6 +892,9 @@ def cmd_board(args):
                 json.dump(res, f, indent=1, ensure_ascii=False)
             _board(res, os.path.join(BRAIN_DIR, tag + ".jpg"))
             print(f"   {tag}.jpg")
+            if _sigs(getattr(args, "signatures", None)) and _signature_sheet(res, _sigs(args.signatures),
+                                                                            os.path.join(BRAIN_DIR, tag + "_signatures.jpg")):
+                print(f"   {tag}_signatures.jpg")
         on_disk = [p for p in glob.glob(os.path.join(glob.escape(BRAIN_DIR), f"{job8}_clip{n}_*.jpg"))
                    if not p.endswith("_compare.jpg")]
         on_disk.sort(key=lambda p: (not p.endswith("_current.jpg"), os.path.getmtime(p)))
@@ -835,8 +924,11 @@ def cmd_plan(args):
         raise SystemExit(f"ComfyUI not reachable at {broll._comfy_url()} (start it in Pinokio)")
     brief, how = _full_brief(meta)
     ai_brain.EPISODE_BRIEF = brief
-    # The episode's visual bible: the job's, else made now (one call, remembered by ai_cache).
+    # The episode's visual bible: the job's when it has the episode's mood (B-roll « ambiance »), else made now (one
+    # call, remembered by ai_cache).
     bible = meta.get("episode_bible") or None
+    if bible and not bible.get("mood"):
+        bible = None
     if bible:
         ai_brain.EPISODE_BIBLE = bible
     elif brief and not args.no_bible:
@@ -862,9 +954,12 @@ def cmd_plan(args):
                 with open(os.path.join(BRAIN_DIR, tag + ".json"), "w", encoding="utf-8") as f:
                     json.dump(res, f, indent=1, ensure_ascii=False)
                 boards.append(_board(res, os.path.join(BRAIN_DIR, tag + ".jpg")))
+                if _sigs(args.signatures):
+                    _signature_sheet(res, _sigs(args.signatures), os.path.join(BRAIN_DIR, tag + "_signatures.jpg"))
                 scores = [it.get("score") for it in res["items"] if it.get("score") is not None]
                 row = {"clip": n, "version": name, "images": len(res["items"]), "made": res["images_made"],
                        "hero": any(it.get("layout") == "hero" for it in res["items"]),
+                       "pixel_gaps": sum(bool((it.get("pixels") or {}).get("gap")) for it in res["items"]),
                        "scores": scores, "dropped": len(res["dropped"]), "seconds": res["seconds"], "usage": res["usage"]}
                 summary.append(row)
                 print(f"   {name}: {row['images']} kept of {row['made']} made, scores {scores}, hero {row['hero']}, "
@@ -893,6 +988,106 @@ def cmd_plan(args):
               f"review {sum(r['seconds'].get('review', 0) for r in rows):.0f}), Claude "
               f"{sum(r['usage']['input_tokens'] for r in rows):,} read / {sum(r['usage']['output_tokens'] for r in rows):,} written")
     print(f"✅ boards in {BRAIN_DIR}: {job8}_clip<N>_<version>.jpg (+ _compare.jpg with two versions), {job8}_summary.json")
+
+
+# --- the moods' spread (B-roll « ambiance »): the same segments rated again and again ------------------
+
+def _spread_grades(moments, runs, images_dir, episode):
+    """Per picture: how many distinct grades the runs give it, and the largest ΔE between two of them on its kept
+    picture (a 64-step grey-to-colour ramp when the picture is not on disk)."""
+    from PIL import Image
+    import visual_mood
+    out = []
+    for k, m in enumerate(moments):
+        grades = {}
+        for run in runs:
+            if k >= len(run) or not run[k]:
+                continue
+            base = visual_mood.base([r for r in run if r], episode)
+            g = visual_mood.grade(run[k], base, signature=0.0)
+            grades[json.dumps(g, sort_keys=True)] = g
+        path = os.path.join(images_dir or "", f"broll_{k}.jpg")
+        if os.path.exists(path):
+            im = visual_mood._small(Image.open(path), 256)
+        else:
+            im = Image.linear_gradient("L").resize((128, 128)).convert("RGB")
+        graded = [visual_mood.apply_grade(im, g) for g in grades.values()]
+        worst = max((visual_mood.delta_e(a, b) for i, a in enumerate(graded) for b in graded[i + 1:]), default=0.0)
+        out.append({"k": k, "subject": m.get("subject") or m.get("anchor"), "grades": len(grades),
+                    "max_delta_e": round(worst, 2), "on_picture": os.path.exists(path)})
+    return out
+
+
+def cmd_moods(args):
+    """The same pictures rated --runs times, fresh: how much the anchored levels (and the grades) move."""
+    import ai_brain
+    import broll
+    import viral_fx
+    import visual_mood
+    job_dir, meta = _find_job(args.job)
+    job8 = os.path.basename(job_dir)[:8]
+    prof = _profile(args.profile)
+    _job_env(prof)
+    brief, _how = _full_brief(meta)
+    ai_brain.EPISODE_BRIEF = brief
+    bible = meta.get("episode_bible") if (meta.get("episode_bible") or {}).get("mood") else None
+    rows = []
+    for n in [int(x) for x in str(args.clips).split(",") if x.strip()]:
+        src = os.path.join(BRAIN_DIR, f"{job8}_clip{n}_{args.source}.json")
+        if not os.path.exists(src):
+            raise SystemExit(f"no plan run {os.path.basename(src)}: run `plan --versions {args.source}` on clip {n} first")
+        with open(src, encoding="utf-8") as f:
+            res = json.load(f)
+        moments = res.get("moments") or []
+        if not moments:
+            print(f"   clip {n}: no picture planned in {args.source}, nothing to rate")
+            continue
+        clip = meta["shorts"][n - 1]
+        start, end = float(clip["start"]), float(clip["end"])
+        words = viral_fx.clip_words(meta.get("transcript"), start, end)
+        text = " ".join(w["text"] for w in words)
+        brief_txt = ai_brain.brief_for_clip(brief, text, start, end) if brief else ""
+        episode = visual_mood.episode_levels(bible or ai_brain.EPISODE_BIBLE)
+        editor = [visual_mood.clean(m["mood"]) if m.get("mood") else None for m in moments]
+        runs, t0 = [], time.time()
+        for r in range(int(args.runs)):
+            print(f"▶ clip {n}: rating {len(moments)} picture(s), run {r + 1}/{args.runs}", flush=True)
+            runs.append(visual_mood.rate(moments, broll._numbered_text(words), brief_txt,
+                                         clip.get("video_title_for_youtube_short") or "", fresh=True))
+        spread = visual_mood.spread(runs)
+        with_editor = visual_mood.spread(runs + [editor]) if any(editor) else None
+        grades = _spread_grades(moments, runs, res.get("images_dir"), episode)
+        per_pic = []
+        for k, m in enumerate(moments):
+            levels = {a: [run[k][a] for run in runs if k < len(run) and run[k]] for a in visual_mood.AXES}
+            per_pic.append({"k": k, "subject": m.get("subject"), "said": m.get("said"),
+                            "editor": visual_mood.compact(editor[k]) if editor[k] else None,
+                            "levels": {a: {v: vals.count(v) for v in dict.fromkeys(vals)} for a, vals in levels.items()},
+                            "cues": [run[k].get("cue") for run in runs if k < len(run) and run[k]]})
+        row = {"job": os.path.basename(job_dir), "clip": n, "source": args.source, "runs": int(args.runs),
+               "pictures": len(moments), "seconds": round(time.time() - t0, 1), "spread": spread,
+               "spread_with_editor": with_editor, "grades": grades, "per_picture": per_pic}
+        with open(os.path.join(BRAIN_DIR, f"{job8}_clip{n}_moods.json"), "w", encoding="utf-8") as f:
+            json.dump(row, f, indent=1, ensure_ascii=False)
+        rows.append(row)
+        print(f"\n   clip {n}: {len(moments)} picture(s) x {args.runs} runs ({row['seconds']:.0f} s)")
+        for axis, s in spread.items():
+            ed = (with_editor or {}).get(axis) or {}
+            print(f"     {axis:<10} agree {s['agree'] if s['agree'] is not None else '-'}  steps {s['steps']}  "
+                  f"moved on {s['changed']}/{s['pictures']}" + (f"   (with the editor's answer: agree {ed.get('agree')})" if ed else ""))
+        for p, g in zip(per_pic, grades):
+            moved = {a: c for a, c in p["levels"].items() if len(c) > 1}
+            print(f"     #{p['k']} {p['subject']}: {g['grades']} grade(s), max ΔE {g['max_delta_e']}"
+                  + (f" — moved: {moved}" if moved else " — same levels every run"))
+    if rows:
+        axes = list(visual_mood.AXES)
+        print("\n   all clips: " + ", ".join(
+            f"{a} {sum(r['spread'][a]['agree'] * r['spread'][a]['pictures'] for r in rows if r['spread'][a]['agree'] is not None) / max(1, sum(r['spread'][a]['pictures'] for r in rows)):.2f}"
+            for a in axes))
+        des = [g["max_delta_e"] for r in rows for g in r["grades"]]
+        print(f"   grades: {sum(g['grades'] == 1 for r in rows for g in r['grades'])}/{len(des)} picture(s) got one grade "
+              f"in every run; largest ΔE between two runs: median {sorted(des)[len(des) // 2]:.1f}, max {max(des):.1f}")
+    print(f"✅ {BRAIN_DIR}/{job8}_clip<N>_moods.json")
 
 
 # --- the caption face (chantier F) --------------------------------------------------------
@@ -978,12 +1173,21 @@ def main():
     p.add_argument("--profile", default=None)
     p.add_argument("--fresh", action="store_true", help="ask Claude again instead of reading the remembered answers")
     p.add_argument("--no-bible", action="store_true", help="plan without the episode's visual bible")
+    p.add_argument("--signatures", default="", help="also a sheet of every picture at these signature strengths, e.g. 0,0.2")
     p.set_defaults(fn=cmd_plan)
     p = sub.add_parser("board", help="the boards again from the JSON of an earlier plan run")
     p.add_argument("--job", required=True)
     p.add_argument("--clips", default="1")
     p.add_argument("--versions", default="current")
+    p.add_argument("--signatures", default="", help="also a sheet of every picture at these signature strengths, e.g. 0,0.2")
     p.set_defaults(fn=cmd_board)
+    p = sub.add_parser("moods", help="the same pictures rated again and again: how much the mood levels move")
+    p.add_argument("--job", required=True)
+    p.add_argument("--clips", default="1")
+    p.add_argument("--from", dest="source", default="v9", help="the version of the plan run whose pictures are rated")
+    p.add_argument("--runs", type=int, default=5)
+    p.add_argument("--profile", default=None)
+    p.set_defaults(fn=cmd_moods)
     args = ap.parse_args()
     args.fn(args)
 

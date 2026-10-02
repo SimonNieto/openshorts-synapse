@@ -444,8 +444,8 @@ change: every deploy is a ~5 min build plus a handover.
 
 ## Clip Generator++ B-roll brain (broll.py, 1-oct-2026)
 - The recipe lives in `plus.BROLL` (no profile field): `art_director` (a second Claude call, step `broll_art`,
-  writes every picture's prompt in a fixed grammar), `style_family` ("auto": one of `broll.FAMILIES` per clip),
-  `faces` ("always": a clear, natural face on every picture), `house_look`, `grade`, `sfx`. Matters of taste are
+  writes every picture's prompt in a fixed grammar), `faces` ("always": a clear, natural face on every picture),
+  `signature` (the teal/amber stamp's strength in the grade, 0.2), `sfx`. Matters of taste are
   env knobs `BROLL_*` (`_knob`): `BROLL_LOOK_CARD` / `BROLL_LOOK_HERO` (review thresholds), `BROLL_HERO_STEPS`,
   `BROLL_NOTION_VARIANTS`, `BROLL_MIXED_MAX`...
 - The rule of the editor (audit « sens », 1-oct-2026 evening): THE THING NAMED, FIRST (`MODE_RULES["mixed"]`) —
@@ -460,10 +460,26 @@ change: every deploy is a ~5 min build plus a handover.
   cosmos, a notion, the microscopic) the episode's bible writes 0-4 `registers` (name, when, look of 80-120 words
   from the known iconography and the speaker's words, judge, cheap); the editor names one in `style`
   (`style_rule_premium`, `premium_style`), the director paints it (`REGISTER_TEXT`) and writes a `judge` line for
-  every picture, `_image_text` sends scene + guards + register + rules (no house look, no family, no grade), the
+  every picture, `_image_text` sends scene + guards + register + rules (no look sentence, no grade), the
   review rates a register picture on its judge line and its register's cheap line, never on real light. The
   bible's `avoid` is false facts only (never taste). A register picture is never stored in the notion library;
   a manual redo keeps `item["register"]`.
+- THE LOOK IS READ FROM WHAT IS SAID (`visual_mood.py`, B-roll « ambiance », 2-oct-2026): no house look, no style
+  family, no list of subjects and their looks. The editor answers eight questions per picture with anchored levels
+  (an enum each: visibility, scale, era, valence, intensity, distance, gravity, function) plus the words that
+  decided, the speaker's own colours (`colours_said`) and the thing's true colours. Code turns them into (1) WORDS
+  for the director (`visual_mood.words`: medium, composition, lens, light and exposure, palette, texture, mood —
+  the image model reads words; `sentence` after an editor's draft) and (2) a GRADE, colour and contrast only,
+  applied at render time (`item["grade"]` is a dict; GRADES names stay for older clips): the clip's base mood
+  (median of its pictures, the bible's `mood` as one more vote) moved `CORRECTION` (0.8) toward the picture's own,
+  the era's medium (black and white stays black and white), the signature (none when the speaker gives the
+  colours). `grade_item` then measures the raw picture (L*, its spread, chroma) against its sheet's targets and
+  moves only the grade (gamma, contrast, saturation within clamps); a miss it cannot close is counted
+  ("pixels: gap...") and kept in `item["pixels"]["gap"]` — regenerating (once at most) is a decision not taken
+  yet. The notion library is keyed by `visual_mood.VERSION` (`current_look`): the house-look pictures are not
+  reused. Bench: `plan --versions v9 --signatures 0,0.2` (a `_signatures.jpg` sheet: the same pictures at each
+  stamp), `moods --from v9 --runs 5` (the same pictures rated fresh again and again: agreement per question, ΔE
+  between the runs' grades).
 - The chain per clip: editor (`plan_with_claude`: thesis, what, when, why, three hero concepts and one pick or
   none, a `worth` 1-5 per moment that decides between two that touch) -> `direct_art` -> ComfyUI (Z-Image; the
   hero in `HERO_TAKES` takes) -> review with three verdicts (`score` the sense 1-5 with the sound-off test,
@@ -472,7 +488,7 @@ change: every deploy is a ~5 min build plus a handover.
   is judged at 768 px by the `broll` model, a doubtful card gets a second look from it, redone twice / once) ->
   `_keep_meaningful` (facts true, sense >= 4, look passes). Every filter counts its hits (`FILTERS`, `filter_hit`):
   the parser says why a moment is dropped, the clip's log ends with "Filters this clip: ..." — a filter that does
-  not count cannot be judged (`Claude outputs/audit-interdits-2026-10-01.md`). Before the clips, `ai_brain.episode_bible` reads the episode once (world, look,
+  not count cannot be judged (`Claude outputs/audit-interdits-2026-10-01.md`). Before the clips, `ai_brain.episode_bible` reads the episode once (world, mood,
   motifs, avoid, hero ideas): every editor and art director of the job reads it. The notion memory (`output/_glossary_images`, two variants per notion and house
   look) is channel memory: `BROLL_NOTION_MEMORY=0` switches it off (the "latest subjects" list, `_recent.json`,
   was removed on 1-oct-2026: it forbade clip after clip what the notion library and CAST want to repeat).

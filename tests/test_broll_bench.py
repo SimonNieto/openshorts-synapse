@@ -151,3 +151,78 @@ class TestBoard:
         lines = bench._wrap(text, f, 300)
         assert " ".join(lines) == text.strip() and len(lines) > 3
         assert bench._wrap("", f, 300) == [""]
+
+
+class TestTheMoods:
+    """B-roll « ambiance » (2-oct-2026): the board shows each picture's mood, grade and pixel check; the signature
+    sheet shows the same pictures at each stamp strength; ``moods`` rates the same pictures again and again."""
+
+    def _item(self, img_dir, said=""):
+        import visual_mood
+        Image.new("RGB", (1152, 720), (90, 120, 150)).save(img_dir / "broll_0.jpg")
+        mood = {"valence": "grim", "intensity": "charged", "distance": "lived", "gravity": "real", "cue": "it hurt",
+                **({"colours_said": said} if said else {})}
+        g, px = visual_mood.check(str(img_dir / "broll_0.jpg"), visual_mood.grade(mood, {"valence": "neutral"}), mood)
+        return {"k": 0, "image": "broll_0.jpg", "layout": "card", "t": 8.1, "dur": 2.4, "style": "photo", "score": 4,
+                "anchor": "the scan", "subject": "scan", "prompt": "A scan.", "mood": mood, "mood_base": {"valence": "neutral"},
+                "grade": g, "pixels": px}
+
+    def test_the_board_line_says_mood_grade_and_pixels(self, tmp_path):
+        it = self._item(tmp_path)
+        line = bench._mood_line(it)
+        assert line.startswith("MOOD grim · charged · lived · real («it hurt»)") and "clip base neutral" in line
+        assert "GRADE sat " in line and "sig 0.2" in line and "PIXELS key " in line
+        assert bench._mood_line({"style": "photo"}) == ""
+
+    def test_the_signature_sheet_is_the_same_picture_at_each_strength(self, tmp_path):
+        res = {"items": [self._item(tmp_path), {"k": 1, "image": "none.jpg", "grade": {"sig": 0.2}}],
+               "images_dir": str(tmp_path)}
+        out = bench._signature_sheet(res, [0.0, 0.2], str(tmp_path / "sig.jpg"))
+        im = Image.open(out)
+        assert im.height > 300 and im.width > 3 * 400
+        assert bench._signature_sheet({"items": [], "images_dir": str(tmp_path)}, [0.2], str(tmp_path / "n.jpg")) is None
+        assert bench._sigs("0, 0.2") == [0.0, 0.2] and bench._sigs("") == []
+
+    def test_spread_grades_counts_the_grades_and_their_distance(self, tmp_path):
+        import visual_mood
+        Image.new("RGB", (64, 64), (120, 110, 100)).save(tmp_path / "broll_0.jpg")
+        a, b = visual_mood.clean({"valence": "grim"}), visual_mood.clean({"valence": "neutral"})
+        same = bench._spread_grades([{"subject": "x"}], [[a], [a], [a]], str(tmp_path), None)
+        assert same == [{"k": 0, "subject": "x", "grades": 1, "max_delta_e": 0.0, "on_picture": True}]
+        moved = bench._spread_grades([{"subject": "x"}, {"subject": "y"}], [[a, b], [b, b]], str(tmp_path), None)
+        assert moved[0]["grades"] == 2 and moved[0]["max_delta_e"] > 3 and not moved[1]["on_picture"]
+
+    def test_the_moods_command_rates_the_same_pictures_fresh(self, tmp_path, monkeypatch):
+        import ai_brain
+        import visual_mood
+        monkeypatch.setattr(bench, "HERE", str(tmp_path))
+        monkeypatch.setattr(bench, "BRAIN_DIR", str(tmp_path / "brain"))
+        (tmp_path / "brain").mkdir()
+        d = tmp_path / "output" / "abcd1234-x"
+        d.mkdir(parents=True)
+        words = [{"word": f" w{i}", "start": i * 0.5, "end": i * 0.5 + 0.4} for i in range(40)]
+        with open(d / "x_metadata.json", "w", encoding="utf-8") as f:
+            json.dump({"shorts": [{"start": 0, "end": 20, "video_title_for_youtube_short": "T"}],
+                       "transcript": {"segments": [{"words": words}]}, "episode_brief": {"glossary": [{"term": "a"}]}}, f)
+        with open(tmp_path / "brain" / "abcd1234_clip1_v9.json", "w", encoding="utf-8") as f:
+            json.dump({"moments": [{"t": 4.0, "anchor": "w8", "said": "w8 w9", "subject": "thing",
+                                    "mood": {"valence": "grim", "intensity": "steady"}}], "images_dir": str(tmp_path)}, f)
+        answers = iter(["grim", "grim", "uneasy"])
+        seen = []
+
+        def fake_rate(moments, text, brief="", title="", fresh=True, **kw):
+            seen.append(fresh)
+            return [visual_mood.clean({"valence": next(answers), "intensity": "steady", "cue": "c"})]
+
+        monkeypatch.setattr(visual_mood, "rate", fake_rate)
+        monkeypatch.setattr(bench, "_profile", lambda pid=None: {"name": "p"})
+        monkeypatch.setattr(bench, "_job_env", lambda prof: None)
+        monkeypatch.setattr(ai_brain, "EPISODE_BIBLE", None)
+        import argparse
+        bench.cmd_moods(argparse.Namespace(job="abcd", clips="1", source="v9", runs=3, profile=None))
+        assert seen == [True, True, True]
+        with open(tmp_path / "brain" / "abcd1234_clip1_moods.json", encoding="utf-8") as f:
+            row = json.load(f)
+        assert row["spread"]["valence"]["agree"] == pytest.approx(2 / 3, abs=1e-3) and row["spread"]["valence"]["steps"] == 1
+        assert row["spread"]["intensity"]["agree"] == 1.0 and row["per_picture"][0]["levels"]["valence"] == {"grim": 2, "uneasy": 1}
+        assert row["per_picture"][0]["editor"]["valence"] == "grim" and row["grades"][0]["grades"] == 2
