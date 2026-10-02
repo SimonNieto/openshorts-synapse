@@ -6,7 +6,8 @@ Two presets, the same words in two faces:
   a real key word now and then (the clip's topic words and numbers always),
   no glow, no shake; a light grade and a soft vignette on the picture.
 * ``premium`` — natural set in Montserrat ExtraBold, the geometric extra-bold
-  the big podcast channels caption in. The house style.
+  the big podcast channels caption in, a little lower (under the mouth of
+  the premium framing) and lit word by word as it is said. The house style.
 
 The frame itself never moves here: the reframe (framing.py) holds the
 speaker's head where an editor would. The jump zooms, shake, dips, glow,
@@ -76,7 +77,15 @@ PRESETS = {
 # space as Liberation 64 (compared at 64 / 68 / 72 on three clips with
 # broll_bench.py fonts). Montserrat is OFL (fonts/OFL-Montserrat.txt) and
 # ships in fonts/, which the ass filter reads.
-PRESETS["premium"] = {**PRESETS["natural"], "font": "Montserrat ExtraBold", "bold": 0, "spacing": 0, "size": 72}
+# Since 2-oct-2026 (the subtitle study, chosen by the channel):
+# * caption_y 1275 (66.4 % of the height) instead of 1180: the premium framing
+#   (framing.py, same day) sets faces lower and bigger, and at 1180 the
+#   captions sat on the speaker's mouth in 68 % of the frames (MediaPipe, one
+#   frame every 0.5 s; 5 % with the old framing). At 1275: 0 %, still inside
+#   the band every app leaves free (26-68 % of the height);
+# * "lit": the spoken word lights up (_lit_word) instead of the plain fade.
+PRESETS["premium"] = {**PRESETS["natural"], "font": "Montserrat ExtraBold", "bold": 0, "spacing": 0, "size": 72,
+                      "caption_y": 1275, "lit": True}
 
 
 # --- words ---------------------------------------------------------------------
@@ -171,6 +180,32 @@ def _esc(text):
     return text.replace("\\", "").replace("{", "(").replace("}", ")")
 
 
+# "Spoken word lit" (the premium captions, 2-oct-2026): the group shows dimmed,
+# each word rises to full in LIT_RISE ms the moment it is said, and the key
+# word turns from white to the accent at that same moment. Nothing moves: the
+# eye reads ahead and follows the voice. The fill, the edge and the shadow are
+# dimmed together through their own alphas (\1a \3a \4a), never \alpha, which
+# would leave the edge and the shadow solid once the word is lit.
+LIT_DIM = 0.42                                   # opacity of a word not said yet
+LIT_RISE = 60                                    # ms from dim to full
+LIT_ALPHAS = (0x00, 0x70, 0x99)                  # the calm style's fill / edge / shadow alphas
+
+
+def _dimmed(alpha, k):
+    """The ASS alpha of a component whose own alpha is ``alpha``, shown at opacity ``k``."""
+    return int(round(255 - (255 - alpha) * k))
+
+
+def _lit_word(text, at, accent=None):
+    """One word of a lit caption: ``at`` = seconds from the caption's start to
+    the word; ``accent``: the key word's colour (hex), reached when it is said."""
+    t0 = max(0, int(round(at * 1000)))
+    fill, edge, shadow = LIT_ALPHAS
+    dim = "".join(f"\\{n}a&H{_dimmed(a, LIT_DIM):02X}&" for n, a in zip((1, 3, 4), LIT_ALPHAS))
+    lit = f"\\1a&H{fill:02X}&\\3a&H{edge:02X}&\\4a&H{shadow:02X}&" + (f"\\c{_ass_color(accent)}" if accent else "")
+    return f"{{\\c&HFFFFFF&{dim}\\t({t0},{t0 + LIT_RISE},{lit})}}{text}"
+
+
 def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None):
     p = PRESETS[preset]
     groups = group_words(words, p["max_words"], p["max_chars"])
@@ -192,7 +227,10 @@ def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None
         parts_text = []
         for k, w in enumerate(g):
             t = _esc(w["text"].upper())
-            parts_text.append(f"{{\\c{_ass_color(color)}}}{t}{{\\c&HFFFFFF&}}" if color and k == best else t)
+            if p.get("lit"):
+                parts_text.append(_lit_word(t, w["start"] - start, color if color and k == best else None))
+            else:
+                parts_text.append(f"{{\\c{_ass_color(color)}}}{t}{{\\c&HFFFFFF&}}" if color and k == best else t)
         x, y = width // 2, p["caption_y"]
         s, e = _ass_time(start), _ass_time(end)
         if p.get("calm"):

@@ -180,8 +180,18 @@ class TestFrames:
         colours = {px[:3] for px in held.getdata() if px[3] == 255}
         assert DOCLINE_ACCENT in colours and (255, 255, 255) in colours
 
-    def test_after_the_title_leaves_the_eyebrow_and_the_rule_stay(self, tmp_path):
+    def test_by_default_everything_leaves_with_the_title(self, tmp_path):
+        # The channel's choice (2-oct-2026): the topic goes too, nothing stays on the clip.
         made = self._make(tmp_path)
+        assert hooks.docline_frame_at(made, 5.9) == made["rest"]
+        rest = Image.open(made["rest"])
+        assert _alpha_max(rest, (0, 0, W, rest.size[1])) == 0
+        # ...while the eyebrow and the rule are there with the title.
+        held = _frame(made, int(0.8 * FPS))
+        assert _alpha_max(held, (0, int(H * DOCLINE["top"]), W, int(H * 0.15))) == 255
+
+    def test_kept_the_eyebrow_and_the_rule_stay(self, tmp_path):
+        made = self._make(tmp_path, cfg={"keep_eyebrow": True})
         assert hooks.docline_frame_at(made, made["title_end"] + 0.01) == made["rest"]
         assert hooks.docline_frame_at(made, 5.9) == made["rest"]
         rest = Image.open(made["rest"])
@@ -193,7 +203,8 @@ class TestFrames:
         assert rest.getpixel((W // 2, 0))[3] == round(255 * DOCLINE["rest_alpha"])
 
     def test_without_a_topic_the_rule_alone_opens_the_line(self, tmp_path):
-        made = create_docline_frames(HOOK, "", W, H, str(tmp_path), seconds=1.0, total=3.0)
+        made = create_docline_frames(HOOK, "", W, H, str(tmp_path), seconds=1.0, total=3.0,
+                                     cfg={"keep_eyebrow": True})
         rest = Image.open(made["rest"])
         y = int(H * DOCLINE["top"])
         left = int(W * DOCLINE["left"])
@@ -207,11 +218,11 @@ class TestFrames:
 
 
 class TestQuiet:
-    """The eyebrow steps aside for the B-roll cards drawn above the head."""
+    """A kept eyebrow steps aside for the B-roll cards drawn above the head."""
 
     def _make(self, tmp_path, quiet):
         return create_docline_frames(HOOK, "Psychology", W, H, str(tmp_path), seconds=1.0,
-                                     quiet=quiet, total=20.0)
+                                     quiet=quiet, total=20.0, cfg={"keep_eyebrow": True})
 
     def _clear(self, made, t):
         img = _at(made, t)

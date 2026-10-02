@@ -24,7 +24,7 @@ class TestPresetFont:
         # punchy / clean (glow, jump zooms, shake) were removed on 1-oct-2026
         assert set(viral_fx.PRESETS) == {"natural", "premium"}
 
-    def test_premium_sets_the_same_captions_in_the_bundled_face(self):
+    def test_premium_sets_the_same_groups_in_the_bundled_face_lower_and_lit(self):
         ass, groups = viral_fx.build_ass(WORDS, "premium", watermark="@thesynapsecut")
         main = _style(ass, "Main")
         assert main.startswith("Style: Main,Montserrat ExtraBold,72,")
@@ -33,10 +33,14 @@ class TestPresetFont:
         assert _style(ass, "Mark").startswith("Style: Mark,Montserrat ExtraBold,")
         nat, nat_groups = viral_fx.build_ass(WORDS, "natural", watermark="@thesynapsecut")
         assert len(groups) == len(nat_groups)
-        main_pos = lambda text: re.findall(r"\\pos\(\d+,\d+\)", "\n".join(l for l in text.splitlines() if ",Main,," in l))
-        assert main_pos(ass) == main_pos(nat)                                                 # same place on screen
+        main_pos = lambda text: set(re.findall(r"\\pos\((\d+),(\d+)\)",
+                                               "\n".join(l for l in text.splitlines() if ",Main,," in l)))
+        # Under the mouth of the premium framing (2-oct-2026); natural keeps its place.
+        assert main_pos(ass) == {("540", "1275")} and main_pos(nat) == {("540", "1180")}
         assert ass.count("\\fad(80,0)") == nat.count("\\fad(80,0)")                          # same calm fade-in
-        assert ass.count("\\c&H4DD8FF&") == nat.count("\\c&H4DD8FF&")                        # same accent words
+        # The same key words get the accent (premium reaches it when the word is said).
+        accent = viral_fx._ass_color("#FFD84D")
+        assert ass.count(accent) == nat.count(accent) > 0
 
     def test_the_face_ships_in_fonts_under_the_ofl(self):
         from PIL import ImageFont
@@ -55,4 +59,7 @@ class TestPresetFont:
         assert "edit_style" not in plus.sanitize({"edit_style": "punchy"})
         top, bottom = broll._caption_band(1920, "premium", True)
         nt, nb = broll._caption_band(1920, "natural", True)
-        assert abs(top - nt) <= 8 and abs(bottom - nb) <= 10     # 72 px instead of 64: a few px, same band
+        # premium sits 95 px lower (1275 instead of 1180), the watermark included,
+        # and stays clear of the apps' bottom bar (from ~83 % of the height).
+        assert 80 <= top - nt <= 100 and 90 <= bottom - nb <= 110
+        assert bottom < 1920 * 0.72

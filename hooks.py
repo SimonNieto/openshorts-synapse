@@ -653,6 +653,10 @@ DOCLINE = {
     # would land on the eyebrow: it fades out quiet_lead s before the card,
     # over quiet_out s, and comes back over quiet_in s once the card is gone.
     "quiet_lead": 0.10, "quiet_out": 0.25, "quiet_in": 0.30,
+    # The eyebrow (the topic), the rule and a light veil stayed for the whole
+    # clip (H3); since 2-oct-2026 the channel wants them to leave with the
+    # title. True brings the resting eyebrow back (the quiet windows apply).
+    "keep_eyebrow": False,
     "fps": 30,
 }
 DOCLINE_ACCENT = BOLD_ACCENT   # the captions' yellow, one word per hook
@@ -922,17 +926,19 @@ def create_docline_frames(text, category, video_width, video_height, out_dir,
 
     def compose(e, r, ti, g):
         """One frame: e = eyebrow and veil in, r = rule drawn, ti = title in,
-        g = title out (its veil turning into the resting one)."""
+        g = title out (its veil turning into the resting one). Without
+        keep_eyebrow, the eyebrow, the rule and the veil leave with the title."""
         alpha = Image.blend(veil_title, veil_rest, g) if g > 0 else veil_title
-        if e < 1:
-            alpha = alpha.point(lambda v: int(v * e))
+        stay = 1.0 if c["keep_eyebrow"] else 1.0 - g      # what is left of the eyebrow, the rule and the veil
+        if e * stay < 1:
+            alpha = alpha.point(lambda v: int(v * e * stay))
         frame = Image.merge("RGBA", (black, black, black, alpha))
-        if category and e > 0:
-            frame.alpha_composite(_scale_alpha(eyebrow, e))
-        if r > 0:
+        if category and e * stay > 0:
+            frame.alpha_composite(_scale_alpha(eyebrow, e * stay))
+        if r > 0 and stay > 0:
             w = max(1, int(rule_w * _ease_out(r)))
             ImageDraw.Draw(frame).rectangle([left, rule_y, left + w, rule_y + rule_h - 1],
-                                            fill=(255, 255, 255, int(255 * e)))
+                                            fill=(255, 255, 255, int(255 * e * stay)))
         if ti > 0 and g < 1:
             frame.alpha_composite(_scale_alpha(title_layer(ti), (ti ** 2) * (1 - g)))
         return frame
