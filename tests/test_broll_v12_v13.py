@@ -1,6 +1,6 @@
-"""B-roll « ambiance » v12 (2-oct-2026): candidates kept by worth (a named experience first), the bench's fixed
-moments, no positive example in the prompts, the empty place and the precise structure, the restraint of an illness
-lived from inside. No model."""
+"""B-roll « ambiance » v12 and v13 (2-oct-2026): candidates kept by worth (a named experience first), the bench's
+fixed moments, no positive example in the prompts, the empty place and the precise structure, and (v13) the thing or
+what the sentence means, moment by moment, the strongest moment as the hero and the visual parallel. No model."""
 import pytest
 
 import ai_brain
@@ -96,6 +96,44 @@ class TestFixedMoments:
         assert seen["schema"]["properties"]["moments"]["items"]["properties"]["skip"] == {"type": "boolean"}
         assert [m["anchor"] for m in moments] == ["soldiers", "sergeant"]       # no worth floor, no spacing
         assert broll.LAST_SKIPS == [{"t": fixed[1]["time"], "anchor": "marched", "why": "a set phrase"}]
+
+
+class TestAdaptive:
+    def test_the_mode_asks_for_thing_or_meaning(self, monkeypatch):
+        seen, _m = _plan(monkeypatch, mode="adaptive")
+        p, item = seen["prompt"], seen["schema"]["properties"]["moments"]["items"]
+        assert "THING OR MEANING, MOMENT BY MOMENT" in p and "A PARALLEL" in p and "PARALLEL_PLACEHOLDER" not in p
+        assert item["properties"]["show"]["enum"] == ["thing", "meaning"] and "show" in item["required"]
+        assert "the clip's strongest moment" in p
+        seen, _m = _plan(monkeypatch)
+        assert "show" not in seen["schema"]["properties"]["moments"]["items"]["properties"]
+        assert "THING OR MEANING" not in seen["prompt"] and "A PARALLEL" not in seen["prompt"]
+
+    def test_expected_show_follows_the_axes(self):
+        assert broll.expected_show({"mood": {"visibility": "model"}}) == "meaning"
+        assert broll.expected_show({"role": "concept", "mood": {"distance": "explained"}}) == "meaning"
+        assert broll.expected_show({"role": "example", "mood": {"distance": "lived"}}) == "thing"
+        assert broll.expected_show({"role": "example", "mood": {"distance": "explained"}}) is None
+        assert broll.expected_show({"mood": {"visibility": "inner"}}) is None
+
+    def test_a_show_against_the_axes_is_counted(self, monkeypatch):
+        data = {"moments": [{**_mo("soldiers", 4, visibility="model"), "show": "thing", "point": "x"}]}
+        _seen, moments = _plan(monkeypatch, data, mode="adaptive")
+        assert moments[0]["show"] == "thing" and broll.FILTERS["show: against the axes"] == 1
+
+    def test_the_director_gets_show_point_and_the_parallel(self):
+        ms = [{"t": 5.0, "anchor": "a", "prompt": "p", "subject": "s", "show": "meaning", "point": "it spreads"}]
+        art = broll._art_prompt(ms, {})
+        assert "  show: meaning — point: it spreads (what the sentence means, as a real event or process)" in art
+        assert "A PARALLEL: when the sentence compares two things" in art
+
+    def test_the_hero_is_the_strongest_moment(self):
+        def m(t, **kw):
+            return {"t": t, "dur": 2.5, "anchor": str(t), "shot": "medium", "score": 3.0, **kw}
+        concept = m(20.0, role="concept", show="meaning", score=5.0, mood={"function": "reveal"})
+        example = m(10.0, role="example")
+        assert broll.pick_hero([example, concept], 40.0, []) == 0                 # before: the example wins
+        assert broll.pick_hero([example, concept], 40.0, [], adaptive=True) == 1  # v13: the strongest moment
 
 
 class TestRestraint:

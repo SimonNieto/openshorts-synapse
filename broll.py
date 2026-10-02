@@ -203,6 +203,10 @@ sees) — take them from the episode's HERO IDEAS when one fits, or find better 
 glance, specific to this clip, the thing itself) and mark that moment "hero": true (one at most) with "hero_why" (one
 sentence). When the clip has no such scene, mark no hero: the cards alone beat a poster of an idea. Make the hero's
 image_prompt a complete scene with depth (foreground, subject, background): it fills a phone screen."""
+HERO_RULE_ADAPTIVE = HERO_RULE.replace(
+    "A hero is a real scene the speaker names or a story of the brief tells — a thing at its real scale,\na place, an action, a creature — shot wide or medium.",
+    "A hero is the clip's strongest moment: a real scene the speaker names or a story of the brief tells,\nthe experience as it is lived, or what the sentence means shown as a real event — never a symbol.").replace(
+    "When the clip has no such scene, mark no hero", "When the clip has no such moment, mark no hero")
 STOPWORDS = set("""a an the of to in on at by for with from and or but so as is are was were be been it its this that
 these those he she they we you i me him her them us my your his their our there here then than very just not no
 some any all one two three""".split())
@@ -349,6 +353,10 @@ PRECISION_RULE = """NOTHING THE IMAGE MODEL WILL GET WRONG: no precise chemical 
 diagram — it invents their details; show the substance as matter, or what it does."""
 RESTRAINT_LINE = ("  RESTRAINT (an illness or an addiction): muted colours, few effects, never spectacular or glorifying, "
                   "never horror, never a caricature of the illness.")
+# v13 — a comparison is one pattern, not two pictures.
+PARALLEL_RULE = """A PARALLEL: when the sentence compares two things (one is like the other, mirrors it, is the same as it), the
+picture brings out the pattern they share — the shape, structure, rhythm or movement common to both — in ONE image
+where that pattern reads as both; never the two things side by side, split or overlaid."""
 INNER_MAX = int(_knob("BROLL_INNER_MAX", 2))   # experience pictures a clip keeps at most (the editor is told one in passing)
 INNER_PRIORITY = 1.0     # worth added to a named experience (not grave): the code keeps it among the candidates
 KEEP_WORTH = 3.0         # a candidate below this worth is a nice extra the clip does without
@@ -381,6 +389,21 @@ def experience_guard(moments):
         filter_hit("experience: beyond the cap",
                    f'Moment "{m.get("anchor")}" dropped: {INNER_MAX} experience picture(s) already in this clip.')
     return [m for m in moments if not any(m is d for d in drop)]
+
+
+def expected_show(m):
+    """v13: what the axes say a moment's picture shows — "meaning" (an abstraction, or a claim explained), "thing" (a
+    fact or an episode lived or seen), None when either fits or for an experience (its own rule)."""
+    mood = (m or {}).get("mood") or {}
+    if mood.get("visibility") == "inner":
+        return None
+    if mood.get("visibility") == "model":
+        return "meaning"
+    if m.get("role") in ("concept", "consequence") and mood.get("distance") == "explained":
+        return "meaning"
+    if m.get("role") == "example" and mood.get("distance") in ("lived", "witnessed"):
+        return "thing"
+    return None
 
 
 PLAN_SCHEMA = {
@@ -471,6 +494,21 @@ MODE_RULES = {
               "experience, what only an instrument sees, an abstraction) IS a thing named: when the episode's REGISTERS "
               "(in the bible below) give it one, show it in that register, as it is known to look and as he tells it, "
               "never as a photo of a stand-in object."),
+    # v13 (bench "adaptive"): the thing named or what the sentence means, decided moment by moment from the axes.
+    "adaptive": ("THING OR MEANING, MOMENT BY MOMENT. For every picture write \"point\" (what the sentence asserts, a few "
+                 "words) and decide \"show\": \"thing\" when the thing the speaker names carries his point — a fact about "
+                 "it, an episode he lived or saw (role example, distance lived or witnessed): the thing itself or the "
+                 "scene, at its real scale, in its real setting, alive; \"meaning\" when the thing named only carries a "
+                 "claim — how something works, what it leads to, how two things compare, what something is worth (role "
+                 "concept or consequence, distance explained) — and always for an abstraction (visibility model): what "
+                 "the sentence says happens, shown as a real event or process in the world (the mechanism at work, the "
+                 "consequence on someone, the change from before to after). A \"meaning\" picture is never a symbol nor a "
+                 "ready-made allegory (see the clichés below); an allegory only when the speaker says that image "
+                 "himself, shown exactly as he says it. A SET PHRASE IS NOT AN IMAGE: when his words name a thing but he "
+                 "only means \"very\", \"obvious\", \"huge\", \"everywhere\" or \"at once\", those words get no picture. "
+                 "When a sentence names nothing and claims nothing that can be shown, it gets no image: the face is the "
+                 "picture. What a camera cannot shoot as it is IS a thing named: when the episode's REGISTERS give it one, "
+                 "show it in that register. " + "PARALLEL_PLACEHOLDER"),
     "concept": ("Favour the IDEA over the noun: show what the sentence MEANS in one clear scene (the mechanism, "
                 "the consequence, the analogy), and use a plain literal picture only when the word itself is the "
                 "point."),
@@ -680,17 +718,25 @@ def hero_fits(m, duration, avoid, head=HEAD_FREE, block=()):
             and all(t + d <= a or t >= b for a, b in block))
 
 
-def pick_hero(moments, duration, avoid, head=HEAD_FREE, block=()):
+def pick_hero(moments, duration, avoid, head=HEAD_FREE, block=(), adaptive=False):
     """Index of the moment shown full screen, or None: a concrete scene (an example
     or a consequence, a wide or medium shot, a photographic style) that fits the
     timing rules. The planner's own "hero" counts for a lot, a moment in the second
     part of the clip (the payoff) a little; a tie goes to the later one. None when
-    no moment reads well on a whole phone screen (a diagram, a schematic)."""
+    no moment reads well on a whole phone screen (a diagram, a schematic). ``adaptive`` (v13): the strongest moment
+    wins — an experience or a "meaning" picture weighs like an example, a reveal +1.5, every point of worth above 3
+    +0.5."""
     best, best_score = None, 0.0
     for i, m in enumerate(moments):
         if not hero_fits(m, duration, avoid, head, block) or m.get("notion"):
             continue
-        score = 1.0 + HERO_ROLE.get(m.get("role") or "", 0.0) + HERO_SHOT.get(m.get("shot") or "", 0.5)
+        role = HERO_ROLE.get(m.get("role") or "", 0.0)
+        if adaptive and (m.get("show") == "meaning" or is_inner(m)):
+            role = max(role, HERO_ROLE["example"])
+        score = 1.0 + role + HERO_SHOT.get(m.get("shot") or "", 0.5)
+        if adaptive:
+            score += 1.5 if (m.get("mood") or {}).get("function") == "reveal" else 0.0
+            score += 0.5 * max(0.0, float(m.get("score") or 1.0) - 3.0)
         score += HERO_STYLE.get(m.get("style") or "photo", 0.0)
         score += 3.0 if m.get("hero") else 0.0
         score += 0.5 if m["t"] > duration * 0.35 else 0.0
@@ -871,6 +917,8 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None
                         "hero": bool(m.get("hero")),
                         "hero_why": re.sub(r"\s+", " ", str(m.get("hero_why") or "")).strip()[:200],
                         "mood": visual_mood.clean(m["mood"]) if isinstance(m.get("mood"), dict) else None,
+                        "show": m.get("show") if m.get("show") in ("thing", "meaning") else None,
+                        "point": re.sub(r"\s+", " ", str(m.get("point") or "")).strip()[:160],
                         "dur": dur,
                         "sheet": sheet,
                         "score": _worth(m.get("worth")), "worth_given": m.get("worth") is not None})
@@ -1082,7 +1130,7 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
                        f"at least {max(DENSITY[density]['gap'], gap_min):g} s apart, by worth.")
     else:
         count_rule = f"Add up to {n} B-roll images — fewer when the clip names little, none when it names nothing."
-    mode_rule = MODE_RULES.get(mode, MODE_RULES["mixed"])
+    mode_rule = MODE_RULES.get(mode, MODE_RULES["mixed"]).replace(" PARALLEL_PLACEHOLDER", " " + PARALLEL_RULE.replace("\n", " "))
     common = dict(n=n, cap=cap, count_rule=count_rule, avoid=avoid_txt,
                   sheets=", ".join(os.path.basename(p) for p in sheets or []) or "none",
                   frame=FRAME_TEXT["mixed" if hero else "small"],
@@ -1108,12 +1156,16 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
         item["properties"]["style"]["enum"] = list(PREMIUM_STYLES) + register_names()
         item["properties"]["mood"] = visual_mood.SCHEMA
         item["required"] = list(item["required"]) + ["mood", "worth"]
+        if mode == "adaptive":
+            item["properties"]["show"] = {"type": "string", "enum": ["thing", "meaning"]}
+            item["properties"]["point"] = {"type": "string"}
+            item["required"] = list(item["required"]) + ["show"]
         if fixed:
             item["properties"]["skip"] = {"type": "boolean"}
             item["properties"]["skip_why"] = {"type": "string"}
         schema["properties"]["style_sheet"] = {"type": "object", "properties": {"cast": {"type": "string"}}}
     if hero:
-        prompt += "\n" + HERO_RULE
+        prompt += "\n" + (HERO_RULE_ADAPTIVE if mode == "adaptive" else HERO_RULE)
         schema = json.loads(json.dumps(schema))
         schema["properties"]["moments"]["items"]["properties"]["hero"] = {"type": "boolean"}
         schema["properties"]["moments"]["items"]["properties"]["hero_why"] = {"type": "string"}
@@ -1152,6 +1204,13 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
         hook_grounding.apply(clip, (data or {}).get("hook"), len(ground[0]))
     moments = _parse_moments(data, words, len(fixed) if fixed else n, avoid, gap, dur_range, tail, head, block,
                              keep_worth=KEEP_WORTH if (hero and not fixed) else None, fixed=bool(fixed))
+    if mode == "adaptive":
+        for m in moments:
+            want = expected_show(m)
+            if want and m.get("show") and m["show"] != want:
+                filter_hit("show: against the axes", f'Moment "{m["anchor"]}": shows the {m["show"]}, its axes say {want}.')
+        print("   🧭 Show: " + " | ".join(f"{m.get('subject') or m['anchor']}: {m.get('show') or '-'}"
+                                         + (f" ({m['point']})" if m.get("point") else "") for m in moments))
     for m in moments:
         if m.get("hero") and m.get("notion"):
             # The hero is THIS clip's picture, never the channel's usual picture of a notion: the editor's pick
@@ -1343,6 +1402,9 @@ def _art_prompt(moments, clip, mixed=True, rise=False, auto_style=True, style="p
         elif mixed:
             mood = m.get("mood") or visual_mood.clean(None)
             lines.append(f"  look ({visual_mood.describe(mood)}): {visual_mood.art_line(mood)}")
+            if m.get("show"):
+                lines.append(f"  show: {m['show']}" + (f" — point: {m['point']}" if m.get("point") else "")
+                             + (" (what the sentence means, as a real event or process)" if m["show"] == "meaning" else ""))
             if mood.get("sober"):
                 lines.append("  SOBER, REAL SUFFERING (this overrules the editor's draft): show only the person or the place "
                              "as a camera sees them; nothing he sees, hears or feels inside appears in the frame — no "
@@ -1350,7 +1412,7 @@ def _art_prompt(moments, clip, mixed=True, rise=False, auto_style=True, style="p
         else:
             lines.append(f"  style note: {STYLES.get(m_style, STYLES['photo'])}")
     any_register = any(register_of((m.get("style") or "photo") if auto_style else style) for m in moments)
-    extra = [EMPTY_RULE, PRECISION_RULE]
+    extra = [EMPTY_RULE, PRECISION_RULE] + ([PARALLEL_RULE] if any(m.get("show") for m in moments) else [])
     return ART_PROMPT.format(extra_rules="\n- ".join(r.replace("\n", "\n  ") for r in extra) if mixed else
                              "Everything in the frame is something the image model can draw right.",
                              look_rule=LOOK_RULE_MOOD if mixed else LOOK_RULE_HISTORICAL,
@@ -2929,7 +2991,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 m["mood_base"] = clip_base
             print(f"   🎚️ Clip mood: {visual_mood.describe(clip_base)}")
             # The code has the last word on the hero: the planner's pick counts, the timing rules win.
-            k_hero = pick_hero(moments, words[-1]["end"], avoid, head, block)
+            k_hero = pick_hero(moments, words[-1]["end"], avoid, head, block, adaptive=cfg.get("mode") == "adaptive")
             for i, m in enumerate(moments):
                 m["hero"] = i == k_hero
             if k_hero is None:

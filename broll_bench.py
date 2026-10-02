@@ -435,6 +435,7 @@ VERSIONS = {
     "v10": {},                                # the experience, not the setting (registers of kind inner), suffering first
     "v11": {},                                # v10 + a set phrase is not an image (editor and review)
     "v12": {},                                # gravity: only a death is sober; no positive example; empty place; candidates
+    "v13": {"mode": "adaptive"},              # v12 + thing or meaning moment by moment, the strongest hero, the parallel
 }
 GROUP_S = 2.5   # two pictures closer than this (or on the same sentence) show the same moment
 BOARD_W = 1500
