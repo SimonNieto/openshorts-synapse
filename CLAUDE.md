@@ -483,13 +483,25 @@ change: every deploy is a ~5 min build plus a handover.
 - THE EXPERIENCE, NOT THE SETTING (`EXPERIENCE_RULE`, bench v10): something taken or practised for its effect on the
   mind, or a state lived from inside, is shown as it is lived (visibility `inner`, in its register), not the clinic
   it is taken in, even named in passing — one such picture per clip in passing. The bible gives every inner
-  experience it names a register with `kind` (instrument / model / inner, `REGISTER_MAX` 6). REAL SUFFERING FIRST:
-  `experience_guard` makes an experience picture with gravity real / grave a sober photograph (`mood["sober"]`, a
-  SOBER line to the director that overrules the editor's draft; not rewritten by the director = dropped) and caps
-  them at `INNER_MAX` (2) per clip. A SET PHRASE IS NOT AN IMAGE (bench v11): words that name a thing but mean
-  "very / obvious / huge" get no picture (editor), and the review ranks such a literal picture with the 2s and 1s.
-  Compare versions on the SAME clips, one aligned sheet per clip: `output/_test_broll/compare_aligned.py` (not
-  tracked).
+  experience it names a register with `kind` (instrument / model / inner, `REGISTER_MAX` 6). A DEATH FIRST (v12):
+  `experience_guard` makes an experience picture with gravity grave a sober photograph (`mood["sober"]`, a SOBER line
+  to the director that overrules the editor's draft; not rewritten by the director = dropped) and caps them at
+  `INNER_MAX` (2) per clip; gravity real (an illness, an addiction) is shown from inside with RESTRAINT (muted
+  colours, few effects, never spectacular, horror or caricature). A SET PHRASE IS NOT AN IMAGE (bench v11): words
+  that name a thing but mean "very / obvious / huge" get no picture (editor), and the review ranks such a literal
+  picture with the 2s and 1s.
+- v12 (2-oct-2026): no POSITIVE example anywhere in the editor's, the director's or the bible's prompts (they were
+  copied: pill bottles, trays, beds) — principles only, the ban list of clichés stays. `EMPTY_RULE`: a place with
+  nobody in it is an absence (a death, a loss) only; things are shown in their life. `PRECISION_RULE`: no precise
+  chemical structure, formula, equation or labelled diagram (the review calls one a false fact). CANDIDATES: the
+  editor lists up to n + `CANDIDATES_MORE` moments with a required `worth`; the code keeps the n best (worth >=
+  `KEEP_WORTH`), a named experience (not grave) gets `INNER_PRIORITY` — the choice is the code's, stable from a run to
+  the next (the DMT moment of 88a7e7c1 clip 5: 3/4 then 4/4 runs, 0/4 before).
+- Compare versions on the SAME clips and the SAME moments, one aligned sheet per clip: `broll_bench.py plan ...
+  --moments aligned:v8,v9` (the editor answers on those versions' moments or skips with a reason),
+  `output/_test_broll/compare_aligned.py` (not tracked). `select` measures how stable the choice of moments is,
+  `content` counts empty places and objects set down from the review's "seen". The bench maps a picture to its
+  moment through `broll.LAST_PICTURED` (the list the pictures were made for, after the guard).
 - The chain per clip: editor (`plan_with_claude`: thesis, what, when, why, three hero concepts and one pick or
   none, a `worth` 1-5 per moment that decides between two that touch) -> `direct_art` -> ComfyUI (Z-Image; the
   hero in `HERO_TAKES` takes) -> review with three verdicts (`score` the sense 1-5 with the sound-off test,

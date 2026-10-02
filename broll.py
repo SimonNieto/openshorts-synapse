@@ -335,9 +335,26 @@ EXPERIENCE_RULE = """THE EXPERIENCE, NOT THE SETTING: when the speaker names som
 mind, or a state lived from inside, its picture is the experience as it is lived ("visibility": inner, in its
 REGISTER when the bible gives one) — not the room, the clinic or the object it comes from — even when he names it
 in passing or for its results (this wins over the substances line above). ONE such picture in a clip that names it in passing; more only when he describes
-the experience itself. REAL SUFFERING FIRST: when the moment is about real suffering ("gravity" real or grave: a
-death, an overdose, victims, an illness), no experience picture — a sober, dignified photograph instead."""
+the experience itself. A DEATH FIRST: when the moment is about a death, a victim or someone dying ("gravity"
+grave), no experience picture — a sober, dignified photograph instead. An illness or an addiction ("gravity" real) is
+shown from inside with RESTRAINT: muted colours, few effects, never spectacular or glorifying, never horror, never a
+caricature of the illness."""
+# A place with nobody in it says someone is missing: kept for that (B-roll « ambiance » v12, 2-oct-2026: the boards
+# were full of empty clinics and objects set on trays).
+EMPTY_RULE = """AN EMPTY PLACE IS AN ABSENCE: a place with nobody in it is for a death or a loss only; elsewhere places have
+their people, and things are shown in their life (in use, in someone's hands, where they belong), never set down on a
+surface for the camera."""
+# What the image model draws wrong: details nobody can check on a phone but that are false (a generated molecule).
+PRECISION_RULE = """NOTHING THE IMAGE MODEL WILL GET WRONG: no precise chemical structure, formula, equation, chart or labelled
+diagram — it invents their details; show the substance as matter, or what it does."""
+RESTRAINT_LINE = ("  RESTRAINT (an illness or an addiction): muted colours, few effects, never spectacular or glorifying, "
+                  "never horror, never a caricature of the illness.")
 INNER_MAX = int(_knob("BROLL_INNER_MAX", 2))   # experience pictures a clip keeps at most (the editor is told one in passing)
+INNER_PRIORITY = 1.0     # worth added to a named experience (not grave): the code keeps it among the candidates
+KEEP_WORTH = 3.0         # a candidate below this worth is a nice extra the clip does without
+CANDIDATES_MORE = 3      # the editor lists this many candidates more than the clip keeps
+LAST_SKIPS = []          # the fixed moments (bench) the editor chose to leave without a picture, with why
+LAST_PICTURED = []       # the moments add_broll made pictures for, in order: broll_<k> is the k-th (the bench reads it)
 
 
 def is_inner(m):
@@ -347,13 +364,13 @@ def is_inner(m):
 
 
 def experience_guard(moments):
-    """The code's last word on experience pictures (mixed layout): one about real suffering ("gravity" real or
-    grave) is made a sober photograph, and a clip keeps INNER_MAX of them at most (the highest worth stay). Returns
-    the moments kept; every change is counted (FILTERS)."""
+    """The code's last word on experience pictures (mixed layout): one about a death ("gravity" grave) is made a
+    sober photograph (an illness or an addiction, "real", stays an experience, shown with restraint), and a clip keeps
+    INNER_MAX of them at most (the highest worth stay). Returns the moments kept; every change is counted (FILTERS)."""
     for m in moments:
         mood = m.get("mood") or {}
-        if is_inner(m) and mood.get("gravity") not in (None, "none"):
-            filter_hit("experience: real suffering, made sober",
+        if is_inner(m) and mood.get("gravity") == "grave":
+            filter_hit("experience: a death, made sober",
                        f'Moment "{m.get("anchor")}" ({mood.get("gravity")}): an experience picture becomes a sober photograph.')
             m["style"] = "photo"
             # Its look sheet says it to the director and to the image model: the person, not what he lives inside.
@@ -393,9 +410,8 @@ PLAN_SCHEMA = {
 GROUNDING_RULE = """STICK TO THE CONTEXT, not to the noun: read the whole sentence around the anchor and the words
 before it (resolve "he", "it", "that thing" from them and from the brief); keep EVERY specific the speaker gives (the
 number, the place, the era, the kind of person, the action, the tone) and show what the sentence SAYS about the thing,
-not just the thing ("the knife went through the bone" -> a blade against a bone) — a picture that would do for any
-other clip about the same noun is not the picture. TONE: a patient, an illness, a disability, a death is shown with
-warmth and dignity, never as a menace. BE CORRECT: the right organ, tool, animal or place, named precisely. SOUND-OFF
+not just the thing — a picture that would do for any other clip about the same noun is not the picture. TONE: a
+patient, an illness, a disability, a death is shown with warmth and dignity, never as a menace. BE CORRECT: the right organ, tool, animal or place, named precisely. SOUND-OFF
 TEST, eliminatory: someone who sees ONLY the picture, then hears "said", links them within a second - else a more
 telling scene, or no image."""
 
@@ -423,16 +439,14 @@ CLICHES = ("a glowing brain, a brain floating in space or in blue light", "neuro
            "an empty corridor or a long empty road", "a clock, an hourglass or a crossroads for time or a choice")
 CLICHE_RULE = ("NEVER THE AI CLICHÉ (for a PHOTO picture; a register picture follows its register) - the pictures every "
                "generator draws first, and the allegories a clever editor reaches for when nothing concrete was said: "
-               + "; ".join(CLICHES) + """. A DETAIL THAT TELLS instead: one real thing at its true scale, as a documentary
-photographer finds it (the pill bottle on the counter at 7 am, the patient's hand on the bed rail, the worn stairs of
-the named building). THE CASE BEFORE THE NOTION: the speaker's case in its real setting; the notion itself only when
-nothing concrete was said, and then as a real object, instrument or place. THE INVISIBLE, PHOTOGRAPHED: a neuron, a
-molecule, a hormone as a micrograph or a lab photograph in real light - unless the episode's REGISTERS say how.""")
+               + "; ".join(CLICHES) + """. THE STORY ALIVE instead: the speaker's case, its people and its things in
+their life, at their true scale. THE CASE BEFORE THE NOTION: the case in its real setting; the notion itself only when
+nothing concrete was said. WHAT ONLY AN INSTRUMENT SEES, as that instrument's own image in real light - unless the
+episode's REGISTERS say how.""")
 # The editor's one line on clichés (the director, who writes the picture, reads the whole CLICHE_RULE).
 CLICHE_LINE = ("NO SYMBOL FOR AN IDEA (photo pictures): never the glowing brain, the light bulb, the handshake, the open "
-               "palms, the lone figure before the vastness, the glowing doorway - a real thing at its true scale instead; "
-               "a notion only when nothing concrete was said, as a real object or place; the invisible as a micrograph "
-               "or a lab photograph unless a REGISTER says how.")
+               "palms, the lone figure before the vastness, the glowing doorway - the story alive instead (its people and "
+               "things in their life); what only an instrument sees as that instrument's image unless a REGISTER says how.")
 
 CLAUDE_SYSTEM ="You are a meticulous short-form video editor. You answer only with the requested JSON."
 CLAUDE_SYSTEM_VISION = ("You are a meticulous short-form video editor. The images are attached to the request, in "
@@ -446,25 +460,22 @@ MODE_RULES = {
                "different images.",
     # The recipe (plus.BROLL["mode"]): the thing named, first — the audit of 1-oct-2026 found 8 allegories out of 11
     # pictures (open palms, a doorway, water through fingers), and the 3 that worked showed the thing named.
-    "mixed": ("THE THING NAMED, FIRST. Every image shows something the speaker NAMES or TELLS: an object, a substance, "
-              "an animal, a place, a device, a kind of person doing what is said, a scene of a story of the brief — the "
-              "thing itself, at its real scale, in its real setting. A picture of an idea (an allegory: open hands for "
-              "honesty, a doorway for a threshold, water through fingers for forgetting, a lone figure before the "
-              "vastness, a hand reaching for the light) is allowed ONLY when the speaker says that image himself (\"a "
-              "security blanket\", \"like decorator crabs\", \"it slides through your fingers\") — and then it shows "
-              "exactly what he says, nothing cleverer. A SET PHRASE IS NOT AN IMAGE: when his words name a thing but he "
+    "mixed": ("THE THING NAMED, FIRST. Every image shows something the speaker NAMES or TELLS — the thing itself or "
+              "the scene of the story, at its real scale, in its real setting, alive. A picture of an idea (a "
+              "ready-made allegory: see the clichés below) is allowed ONLY when the speaker says that image himself — "
+              "and then it shows exactly what he says, nothing cleverer. A SET PHRASE IS NOT AN IMAGE: when his words name a thing but he "
               "only means \"very\", \"obvious\", \"huge\", \"everywhere\" or \"at once\" — a figure of speech used for "
               "emphasis, that he does not build on — those words get no picture; only an image he builds on (he "
               "compares, describes it, comes back to it) is shown. When a sentence names nothing, it gets no image: the "
-              "face is the picture. Zero images beats one allegory. An inner experience, a cosmic object, a mathematical notion the "
-              "speaker names IS a thing named: when the episode's REGISTERS (in the bible below) give it one, show it in "
-              "that register, as it is known to look and as he tells it, never as a photo of a stand-in object."),
+              "face is the picture. Zero images beats one allegory. What a camera cannot shoot as it is (an inner "
+              "experience, what only an instrument sees, an abstraction) IS a thing named: when the episode's REGISTERS "
+              "(in the bible below) give it one, show it in that register, as it is known to look and as he tells it, "
+              "never as a photo of a stand-in object."),
     "concept": ("Favour the IDEA over the noun: show what the sentence MEANS in one clear scene (the mechanism, "
                 "the consequence, the analogy), and use a plain literal picture only when the word itself is the "
                 "point."),
 }
-CLAUDE_PLAN_PROMPT = """You are the editor of a short-form clip cut from a longer conversation. Add up to {n} B-roll
-images — fewer when the clip names little, none when it names nothing. {frame}
+CLAUDE_PLAN_PROMPT = """You are the editor of a short-form clip cut from a longer conversation. {count_rule} {frame}
 
 FIRST understand the clip inside its episode (the EPISODE BRIEF below: who talks, what the episode is about, the
 visual glossary, the real stories told). Then write:
@@ -480,17 +491,16 @@ same way).
 
 {pace}
 {names}
-- substances, plants, drugs, food and drinks ("salvia" -> the plant, "cigar" -> a lit cigar, "coffee", "pills");
-- objects, tools, weapons, vehicles, clothes ("knife", "gun", "car", "phone", "syringe");
-- places, buildings, landscapes, eras, events; animals; body parts and organs; kinds of people (soldiers, surgeons);
+- a substance, a plant, food or drink; an object, a tool, a vehicle, a garment;
+- a place, a building, a landscape, an era, an event; an animal; a body part; a kind of person;
 - a scene of a story: who, where, doing what, with the real details the brief gives;
-- an analogy the speaker says himself ("like a hike at dawn" -> a mountain trail at sunrise), shown as he says it;
+- an image the speaker builds himself, shown as he says it;
 - a number or a scale, shown as the things counted; an action the viewer cannot see in the video.
 {grounding}
 {set_rule}
 {cliche_line}
 {experience_rule}Never: something already visible in the video (look at the frame sheets), a named real person, a brand (use a
-generic equivalent). At most {n} images.
+generic equivalent). At most {cap} images.
 
 Frame sheets: {sheets} — thumbnails of the clip every 2.5 s, each stamped with its time. Look at them first.
 
@@ -500,9 +510,8 @@ For each image give:
   water", not "two") is spoken, so choose words whose key word is the one that shows the thing;
 - "time": the second the anchor is spoken (from the markers);
 - "said": the sentence (about 8-15 words, verbatim) this image illustrates;
-- "idea": the link the viewer makes between the picture and the words, in one sentence ("he says security blanket:
-  a blanket pulled tight around someone on a bed");
-- "subject": the main thing seen, 1-3 words ("brain", "patient in bed", "implant"), one per image;
+- "idea": the link the viewer makes between the picture and the words, in one sentence;
+- "subject": the main thing seen, 1-3 words, one per image;
 - "shot": wide | medium | close | macro | schematic;
 - "worth": 1-5, how much this picture adds to the clip (5 = the one picture the clip needs, 1 = a nice extra): when
   two moments are too close, the higher worth stays;
@@ -559,7 +568,8 @@ or A SET PHRASE TAKEN LITERALLY: the speaker uses a figure of speech for emphasi
 "very", "obvious", "huge") and the picture shows that thing, however well it matches the words.
 When a picture carries a "judge it on" line, that line says what must be seen: rate the sense against it first.
 "facts_ok" (true / false): false when the picture states a false fact - the wrong organ, tool, animal or place, a
-number or an era that contradicts the words or the EPISODE FACTS given below. Judge facts against the quoted words and
+number or an era that contradicts the words or the EPISODE FACTS given below, or a precise chemical structure,
+formula or labelled diagram (the image model invents their details). Judge facts against the quoted words and
 the EPISODE FACTS, never against your own idea of what is plausible: a surprising scene the speaker tells (a cage on
 a famous lawn) is a true scene, and the picture that shows it is right.
 THE SET: the pictures are seen in a row. When two DIFFERENT moments show the same subject in the same framing, the
@@ -794,14 +804,18 @@ def _moment_dur(words, i, t, duration, lo=DUR_MIN, hi=DUR_MAX):
     return round(min(dur, max(lo, duration - 1.0 - t)), 2)
 
 
-def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None, head=HEAD_FREE, block=()):
+def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None, head=HEAD_FREE, block=(),
+                    keep_worth=None, fixed=False):
     """The planner's answer -> moments that land on a real spoken word, in
     the allowed window, spaced out. Anything that does not check out is
     dropped, whoever the planner was. ``dur_range``: (min, max) s on screen
     (the "mixed" layout's cards stay longer than the historical ones);
     ``tail``: seconds at the end of the clip no image may run into; ``head``:
     the first seconds left to the face (the hook's); ``block``: (from, to)
-    stretches no image may start in or run into (the source's own picture)."""
+    stretches no image may start in or run into (the source's own picture). ``keep_worth``: a candidate below
+    this worth is dropped (the mixed layout's candidates); a named experience (not grave) gets INNER_PRIORITY more.
+    ``fixed``: the bench's fixed moments — every one kept (no spacing, no count), the ones the editor skipped
+    recorded in LAST_SKIPS."""
     duration = words[-1]["end"]
     lo, hi = dur_range or (DUR_MIN, DUR_MAX)
     moments = []
@@ -810,6 +824,11 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None
         try:
             near = float(m.get("time", 0))
         except (TypeError, ValueError):
+            continue
+        if fixed and m.get("skip"):
+            why = re.sub(r"\s+", " ", str(m.get("skip_why") or "")).strip()[:200]
+            LAST_SKIPS.append({"t": near, "anchor": str(m.get("anchor") or "")[:80], "why": why})
+            filter_hit("editor: fixed moment skipped", f'Moment "{m.get("anchor")}" at {near:.1f} s left without a picture: {why}')
             continue
         i = _find_anchor(words, m.get("anchor"), near)
         if i is None:
@@ -854,8 +873,22 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None
                         "mood": visual_mood.clean(m["mood"]) if isinstance(m.get("mood"), dict) else None,
                         "dur": dur,
                         "sheet": sheet,
-                        "score": _worth(m.get("worth"))})
-    kept = _space(moments, n, gap)
+                        "score": _worth(m.get("worth")), "worth_given": m.get("worth") is not None})
+    for mo in moments:
+        mood = mo.get("mood") or {}
+        if mood.get("visibility") == "inner" and mood.get("gravity") != "grave":
+            mo["score"] = mo["score"] + INNER_PRIORITY     # a named experience is kept among the candidates
+    if fixed:
+        kept = sorted(moments, key=lambda m: m["t"])
+    else:
+        if keep_worth:
+            for mo in moments:
+                if not mo.get("worth_given"):
+                    mo["score"] = max(mo["score"], keep_worth)      # no worth said: kept like a plain candidate
+            for mo in [mo for mo in moments if mo["score"] < keep_worth]:
+                filter_hit("parser: low worth", f'Candidate "{mo["anchor"]}" at {mo["t"]:.1f} s left out: worth {mo["score"]:g}.')
+            moments = [mo for mo in moments if mo["score"] >= keep_worth]
+        kept = _space(moments, n, gap)
     for a, b in zip(kept, kept[1:]):
         # never run into the next image
         a["dur"] = round(max(lo, min(a["dur"], b["t"] - a["t"] - DUR_NEXT_GAP)), 2)
@@ -1011,7 +1044,7 @@ def apply_notions(moments, brief, clip_text):
 
 def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, start=0.0, end=None,
                      sheets=None, ground=None, mode="mixed", density="normal", hero=False,
-                     dur_range=None, gap_min=0.0, tail=None, head=HEAD_FREE, block=()):
+                     dur_range=None, gap_min=0.0, tail=None, head=HEAD_FREE, block=(), fixed=None):
     """Claude reads the clip, the conversation around it and (``sheets``) what
     is on screen, and places images that carry the IDEA being said.
     ``ground``: hook_grounding.request()'s (frames, prompt) — the hook is
@@ -1030,18 +1063,39 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     brief = ai_brain.brief_for_clip(ai_brain.EPISODE_BRIEF, f"{before} {clip_text} {after}", start,
                                     end if end is not None else start + duration)
     pace_of = DENSITY_MIXED if hero else DENSITY      # the mixed layout has its own, selective pace
-    common = dict(n=n, avoid=avoid_txt, sheets=", ".join(os.path.basename(p) for p in sheets or []) or "none",
+    del LAST_SKIPS[:]
+    pace, cap = pace_of[density]["pace"], n
+    if fixed:
+        # The bench's fixed moments: one answer per moment, a picture or a reason to leave it without one.
+        count_rule = ("THE MOMENTS ARE FIXED (a comparison bench): give exactly one entry per moment listed below, with "
+                      "its anchor and time as given; when the rules say a moment gets no picture, keep its entry with "
+                      "\"skip\": true and \"skip_why\" (one line).\n" + "\n".join(
+                          f'- time {float(f["time"]):.1f}, anchor "{f["anchor"]}" — said: "{f.get("said") or ""}"' for f in fixed))
+        pace, cap = "", len(fixed)
+    elif hero:
+        # The mixed layout's candidates: the editor lists, the code keeps the best (a stable choice).
+        cap = n + CANDIDATES_MORE
+        count_rule = (f"List the CANDIDATE B-roll images of this clip — every moment where the speaker names or tells "
+                      f"something worth showing, up to {cap}, none when it names nothing — each with its \"worth\": the "
+                      f"code keeps the best {n} (worth 3 or more), never in the hook or the last seconds.")
+        pace = (pace + f" CANDIDATES: list every moment that qualifies (up to {cap}); the code keeps up to {n}, spaced "
+                       f"at least {max(DENSITY[density]['gap'], gap_min):g} s apart, by worth.")
+    else:
+        count_rule = f"Add up to {n} B-roll images — fewer when the clip names little, none when it names nothing."
+    mode_rule = MODE_RULES.get(mode, MODE_RULES["mixed"])
+    common = dict(n=n, cap=cap, count_rule=count_rule, avoid=avoid_txt,
+                  sheets=", ".join(os.path.basename(p) for p in sheets or []) or "none",
                   frame=FRAME_TEXT["mixed" if hero else "small"],
                   style_rule=((style_rule_premium() if hero else STYLE_RULE) if auto_style else ""),
                   mood_rule=("\n" + visual_mood.MOOD_RULE) if hero else "",
                   sheet_rule=SHEET_RULE_MOOD if hero else SHEET_RULE,
-                  mode_rule=MODE_RULES.get(mode, MODE_RULES["mixed"]),
+                  mode_rule=mode_rule,
                   title=title or "-",
                   hook=clip.get("viral_hook_text") or "-", before=before or "-", after=after or "-",
                   brief=brief or "(no brief for this video)", bible=_bible_block(), text=_numbered_text(words)[:6000],
                   grounding=GROUNDING_RULE, set_rule=SET_RULE, cliche_line=CLICHE_LINE,
-                  experience_rule=(EXPERIENCE_RULE + "\n") if hero else "",
-                  pace=pace_of[density]["pace"], names=pace_of[density]["names"],
+                  experience_rule=(EXPERIENCE_RULE + "\n" + EMPTY_RULE + "\n" + PRECISION_RULE + "\n") if hero else "",
+                  pace=pace, names=pace_of[density]["names"],
                   gap=gap)
     prompt = CLAUDE_PLAN_PROMPT.format(lo=head, hi=duration - TAIL_FREE - SEG_DUR, **common)
     schema, attach, shots_dir = PLAN_SCHEMA, list(sheets or []), None
@@ -1053,7 +1107,10 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
         item = schema["properties"]["moments"]["items"]
         item["properties"]["style"]["enum"] = list(PREMIUM_STYLES) + register_names()
         item["properties"]["mood"] = visual_mood.SCHEMA
-        item["required"] = list(item["required"]) + ["mood"]
+        item["required"] = list(item["required"]) + ["mood", "worth"]
+        if fixed:
+            item["properties"]["skip"] = {"type": "boolean"}
+            item["properties"]["skip_why"] = {"type": "string"}
         schema["properties"]["style_sheet"] = {"type": "object", "properties": {"cast": {"type": "string"}}}
     if hero:
         prompt += "\n" + HERO_RULE
@@ -1093,7 +1150,8 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     if ground:
         import hook_grounding
         hook_grounding.apply(clip, (data or {}).get("hook"), len(ground[0]))
-    moments = _parse_moments(data, words, n, avoid, gap, dur_range, tail, head, block)
+    moments = _parse_moments(data, words, len(fixed) if fixed else n, avoid, gap, dur_range, tail, head, block,
+                             keep_worth=KEEP_WORTH if (hero and not fixed) else None, fixed=bool(fixed))
     for m in moments:
         if m.get("hero") and m.get("notion"):
             # The hero is THIS clip's picture, never the channel's usual picture of a notion: the editor's pick
@@ -1169,10 +1227,8 @@ in this fixed order, each part one or two plain sentences:
    there). A CARD is a small wide frame (16:10) seen above the speaker's head: one clear subject with air around
    it, readable at a glance when small.
 4. LENS AND POINT OF VIEW: the focal length (24, 35, 50, 85 mm, macro), the camera's height and distance.
-5. LIGHT: its source, its direction and its quality (window light from the left, late sun from behind, one
-   practical lamp, overcast sky...).
-6. PALETTE: the true colours of the scene's things and light sources, said in those things (a rust-red door, the
-   green glow of a monitor...).
+5. LIGHT: its source, its direction and its quality.
+6. PALETTE: the true colours of the scene's things and light sources, said in those things.
 7. MATERIAL AND DETAIL: textures and surfaces, and the one small true detail that proves the place is real.
 8. MOOD: two or three words.
 
@@ -1181,10 +1237,11 @@ RULES
   others (a darker moment, an older era, an inner experience), that picture differs as much. Vary the shots (wide,
   medium, close, macro) so no two pictures look alike; the HERO is the widest and most cinematic frame of the set.
 - THE HERO is the clip's poster: one unforgettable frame of the thing or the scene the editor chose, as it really
-  is — never an allegory. Spend your best sentences on it: a real place, a real scale, a human presence or a telling
-  object, depth, the light of its look.
+  is — never an allegory. Spend your best sentences on it: a real scale, a human presence, depth, the light of its
+  look.
 - Describe what IS in the frame, never what is not: the image model ignores negations ("no text", "without
-  people" do nothing). Say "a bare plaster wall", not "no poster on the wall".
+  people" do nothing): say what fills the space instead.
+- {extra_rules}
 - {medium_rule}
 - Keep every fact the editor gives, the glossary's way of drawing a notion, and the subject of each picture.
 - PHOTO pictures: {cliche}
@@ -1218,8 +1275,8 @@ ART_SCHEMA = {
 # (visual_mood.words: medium, composition, lens, light and exposure, palette, texture, mood). The director says it in
 # the scene's own things; the colour of the feeling is the grade's, added when the picture is cut in.
 LOOK_RULE_MOOD = """EACH PICTURE'S LOOK comes with it below ("look": read from what is said — its medium, composition, lens, light
-and exposure, palette, texture and mood). Write every part of it in the scene's own things ("one bulb over the bed,
-the rest of the room falling into black", not "low key"). Colours: the scene's true colours only, no overall tint
+and exposure, palette, texture and mood). Write every part of it in the scene's own things — its light sources,
+surfaces and shadows — never in technical terms. Colours: the scene's true colours only, no overall tint
 and no grade words (teal, orange, warm or cinematic grade): the colour of the mood is set afterwards."""
 LOOK_RULE_HISTORICAL = ("THE CHANNEL'S LOOK (every picture): cinematic documentary photograph; each picture's style "
                         "note below says the rest.")
@@ -1281,6 +1338,8 @@ def _art_prompt(moments, clip, mixed=True, rise=False, auto_style=True, style="p
         if reg:
             lines.append(f"  REGISTER \"{reg['name']}\" (not a photograph): {reg['look']}"
                          + (f" Cheap version to stay away from: {reg['cheap']}" if reg.get("cheap") else ""))
+            if (m.get("mood") or {}).get("gravity") == "real":
+                lines.append(RESTRAINT_LINE)
         elif mixed:
             mood = m.get("mood") or visual_mood.clean(None)
             lines.append(f"  look ({visual_mood.describe(mood)}): {visual_mood.art_line(mood)}")
@@ -1291,7 +1350,10 @@ def _art_prompt(moments, clip, mixed=True, rise=False, auto_style=True, style="p
         else:
             lines.append(f"  style note: {STYLES.get(m_style, STYLES['photo'])}")
     any_register = any(register_of((m.get("style") or "photo") if auto_style else style) for m in moments)
-    return ART_PROMPT.format(look_rule=LOOK_RULE_MOOD if mixed else LOOK_RULE_HISTORICAL,
+    extra = [EMPTY_RULE, PRECISION_RULE]
+    return ART_PROMPT.format(extra_rules="\n- ".join(r.replace("\n", "\n  ") for r in extra) if mixed else
+                             "Everything in the frame is something the image model can draw right.",
+                             look_rule=LOOK_RULE_MOOD if mixed else LOOK_RULE_HISTORICAL,
                              medium_rule=MEDIUM_RULE_MOOD if mixed else MEDIUM_RULE_HISTORICAL,
                              sheet=sheet_txt, cliche=CLICHE_RULE,
                              registers=(REGISTER_TEXT + "\n") if any_register else "", bible=_bible_block(),
@@ -2710,6 +2772,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     # nothing is cut in until the user approves them (app.py .../broll/apply).
     manual = cfg.get("review") == "manual" and bool(keep_dir)
     FILTERS.clear()
+    LAST_PICTURED[:] = []
     # The picture the source itself showed (screen_inset): one of the cards, placed by the source, not planned.
     screen = screen_item(clip.get("screen_inset"), keep_dir)
     block = _block_of(screen)
@@ -2726,6 +2789,9 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     n = image_count(max(1, min(10, int(cfg.get("max") or 6))), density)
     if cfg.get("layout") == "mixed":
         n = MIXED_FEW if density == "less" else MIXED_MAX      # the premium pace, whatever the profile's max
+    fixed = [f for f in (cfg.get("fixed_moments") or []) if isinstance(f, dict) and f.get("anchor")] or None
+    if fixed:
+        n = len(fixed)                                         # the bench's fixed moments: one answer each
     if screen:
         n = max(1, n - 1)                                      # the source's picture is one of them
     auto_style = cfg.get("style") == "auto"
@@ -2822,7 +2888,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                                                mode=cfg.get("mode") or "mixed",
                                                density=density,
                                                hero=mixed, dur_range=dur_range, gap_min=gap_min, tail=tail, head=head,
-                                               block=block)
+                                               block=block, fixed=fixed)
                     planner = "claude"
                     if not moments:
                         print("   ℹ️ B-roll: Claude found no moment where an image would add meaning — none added.")
@@ -2891,6 +2957,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 moments.remove(m)
             if not moments:
                 return screen_only()
+        LAST_PICTURED[:] = moments
 
         used_urls, cands = set(), []
         for k, m in enumerate(moments):

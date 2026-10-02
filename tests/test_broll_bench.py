@@ -226,3 +226,45 @@ class TestTheMoods:
         assert row["spread"]["valence"]["agree"] == pytest.approx(2 / 3, abs=1e-3) and row["spread"]["valence"]["steps"] == 1
         assert row["spread"]["intensity"]["agree"] == 1.0 and row["per_picture"][0]["levels"]["valence"] == {"grim": 2, "uneasy": 1}
         assert row["per_picture"][0]["editor"]["valence"] == "grim" and row["grades"][0]["grades"] == 2
+
+
+class TestTheSameMoments:
+    """v12 (2-oct-2026): versions compared on the same moments; what fills the pictures, counted."""
+
+    def _run(self, brain, job8, n, v, items, reviews=()):
+        with open(brain / f"{job8}_clip{n}_{v}.json", "w", encoding="utf-8") as f:
+            json.dump({"items": items, "reviews": list(reviews)}, f)
+
+    def test_one_moment_per_sentence_or_second(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(bench, "BRAIN_DIR", str(tmp_path))
+        said_a = "He took his own life, he's a colleague physician friend of mine at Stanford"
+        said_b = "He's a colleague physician friend of mine at Stanford and I know his wife"
+        self._run(tmp_path, "j", 1, "v8", [{"t": 13.6, "anchor": "Ibogaine", "said": "nothing to do with Ibogaine whatsoever"},
+                                           {"t": 18.5, "anchor": "Stanford", "said": said_b}])
+        self._run(tmp_path, "j", 1, "v9", [{"t": 15.6, "anchor": "took his own life", "said": said_a},
+                                           {"t": 29.1, "anchor": "Taekwondo.", "said": "a martial arts guy, Taekwondo"},
+                                           {"t": 29.6, "anchor": "guy", "said": ""}])
+        ms = bench.aligned_moments("j", 1, ["v8", "v9"])
+        assert [(m["t"], m["anchor"]) for m in ms] == [(13.6, "Ibogaine"), (18.5, "Stanford"), (29.1, "Taekwondo.")]
+        assert ms[1]["time"] == round(18.5 + 0.12, 2) and ms[1]["said"] == said_b      # the earliest version speaks
+        assert bench.aligned_moments("j", 1, ["v99"]) == []
+
+    def test_content_classifies_what_the_review_saw(self, tmp_path, monkeypatch):
+        import argparse
+        import ai_brain
+        monkeypatch.setattr(bench, "BRAIN_DIR", str(tmp_path))
+        self._run(tmp_path, "j", 1, "v8", [{"k": 0, "layout": "hero"}, {"k": 1, "layout": "card", "take": 2}],
+                  [{"k": 0, "file": "broll_0.jpg", "seen": "an empty room"},
+                   {"k": 1, "file": "broll_1.jpg", "seen": "take one"}, {"k": 1, "file": "broll_1_t2.jpg", "seen": "a vial on a tray"}])
+        seen = {}
+
+        def fake(prompt, schema, **kw):
+            seen.update(prompt=prompt, **kw)
+            return {"kinds": [{"id": "v8|j:1|0", "kind": "empty_place"}, {"id": "v8|j:1|1", "kind": "object_set_down"}]}
+
+        monkeypatch.setattr(ai_brain, "claude_json", fake)
+        bench.cmd_content(argparse.Namespace(jobs="j:1", versions="v8", name="t"))
+        assert seen["model"] == "haiku" and "v8|j:1|1: a vial on a tray" in seen["prompt"]
+        with open(tmp_path / "content_t.json", encoding="utf-8") as f:
+            table = json.load(f)["table"]["v8"]
+        assert table["all"] == {"empty_place": 1, "object_set_down": 1} and table["hero"] == {"empty_place": 1}

@@ -51,7 +51,8 @@ class TestTheEditor:
         monkeypatch.setattr(broll, "claude_json", lambda prompt, schema, **k: seen.update(prompt=prompt) or {"moments": []})
         broll.plan_with_claude({}, _words(TEXT), 4, [], hero=True)
         p = seen["prompt"]
-        assert broll.EXPERIENCE_RULE in p and "REAL SUFFERING FIRST" in p
+        assert broll.EXPERIENCE_RULE in p and "A DEATH FIRST" in p and "RESTRAINT" in p
+        assert broll.EMPTY_RULE in p and broll.PRECISION_RULE in p
         assert p.index("NO SYMBOL FOR AN IDEA") < p.index("THE EXPERIENCE, NOT THE SETTING") < p.index("Never: something already visible")
         broll.plan_with_claude({}, _words(TEXT), 4, [], hero=False)
         assert "THE EXPERIENCE, NOT THE SETTING" not in seen["prompt"]
@@ -68,22 +69,28 @@ class TestTheGuard:
         assert not broll.is_inner(_m("c", style="histology")) and not broll.is_inner(_m("d", style="nokind"))
         assert not broll.is_inner(_m("e")) and not broll.is_inner({})
 
-    def test_real_suffering_makes_it_a_sober_photograph(self, bible):
+    def test_only_a_death_makes_it_a_sober_photograph(self, bible):
+        """v12 (2-oct-2026): "real" (an illness, an addiction) is shown from inside with restraint; only "grave" (a
+        death, a victim) turns an experience picture into a sober photograph."""
         grave = _m("deaths", style="vision", visibility="inner", gravity="grave")
         real = _m("voices", visibility="inner", gravity="real")
         free = _m("trip", style="vision", visibility="inner")
         out = broll.experience_guard([grave, real, free])
         assert out == [grave, real, free]
         assert grave["style"] == "photo" and grave["mood"]["visibility"] == "eye"
-        assert real["mood"]["visibility"] == "eye" and not broll.is_inner(real)
+        assert real["mood"]["visibility"] == "inner" and broll.is_inner(real) and not real["mood"].get("sober")
         assert free["style"] == "vision" and broll.is_inner(free)
-        assert broll.FILTERS["experience: real suffering, made sober"] == 2
+        assert broll.FILTERS["experience: a death, made sober"] == 1
+        w_real = visual_mood.words(real["mood"])
+        assert "with restraint: muted colours" in w_real["medium"] and "never a caricature of the illness" in w_real["medium"]
         # the words of a sober picture are a documentary photograph with gentle light
         w = visual_mood.words(grave["mood"])
+        assert "with restraint" not in w["medium"]
         assert w["medium"].startswith("a documentary photograph") and "dignity" in w["light"]
         assert "never what is seen, heard or felt inside" in w["medium"] and grave["mood"]["sober"] is True
         assert "never what is seen, heard or felt inside" in visual_mood.sentence(grave["mood"])
         assert "never what is seen" not in visual_mood.words(free["mood"])["medium"]
+        assert "with restraint" not in visual_mood.words(free["mood"])["medium"]
 
     def test_a_clip_never_turns_into_a_string_of_experience_pictures(self, bible, monkeypatch):
         monkeypatch.setattr(broll, "INNER_MAX", 2)

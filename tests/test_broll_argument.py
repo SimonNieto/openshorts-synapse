@@ -43,11 +43,12 @@ class TestTheEditor:
         assert "THE THING NAMED, FIRST. Every image shows something the speaker NAMES or TELLS" in p
         assert "allowed ONLY when the speaker says that image himself" in p and "Zero images beats one allegory" in p
         assert p.index("THE THING NAMED, FIRST") < p.index('THE LOOK of every picture comes from its "mood"') < p.index("NO SYMBOL FOR AN IDEA")
-        assert "At most 4 images." in p and "none when it names nothing" in p
+        assert "At most 7 images." in p and "none when it names nothing" in p
+        assert "List the CANDIDATE B-roll images of this clip" in p and "the code keeps the best 4 (worth 3 or more)" in p
         assert "Aim for" not in p and "visual_argument" not in p and "PROVES" not in p
         assert '"idea": the link the viewer makes between the picture and the words' in p
         # the specificity test lives inside the context rule now, not as a rule of its own
-        assert "a picture that would do for any\nother clip about the same noun is not the picture" in p
+        assert "a picture that would do for any other clip about the same noun is not the picture" in p
         assert "SPECIFICITY TEST" not in p and "Nothing else (no neon" not in p
         assert "visual_argument" not in seen["schema"]["properties"]
         assert seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"] == ["photo"]

@@ -55,7 +55,8 @@ class TestTheRules:
         """The invisible is the instrument's own image (the mood's "instrument" level), and the cliché line says
         it to the editor in one breath."""
         text = self._plan_prompt(monkeypatch, hero=True, auto_style=True)
-        assert "the invisible as a micrograph" in text and "instrument = it is real but only an instrument sees it" in text
+        assert "what only an instrument sees as that instrument's image" in text
+        assert "instrument = it is real but only an instrument sees it" in text
         assert "micrograph" in broll.visual_mood.words({"visibility": "instrument"})["medium"]
 
     def test_the_art_director_gets_the_same_ban(self):

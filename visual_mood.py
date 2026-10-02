@@ -248,18 +248,21 @@ TEXTURE = {
 # place as a camera sees them, never the inside of the experience.
 SOBER = ("the person or the place as a camera sees them, with dignity — never what is seen, heard or felt inside, "
          "nothing imagined around them")
+# An illness or an addiction lived from inside (gravity "real", B-roll « ambiance » v12): shown, with restraint.
+RESTRAINT = ("with restraint: muted colours, few effects, never spectacular or glorifying, never horror, never a "
+             "caricature of the illness")
 VAL_WORD = {"grim": "sombre", "uneasy": "uneasy", "neutral": "matter-of-fact", "warm": "warm", "elated": "luminous"}
 INT_WORD = {"still": "quiet", "steady": "measured", "charged": "tense", "extreme": "overwhelming"}
 
 
 def key_of(m):
     """The exposure the moment calls for: "low", "mid" or "high". Darker when it is lived as bad or intense,
-    brighter when it is lived as good; never low when real suffering is at stake (dignity, not menace)."""
+    brighter when it is lived as good; never low around a death (gravity "grave": dignity, not menace)."""
     m = {**DEFAULT, **(m or {})}
     v, a = _VAL[m["valence"]], _INT[m["intensity"]]
     k = _BUDGET[m["gravity"]] * (0.06 * v - 0.04 * max(0, a - 1))
     level = "low" if k <= -0.07 else "high" if k >= 0.07 else "mid"
-    return "mid" if level == "low" and m["gravity"] != "none" else level
+    return "mid" if level == "low" and m["gravity"] == "grave" else level
 
 
 def words(m):
@@ -269,12 +272,16 @@ def words(m):
     medium = MEDIUM[(vis, era)] if vis == "eye" else MEDIUM[vis]
     if m.get("sober"):
         medium += f"; {SOBER}"
+    elif vis == "inner" and m["gravity"] == "real":
+        medium += f"; {RESTRAINT}"
     frame = f"{FRAME_BY_FUNCTION.get(m.get('function'), FRAME_BY_FUNCTION[None])}; {FRAME_BY_INTENSITY[m['intensity']]}"
     if m["scale"] == "body":
         lens = LENS_BY_DISTANCE[m["distance"]]
     else:
         lens = LENS_BY_SCALE[m["scale"]] + (f", {POV_BY_DISTANCE[m['distance']]}" if POV_BY_DISTANCE[m["distance"]] else "")
-    light = KEY_WORDS[key_of(m)] + "; " + (LIGHT_GRAVE if m["gravity"] != "none" else LIGHT_BY_INTENSITY[m["intensity"]])
+    # Around a death, gentle light; an illness or an addiction never under the hardest light; else the intensity's.
+    intensity = "charged" if m["gravity"] == "real" and m["intensity"] == "extreme" else m["intensity"]
+    light = KEY_WORDS[key_of(m)] + "; " + (LIGHT_GRAVE if m["gravity"] == "grave" else LIGHT_BY_INTENSITY[intensity])
     if m.get("colours_said"):
         palette = f"the speaker's own colours and light: {m['colours_said']}"
     elif m.get("true_colours"):
@@ -282,7 +289,8 @@ def words(m):
     else:
         palette = "the true colours of the scene's things and light sources"
     texture = TEXTURE[era] if vis == "eye" else TEXTURE[vis]
-    mood = f"{VAL_WORD[m['valence']]}, {INT_WORD[m['intensity']]}" + (", dignified" if m["gravity"] != "none" else "")
+    mood = (f"{VAL_WORD[m['valence']]}, {INT_WORD[m['intensity']]}"
+            + (", dignified" if m["gravity"] == "grave" else ", restrained" if m["gravity"] == "real" else ""))
     return {"medium": medium, "composition": frame, "lens": lens, "light": light, "palette": palette,
             "texture": texture, "mood": mood}
 

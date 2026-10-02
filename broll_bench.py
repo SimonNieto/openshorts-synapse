@@ -23,6 +23,9 @@ other on the same images.
                                [--signatures 0,0.2]
     python broll_bench.py board --job <job id or prefix> [--clips 1,3,5] [--versions v3] [--signatures 0,0.2]
     python broll_bench.py moods --job <job id or prefix> [--clips 1,3,5] [--from v9] [--runs 5]
+    python broll_bench.py plan ... --moments aligned:v8,v9,v10,v11      (the SAME moments as those versions)
+    python broll_bench.py select --job <job> --clips 5 --runs 4 [--versions v12] [--focus 33.6]
+    python broll_bench.py content --jobs 88a7e7c1:5,e9e44926:9 --versions v8,v12
 
 ``plan`` (the brain): planner + art direction + pictures + review on the chosen
 clips, exactly as a job runs them, but NO video is cut (add_broll in its
@@ -44,6 +47,14 @@ levels move on the SAME segments: per question the share of answers on the most
 frequent level and the mean largest gap in levels, then what it does to the
 pictures (the largest ΔE between two runs' grades on the kept picture).
 ``brain/<job>_clip<N>_moods.json``.
+
+``--moments aligned:<versions>`` (B-roll « ambiance » v12, 2-oct-2026): the editor gets the moments of earlier runs
+— one per moment any of those versions illustrated (aligned_moments: the same moment within GROUP_S s or the same
+sentence) — and answers for each, a picture or a reason to skip it: versions compared ON THE SAME MOMENTS.
+``select``: the editor alone, fresh, --runs times on a clip, free choice as in a job: how often each moment is chosen
+(--focus: the moment to watch). ``content``: what fills every kept picture (the review's "seen", one Haiku call):
+people, a place with people, an empty place, an object set down, an object in use, an inner or abstract picture —
+counted per version, for all pictures and for the heroes.
 
 Everything lands in output/_test_broll/premium/ (``plan``: output/_test_broll/brain/).
 """
@@ -423,7 +434,9 @@ VERSIONS = {
     "v9": {},                                 # the look read from what is said: moods, look sheets, computed grades
     "v10": {},                                # the experience, not the setting (registers of kind inner), suffering first
     "v11": {},                                # v10 + a set phrase is not an image (editor and review)
+    "v12": {},                                # gravity: only a death is sober; no positive example; empty place; candidates
 }
+GROUP_S = 2.5   # two pictures closer than this (or on the same sentence) show the same moment
 BOARD_W = 1500
 THUMB_W, THUMB_H = 420, 300
 
@@ -456,6 +469,50 @@ def _version(spec):
             raise ValueError(f"bad override '{kv}' (want key=value)")
         over[k.strip()] = _value(v)
     return name, over
+
+
+def aligned_moments(job8, n, versions):
+    """The moments the given versions illustrated on clip ``n``, one per moment: [{"t", "time", "anchor", "said"}] by
+    time. Two pictures on the same sentence (half its words in common) or within a second are one moment; the earliest
+    version listed gives its anchor and sentence."""
+    items = []
+    for v in versions:
+        path = os.path.join(BRAIN_DIR, f"{job8}_clip{n}_{v}.json")
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as f:
+            res = json.load(f)
+        for it in res.get("items") or []:
+            if it.get("source") == "screen" or not it.get("anchor"):
+                continue
+            items.append({"t": float(it["t"]), "anchor": it["anchor"], "said": it.get("said") or "", "v": v})
+    rank = {v: i for i, v in enumerate(versions)}
+
+    def words_of(it):
+        return set(re.findall(r"[a-z0-9']+", it["said"].lower()))
+
+    def same_moment(a, b):
+        # the same sentence (half its words in common, the excerpts start at different words), or the same second
+        wa, wb = words_of(a), words_of(b)
+        if wa and wb and len(wa & wb) / len(wa | wb) >= 0.5:
+            return True
+        return abs(a["t"] - b["t"]) <= 1.0
+
+    groups = []
+    for it in sorted(items, key=lambda i: i["t"]):
+        g = next((g for g in groups if any(same_moment(it, m) for m in g)), None)
+        if g is None:
+            groups.append([it])
+        else:
+            g.append(it)
+    groups = [{"t": min(m["t"] for m in g), "best": min(g, key=lambda m: (rank[m["v"]], m["t"])), "members": g}
+              for g in groups]
+    out = []
+    for g in sorted(groups, key=lambda g: g["t"]):
+        b = g["best"]
+        # the anchor's spoken time: an item lands KEY_LEAD before its key word
+        out.append({"t": round(b["t"], 2), "time": round(b["t"] + 0.12, 2), "anchor": b["anchor"], "said": b["said"]})
+    return out
 
 
 def _find_job(job):
@@ -503,6 +560,7 @@ class _Watch:
     def __init__(self, broll):
         self.broll = broll
         self.moments, self.reviews, self.sent, self.seconds = [], [], {}, {}
+        self.final = None   # the moments the art director got: the pictures' own list (after the experience guard)
         self.images, self._current, self._depth = 0, None, 0
 
     def _timed(self, key, fn, *a, **kw):
@@ -523,6 +581,7 @@ class _Watch:
             return out
 
         def art(*a, **kw):
+            self.final = [dict(m) for m in (a[0] if a else kw.get("moments") or [])]
             return self._timed("art", orig["direct_art"], *a, **kw)
 
         def plan_gemini(*a, **kw):
@@ -568,6 +627,13 @@ class _Watch:
         return False
 
 
+def _final(broll, w):
+    """The moments the pictures were made for, in order (broll.LAST_PICTURED, after the experience guard and the
+    sober pictures not rewritten), else what the art director got, else the planner's."""
+    pictured = [dict(m) for m in getattr(broll, "LAST_PICTURED", None) or []]
+    return pictured or (w.final if w.final is not None else w.moments)
+
+
 def _k_of(name):
     """broll_3.jpg / broll_3_v2.jpg -> 3."""
     m = re.search(r"broll_(\d+)", str(name or ""))
@@ -600,8 +666,9 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
     for it in items:
         k = _k_of(it.get("image"))
         it["k"] = k
-        if k is not None and k < len(w.moments):
-            m = w.moments[k]
+        final = _final(broll, w)                                    # broll_<k> is the k-th picture of THIS list
+        if k is not None and k < len(final):
+            m = final[k]
             it.update(said=m.get("said"), shot=m.get("shot"), planner_hero=bool(m.get("hero")), key=m.get("key"),
                       hero_why=m.get("hero_why"))
         # The exact text ComfyUI got for the picture that was kept: the one whose text opens with the item's
@@ -612,20 +679,30 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
     thesis = next((m.get("thesis") for m in w.moments if m.get("thesis")), "")
     sheet = next((m.get("sheet") for m in w.moments if m.get("sheet")), None)
     kept = {it["k"] for it in items if it.get("k") is not None}
+    final = _final(broll, w)
     dropped = []
-    for k, m in enumerate(w.moments):
+    for k, m in enumerate(final):
         if k in kept:
             continue
         rs = [r for r in w.reviews if r.get("k") == k]
-        dropped.append({"k": k, "anchor": m.get("anchor"), "subject": m.get("subject"), "layout": "hero" if m.get("hero") else "card",
+        dropped.append({"k": k, "t": m.get("t"), "anchor": m.get("anchor"), "subject": m.get("subject"),
+                        "layout": "hero" if m.get("hero") else "card", "why": "review" if rs else "no picture",
                         "scores": [r.get("score") for r in rs], "problem": (rs[-1].get("problem") if rs else "") or ""})
+    final_t = {round(float(m.get("t") or 0), 2) for m in final}
+    for m in w.moments:
+        if round(float(m.get("t") or 0), 2) not in final_t:
+            # planned, then left out before any picture: the experience guard (cap, a sober picture not rewritten)
+            dropped.append({"k": None, "t": m.get("t"), "anchor": m.get("anchor"), "subject": m.get("subject"),
+                            "layout": "card", "why": "guard", "scores": [], "problem": "left out before the picture"})
     return {"job": os.path.basename(job_dir), "clip": n, "version": version, "overrides": over,
             "duration": round(end - start, 2), "title": clip.get("video_title_for_youtube_short") or "",
             "hook": clip.get("viral_hook_text") or "", "thesis": thesis, "sheet": sheet,
             "hero_options": next((m.get("hero_options") for m in w.moments if m.get("hero_options")), []),
+            "final": _final(broll, w),
             "sequence": [m.get("subject") for m in w.moments if m.get("subject")],
             "planner": (rep or {}).get("planner"), "moments": w.moments, "items": items, "reviews": w.reviews,
-            "sent": w.sent, "dropped": dropped, "seconds": seconds, "usage": usage, "images_made": w.images,
+            "sent": w.sent, "dropped": dropped, "skipped": list(getattr(broll, "LAST_SKIPS", []) or []),
+            "seconds": seconds, "usage": usage, "images_made": w.images,
             "images_dir": keep, "cfg": cfg}
 
 
@@ -949,7 +1026,13 @@ def cmd_plan(args):
         for n in clips:
             clip, pre_fx = _clip_of(job_dir, meta, n)
             boards = []
+            fixed = aligned_moments(job8, n, args.moments.split(":", 1)[1].split(",")) \
+                if str(getattr(args, "moments", "") or "").startswith("aligned:") else None
+            if fixed:
+                print(f"   📌 {len(fixed)} fixed moment(s): " + " | ".join(f"{f['time']:.1f} s {f['anchor']}" for f in fixed), flush=True)
             for name, over in versions:
+                if fixed:
+                    over = {**over, "fixed_moments": fixed}
                 tag = f"{job8}_clip{n}_{name}"
                 print(f"\n▶ clip {n} · {name}: {clip.get('video_title_for_youtube_short')}", flush=True)
                 res = _plan_clip(job_dir, meta, n, clip, pre_fx, prof, name, over, tag)
@@ -1093,6 +1176,128 @@ def cmd_moods(args):
     print(f"✅ {BRAIN_DIR}/{job8}_clip<N>_moods.json")
 
 
+# --- the editor's choice, again and again (v12: is the choice of moments stable?) ---------------------
+
+def cmd_select(args):
+    """The editor alone, fresh, --runs times per clip, chosen as in a job (candidates, guard): which moments come back."""
+    import tempfile
+    import ai_brain
+    import broll
+    import viral_fx
+    job_dir, meta = _find_job(args.job)
+    job8 = os.path.basename(job_dir)[:8]
+    prof = _profile(args.profile)
+    _job_env(prof)
+    brief, _how = _full_brief(meta)
+    ai_brain.EPISODE_BRIEF = brief
+    bible = meta.get("episode_bible") if (meta.get("episode_bible") or {}).get("mood") else None
+    ai_brain.EPISODE_BIBLE = bible or ai_brain.episode_bible(brief, meta.get("transcript"))
+    name, over = _version(args.versions)
+    cfg = {**plus.BROLL, **over}
+    rows = []
+    for n in [int(x) for x in str(args.clips).split(",") if x.strip()]:
+        clip, pre_fx = _clip_of(job_dir, meta, n)
+        start, end = float(clip["start"]), float(clip["end"])
+        words = viral_fx.clip_words(meta.get("transcript"), start, end)
+        avoid = [float(clip["punchline_time"])] if clip.get("punchline_time") is not None else []
+        tmp = tempfile.mkdtemp(prefix="select_")
+        sheets = broll._frame_sheets(pre_fx, tmp)
+        runs = []
+        for r in range(int(args.runs)):
+            os.environ["AI_CACHE_REFRESH"] = "1"
+            try:
+                moments = broll.plan_with_claude(clip, words, broll.MIXED_MAX, avoid, True, meta.get("transcript"), start,
+                                                 end, sheets, mode=cfg.get("mode") or "mixed", density=cfg.get("density") or "normal",
+                                                 hero=True, dur_range=(broll.CARD_DUR_MIN, broll.CARD_DUR_MAX),
+                                                 gap_min=broll.MIXED_GAP, tail=broll.MIXED_TAIL, head=broll.HEAD_FREE)
+            finally:
+                os.environ.pop("AI_CACHE_REFRESH", None)
+            if hasattr(broll, "experience_guard"):
+                for m in moments:
+                    m["mood"] = m.get("mood") or broll.visual_mood.clean(None)
+                moments = broll.experience_guard(moments)
+            runs.append([{"t": round(m["t"], 2), "anchor": m["anchor"], "subject": m.get("subject"), "worth": m.get("score"),
+                          "inner": bool(hasattr(broll, "is_inner") and broll.is_inner(m))} for m in moments])
+            print(f"▶ {name} clip {n} run {r + 1}: " + " | ".join(f"{x['t']:.1f} s {x['subject']}" + (" (inner)" if x["inner"] else "")
+                                                         for x in runs[-1]), flush=True)
+        focus = float(args.focus) if args.focus else None
+        hits = sum(any(abs(x["t"] - focus) <= GROUP_S for x in run) for run in runs) if focus is not None else None
+        row = {"job": os.path.basename(job_dir), "clip": n, "version": name, "runs": runs, "focus": focus, "focus_hits": hits}
+        rows.append(row)
+        with open(os.path.join(BRAIN_DIR, f"{job8}_clip{n}_{name}_select.json"), "w", encoding="utf-8") as f:
+            json.dump(row, f, indent=1, ensure_ascii=False)
+        if focus is not None:
+            print(f"   {name} clip {n}: the moment at {focus:g} s chosen in {hits}/{len(runs)} run(s)")
+    print(f"✅ {BRAIN_DIR}/<job>_clip<N>_{name}_select.json")
+
+
+# --- what fills the pictures (v12: empty places and objects set down) ------------------------------
+
+CONTENT_KINDS = ("people", "place_with_people", "empty_place", "object_set_down", "object_in_use", "inner_or_abstract")
+
+
+def _seen_of(res, it):
+    """The review's description of the picture that was kept for ``it`` ("" when none was recorded)."""
+    k = it.get("k")
+    revs = [r for r in res.get("reviews") or [] if r.get("k") == k and r.get("seen")]
+    if it.get("take") and int(it["take"]) > 1:
+        revs = [r for r in revs if str(r.get("file", "")).endswith(f"_t{it['take']}.jpg")] or revs
+    return (revs[-1]["seen"] if revs else "")[:400]
+
+
+def cmd_content(args):
+    """Every kept picture of the given clips and versions, classified from what the review saw (one Haiku call)."""
+    import ai_brain
+    entries = []
+    for spec in str(args.jobs).split(","):
+        job, n = spec.split(":")
+        n = int(n)
+        for v in str(args.versions).split(","):
+            path = os.path.join(BRAIN_DIR, f"{job[:8]}_clip{n}_{v}.json")
+            if not os.path.exists(path):
+                continue
+            with open(path, encoding="utf-8") as f:
+                res = json.load(f)
+            for it in res.get("items") or []:
+                seen = _seen_of(res, it)
+                if seen:
+                    entries.append({"id": f"{v}|{job[:8]}:{n}|{it.get('k')}", "v": v, "hero": it.get("layout") == "hero",
+                                    "seen": seen})
+    if not entries:
+        raise SystemExit("no picture with a review to classify")
+    prompt = ("Each line below describes one picture (what is really in it). Classify each into ONE kind:\n"
+              "- people: one or more people, the main subject;\n- place_with_people: a place where people are present;\n"
+              "- empty_place: a place, a room, a bed, a corridor, a landscape with nobody in it;\n"
+              "- object_set_down: a thing lying or standing on a surface, nobody using it;\n"
+              "- object_in_use: a thing in someone's hands or in use;\n"
+              "- inner_or_abstract: an inner experience, a vision, a model, a diagram, a microscope or instrument image.\n"
+              "Return JSON {\"kinds\": [{\"id\": \"...\", \"kind\": \"...\"}]} for every line.\n\n"
+              + "\n".join(f"{e['id']}: {e['seen']}" for e in entries))
+    schema = {"type": "object", "properties": {"kinds": {"type": "array", "items": {"type": "object", "properties": {
+        "id": {"type": "string"}, "kind": {"type": "string", "enum": list(CONTENT_KINDS)}}, "required": ["id", "kind"]}}},
+        "required": ["kinds"]}
+    data = ai_brain.claude_json(prompt, schema, timeout=300, model="haiku")
+    kinds = {k.get("id"): k.get("kind") for k in (data or {}).get("kinds") or []}
+    table = {}
+    for e in entries:
+        e["kind"] = kinds.get(e["id"]) or "?"
+        t = table.setdefault(e["v"], {"all": {}, "hero": {}})
+        t["all"][e["kind"]] = t["all"].get(e["kind"], 0) + 1
+        if e["hero"]:
+            t["hero"][e["kind"]] = t["hero"].get(e["kind"], 0) + 1
+    out = os.path.join(BRAIN_DIR, f"content_{args.name}.json")
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump({"entries": entries, "table": table}, f, indent=1, ensure_ascii=False)
+    for v in str(args.versions).split(","):
+        t = table.get(v) or {"all": {}, "hero": {}}
+        total, heroes = sum(t["all"].values()), sum(t["hero"].values())
+        flat = t["all"].get("empty_place", 0) + t["all"].get("object_set_down", 0)
+        flat_h = t["hero"].get("empty_place", 0) + t["hero"].get("object_set_down", 0)
+        print(f"   {v}: {total} picture(s), empty place or object set down {flat} — heroes {heroes}, of them {flat_h} empty "
+              f"place or object set down — {t['all']}")
+    print(f"✅ {out}")
+
+
 # --- the caption face (chantier F) --------------------------------------------------------
 
 def cmd_fonts(args):
@@ -1177,6 +1382,7 @@ def main():
     p.add_argument("--fresh", action="store_true", help="ask Claude again instead of reading the remembered answers")
     p.add_argument("--no-bible", action="store_true", help="plan without the episode's visual bible")
     p.add_argument("--signatures", default="", help="also a sheet of every picture at these signature strengths, e.g. 0,0.2")
+    p.add_argument("--moments", default="", help="aligned:v8,v9 — the editor answers on the moments those versions illustrated")
     p.set_defaults(fn=cmd_plan)
     p = sub.add_parser("board", help="the boards again from the JSON of an earlier plan run")
     p.add_argument("--job", required=True)
@@ -1191,6 +1397,19 @@ def main():
     p.add_argument("--runs", type=int, default=5)
     p.add_argument("--profile", default=None)
     p.set_defaults(fn=cmd_moods)
+    p = sub.add_parser("select", help="the editor alone, fresh, several times: how stable the choice of moments is")
+    p.add_argument("--job", required=True)
+    p.add_argument("--clips", default="1")
+    p.add_argument("--runs", type=int, default=4)
+    p.add_argument("--versions", default="current", help="one version (its cfg keys), e.g. v13")
+    p.add_argument("--focus", default="", help="a moment (s) to count across the runs")
+    p.add_argument("--profile", default=None)
+    p.set_defaults(fn=cmd_select)
+    p = sub.add_parser("content", help="what fills the kept pictures (empty places, objects set down...), per version")
+    p.add_argument("--jobs", required=True, help="job:clip,job:clip")
+    p.add_argument("--versions", required=True)
+    p.add_argument("--name", default="run")
+    p.set_defaults(fn=cmd_content)
     args = ap.parse_args()
     args.fn(args)
 

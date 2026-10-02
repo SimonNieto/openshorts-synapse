@@ -769,17 +769,16 @@ before its clips are cut. You have the episode brief and the transcript. Write, 
 to THIS episode (nothing generic that would fit any episode):
 - "world": 8 to 15 concrete things the pictures can be taken from, as said or clearly implied in the episode: real
   places with their time of day, objects and instruments at their true scale, kinds of people and what they wear
-  or do, materials and textures. Each a short phrase ("a lab bench with a petri dish under one lamp"). Never a
-  symbol, a glowing brain, a neon neuron, a light bulb, a floating interface.
+  or do, materials and textures. Each a short phrase. Never a symbol, a glowing brain, a neon neuron, a light bulb,
+  a floating interface.
 - "mood": how the episode as a whole is lived and told, one level per question (each level defined below), and
   "why" (one line, from what it is about and how it is told):
 {mood_levels}
-- "motifs": 3 to 5 recurring visual motifs the clips can return to, each a real thing of the episode (a hand on the
-  pump's dial, a vial held to the light, the lawn at dusk) with when to use it, in one line — never an allegory (no
+- "motifs": 3 to 5 recurring visual motifs the clips can return to, each a real thing of the episode in its life
+  (people and things in use, places with their people) with when to use it, in one line — never an allegory (no
   doorway for a threshold, no hand reaching into the dark, no lone figure before the vastness).
-- "avoid": 0 to 6 pictures that would state a FALSE FACT about this episode (a smoked pipe when the drug was an IV
-  infusion, an indoor arena when the fight was on a lawn, the wrong era, the wrong instrument), one line each —
-  never a matter of taste or style: that is the registers' job.
+- "avoid": 0 to 6 pictures that would state a FALSE FACT about this episode (the wrong way it was done, the wrong
+  place, era or instrument), one line each — never a matter of taste or style: that is the registers' job.
 - "registers": the episode's own way of showing each KIND of thing it talks about that a camera cannot shoot as
   it is — what only an instrument sees, an abstraction (a mechanism, a quantity, a law), an inner experience lived
   by someone — ONE register per kind, 0 to 6 in all, and nothing for what a camera can photograph. EVERY inner
