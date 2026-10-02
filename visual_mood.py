@@ -244,6 +244,10 @@ TEXTURE = {
     "model": "real materials, their surfaces and edges",
     "inner": "the texture the speaker describes, else a painted one",
 }
+# An experience picture made sober because real suffering is at stake (broll.experience_guard): the person or the
+# place as a camera sees them, never the inside of the experience.
+SOBER = ("the person or the place as a camera sees them, with dignity — never what is seen, heard or felt inside, "
+         "nothing imagined around them")
 VAL_WORD = {"grim": "sombre", "uneasy": "uneasy", "neutral": "matter-of-fact", "warm": "warm", "elated": "luminous"}
 INT_WORD = {"still": "quiet", "steady": "measured", "charged": "tense", "extreme": "overwhelming"}
 
@@ -263,6 +267,8 @@ def words(m):
     m = {**DEFAULT, **{k: v for k, v in (m or {}).items() if v}}
     vis, era = m["visibility"], m["era"]
     medium = MEDIUM[(vis, era)] if vis == "eye" else MEDIUM[vis]
+    if m.get("sober"):
+        medium += f"; {SOBER}"
     frame = f"{FRAME_BY_FUNCTION.get(m.get('function'), FRAME_BY_FUNCTION[None])}; {FRAME_BY_INTENSITY[m['intensity']]}"
     if m["scale"] == "body":
         lens = LENS_BY_DISTANCE[m["distance"]]

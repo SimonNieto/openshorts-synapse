@@ -326,6 +326,46 @@ def premium_style(style):
     """What a planner's style becomes in the mixed layout: "photo" or a register of the episode; anything else (the
     historical cinematic / neon / comic / diagram...) is a photo, its look set by its mood."""
     return style if style in PREMIUM_STYLES or register_of(style) else "photo"
+
+
+# THE EXPERIENCE, NOT THE SETTING (B-roll « ambiance », 2-oct-2026): something taken or practised for its effect on
+# the mind, or a state lived from inside, is shown as it is lived — not the room it is taken in — even named in
+# passing; real suffering comes first (sober), and a clip never turns into a string of such pictures.
+EXPERIENCE_RULE = """THE EXPERIENCE, NOT THE SETTING: when the speaker names something taken or practised for its effect on the
+mind, or a state lived from inside, its picture is the experience as it is lived ("visibility": inner, in its
+REGISTER when the bible gives one) — not the room, the clinic or the object it comes from — even when he names it
+in passing or for its results (this wins over the substances line above). ONE such picture in a clip that names it in passing; more only when he describes
+the experience itself. REAL SUFFERING FIRST: when the moment is about real suffering ("gravity" real or grave: a
+death, an overdose, victims, an illness), no experience picture — a sober, dignified photograph instead."""
+INNER_MAX = int(_knob("BROLL_INNER_MAX", 2))   # experience pictures a clip keeps at most (the editor is told one in passing)
+
+
+def is_inner(m):
+    """The moment shows an experience lived from inside: its mood says so, or its register is of that kind."""
+    reg = register_of((m or {}).get("style"))
+    return ((m or {}).get("mood") or {}).get("visibility") == "inner" or bool(reg and reg.get("kind") == "inner")
+
+
+def experience_guard(moments):
+    """The code's last word on experience pictures (mixed layout): one about real suffering ("gravity" real or
+    grave) is made a sober photograph, and a clip keeps INNER_MAX of them at most (the highest worth stay). Returns
+    the moments kept; every change is counted (FILTERS)."""
+    for m in moments:
+        mood = m.get("mood") or {}
+        if is_inner(m) and mood.get("gravity") not in (None, "none"):
+            filter_hit("experience: real suffering, made sober",
+                       f'Moment "{m.get("anchor")}" ({mood.get("gravity")}): an experience picture becomes a sober photograph.')
+            m["style"] = "photo"
+            # Its look sheet says it to the director and to the image model: the person, not what he lives inside.
+            m["mood"] = {**mood, "visibility": "eye", "sober": True}
+    inner = sorted((m for m in moments if is_inner(m)), key=lambda m: -m.get("score", 1.0))
+    drop = inner[INNER_MAX:]
+    for m in drop:
+        filter_hit("experience: beyond the cap",
+                   f'Moment "{m.get("anchor")}" dropped: {INNER_MAX} experience picture(s) already in this clip.')
+    return [m for m in moments if not any(m is d for d in drop)]
+
+
 PLAN_SCHEMA = {
     "type": "object",
     "properties": {
@@ -412,8 +452,11 @@ MODE_RULES = {
               "honesty, a doorway for a threshold, water through fingers for forgetting, a lone figure before the "
               "vastness, a hand reaching for the light) is allowed ONLY when the speaker says that image himself (\"a "
               "security blanket\", \"like decorator crabs\", \"it slides through your fingers\") — and then it shows "
-              "exactly what he says, nothing cleverer. When a sentence names nothing, it gets no image: the face is the "
-              "picture. Zero images beats one allegory. An inner experience, a cosmic object, a mathematical notion the "
+              "exactly what he says, nothing cleverer. A SET PHRASE IS NOT AN IMAGE: when his words name a thing but he "
+              "only means \"very\", \"obvious\", \"huge\", \"everywhere\" or \"at once\" — a figure of speech used for "
+              "emphasis, that he does not build on — those words get no picture; only an image he builds on (he "
+              "compares, describes it, comes back to it) is shown. When a sentence names nothing, it gets no image: the "
+              "face is the picture. Zero images beats one allegory. An inner experience, a cosmic object, a mathematical notion the "
               "speaker names IS a thing named: when the episode's REGISTERS (in the bible below) give it one, show it in "
               "that register, as it is known to look and as he tells it, never as a photo of a stand-in object."),
     "concept": ("Favour the IDEA over the noun: show what the sentence MEANS in one clear scene (the mechanism, "
@@ -446,7 +489,7 @@ same way).
 {grounding}
 {set_rule}
 {cliche_line}
-Never: something already visible in the video (look at the frame sheets), a named real person, a brand (use a
+{experience_rule}Never: something already visible in the video (look at the frame sheets), a named real person, a brand (use a
 generic equivalent). At most {n} images.
 
 Frame sheets: {sheets} — thumbnails of the clip every 2.5 s, each stamped with its time. Look at them first.
@@ -511,7 +554,9 @@ STEP 2 - THE SENSE AND THE FACTS, from what you wrote in "seen". The images, in 
 "score" (THE SENSE, 1-5): does the picture show what the quoted words say - the thing named, with the specifics the
 speaker gives (the number, the place, the era, the action, the mood)? SOUND-OFF TEST: a viewer who sees ONLY the
 picture, then hears the words, links them within a second. 5 = instantly and exactly that; 4 = yes; 3 = the noun but
-not what was said about it, or a link that needs explaining; 2 or 1 = another thing, or nothing to do with the words.
+not what was said about it, or a link that needs explaining; 2 or 1 = another thing, or nothing to do with the words,
+or A SET PHRASE TAKEN LITERALLY: the speaker uses a figure of speech for emphasis (his words name a thing, he means
+"very", "obvious", "huge") and the picture shows that thing, however well it matches the words.
 When a picture carries a "judge it on" line, that line says what must be seen: rate the sense against it first.
 "facts_ok" (true / false): false when the picture states a false fact - the wrong organ, tool, animal or place, a
 number or an era that contradicts the words or the EPISODE FACTS given below. Judge facts against the quoted words and
@@ -995,6 +1040,7 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
                   hook=clip.get("viral_hook_text") or "-", before=before or "-", after=after or "-",
                   brief=brief or "(no brief for this video)", bible=_bible_block(), text=_numbered_text(words)[:6000],
                   grounding=GROUNDING_RULE, set_rule=SET_RULE, cliche_line=CLICHE_LINE,
+                  experience_rule=(EXPERIENCE_RULE + "\n") if hero else "",
                   pace=pace_of[density]["pace"], names=pace_of[density]["names"],
                   gap=gap)
     prompt = CLAUDE_PLAN_PROMPT.format(lo=head, hi=duration - TAIL_FREE - SEG_DUR, **common)
@@ -1238,6 +1284,10 @@ def _art_prompt(moments, clip, mixed=True, rise=False, auto_style=True, style="p
         elif mixed:
             mood = m.get("mood") or visual_mood.clean(None)
             lines.append(f"  look ({visual_mood.describe(mood)}): {visual_mood.art_line(mood)}")
+            if mood.get("sober"):
+                lines.append("  SOBER, REAL SUFFERING (this overrules the editor's draft): show only the person or the place "
+                             "as a camera sees them; nothing he sees, hears or feels inside appears in the frame — no "
+                             "figures, faces, mouths, shapes or light around him.")
         else:
             lines.append(f"  style note: {STYLES.get(m_style, STYLES['photo'])}")
     any_register = any(register_of((m.get("style") or "photo") if auto_style else style) for m in moments)
@@ -2806,6 +2856,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             import ai_brain
             for m in moments:
                 m["mood"] = m.get("mood") or visual_mood.clean(None)
+            # Experience pictures: real suffering first (sober), and a cap per clip.
+            moments = experience_guard(moments)
             clip_base = visual_mood.base([m["mood"] for m in moments], visual_mood.episode_levels(ai_brain.EPISODE_BIBLE))
             for m in moments:
                 m["mood_base"] = clip_base
@@ -2830,6 +2882,15 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # when it fails).
             direct_art(moments, clip, mixed=mixed, rise=rise, auto_style=auto_style, style=style,
                        clip_text=" ".join(w["text"] for w in words), faces=face_mode)
+        if mixed:
+            # A picture made sober (real suffering) needs the director's rewrite: the editor's draft still paints
+            # what the person lives inside. Without it, no picture.
+            for m in [m for m in moments if (m.get("mood") or {}).get("sober") and not m.get("art")]:
+                filter_hit("experience: sober picture not rewritten",
+                           f'Moment "{m.get("anchor")}" dropped: made sober, but its prompt is still the editor\'s draft.')
+                moments.remove(m)
+            if not moments:
+                return screen_only()
 
         used_urls, cands = set(), []
         for k, m in enumerate(moments):

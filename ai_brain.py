@@ -782,10 +782,13 @@ to THIS episode (nothing generic that would fit any episode):
   never a matter of taste or style: that is the registers' job.
 - "registers": the episode's own way of showing each KIND of thing it talks about that a camera cannot shoot as
   it is — what only an instrument sees, an abstraction (a mechanism, a quantity, a law), an inner experience lived
-  by someone — ONE register per kind, 0 to 4 in all, and nothing for what
-  a camera can photograph: "name" (one lower-case word naming that kind of thing), "when" (which moments of the
-  episode call for it, one line), "look" (80 to 120 words: what such a picture shows and how — from what that kind of
-  thing is known to look like AND from the speaker's own words when he describes it: content, geometry, scale,
+  by someone — ONE register per kind, 0 to 6 in all, and nothing for what a camera can photograph. EVERY inner
+  experience the episode names — something taken or practised for its effect on the mind, a state lived from
+  inside — gets its own register, even when it is named in passing: its look is the experience as it is known to
+  look when it is lived and as the speaker tells it, as impossible, saturated or strange as it is, never the room
+  it happens in nor its medical version. For each: "kind" (instrument, model or inner), "name" (one lower-case
+  word naming that kind of thing), "when" (which moments of the episode call for it, one line), "look" (80 to 120
+  words: what such a picture shows and how — from what that kind of thing is known to look like AND from the speaker's own words when he describes it: content, geometry, scale,
   colours, light, medium, texture — written so an image model paints it, as strange, vast, exact or saturated as
   the thing is and as it is told, never a symbol), "judge" (one sentence: what a good picture of this register is),
   "cheap" (one line: the version that would look cheap or generic, to stay away from).
@@ -793,6 +796,7 @@ to THIS episode (nothing generic that would fit any episode):
   (full screen, one second): "story" (its name), "picture" (one sentence: a real scene of the story — place, subject,
   action, light — never an allegory of its idea), "why" (what the viewer sees). 6 to 12 of them.
 Never invent a fact: a place, a year, a person must be in the transcript or the brief."""
+REGISTER_KINDS = ("instrument", "model", "inner")   # visual_mood's visibility levels past "eye"
 BIBLE_MOOD_AXES = ("valence", "intensity", "era", "gravity", "distance")
 BIBLE_SCHEMA = {
     "type": "object",
@@ -805,7 +809,8 @@ BIBLE_SCHEMA = {
             "story": {"type": "string"}, "picture": {"type": "string"}, "why": {"type": "string"}},
             "required": ["story", "picture"]}},
         "registers": {"type": "array", "items": {"type": "object", "properties": {
-            k: {"type": "string"} for k in ("name", "when", "look", "judge", "cheap")}, "required": ["name", "look"]}},
+            **{k: {"type": "string"} for k in ("name", "when", "look", "judge", "cheap")},
+            "kind": {"type": "string", "enum": list(REGISTER_KINDS)}}, "required": ["name", "kind", "look"]}},
     },
     "required": ["world", "mood", "motifs", "avoid", "heroes"],
 }
@@ -827,7 +832,7 @@ def bible_rules():
     """BIBLE_RULES with the mood's levels written out."""
     import visual_mood
     return BIBLE_RULES.replace("{mood_levels}", visual_mood.levels_text(BIBLE_MOOD_AXES, indent="    "))
-REGISTER_MAX = 4
+REGISTER_MAX = 6
 REGISTER_RESERVED = ("photo", "cinematic", "neon", "drawing", "vintage", "3d", "comic", "diagram")
 
 
@@ -882,7 +887,8 @@ def _clean_bible(data, who):
         if not name or name in REGISTER_RESERVED or name in seen_names or len(look_r.split()) < 12:
             continue
         seen_names.add(name)
-        regs.append({"name": name, "look": look_r,
+        kind = str(r.get("kind") or "").strip().lower()
+        regs.append({"name": name, "look": look_r, **({"kind": kind} if kind in REGISTER_KINDS else {}),
                      **{k: re.sub(r"\s+", " ", str(r.get(k) or "")).strip()[:300] for k in ("when", "judge", "cheap")}})
     bible = {"world": _strs(data.get("world"), 15), "mood": mood, "motifs": _strs(data.get("motifs"), 5, 200),
              "avoid": _strs(data.get("avoid"), 8), "heroes": heroes[:12], "registers": regs[:REGISTER_MAX], "by": who}
@@ -939,7 +945,7 @@ def bible_text(bible=None, heroes=12):
     if bible.get("registers"):
         lines.append("REGISTERS (how this episode shows what a camera cannot shoot — the editor names one in \"style\", the "
                      "director paints it, the channel's photo look does not apply to it):")
-        lines += [f"- \"{r['name']}\" — when: {r.get('when') or '-'} | look: {r['look']}"
+        lines += [f"- \"{r['name']}\"" + (f" ({r['kind']})" if r.get("kind") else "") + f" — when: {r.get('when') or '-'} | look: {r['look']}"
                   + (f" | judge: {r['judge']}" if r.get("judge") else "") + (f" | cheap: {r['cheap']}" if r.get("cheap") else "")
                   for r in bible["registers"]]
     if bible.get("avoid"):

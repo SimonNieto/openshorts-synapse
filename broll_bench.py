@@ -421,6 +421,8 @@ VERSIONS = {
     "v7": {},                                 # the prohibitions rebuilt (three verdicts, worth, counted filters, lighter editor)
     "v8": {},                                 # the editor cut to its nine rules, the schema enum as the style rule
     "v9": {},                                 # the look read from what is said: moods, look sheets, computed grades
+    "v10": {},                                # the experience, not the setting (registers of kind inner), suffering first
+    "v11": {},                                # v10 + a set phrase is not an image (editor and review)
 }
 BOARD_W = 1500
 THUMB_W, THUMB_H = 420, 300
@@ -960,9 +962,10 @@ def cmd_plan(args):
                 row = {"clip": n, "version": name, "images": len(res["items"]), "made": res["images_made"],
                        "hero": any(it.get("layout") == "hero" for it in res["items"]),
                        "pixel_gaps": sum(bool((it.get("pixels") or {}).get("gap")) for it in res["items"]),
+                       "experience": sum(broll.is_inner({"style": it.get("style"), "mood": it.get("mood")}) for it in res["items"]),
                        "scores": scores, "dropped": len(res["dropped"]), "seconds": res["seconds"], "usage": res["usage"]}
                 summary.append(row)
-                print(f"   {name}: {row['images']} kept of {row['made']} made, scores {scores}, hero {row['hero']}, "
+                print(f"   {name}: {row['images']} kept of {row['made']} made ({row['experience']} experience), scores {scores}, hero {row['hero']}, "
                       f"{res['seconds']} s, Claude {res['usage']['calls']} call(s) "
                       f"{res['usage']['input_tokens']:,}/{res['usage']['output_tokens']:,} -> {tag}.jpg", flush=True)
             # Side by side with every version of this clip already on disk ("current" first, then by age), so a
