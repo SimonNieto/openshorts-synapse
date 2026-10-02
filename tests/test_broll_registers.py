@@ -90,18 +90,17 @@ class TestTheEditor:
         seen, _m = self._plan(monkeypatch)
         p = seen["prompt"]
         assert '"vision"     - what Chase saw and felt on DMT' in p and '"cosmos"     - the universe' in p
-        assert "A register is not an allegory" in p and "Never a photo of a stand-in object (a vial" in p
-        assert "real micrograph or lab photograph" not in p
+        assert "A register is not an allegory" in p and "Never a photo of a\n  stand-in object when a register fits" in p
         enum = seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"]
         assert "vision" in enum and "cosmos" in enum and "photo" in enum
         assert "when the episode's REGISTERS (in the bible below) give it one" in p
         assert "NO SYMBOL FOR AN IDEA (photo pictures)" in p and "NEVER THE AI CLICHÉ" not in p
-        assert enum == ["photo", "cinematic", "vision", "cosmos"]
+        assert enum == ["photo", "vision", "cosmos"]
 
     def test_without_registers_the_old_rule_and_schema(self, monkeypatch):
         seen, _m = self._plan(monkeypatch)
-        assert "real micrograph or lab photograph" in seen["prompt"]
-        assert "vision" not in seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"]
+        assert 'the look of every picture comes from its "mood"' in seen["prompt"]
+        assert seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"] == ["photo"]
 
     def test_a_register_style_survives_the_parse_and_the_mixed_layout(self, monkeypatch, bible):
         words = _words(TEXT)
@@ -111,7 +110,7 @@ class TestTheEditor:
         _s, moments = self._plan(monkeypatch, data)
         assert [m["style"] for m in moments] == ["vision", "neon"]
         assert broll.premium_style("vision") == "vision" and broll.premium_style("neon") == "photo"
-        assert broll.premium_style("cinematic") == "cinematic" and broll.register_look(moments[0]) == VISION
+        assert broll.premium_style("cinematic") == "photo" and broll.register_look(moments[0]) == VISION
         assert broll.register_look(moments[1]) is None
 
     def test_without_a_bible_a_register_name_is_dropped(self, monkeypatch):
@@ -125,18 +124,18 @@ class TestTheDirector:
     def test_a_register_picture_gets_its_block_and_every_picture_a_judge_line(self, bible):
         ms = [{"t": 5.0, "anchor": "a", "prompt": "p", "subject": "s", "style": "vision", "hero": True, "thesis": "T"},
               {"t": 9.0, "anchor": "b", "prompt": "q", "subject": "cup", "style": "photo"}]
-        text = broll._art_prompt(ms, {"video_title_for_youtube_short": "Title"}, "house look", family="auto")
+        text = broll._art_prompt(ms, {"video_title_for_youtube_short": "Title"})
         assert 'REGISTER "vision" (not a photograph): Impossible interior' in text and "Cheap version to stay away from: a kaleidoscope" in text
         assert "- REGISTER PICTURES: a picture marked REGISTER below is not a photograph" in text
-        assert "THE CHANNEL'S LOOK (every PHOTO picture of every clip, it always wins): house look" in text
+        assert "EACH PICTURE'S LOOK comes with it below" in text
         assert 'For EVERY picture also write "judge"' in text and '"judge": "..."' in text
         assert "- PHOTO pictures: NEVER THE AI CLICHÉ" in text
-        assert text.count("tone: ") == 1          # the photo keeps its tone line, the vision has its register instead
+        assert text.count("  look (") == 1          # the photo has its look sheet, the vision its register instead
         assert "judge" in broll.ART_SCHEMA["properties"]["prompts"]["items"]["properties"]
 
     def test_no_register_paragraph_for_an_all_photo_set(self):
         ms = [{"t": 5.0, "anchor": "a", "prompt": "p", "subject": "s", "style": "photo"}]
-        text = broll._art_prompt(ms, {}, "h", family="auto")
+        text = broll._art_prompt(ms, {})
         assert "REGISTER PICTURES" not in text and 'write "judge"' in text
 
     def test_the_judge_line_lands_on_the_moment(self):
@@ -147,14 +146,14 @@ class TestTheDirector:
 
 
 class TestTheImageText:
-    def test_a_register_picture_has_no_house_look_no_family_no_style_sentence(self):
-        text = broll._image_text("A dome of tiles.", "vision", look="L", house="H", art=True, family="cinematic_photo", register=VISION)
+    def test_a_register_picture_has_no_look_sentence_and_no_style_sentence(self):
+        text = broll._image_text("A dome of tiles.", "vision", look="L", art=True, register=VISION, mood="M sentence.")
         assert text == f"A dome of tiles. {VISION} {broll.ART_RULES}"
-        plain = broll._image_text("A dome of tiles.", "vision", look="L", house="H", art=False, family="cinematic_photo", register=VISION)
-        assert plain == text and broll.FAMILIES["cinematic_photo"] not in plain and "H" not in plain.split(VISION)[0][len("A dome of tiles. "):]
+        plain = broll._image_text("A dome of tiles.", "vision", look="L", art=False, register=VISION, mood="M sentence.")
+        assert plain == text and "M sentence." not in plain
 
     def test_a_photo_is_untouched(self):
-        assert broll._image_text("A cup.", "photo", art=True, family="cinematic_photo") == f"A cup. {broll.FAMILIES['cinematic_photo']} {broll.ART_RULES}"
+        assert broll._image_text("A cup.", "photo", art=True) == f"A cup. {broll.ART_RULES}"
 
     def test_the_manual_redo_keeps_the_register(self, monkeypatch):
         seen = []

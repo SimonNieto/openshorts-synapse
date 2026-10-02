@@ -52,12 +52,15 @@ class TestTheRules:
         assert "ALREADY SHOWN" not in text
 
     def test_the_premium_neon_is_a_micrograph_not_neon_lines(self, monkeypatch):
+        """The invisible is the instrument's own image (the mood's "instrument" level), and the cliché line says
+        it to the editor in one breath."""
         text = self._plan_prompt(monkeypatch, hero=True, auto_style=True)
-        assert "real micrograph or lab photograph" in text and "never glowing neon lines" in text
+        assert "the invisible as a micrograph" in text and "instrument = it is real but only an instrument sees it" in text
+        assert "micrograph" in broll.visual_mood.words({"visibility": "instrument"})["medium"]
 
     def test_the_art_director_gets_the_same_ban(self):
         ms = [{"t": 5.0, "anchor": "drill", "prompt": "A glowing brain.", "subject": "brain", "shot": "close", "hero": True}]
-        text = broll._art_prompt(ms, {}, "house")
+        text = broll._art_prompt(ms, {})
         assert "NEVER THE AI CLICHÉ" in text and "keep its subject and shoot it as a real" in text
         for c in broll.CLICHES:
             assert c in text

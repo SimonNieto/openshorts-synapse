@@ -86,19 +86,19 @@ class TestInTheEditor:
         moments = broll.plan_with_claude({}, _words(TEXT), 4, [], hero=True)
         return seen["prompt"], moments
 
-    def test_the_editor_reads_the_bible_and_wears_its_look(self, monkeypatch):
+    def test_the_editor_reads_the_bible_but_no_look_is_laid_over_the_clip(self, monkeypatch):
+        """B-roll « ambiance » (2-oct-2026): the bible gives the world, the motifs, the wrong facts and the heroes;
+        the look of a picture is its mood's, never a look copied from the episode."""
         monkeypatch.setattr(ai_brain, "EPISODE_BIBLE", ai_brain._clean_bible(BIBLE_RAW, "claude"))
         words = _words(TEXT)
-        data = {"style_sheet": {"palette": "neon pink", "light": "flat", "era": "1998", "camera": "fisheye", "mood": "tense", "cast": "a tall sergeant"},
+        data = {"style_sheet": {"era": "1998", "cast": "a tall sergeant"},
                 "moments": [{"anchor": "soldiers", "time": words[11]["start"], "image_prompt": "x", "shot": "wide", "role": "example"}]}
         prompt, moments = self._plan(monkeypatch, data)
         head = "EPISODE VISUAL BIBLE (one read of the whole episode"
         assert head in prompt and "WORLD: a desert camp" in prompt and "HERO IDEAS" in prompt
         assert prompt.index("EPISODE BRIEF:") < prompt.index(head) < prompt.index("CLIP TITLE:")
-        assert "its LOOK is the style_sheet of every clip" in prompt
-        sheet = moments[0]["sheet"]
-        assert sheet["palette"].startswith("sand ochre") and sheet["light"].startswith("first sun") and sheet["camera"] == "24 and 50 mm, waist height"
-        assert sheet["era"] == "1998" and sheet["mood"] == "tense"
+        assert "its LOOK is the style_sheet of every clip" not in prompt
+        assert moments[0]["sheet"] == {"era": "1998"}
 
     def test_without_a_bible_nothing_changes(self, monkeypatch):
         words = _words(TEXT)
@@ -107,7 +107,6 @@ class TestInTheEditor:
         prompt, moments = self._plan(monkeypatch, data)
         assert "EPISODE VISUAL BIBLE (one read" not in prompt and "WORLD:" not in prompt
         assert moments[0]["sheet"] == {"palette": "neon pink", "light": "flat", "camera": "fisheye"}
-        assert broll._sheet_with_bible(None) is None
 
     def test_a_long_look_field_is_cut_after_a_clause_never_mid_word(self):
         text = "deep indigo in the windows, hot amber on the skin, surgical white on the bench, cool blue off the monitor, more"
@@ -116,18 +115,13 @@ class TestInTheEditor:
         assert broll._short_field("short", 90) == "short"
         assert broll._short_field("a" * 50 + " word " + "b" * 60, 100).endswith("word")
 
-    def test_the_mood_of_the_episode_fills_an_empty_one(self, monkeypatch):
-        monkeypatch.setattr(ai_brain, "EPISODE_BIBLE", ai_brain._clean_bible(BIBLE_RAW, "claude"))
-        sheet = broll._sheet_with_bible({"era": "present day"})
-        assert sheet["mood"] == "spent, resolute" and sheet["era"] == "present day" and "palette" in sheet
-
 
 class TestInTheArtDirector:
     def test_the_director_reads_the_world_the_look_and_the_avoid_list(self, monkeypatch):
         ms = [{"t": 5.0, "anchor": "a", "prompt": "p", "subject": "s", "hero": True}]
-        assert "EPISODE VISUAL BIBLE (one read" not in broll._art_prompt(ms, {}, "h")
+        assert "EPISODE VISUAL BIBLE (one read" not in broll._art_prompt(ms, {})
         monkeypatch.setattr(ai_brain, "EPISODE_BIBLE", ai_brain._clean_bible(BIBLE_RAW, "claude"))
-        text = broll._art_prompt(ms, {}, "h", family="cinematic_photo")
+        text = broll._art_prompt(ms, {})
         head = "EPISODE VISUAL BIBLE (one read"
         assert head in text and "WRONG FACTS (never show): a glowing brain" in text and "MOTIFS:" in text
-        assert text.index("THE STYLE FAMILY") < text.index(head) < text.index("THIS CLIP'S STYLE SHEET")
+        assert text.index("EACH PICTURE'S LOOK") < text.index(head) < text.index("THIS CLIP'S STYLE SHEET")

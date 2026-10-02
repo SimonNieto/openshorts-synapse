@@ -65,10 +65,10 @@ class TestTheArtDirector:
     def test_the_hero_is_the_poster(self):
         ms = [{"t": 5.0, "anchor": "a", "prompt": "p", "subject": "s", "hero": True, "hero_why": "the widest frame"},
               {"t": 9.0, "anchor": "b", "prompt": "q", "subject": "t", "hero": False}]
-        text = broll._art_prompt(ms, {}, "h")
+        text = broll._art_prompt(ms, {})
         assert "THE HERO, the clip's poster — why this one: the widest frame" in text and text.count("THE HERO, the clip's poster") == 1
         assert "THE HERO is the clip's poster: one unforgettable frame" in text
-        assert "THE HERO, the clip's poster" not in broll._art_prompt(ms, {}, "h", mixed=False, rise=True)
+        assert "THE HERO, the clip's poster" not in broll._art_prompt(ms, {}, mixed=False, rise=True)
 
 
 class TestTheReviewer:

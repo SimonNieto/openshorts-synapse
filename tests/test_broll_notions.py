@@ -56,12 +56,13 @@ class TestNames:
 class TestTheLibrary:
     def test_put_fills_the_variants_then_refuses(self, tmp_path):
         src = _pic(tmp_path / "a.jpg")
-        assert broll.notion_put("Dopamine", "photo", "zimage", "card", src, "p1", 5, look="abc123", shot="wide", house="H", family="cinematic_photo")
+        assert broll.notion_put("Dopamine", "photo", "zimage", "card", src, "p1", 5, look="abc123", shot="wide",
+                                mood={"valence": "grim", "cue": "", "defaulted": []})
         assert broll.notion_put("Dopamine", "photo", "zimage", "card", src, "p2", 5, look="abc123", shot="close")
         assert not broll.notion_put("Dopamine", "photo", "zimage", "card", src, "p3", 5, look="abc123", shot="macro")
         have = broll.notion_variants("Dopamine", "photo", "zimage", "card", "abc123")
         assert [(n, m["shot"], m["variant"], m["uses"]) for n, _p, m in have] == [(1, "wide", 1, 0), (2, "close", 2, 0)]
-        assert have[0][2]["house"] == "H" and have[0][2]["family"] == "cinematic_photo" and have[0][2]["look"] == "abc123"
+        assert have[0][2]["mood"] == {"valence": "grim"} and have[0][2]["look"] == "abc123" and "house" not in have[0][2]
         # another look is another library
         assert broll.notion_variants("Dopamine", "photo", "zimage", "card", "zzz") == []
         assert broll.notion_put("Dopamine", "photo", "zimage", "card", src, "p", 5, look="zzz", shot="wide")
@@ -109,10 +110,10 @@ class TestTheLibrary:
         old = entries["world-making-32c32c"]
         assert (old["look"], old["variant"], old["layout"], old["style"]) == ("legacy", 1, "card", "neon")
 
-    def test_a_manual_remake_keeps_the_house_look_and_the_family(self, tmp_path, monkeypatch):
+    def test_a_manual_remake_keeps_the_mood_it_was_made_in(self, tmp_path, monkeypatch):
         src = _pic(tmp_path / "a.jpg")
-        broll.notion_put("Dopamine", "photo", "zimage", "card", src, "p", 5, look="k", shot="wide", house="teal documentary",
-                         family="editorial_photo")
+        broll.notion_put("Dopamine", "photo", "zimage", "card", src, "p", 5, look="k", shot="wide",
+                         mood={"valence": "grim", "intensity": "charged"})
         nid = os.path.basename(broll.notion_variants("Dopamine", "photo", "zimage", "card", "k")[0][1])[:-4]
         seen = {}
 
@@ -123,10 +124,10 @@ class TestTheLibrary:
         monkeypatch.setattr(broll, "comfy_available", lambda timeout=3: True)
         monkeypatch.setattr(broll, "local_image", fake_image)
         e = broll.notion_regenerate(nid, "A short new prompt.")
-        assert seen["house"] == "teal documentary" and seen["family"] == "editorial_photo" and seen["art"] is False
-        assert e["house"] == "teal documentary" and e["manual"]
-        broll.notion_regenerate(nid, "word " * 60, house="new house")
-        assert seen["house"] == "new house" and seen["art"] is True
+        assert "A low-key frame" in seen["mood"] and seen["art"] is False
+        assert e["mood"] == {"valence": "grim", "intensity": "charged"} and e["manual"]
+        broll.notion_regenerate(nid, "word " * 60)
+        assert seen["mood"] == "" and seen["art"] is True
 
 
 class TestInTheJob:
@@ -134,9 +135,9 @@ class TestInTheJob:
     def stubs(self, monkeypatch):
         made = []
 
-        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", **kw):
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", **kw):
             Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
-            made.append({"prompt": prompt, "size": size, "house": house, **kw})
+            made.append({"prompt": prompt, "size": size, **kw})
             return out_path
 
         monkeypatch.setattr(broll, "comfy_available", lambda timeout=3: True)
@@ -158,19 +159,19 @@ class TestInTheJob:
         return made, tr, words
 
     def _run(self, tr, words, **cfg):
-        base = {"planner": "claude", "layout": "mixed", "style": "auto", "house_look": "teal documentary", "art_director": False}
+        base = {"planner": "claude", "layout": "mixed", "style": "auto", "art_director": False}
         return broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1, {**base, **cfg})
 
     def test_two_clips_build_the_variants_the_third_reuses_them(self, monkeypatch, stubs):
         made, tr, words = stubs
-        look = broll.look_key("teal documentary")
+        look = broll.current_look()
         seen = []
-        monkeypatch.setattr(broll, "direct_art", lambda moments, clip, house, **kw: seen.append([m.get("notion_shot") for m in moments]) or 0)
+        monkeypatch.setattr(broll, "direct_art", lambda moments, clip, **kw: seen.append([m.get("notion_shot") for m in moments]) or 0)
         rep = self._run(tr, words, art_director=True)
         drill = next(it for it in rep["items"] if it.get("notion") == "Drill")
         assert "reused" not in drill and seen[-1] == [None, "close"]
         have = broll.notion_variants("Drill", "photo", "zimage", "card", look)
-        assert [(n, m["shot"], m["house"]) for n, _p, m in have] == [(1, "close", "teal documentary")]
+        assert [(n, m["shot"], m["mood"].get("valence")) for n, _p, m in have] == [(1, "close", "neutral")]
         n_made = len(made)
         rep = self._run(tr, words, art_director=True)
         assert seen[-1] == [None, "wide"] and len(made) == n_made + 2
@@ -182,20 +183,21 @@ class TestInTheJob:
         assert drill["reused"] and seen[-1] == [None, None] and len(made) == n_made + 1
         assert sum(m["uses"] for _n, _p, m in broll.notion_variants("Drill", "photo", "zimage", "card", look)) == 1
 
-    def test_another_house_look_starts_a_new_library(self, stubs):
+    def test_the_house_look_pictures_are_not_reused(self, stubs):
+        """B-roll « ambiance » (2-oct-2026): the library of the teal/amber house look stays on disk, unused; the mood
+        system's pictures make a library of their own (visual_mood.VERSION)."""
         made, tr, words = stubs
+        old = broll.look_key("cinematic documentary photograph, 35 mm lens, natural light, teal and amber grade, "
+                             "fine film grain, shallow depth of field")
+        assert broll.current_look() not in (old, "nolook") and broll.current_look() == broll.look_key(broll.visual_mood.VERSION)
         self._run(tr, words)
         self._run(tr, words)
-        assert len(broll.notion_variants("Drill", "photo", "zimage", "card", broll.look_key("teal documentary"))) == 2
-        n_made = len(made)
-        rep = self._run(tr, words, house_look="warm editorial")
-        drill = next(it for it in rep["items"] if it.get("notion") == "Drill")
-        assert "reused" not in drill and len(made) == n_made + 2
-        assert len(broll.notion_variants("Drill", "photo", "zimage", "card", broll.look_key("warm editorial"))) == 1
+        assert len(broll.notion_variants("Drill", "photo", "zimage", "card", broll.current_look())) == 2
+        assert broll.notion_variants("Drill", "photo", "zimage", "card", old) == []
 
     def test_the_art_director_hears_the_shot_the_library_wants(self):
         ms = [{"t": 5.0, "anchor": "drill", "prompt": "p", "subject": "drill", "shot": "wide", "notion": "Drill", "notion_shot": "close"}]
-        text = broll._art_prompt(ms, {}, "h")
+        text = broll._art_prompt(ms, {})
         assert "shot: close (the channel keeps another shot of this notion already: take this one)" in text
         ms[0]["notion_shot"] = "wide"
-        assert "shot: wide ·" in broll._art_prompt(ms, {}, "h") and "keeps another shot" not in broll._art_prompt(ms, {}, "h")
+        assert "shot: wide ·" in broll._art_prompt(ms, {}) and "keeps another shot" not in broll._art_prompt(ms, {})

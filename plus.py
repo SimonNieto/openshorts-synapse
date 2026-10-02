@@ -82,23 +82,20 @@ HOOK_STYLE, HOOK_SECONDS = "docline", 3.3
 # near-lossless (ffmpeg_utils.layer_encode_args).
 FX = {"smart_framing": True, "smooth_camera": True, "reactions": True, "hq_chain": True}
 # B-roll when the profile wants images: made on this PC (ComfyUI, Z-Image
-# Turbo), the style picked per image by the planner, "mixed" ideas (half
-# literal, half the idea behind the words), one hero + three wide cards, the
-# documentary house look and the cinematic grade, a soft whoosh on the hero.
+# Turbo), "mixed" ideas (the thing named first), one hero + three wide cards,
+# each picture's look read from what is said (visual_mood: its mood's words for
+# the image model, its grade when it is cut in), a soft whoosh on the hero.
 BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed", "density": "normal",
-         "review": "auto", "layout": "mixed", "hero_res": "std", "label": False, "max": 6,
-         "house_look": ("cinematic documentary photograph, 35 mm lens, natural light, teal and amber grade, "
-                        "fine film grain, shallow depth of field"),
-         "grade": "cinematic", "sfx": True,
-         # One photographic family per clip (broll.FAMILIES): "auto" = the art director picks it (the default
-         # family without one), else its name.
-         "style_family": "auto",
+         "review": "auto", "layout": "mixed", "hero_res": "std", "label": False, "max": 6, "sfx": True,
+         # The channel's teal/amber stamp in every picture's grade (visual_mood.SIGNATURE): 0 = none, 1 = a full
+         # duotone; never on a picture whose colours or light the speaker describes (B-roll « ambiance », 2-oct-2026).
+         "signature": 0.2,
          # A clear, natural face on every picture (broll.FACE_MODES: never / hero / always): the "turned away" rule
          # dated from FLUX's faces; Z-Image draws them right, the review marks a waxy one down, and a card of
          # anonymous backs reads cold (audit « sens », 1-oct-2026 evening).
          "faces": "always",
-         # B-roll v2 (1-oct-2026): a second call writes the prompt of every picture of a set in the channel's
-         # look (broll.direct_art), validated on the brain bench (JRE #2515 clips 1, 3, 5) the same day.
+         # B-roll v2 (1-oct-2026): a second call writes the prompt of every picture of a set, each in its look
+         # sheet (broll.direct_art), validated on the brain bench (JRE #2515 clips 1, 3, 5) the same day.
          "art_director": True}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the

@@ -58,11 +58,11 @@ class TestGuardrails:
 class TestTheArtDirector:
     def test_the_director_is_told_where_a_face_may_show(self):
         ms = [{"t": 5.0, "anchor": "a", "prompt": "p", "subject": "s", "hero": True}]
-        hero = broll._art_prompt(ms, {}, "h", faces="hero")
+        hero = broll._art_prompt(ms, {}, faces="hero")
         assert "welcome on the HERO" in hero and "On the cards keep people anonymous" in hero
-        always = broll._art_prompt(ms, {}, "h", faces="always")
+        always = broll._art_prompt(ms, {}, faces="always")
         assert "welcome on every picture" in always
-        never = broll._art_prompt(ms, {}, "h", faces="never")
+        never = broll._art_prompt(ms, {}, faces="never")
         assert "People stay anonymous on every picture" in never
         for text in (hero, always, never):
             assert "Nobody real and recognisable" in text
@@ -121,7 +121,7 @@ class TestInTheJob:
     def test_the_director_gets_the_mode(self, monkeypatch, stubs):
         made, tr, words = stubs
         seen = {}
-        monkeypatch.setattr(broll, "direct_art", lambda moments, clip, house, **kw: seen.update(kw) or 0)
+        monkeypatch.setattr(broll, "direct_art", lambda moments, clip, **kw: seen.update(kw) or 0)
         self._run(tr, words, faces="always", art_director=True)
         assert seen["faces"] == "always"
 

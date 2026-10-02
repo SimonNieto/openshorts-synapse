@@ -194,7 +194,7 @@ class TestInTheJob:
     def test_a_long_better_prompt_of_an_art_picture_stays_art(self, monkeypatch, stubs):
         made, tr, words = stubs
 
-        def fake_direct(moments, clip, house, **kw):
+        def fake_direct(moments, clip, **kw):
             for m in moments:
                 m["prompt_editor"], m["prompt"], m["art"] = m["prompt"], LONG, True
             return len(moments)

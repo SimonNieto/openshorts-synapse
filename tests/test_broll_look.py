@@ -1,5 +1,6 @@
-"""One look for the whole chain (profile broll.house_look / broll.grade, "mixed" layout): the house sentence in
-every image prompt, a photographic style set in auto mode, and one colour grade on every picture at render time."""
+"""The look of every picture ("mixed" layout, B-roll « ambiance », 2-oct-2026): no house sentence, no named grade —
+each picture's mood becomes its look sentence (when the art director did not write its prompt) and its own grade,
+applied at render time; the older clips' named grades still render the same."""
 import os
 import tempfile
 
@@ -8,8 +9,9 @@ from PIL import Image, ImageStat
 
 import broll
 import plus
+import visual_mood
 
-from test_broll import TEXT, _transcript, _words
+from test_broll import TEXT, _transcript
 
 
 @pytest.fixture(autouse=True)
@@ -21,30 +23,29 @@ def _quiet(monkeypatch):
 
 
 class TestProfile:
-    def test_the_look_is_the_house_recipe(self):
-        # One documentary look and the cinematic grade on every clip (plus.BROLL); a profile cannot change them.
-        assert plus.BROLL["grade"] == "cinematic" and plus.BROLL["grade"] in broll.GRADES
-        assert plus.BROLL["house_look"].startswith("cinematic documentary photograph") and len(plus.BROLL["house_look"]) <= 200
-        assert plus.sanitize({"broll": {"enabled": True, "house_look": "neon", "grade": "sepia"}})["broll"] == {"enabled": True}
+    def test_the_recipe_has_a_signature_and_no_house_look(self):
+        assert plus.BROLL["signature"] == 0.2 and "house_look" not in plus.BROLL and "grade" not in plus.BROLL
+        assert plus.sanitize({"broll": {"enabled": True, "house_look": "neon", "grade": "sepia", "signature": 1}})["broll"] == {"enabled": True}
 
 
 class TestPrompt:
-    def test_the_house_look_sits_between_the_scene_and_the_style_sheet(self):
-        text = broll._image_text("A brain model on a desk.", "photo", look="Same visual look as the other images of the set — palette: teal.",
-                                 house="cinematic documentary photograph, 35 mm")
-        i_scene, i_house, i_look, i_style = (text.index(s) for s in ("A brain model", "cinematic documentary photograph, 35 mm.",
-                                                                     "Same visual look", broll.STYLES["photo"]))
-        assert i_scene < i_house < i_look < i_style
-        assert text.endswith(broll.COMMON_RULES)
+    def test_the_mood_sentence_sits_between_the_scene_and_the_rules(self):
+        mood = visual_mood.sentence({"valence": "grim", "intensity": "charged"})
+        text = broll._image_text("A brain model on a desk.", "photo", mood=mood)
+        assert text.index("A brain model") < text.index("A low-key frame") < text.index(broll.COMMON_RULES)
+        assert broll.STYLES["photo"] not in text and "teal" not in text
 
-    def test_no_house_look_leaves_the_prompt_as_before(self):
-        plain = broll._image_text("A brain.", "photo")
-        assert plain == broll._image_text("A brain.", "photo", house="   ")
+    def test_an_art_prompt_gets_no_look_sentence(self):
+        text = broll._image_text("A long director's prompt.", "photo", art=True, mood="A documentary photograph.")
+        assert text == f"A long director's prompt. {broll.ART_RULES}"
+
+    def test_no_mood_leaves_the_historical_prompt_as_before(self):
         # the historical text, spaces included (the image cache keys on it)
-        assert plain == f"A brain. {broll.STYLES['photo']} {broll.COMMON_RULES}"
+        assert broll._image_text("A brain.", "photo") == f"A brain. {broll.STYLES['photo']} {broll.COMMON_RULES}"
 
     def test_auto_style_in_the_mixed_layout_is_photographic(self, monkeypatch):
         import ai_brain
+        from test_broll import _words
         monkeypatch.setattr(ai_brain, "EPISODE_BRIEF", None)
         seen = {}
         monkeypatch.setattr(broll, "claude_json", lambda prompt, schema, **k: seen.update(prompt=prompt, schema=schema) or {"moments": []})
@@ -52,10 +53,10 @@ class TestPrompt:
         broll.plan_with_claude({}, words, 4, [], auto_style=True)
         assert '"comic"' in seen["prompt"] and "comic" in seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"]
         broll.plan_with_claude({}, words, 4, [], auto_style=True, hero=True)
-        # the mixed layout: the schema is the rule (photo, cinematic and the episode's registers), the text lists nothing else
+        # the mixed layout: the schema is the rule (photo and the episode's registers), the look is the mood's
         assert '"comic"' not in seen["prompt"] and '"neon"' not in seen["prompt"] and "Nothing else" not in seen["prompt"]
-        assert seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"] == ["photo", "cinematic"]
-        assert "real micrograph or lab photograph" in seen["prompt"]
+        assert seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"] == ["photo"]
+        assert '"cinematic" -' not in seen["prompt"] and 'the look of every picture comes from its "mood"' in seen["prompt"]
         broll.plan_with_claude({}, words, 4, [], auto_style=False, hero=True)
         assert '"style"' not in seen["prompt"]
 
@@ -78,8 +79,9 @@ class TestGrade:
         im = self._img()
         assert broll._grade_colour(im, "off") is im
         assert broll._grade_colour(im, "nope") is im
+        assert broll._grade_params("off") is None and broll._grade_params(None) is None
 
-    def test_cinematic_desaturates_lifts_the_blacks_and_splits_the_tones(self):
+    def test_an_older_clips_cinematic_grade_renders_the_same(self):
         im = self._img()
         out = broll._grade_colour(im, "cinematic")
         assert out.size == im.size and _chroma(out) < _chroma(im)
@@ -89,8 +91,13 @@ class TestGrade:
         dark = broll._grade_colour(Image.new("RGB", (8, 8), (40, 40, 40)), "cinematic").getpixel((2, 2))
         assert bright[0] > bright[2]            # warm highlights
         assert dark[2] > dark[0]                # cool shadows
-        clean = broll._grade_colour(im, "clean")
-        assert _chroma(im) > _chroma(clean) > _chroma(out)
+
+    def test_a_mood_grade_is_applied_by_visual_mood(self):
+        im = self._img()
+        g = visual_mood.grade({"valence": "grim"}, signature=0)
+        out = broll._grade_colour(im, g)
+        assert out.tobytes() == visual_mood.apply_grade(im, g).tobytes()
+        assert broll._grade_params(g) is g
 
     def test_grain_moves(self):
         import numpy as np
@@ -112,27 +119,31 @@ class TestRenderers:
                 px[x, y] = (x % 256, (y // 3) % 256, 120)
         im.save(src, quality=95)
         outs = {}
-        for g in ("off", "cinematic"):
-            f = os.path.join(tmp, "h_" + g)
+        grades = {"off": "off", "cinematic": "cinematic",
+                  "grim": visual_mood.grade({"valence": "grim", "intensity": "charged"}, signature=0.2)}
+        for name, g in grades.items():
+            f = os.path.join(tmp, "h_" + name)
             os.makedirs(f)
             broll._hero_frames(src, f, 10, 1.0, 108, 192, grade=g)
-            outs["hero_" + g] = Image.open(os.path.join(f, "c005.png")).convert("RGB")
-            f = os.path.join(tmp, "c_" + g)
+            outs["hero_" + name] = Image.open(os.path.join(f, "c005.png")).convert("RGB")
+            f = os.path.join(tmp, "c_" + name)
             os.makedirs(f)
             broll._rise_frames(src, f, 10, 1.0, 540, 960, 60, "top", look="premium", border="premium", grade=g)
-            outs["card_" + g] = Image.open(os.path.join(f, "c005.png")).convert("RGB")
+            outs["card_" + name] = Image.open(os.path.join(f, "c005.png")).convert("RGB")
         assert outs["hero_off"].tobytes() != outs["hero_cinematic"].tobytes()
         assert _chroma(outs["hero_cinematic"]) < _chroma(outs["hero_off"])
         assert outs["card_off"].tobytes() != outs["card_cinematic"].tobytes()
+        assert outs["hero_grim"].tobytes() not in (outs["hero_off"].tobytes(), outs["hero_cinematic"].tobytes())
+        assert outs["card_grim"].tobytes() != outs["card_off"].tobytes()
 
 
 class TestAddBroll:
-    def test_items_carry_the_grade_and_the_styles_are_photographic(self, monkeypatch):
+    def _run(self, monkeypatch, moods, styles=None, **cfg_over):
         made = []
 
-        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", **kw):
-            Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
-            made.append((style, house))
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", **kw):
+            Image.new("RGB", size, (120, 110, 100)).save(out_path, quality=80)
+            made.append({"style": style, "look": look, **kw})
             return out_path
 
         monkeypatch.setattr(broll, "comfy_available", lambda timeout=3: True)
@@ -144,18 +155,48 @@ class TestAddBroll:
         tr = _transcript(TEXT)
         words = [{"text": w["word"].strip(), "start": w["start"], "end": w["end"]} for w in tr["segments"][0]["words"]]
         idx = {w["text"]: i for i, w in enumerate(words)}
-        data = {"moments": [{"anchor": a, "time": words[idx[a]]["start"], "image_prompt": a, "role": "example", "shot": "wide", "style": s}
-                            for a, s in (("soldiers", "comic"), ("marched", "neon"), ("sergeant", "diagram"))]}
+        anchors = ("soldiers", "marched", "sergeant")
+        styles = styles or ("comic", "neon", "diagram")
+        data = {"moments": [{"anchor": a, "time": words[idx[a]]["start"], "image_prompt": a, "role": "example", "shot": "wide",
+                             "style": s, **({"mood": md} if md is not None else {})}
+                            for a, s, md in zip(anchors, styles, moods)]}
         monkeypatch.setattr(broll, "plan_with_claude",
                             lambda clip, words_, n, avoid, *a, **k: broll._parse_moments(data, words_, n, avoid, 3.0, k.get("dur_range")))
-        cfg = {"planner": "claude", "layout": "mixed", "style": "auto", "max": 4, "grade": "cinematic",
-               "house_look": "teal and amber documentary photograph"}
+        cfg = {"planner": "claude", "layout": "mixed", "style": "auto", "max": 4, **cfg_over}
         rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1, cfg)
-        assert [it["style"] for it in rep["items"]] == ["photo", "photo", "photo"]
-        assert all(it["grade"] == "cinematic" for it in rep["items"])
-        assert all(h == "teal and amber documentary photograph" for _, h in made)
-        # the historical layouts: no house look, no grade on the items, whatever the profile says
-        made.clear()
-        rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1, {**cfg, "layout": "rise"})
-        assert all(h == "" for _, h in made) and all("grade" not in it for it in rep["items"])
+        return rep, made, tr, words, cfg
+
+    def test_every_item_carries_its_mood_and_its_own_grade(self, monkeypatch, capsys):
+        moods = [{"valence": "neutral", "intensity": "steady"}, {"valence": "grim", "intensity": "charged"},
+                 {"valence": "neutral", "intensity": "steady", "colours_said": "a red glow"}]
+        rep, made, tr, words, cfg = self._run(monkeypatch, moods, signature=0.2)
+        items = rep["items"]
+        assert [it["style"] for it in items] == ["photo", "photo", "photo"]
+        assert all(isinstance(it["grade"], dict) and it["mood_base"] for it in items)
+        assert items[0]["mood_base"]["valence"] == "neutral"            # the median of the clip
+        assert items[1]["grade"]["temp"] < items[0]["grade"]["temp"]    # the grim one is colder
+        assert items[0]["grade"]["sig"] == 0.2 and items[2]["grade"]["sig"] == 0.0   # the speaker's colours
+        assert all("raw" in it["pixels"] and "gap" in it["pixels"] for it in items)
+        # no art director here: the editor's draft goes out with the picture's look sentence
+        assert all(m["mood"].startswith("A documentary photograph of today") and m["look"] == "" for m in made)
+        out = capsys.readouterr().out
+        assert "🎚️ Clip mood: neutral · steady · explained" in out and "🎨 Grades: " in out
+
+    def test_a_planner_without_moods_gets_the_plain_look(self, monkeypatch):
+        rep, made, *_ = self._run(monkeypatch, [None, None, None], signature=0)
+        assert all(it["mood"]["valence"] == "neutral" and it["grade"]["sig"] == 0.0 for it in rep["items"])
+
+    def test_the_historical_layouts_have_no_mood_and_no_grade(self, monkeypatch):
+        rep, made, tr, words, cfg = self._run(monkeypatch, [None, None, None], layout="rise")
+        assert all("grade" not in it and "mood" not in it for it in rep["items"])
         assert [it["style"] for it in rep["items"]] == ["comic", "neon", "diagram"]
+        assert all(m["mood"] == "" for m in made)
+
+    def test_grade_item_on_a_redo(self, tmp_path):
+        p = tmp_path / "x.jpg"
+        Image.new("RGB", (64, 64), (5, 5, 6)).save(p)
+        item = {"mood": {"valence": "elated"}, "mood_base": {"valence": "neutral"}}
+        gaps = broll.grade_item(item, str(p), 0.2)
+        assert item["grade"]["sig"] == 0.2 and gaps and gaps == item["pixels"]["gap"]
+        assert broll.grade_item({"register": "x", "mood": {"valence": "grim"}}, str(p)) == []
+        assert broll.grade_item({}, str(p)) == []

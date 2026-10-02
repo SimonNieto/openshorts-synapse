@@ -94,13 +94,17 @@ class TestTheRecipeMatchesTheCode:
     def test_broll_recipe_values_are_known_to_broll(self):
         assert plus.BROLL["engine"] in broll.ENGINES and broll.ENGINES == ("zimage",)
         assert plus.BROLL["style"] == "auto" and plus.BROLL["mode"] in broll.MODE_RULES
-        assert plus.BROLL["density"] in broll.DENSITY and plus.BROLL["grade"] in broll.GRADES
+        assert plus.BROLL["density"] in broll.DENSITY and 0.0 <= plus.BROLL["signature"] <= 1.0
         assert plus.BROLL["hero_res"] in broll.HERO_GEN and plus.BROLL["layout"] == "mixed"
+        # B-roll « ambiance » (2-oct-2026): no house look, no named grade, no style family in the recipe
+        for key in ("house_look", "grade", "style_family"):
+            assert key not in plus.BROLL, key
 
     def test_what_was_removed_is_gone(self):
         for name in ("plan_shots", "face_track", "spotlight_moments", "_streak_frames", "mix_music"):
             assert not hasattr(viral_fx, name), name
-        for name in ("free_photo", "openverse_image", "gemini_image", "REAL_PHOTO_RULE"):
+        for name in ("free_photo", "openverse_image", "gemini_image", "REAL_PHOTO_RULE", "FAMILIES", "FAMILY_CHOICE",
+                     "STYLE_TONE", "family_text", "_sheet_with_bible"):
             assert not hasattr(broll, name), name
         for name in ("music_library", "pick_track"):
             assert not hasattr(plus, name), name

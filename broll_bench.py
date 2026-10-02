@@ -246,10 +246,7 @@ def cmd_chain(args):
 # --- the look (before / after) ----------------------------------------------------------
 
 # What the premium chantiers change, applied on top of the saved profile for the AFTER render.
-AFTER_BROLL = {"layout": "mixed", "hold": None, "density": "normal", "max": 4, "hero_res": "std",
-               "grade": "cinematic", "sfx": True,
-               "house_look": "cinematic documentary photograph, 35 mm lens, natural light, teal and amber grade, "
-                             "fine film grain, shallow depth of field"}
+AFTER_BROLL = {"layout": "mixed", "hold": None, "density": "normal", "max": 4, "hero_res": "std", "sfx": True}
 AFTER_FX = {"hq_chain": True}
 
 

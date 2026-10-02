@@ -1,5 +1,5 @@
-"""The art director (B-roll v2, chantier A): a second call writes the prompt of every picture of a set in the
-channel's look. Nothing here calls Claude, Gemini or ComfyUI."""
+"""The art director (B-roll v2, chantier A): a second call writes the prompt of every picture of a set, each in its
+look sheet (B-roll « ambiance », 2-oct-2026). Nothing here calls Claude, Gemini or ComfyUI."""
 import pytest
 from PIL import Image
 
@@ -49,24 +49,30 @@ class TestTheRequest:
     def test_the_request_carries_the_set_the_look_and_the_grammar(self, monkeypatch):
         monkeypatch.setattr(ai_brain, "EPISODE_BRIEF", {"glossary": [{"term": "Drill", "meaning": "m", "visual": "a sergeant's whistle"},
                                                                        {"term": "Dopamine", "meaning": "m", "visual": "x"}]})
-        text = broll._art_prompt(_moments(), {"video_title_for_youtube_short": "T"}, "teal and amber documentary", clip_text="the drill went on")
-        assert "teal and amber documentary" in text and 'title "T"' in text and "thesis: Discipline is built." in text
+        text = broll._art_prompt(_moments(), {"video_title_for_youtube_short": "T"}, clip_text="the drill went on")
+        assert "EACH PICTURE'S LOOK comes with it below" in text and 'title "T"' in text and "thesis: Discipline is built." in text
+        assert "THE CHANNEL'S LOOK" not in text and "teal shadow" not in text and "PALETTE AND GRADE" not in text
         assert "palette: sand, teal; light: low sun" in text
         assert "#0 HERO (full screen, 9:16" in text and "#1 CARD (small wide frame" in text
         assert "said: \"the soldiers were given two gallons of water\"" in text and "the editor's draft: Soldiers at a camp." in text
         assert "notion: Drill" in text and "- Drill: a sergeant's whistle" in text and "Dopamine" not in text
-        assert broll.STYLES["neon"] in text and broll.STYLES["photo"] in text
+        # mixed layout: every photo picture brings its look sheet, never a style note
+        assert text.count("  look (neutral · steady · explained): medium: a documentary photograph of today;") == 2
+        assert broll.STYLES["neon"] not in text and broll.STYLES["photo"] not in text
+        assert "The medium is the look's" in text
         for part in ("SUBJECT AND ACTION", "SETTING", "COMPOSITION", "LENS", "LIGHT", "PALETTE", "MATERIAL", "MOOD"):
             assert part in text
         assert "80 to 120 English words" in text and "ignores negations" in text
 
     def test_the_historical_layouts_get_their_own_frames(self):
         ms = _moments()
-        assert "CARD (small square frame" in broll._art_prompt(ms, {}, "h", mixed=False, rise=True)
-        assert "FULL FRAME (9:16" in broll._art_prompt(ms, {}, "h", mixed=False, rise=False)
+        assert "CARD (small square frame" in broll._art_prompt(ms, {}, mixed=False, rise=True)
+        text = broll._art_prompt(ms, {}, mixed=False, rise=False)
+        assert "FULL FRAME (9:16" in text and broll.STYLES["neon"] in text and "THE CHANNEL'S LOOK (every picture)" in text
+        assert "  look (" not in text
 
     def test_a_fixed_style_is_the_note_of_every_picture(self):
-        text = broll._art_prompt(_moments(), {}, "h", auto_style=False, style="vintage")
+        text = broll._art_prompt(_moments(), {}, mixed=False, auto_style=False, style="vintage")
         assert text.count(broll.STYLES["vintage"]) == 2 and broll.STYLES["neon"] not in text
 
 
@@ -120,9 +126,10 @@ class TestTheCall:
         monkeypatch.setattr(ai_brain, "route", lambda k, *a, **kw: "claude")
         monkeypatch.setattr(ai_brain, "stage_model", lambda k, *a, **kw: {"broll_art": "sonnet"}[k])
         ms = _moments()
-        assert broll.direct_art(ms, {}, "house") == 2
+        assert broll.direct_art(ms, {}) == 2
         assert seen["model"] == "sonnet" and seen["system"] == broll.ART_SYSTEM and seen["schema"] is broll.ART_SCHEMA
-        assert seen["effort"] == "high" and "house" in seen["prompt"]
+        assert seen["effort"] == "high" and "EACH PICTURE'S LOOK" in seen["prompt"]
+        assert "family" not in broll.ART_SCHEMA["properties"]
         assert all(m["art"] for m in ms)
 
     def test_the_effort_follows_the_profile(self, monkeypatch):
@@ -131,7 +138,7 @@ class TestTheCall:
         monkeypatch.setattr(ai_brain, "route", lambda k, *a, **kw: "claude")
         monkeypatch.setattr(ai_brain, "stage_model", lambda k, *a, **kw: "sonnet")
         monkeypatch.setenv("CLAUDE_EFFORT_BROLL", "medium")
-        broll.direct_art(_moments(), {}, "house")
+        broll.direct_art(_moments(), {})
         assert seen["effort"] == "medium"
 
     def test_gemini_takes_the_step_when_the_brain_says_so(self, monkeypatch):
@@ -139,7 +146,7 @@ class TestTheCall:
         monkeypatch.setattr(ai_brain, "gemini_json", lambda contents, model=None: ({"prompts": [{"k": 0, "prompt": LONG}]}, None))
         monkeypatch.setattr(broll, "claude_json", lambda *a, **kw: pytest.fail("Claude must not be called"))
         ms = _moments()
-        assert broll.direct_art(ms, {}, "house") == 1 and ms[0]["art"] and not ms[1].get("art")
+        assert broll.direct_art(ms, {}) == 1 and ms[0]["art"] and not ms[1].get("art")
 
     def test_a_failure_keeps_the_editors_prompts(self, monkeypatch, capsys):
         monkeypatch.setattr(ai_brain, "route", lambda k, *a, **kw: "claude")
@@ -150,24 +157,24 @@ class TestTheCall:
 
         monkeypatch.setattr(broll, "claude_json", boom)
         ms = _moments()
-        assert broll.direct_art(ms, {}, "house") == 0
+        assert broll.direct_art(ms, {}) == 0
         assert ms[0]["prompt"] == "Soldiers at a camp." and not ms[0].get("art")
         assert "art direction failed" in capsys.readouterr().out
-        assert broll.direct_art([], {}, "house") == 0
+        assert broll.direct_art([], {}) == 0
 
 
 class TestTheImageText:
     def test_an_art_prompt_goes_out_with_only_the_hard_rules(self):
-        text = broll._image_text(LONG, "neon", look="Same visual look as the set.", house="teal documentary", art=True)
+        text = broll._image_text(LONG, "neon", look="Same visual look as the set.", art=True, mood="A documentary photograph.")
         assert text.startswith("A lone soldier") and text.endswith(broll.ART_RULES)
-        assert "teal documentary" not in text and "Same visual look" not in text and broll.STYLES["neon"] not in text
+        assert "A documentary photograph." not in text and "Same visual look" not in text and broll.STYLES["neon"] not in text
         assert broll.COMMON_RULES not in text
         # the guardrails still watch the scene (a person: anonymous)
         assert "anonymous person" in text.lower() or "face turned away" in text.lower()
 
     def test_the_editors_prompt_is_assembled_as_before(self):
-        assert broll._image_text("A brain.", "photo", "L", "H") == broll._image_text("A brain.", "photo", "L", "H", art=False)
-        assert "H." in broll._image_text("A brain.", "photo", "L", "H")
+        assert broll._image_text("A brain.", "photo", "L") == broll._image_text("A brain.", "photo", "L", art=False)
+        assert broll._image_text("A brain.", "photo", "L") == f"A brain. L {broll.STYLES['photo']} {broll.COMMON_RULES}"
 
 
 class TestInTheJob:
@@ -175,9 +182,9 @@ class TestInTheJob:
     def stubs(self, monkeypatch):
         made = []
 
-        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", house="", art=False, **kw):
+        def fake_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", art=False, mood="", **kw):
             Image.new("RGB", size, (50, 80, 120)).save(out_path, quality=80)
-            made.append({"prompt": prompt, "style": style, "house": house, "art": art, "look": look})
+            made.append({"prompt": prompt, "style": style, "mood": mood, "art": art, "look": look})
             return out_path
 
         monkeypatch.setattr(broll, "comfy_available", lambda timeout=3: True)
@@ -197,8 +204,8 @@ class TestInTheJob:
         return made, tr, words
 
     def _art(self, monkeypatch, calls):
-        def fake_direct(moments, clip, house, **kw):
-            calls.append({"n": len(moments), "house": house, **kw})
+        def fake_direct(moments, clip, **kw):
+            calls.append({"n": len(moments), **kw})
             for m in moments:
                 m["prompt_editor"], m["prompt"], m["art"] = m["prompt"], LONG + " " + m["anchor"], True
             return len(moments)
@@ -209,11 +216,10 @@ class TestInTheJob:
         made, tr, words = stubs
         calls = []
         self._art(monkeypatch, calls)
-        cfg = {"planner": "claude", "layout": "mixed", "style": "auto", "house_look": "teal documentary", "grade": "cinematic",
-               "art_director": True}
+        cfg = {"planner": "claude", "layout": "mixed", "style": "auto", "art_director": True}
         rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1, cfg)
-        assert calls and calls[0]["n"] == len(rep["items"]) and calls[0]["house"] == "teal documentary" and calls[0]["mixed"]
-        assert all(m["art"] and m["prompt"].startswith("A lone soldier") for m in made)
+        assert calls and calls[0]["n"] == len(rep["items"]) and calls[0]["mixed"] and "family" not in calls[0]
+        assert all(m["art"] and m["prompt"].startswith("A lone soldier") and m["mood"] == "" for m in made)
         assert all(it["art"] and it["prompt"].startswith("A lone soldier") and it["prompt_editor"].startswith("a scene of ")
                    for it in rep["items"])
 
@@ -221,9 +227,9 @@ class TestInTheJob:
         made, tr, words = stubs
         calls = []
         self._art(monkeypatch, calls)
-        cfg = {"planner": "claude", "layout": "mixed", "style": "auto", "house_look": "teal documentary", "grade": "cinematic"}
+        cfg = {"planner": "claude", "layout": "mixed", "style": "auto"}
         rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1, cfg)
-        assert not calls and all(not m["art"] for m in made)
+        assert not calls and all(not m["art"] and m["mood"].startswith("A documentary photograph") for m in made)
         assert all("art" not in it and "prompt_editor" not in it and it["prompt"].startswith("a scene of ") for it in rep["items"])
         assert plus.BROLL["art_director"] is True
 
@@ -233,10 +239,10 @@ class TestInTheJob:
         monkeypatch.setattr(broll, "review_images",
                             lambda cands, words_: [{"score": 2 if c["m"]["anchor"] == "drill" else 5, "better_prompt": "A closer drill."}
                                                    if c["file"].endswith("broll_1.jpg") else {"score": 5} for c in cands])
-        cfg = {"planner": "claude", "layout": "mixed", "style": "auto", "house_look": "teal documentary", "art_director": True}
+        cfg = {"planner": "claude", "layout": "mixed", "style": "auto", "art_director": True}
         rep = broll.add_broll("clip.mp4", "out.mp4", {}, tr, 0.0, words[-1]["end"] + 1, cfg)
         redo = [m for m in made if m["prompt"] == "A closer drill."]
-        assert redo and not redo[0]["art"] and redo[0]["house"] == "teal documentary"
+        assert redo and not redo[0]["art"] and redo[0]["mood"].startswith("A documentary photograph")
         drill = next(it for it in rep["items"] if it["anchor"] == "drill")
         assert drill["prompt"] == "A closer drill." and "art" not in drill
 
@@ -247,11 +253,14 @@ class TestRegenerate:
         monkeypatch.setattr(broll, "comfy_available", lambda timeout=3: True)
         monkeypatch.setattr(broll, "comfy_release", lambda full=False: None)
         monkeypatch.setattr(broll, "local_image", lambda prompt, style, out, **kw: seen.append(kw) or out)
-        cfg = {"layout": "hero", "house_look": "teal documentary"}
-        broll.regenerate_image(LONG, "photo", "o.jpg", cfg=cfg, gen=[896, 1600], art=True)
-        broll.regenerate_image("A brain on a desk.", "photo", "o.jpg", cfg=cfg, gen=[896, 1600], art=True)
+        cfg = {"layout": "hero"}
+        grim = {"valence": "grim", "intensity": "charged"}
+        broll.regenerate_image(LONG, "photo", "o.jpg", cfg=cfg, gen=[896, 1600], art=True, mood=grim)
+        broll.regenerate_image("A brain on a desk.", "photo", "o.jpg", cfg=cfg, gen=[896, 1600], art=True, mood=grim)
         broll.regenerate_image(LONG, "photo", "o.jpg", cfg=cfg, gen=[896, 1600])
-        assert [s["art"] for s in seen] == [True, False, False] and all(s["house"] == "teal documentary" for s in seen)
+        assert [s["art"] for s in seen] == [True, False, False]
+        assert seen[0]["mood"] == "" and "A low-key frame" in seen[1]["mood"] and seen[2]["mood"].startswith("A documentary")
+        assert "house" not in seen[0] and "family" not in seen[0]
 
 
 class TestTheStage:

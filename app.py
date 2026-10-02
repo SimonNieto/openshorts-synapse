@@ -3447,13 +3447,15 @@ async def regenerate_clip_broll(job_id: str, clip_index: int, req: BrollRegenReq
             None, lambda: _broll.regenerate_image(prompt, style, out, item.get('query') or "", cfg,
                                                   os.getenv("GEMINI_API_KEY"), sheet=item.get('sheet'),
                                                   gen=item.get('gen'), art=bool(item.get('art')),
-                                                  family=item.get('family'), seed=seed,
-                                                  register=item.get('register')))
+                                                  seed=seed, register=item.get('register'),
+                                                  mood=item.get('mood')))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image failed: {str(e)[:300]}")
     item.update(image=new_name, prompt=prompt, source=source, seed=seed,
                 style=style if source in ("local", "gemini") else "photo")
     item.pop("score", None)
+    # The new picture's grade: its mood's, checked on its own pixels (nothing for an item without a mood).
+    _broll.grade_item(item, out, cfg.get("signature"))
     _save_broll_meta(meta_file, meta)
     mem = ((job.get('result') or {}).get('clips') or [])
     if clip_index < len(mem):
@@ -6632,8 +6634,7 @@ async def plus_list_notions():
     import broll as _broll
     loop = asyncio.get_event_loop()
     comfy = await loop.run_in_executor(None, _broll.comfy_available)
-    import plus as _plus
-    current = _broll.look_key(_plus.BROLL.get("house_look"))
+    current = _broll.current_look()
     notions = _broll.notion_list()
     for n in notions:
         n["current_look"] = n.get("look") == current
@@ -6658,12 +6659,10 @@ async def plus_regen_notion(nid: str, req: NotionRegenRequest):
     as the one the next clips use."""
     _notion_guard()
     import broll as _broll
-    import plus as _plus
-    house = _plus.BROLL.get("house_look") or ""
     loop = asyncio.get_event_loop()
     try:
         return {"notion": await loop.run_in_executor(
-            None, lambda: _broll.notion_regenerate(nid, req.prompt, req.engine, house=house))}
+            None, lambda: _broll.notion_regenerate(nid, req.prompt, req.engine))}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

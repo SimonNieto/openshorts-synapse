@@ -42,7 +42,7 @@ class TestTheEditor:
         p = seen["prompt"]
         assert "THE THING NAMED, FIRST. Every image shows something the speaker NAMES or TELLS" in p
         assert "allowed ONLY when the speaker says that image himself" in p and "Zero images beats one allegory" in p
-        assert p.index("THE THING NAMED, FIRST") < p.index('Also write "style_sheet"') < p.index("NO SYMBOL FOR AN IDEA")
+        assert p.index("THE THING NAMED, FIRST") < p.index('THE LOOK of every picture comes from its "mood"') < p.index("NO SYMBOL FOR AN IDEA")
         assert "At most 4 images." in p and "none when it names nothing" in p
         assert "Aim for" not in p and "visual_argument" not in p and "PROVES" not in p
         assert '"idea": the link the viewer makes between the picture and the words' in p
@@ -50,7 +50,33 @@ class TestTheEditor:
         assert "a picture that would do for any\nother clip about the same noun is not the picture" in p
         assert "SPECIFICITY TEST" not in p and "Nothing else (no neon" not in p
         assert "visual_argument" not in seen["schema"]["properties"]
-        assert seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"] == ["photo", "cinematic"]
+        assert seen["schema"]["properties"]["moments"]["items"]["properties"]["style"]["enum"] == ["photo"]
+
+    def test_every_picture_answers_the_mood_questions(self, monkeypatch):
+        """B-roll « ambiance » (2-oct-2026): anchored levels, an enum each, required on every moment; the clip's
+        sheet is only its cast; the historical layouts keep their style sheet and no mood."""
+        seen, _m = self._plan(monkeypatch)
+        p, item = seen["prompt"], seen["schema"]["properties"]["moments"]["items"]
+        assert item["properties"]["mood"] == broll.visual_mood.SCHEMA and "mood" in item["required"]
+        assert item["properties"]["mood"]["properties"]["valence"]["enum"] == ["grim", "uneasy", "neutral", "warm", "elated"]
+        assert broll.visual_mood.MOOD_RULE in p and 'Write "style_sheet" only for "cast"' in p
+        assert seen["schema"]["properties"]["style_sheet"]["properties"] == {"cast": {"type": "string"}}
+        assert '"palette" (the 2-4 dominant colours)' not in p
+        monkeypatch.setattr(broll, "claude_json", lambda prompt, schema, **k: seen.update(prompt=prompt, schema=schema) or {"moments": []})
+        broll.plan_with_claude({}, _words(TEXT), 4, [], hero=False)
+        assert "mood" not in seen["schema"]["properties"]["moments"]["items"]["properties"]
+        assert 'Also write "style_sheet": ONE visual direction' in seen["prompt"] and '"valence"' not in seen["prompt"]
+
+    def test_the_moods_are_parsed_and_logged(self, monkeypatch, capsys):
+        words = _words(TEXT)
+        anchor = next(w for w in words if len(w["text"]) > 4 and words.index(w) > 12)
+        data = {"moments": [{"anchor": anchor["text"], "time": anchor["start"], "image_prompt": "x", "subject": "thing",
+                             "mood": {"valence": "grim", "intensity": "charged", "visibility": "eye", "scale": "body",
+                                      "era": "now", "distance": "lived", "gravity": "real", "cue": "it hurt"}}]}
+        _seen, moments = self._plan(monkeypatch, data)
+        assert moments and moments[0]["mood"]["valence"] == "grim" and moments[0]["mood"]["defaulted"] == []
+        out = capsys.readouterr().out
+        assert "🎚️ Moods: thing: grim · charged · lived · real («it hurt»)" in out
 
     def test_the_hero_is_a_real_scene_or_nothing(self, monkeypatch):
         seen, _m = self._plan(monkeypatch)
@@ -90,7 +116,7 @@ class TestTheCliches:
 class TestTheArtDirector:
     def test_the_director_hears_the_thesis_and_shoots_the_thing(self):
         ms = [{"t": 5.0, "anchor": "a", "prompt": "p", "subject": "s", "hero": True, "thesis": "T"}]
-        text = broll._art_prompt(ms, {"video_title_for_youtube_short": "Title"}, "h")
+        text = broll._art_prompt(ms, {"video_title_for_youtube_short": "Title"})
         assert 'THE CLIP: title "Title"; thesis: T\n' in text and "visual argument" not in text
         assert "one unforgettable frame of the thing or the scene the editor chose, as it really" in text
 
