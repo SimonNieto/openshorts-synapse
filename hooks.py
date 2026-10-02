@@ -473,14 +473,15 @@ def create_hook_image(text, target_width, output_image_path="hook_overlay.png", 
     return output_image_path, canvas_w, canvas_h
 
 def add_hook_to_video(video_path, text, output_path, position="top", font_scale=1.0, duration=None, style="classic",
-                      category="", accent=None):
+                      category="", accent=None, quiet=()):
     """
     Overlays text hook onto video.
     position: 'top', 'center', 'bottom'
     font_scale: float multiplier (1.0 = default)
     style: hook look (see HOOK_STYLES)
-    category, accent: the "docline" style only: the topic shown above the
-    rule, and the word(s) of the hook drawn in yellow (docline_accent).
+    category, accent, quiet: the "docline" style only: the topic shown above
+    the rule, the word(s) of the hook drawn in yellow (docline_accent), and
+    the [(from, to)] seconds of the B-roll cards the eyebrow steps aside for.
     """
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video {video_path} not found")
@@ -517,7 +518,7 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
                                   position, font_scale, duration)
         if style == "docline":
             return _add_docline_hook(video_path, text, output_path, video_width, video_height, duration,
-                                     category=category, accent=accent, font_scale=font_scale)
+                                     category=category, accent=accent, font_scale=font_scale, quiet=quiet)
         img_path, box_w, box_h = create_hook_image(text, target_box_width, hook_filename, font_scale=font_scale, style=style)
         
         # 3. Calculate Overlay Position
@@ -648,6 +649,10 @@ DOCLINE = {
     # The timeline in seconds, (start, length) of each movement, and how long
     # the title takes to go.
     "eyebrow": (0.0, 0.15), "rule": (0.10, 0.35), "title": (0.25, 0.40), "out": 0.20,
+    # A B-roll card above the head (broll.TOP_BAND, 9-30 % of the height)
+    # would land on the eyebrow: it fades out quiet_lead s before the card,
+    # over quiet_out s, and comes back over quiet_in s once the card is gone.
+    "quiet_lead": 0.10, "quiet_out": 0.25, "quiet_in": 0.30,
     "fps": 30,
 }
 DOCLINE_ACCENT = BOLD_ACCENT   # the captions' yellow, one word per hook
@@ -836,14 +841,17 @@ def _veil_alpha(width, canvas_h, full_to, gone_at, alpha):
 
 
 def create_docline_frames(text, category, video_width, video_height, out_dir,
-                          accent=None, seconds=DOCLINE_SECONDS, cfg=None):
-    """Write the documentary line as PNG frames in ``out_dir``: f_%04d.png
-    for the entrance, the hold and the title's exit (0 to seconds + out),
-    and rest.png, what stays for the remainder of the clip. Every frame is
-    the top band of the picture (video_width x band height), to be overlaid
-    at 0,0. Identical states are written once and copied.
+                          accent=None, seconds=DOCLINE_SECONDS, cfg=None, quiet=(), total=None):
+    """Draw the documentary line as a timeline of PNG states in ``out_dir``:
+    the entrance, the hold and the title's exit (0 to seconds + out), then
+    the resting eyebrow and rule to the end of the clip (``total`` s, plus a
+    second), fading out for each ``quiet`` window [(from, to)] — the B-roll
+    cards drawn above the head, right where the eyebrow sits — and back in
+    after it. Every state is the top band of the picture (video_width x band
+    height) to overlay at 0,0, written once however long it lasts.
 
-    Returns {"pattern", "count", "rest", "height", "lines", "accent"}."""
+    Returns {"segments": [[png, seconds], ...], "rest", "height",
+    "title_end", "lines", "accent"}."""
     c = {**DOCLINE, **(cfg or {})}
     fps = int(c["fps"])
     scale = video_width / 1080.0
@@ -930,52 +938,145 @@ def create_docline_frames(text, category, video_width, video_height, out_dir,
         return frame
 
     os.makedirs(out_dir, exist_ok=True)
-    pattern = os.path.join(out_dir, "f_%04d.png")
+    pngs = {}
+    segments = []
+
+    def png_for(key, draw):
+        """The PNG of state ``key``, drawn (by ``draw()``) the first time only."""
+        if key not in pngs:
+            path = os.path.join(out_dir, f"s_{len(pngs):04d}.png")
+            draw().save(path)
+            pngs[key] = path
+        return pngs[key]
+
+    def push(path, dur):
+        if segments and segments[-1][0] == path:
+            segments[-1][1] += dur
+        else:
+            segments.append([path, dur])
+
+    # The entrance, the hold and the title's exit, frame by frame.
+    step = 1.0 / fps
     count = int(round((float(seconds) + c["out"]) * fps)) + 1
-    written = {}
     for k in range(count):
-        t = k / fps
+        t = k * step
         state = (round(_ramp(t, *c["eyebrow"]), 3), round(_ramp(t, *c["rule"]), 3),
                  round(_ramp(t, *c["title"]), 3), round(_ramp(t, float(seconds), c["out"]), 3))
-        path = pattern % k
-        if state in written:
-            shutil.copyfile(written[state], path)
+        push(png_for(state, lambda s=state: compose(*s)), step)
+    title_end = count * step
+
+    # Then the eyebrow and the rule, out of the way of every card.
+    rest_img = compose(1.0, 1.0, 1.0, 1.0)
+    rest = png_for((1.0, 1.0, 1.0, 1.0), lambda: rest_img)        # the exit's last state, already drawn
+
+    def rest_at(k):
+        """The resting layer at opacity ``k`` (0-1)."""
+        k = round(max(0.0, min(1.0, k)), 2)
+        return rest if k >= 1.0 else png_for(("rest", k), lambda: _scale_alpha(rest_img, k))
+
+    end = (float(total) if total else title_end + 3600.0) + 1.0   # never shorter than the clip
+    spans = []                                                     # [fade-out start, fade-in start]
+    for a, b in sorted((float(a), float(b)) for a, b in (quiet or ()) if float(b) > float(a)):
+        s = max(title_end, a - c["quiet_lead"])
+        if b <= s or s >= end:
+            continue
+        if spans and s <= spans[-1][1] + c["quiet_in"]:
+            spans[-1][1] = max(spans[-1][1], b)                    # two cards close together: stay hidden
         else:
-            compose(*state).save(path)
-            written[state] = path
-    rest = os.path.join(out_dir, "rest.png")
-    compose(1.0, 1.0, 1.0, 1.0).save(rest)
-    return {"pattern": pattern, "count": count, "rest": rest, "height": canvas_h,
+            spans.append([s, b])
+    t = title_end
+    for s, b in spans:
+        if s > t:
+            push(rest, s - t)
+            t = s
+        n = max(1, int(round(c["quiet_out"] * fps)))
+        for j in range(1, n + 1):
+            push(rest_at(1 - j / n), step)
+        t += n * step
+        if b > t:
+            push(rest_at(0.0), b - t)
+            t = b
+        n = max(1, int(round(c["quiet_in"] * fps)))
+        for j in range(1, n + 1):
+            push(rest_at(j / n), step)
+        t += n * step
+    if end > t:
+        push(rest, end - t)
+    return {"segments": segments, "rest": rest, "height": canvas_h, "title_end": title_end,
             "lines": [" ".join(l) for l in lines], "accent": sorted(words[i] for i in accents)}
 
 
-def docline_graph(seq_end):
-    """The ffmpeg filter graph: the frame sequence (input 1) over the video
-    until it ends, then the resting PNG (input 2, looped) to the end."""
-    return ("[1:v]format=rgba[s];[2:v]format=rgba[r];"
-            "[0:v][s]overlay=0:0:eof_action=pass[a];"
-            f"[a][r]overlay=0:0:enable='gte(t,{seq_end:.3f})':shortest=1[v]")
+def docline_quiet(broll_items):
+    """The [(from, to)] seconds of the B-roll cards drawn above the head
+    (broll items of layout "card"): the eyebrow steps aside for them."""
+    out = []
+    for it in broll_items or []:
+        if not isinstance(it, dict) or it.get("layout") != "card":
+            continue
+        try:
+            t = float(it["t"])
+            out.append((t, t + float(it.get("dur") or 0.0)))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def docline_frame_at(made, t):
+    """The PNG of ``made`` (create_docline_frames) on screen at ``t`` s."""
+    acc = 0.0
+    for path, dur in made["segments"]:
+        if t < acc + dur - 1e-9:
+            return path
+        acc += dur
+    return made["segments"][-1][0]
+
+
+def write_docline_concat(made, path):
+    """The timeline as an ffconcat script next to its PNGs (relative names).
+    The last file is listed twice: the concat demuxer ignores the duration of
+    the last entry otherwise."""
+    rows = ["ffconcat version 1.0"]
+    for png, dur in made["segments"]:
+        rows += [f"file '{os.path.basename(png)}'", f"duration {dur:.6f}"]
+    rows.append(f"file '{os.path.basename(made['segments'][-1][0])}'")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(rows) + "\n")
+    return path
+
+
+def docline_graph():
+    """The hook layer (input 1, the concat timeline, a second longer than the
+    clip) over the video; the output stops with the picture."""
+    return "[1:v]format=rgba[h];[0:v][h]overlay=0:0:shortest=1[v]"
+
+
+def _video_seconds(video_path):
+    try:
+        out = subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                       "-of", "csv=p=0", video_path], timeout=60).decode().strip()
+        return float(out.splitlines()[0])
+    except Exception:
+        return None
 
 
 def _add_docline_hook(video_path, text, output_path, video_width, video_height, duration,
-                      category="", accent=None, font_scale=1.0):
+                      category="", accent=None, font_scale=1.0, quiet=()):
     """Burn the documentary line (see DOCLINE). ``duration``: when the title
-    leaves; the eyebrow and the rule stay to the end of the clip.
+    leaves; the eyebrow and the rule stay to the end of the clip, except
+    during the ``quiet`` windows (the B-roll cards above the head).
     ``font_scale``: the editor's S / M / L, on the title only."""
     seconds = max(1.0, float(duration or DOCLINE_SECONDS))
-    fps = int(DOCLINE["fps"])
     cfg = {"title_px": DOCLINE["title_px"] * float(font_scale or 1.0)}
     work = tempfile.mkdtemp(prefix="docline_", dir=os.path.dirname(os.path.abspath(output_path)))
     try:
-        made = create_docline_frames(text, category, video_width, video_height, work,
-                                     accent=accent, seconds=seconds, cfg=cfg)
-        seq_end = made["count"] / float(fps)
+        made = create_docline_frames(text, category, video_width, video_height, work, accent=accent,
+                                     seconds=seconds, cfg=cfg, quiet=quiet, total=_video_seconds(video_path))
+        concat = write_docline_concat(made, os.path.join(work, "timeline.ffconcat"))
         print(f"🎬 Overlaying documentary line: {made['lines']} (accent {made['accent']}, "
-              f"topic '{category or '-'}', title leaves at {seconds:g}s)")
-        cmd = ["ffmpeg", "-y", "-i", video_path,
-               "-framerate", str(fps), "-i", made["pattern"],
-               "-loop", "1", "-framerate", str(fps), "-i", made["rest"],
-               "-filter_complex", docline_graph(seq_end), "-map", "[v]", "-map", "0:a?",
+              f"topic '{category or '-'}', title leaves at {seconds:g}s, "
+              f"{len(quiet or ())} card(s) to step aside for)")
+        cmd = ["ffmpeg", "-y", "-i", video_path, "-f", "concat", "-safe", "0", "-i", concat,
+               "-filter_complex", docline_graph(), "-map", "[v]", "-map", "0:a?",
                "-c:a", "copy", *layer_encode_args(video_encode_args(QUALITY)), *METADATA_SCRUB,
                "-movflags", "+faststart", output_path]
         subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1800)

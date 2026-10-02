@@ -106,49 +106,58 @@ def _alpha_max(img, box):
     return max(img.crop(box).getchannel("A").getdata())
 
 
+FPS = DOCLINE["fps"]
+
+
+def _at(made, t):
+    return Image.open(hooks.docline_frame_at(made, t))
+
+
+def _frame(made, k):
+    """Frame k of the timeline, sampled in the middle of the frame."""
+    return _at(made, (k + 0.5) / FPS)
+
+
 class TestFrames:
     def _make(self, tmp_path, **kw):
+        kw.setdefault("total", 6.0)
         return create_docline_frames(HOOK, "Psychology", W, H, str(tmp_path), accent="39", seconds=1.0, **kw)
 
-    def test_the_sequence_covers_the_entrance_the_hold_and_the_exit(self, tmp_path):
+    def test_the_timeline_covers_the_clip_and_a_second_more(self, tmp_path):
         made = self._make(tmp_path)
-        fps = DOCLINE["fps"]
-        assert made["count"] == int(round((1.0 + DOCLINE["out"]) * fps)) + 1
-        for k in range(made["count"]):
-            assert os.path.exists(made["pattern"] % k)
-        assert os.path.exists(made["rest"])
+        assert abs(sum(d for _, d in made["segments"]) - 7.0) < 1e-6
+        assert abs(made["title_end"] - (int(round((1.0 + DOCLINE["out"]) * FPS)) + 1) / FPS) < 1e-9
+        for png, _ in made["segments"]:
+            assert os.path.exists(png)
         assert made["lines"] == ["He asked “am I dead?”", "39 times."]
         assert made["accent"] == ["39"]
 
     def test_every_frame_is_the_top_band_of_the_picture(self, tmp_path):
         made = self._make(tmp_path)
-        size = Image.open(made["pattern"] % 0).size
+        sizes = {Image.open(p).size for p, _ in made["segments"]}
+        assert len(sizes) == 1
+        size = sizes.pop()
         assert size[0] == W and int(H * 0.25) <= size[1] <= int(H * 0.45)
-        assert Image.open(made["rest"]).size == size
         # The veil fades out inside the band: its last row is clear.
-        assert _alpha_max(Image.open(made["pattern"] % int(0.8 * DOCLINE["fps"])),
-                          (0, size[1] - 1, W, size[1])) == 0
+        assert _alpha_max(_frame(made, int(0.8 * FPS)), (0, size[1] - 1, W, size[1])) == 0
 
     def test_the_first_frame_is_empty_and_the_held_frame_is_full(self, tmp_path):
         made = self._make(tmp_path)
-        fps = DOCLINE["fps"]
-        first = Image.open(made["pattern"] % 0)
-        held = Image.open(made["pattern"] % int(0.8 * fps))
+        first = _frame(made, 0)
+        held = _frame(made, int(0.8 * FPS))
         title_zone = (0, int(H * 0.17), W, held.size[1])
         assert _alpha_max(first, title_zone) == 0
         assert _alpha_max(held, title_zone) > 200
         # The veil is on at the top edge of the held frame, and still full
         # behind the first line of the title (the neon sign sits there).
         assert held.getpixel((W // 2, 0))[3] == round(255 * DOCLINE["veil_alpha"])
-        first_line = int(H * 0.17)
-        assert held.getpixel((W - 5, first_line))[3] == round(255 * DOCLINE["veil_alpha"])
+        assert held.getpixel((W - 5, int(H * 0.17)))[3] == round(255 * DOCLINE["veil_alpha"])
 
     def test_the_rule_draws_itself_from_the_left(self, tmp_path):
         made = self._make(tmp_path)
-        fps = DOCLINE["fps"]
         start, length = DOCLINE["rule"]
-        mid = Image.open(made["pattern"] % int(round((start + length / 2) * fps)))
-        done = Image.open(made["pattern"] % int(round((start + length) * fps) + 2))
+        mid = _frame(made, int(round((start + length / 2) * FPS)))
+        done = _frame(made, int(round((start + length) * FPS)) + 2)
         left = int(W * DOCLINE["left"])
         full = int(W * DOCLINE["rule_width"])
 
@@ -167,15 +176,15 @@ class TestFrames:
 
     def test_the_payoff_word_is_yellow_and_the_rest_white(self, tmp_path):
         made = self._make(tmp_path)
-        held = Image.open(made["pattern"] % int(0.8 * DOCLINE["fps"]))
+        held = _frame(made, int(0.8 * FPS))
         colours = {px[:3] for px in held.getdata() if px[3] == 255}
         assert DOCLINE_ACCENT in colours and (255, 255, 255) in colours
 
     def test_after_the_title_leaves_the_eyebrow_and_the_rule_stay(self, tmp_path):
         made = self._make(tmp_path)
+        assert hooks.docline_frame_at(made, made["title_end"] + 0.01) == made["rest"]
+        assert hooks.docline_frame_at(made, 5.9) == made["rest"]
         rest = Image.open(made["rest"])
-        last = Image.open(made["pattern"] % (made["count"] - 1))
-        assert list(rest.getdata()) == list(last.getdata())
         title_zone = (0, int(H * 0.19), W, rest.size[1])
         eyebrow_zone = (0, int(H * DOCLINE["top"]), W, int(H * 0.17))
         # Under the title zone only the veil remains (black, faint).
@@ -184,31 +193,74 @@ class TestFrames:
         assert rest.getpixel((W // 2, 0))[3] == round(255 * DOCLINE["rest_alpha"])
 
     def test_without_a_topic_the_rule_alone_opens_the_line(self, tmp_path):
-        made = create_docline_frames(HOOK, "", W, H, str(tmp_path), seconds=1.0)
+        made = create_docline_frames(HOOK, "", W, H, str(tmp_path), seconds=1.0, total=3.0)
         rest = Image.open(made["rest"])
         y = int(H * DOCLINE["top"])
         left = int(W * DOCLINE["left"])
         assert rest.getpixel((left + 2, y + 1))[:3] == (255, 255, 255)
 
-    def test_identical_states_are_written_once(self, tmp_path, monkeypatch):
-        saved = []
-        real = Image.Image.save
-
-        def spy(self, fp, *a, **kw):
-            saved.append(fp)
-            return real(self, fp, *a, **kw)
-
-        monkeypatch.setattr(Image.Image, "save", spy)
-        made = create_docline_frames(HOOK, "Psychology", W, H, str(tmp_path), seconds=3.3)
-        # About 28 moving states (eyebrow 5, rule 11, title 12, exit 6) out of 106 frames.
-        assert len(saved) < made["count"] // 3
+    def test_each_state_is_written_once_however_long_it_lasts(self, tmp_path):
+        made = create_docline_frames(HOOK, "Psychology", W, H, str(tmp_path), seconds=3.3, total=30.0)
+        pngs = {p for p, _ in made["segments"]}
+        # About 30 moving states (veil 5, rule 11, title 12, exit 6) for a 30 s clip.
+        assert len(os.listdir(tmp_path)) == len(pngs) < 45
 
 
-class TestGraph:
-    def test_the_sequence_then_the_resting_png(self):
-        graph = docline_graph(3.5)
-        assert "eof_action=pass" in graph
-        assert "enable='gte(t,3.500)'" in graph and graph.endswith("[v]")
+class TestQuiet:
+    """The eyebrow steps aside for the B-roll cards drawn above the head."""
+
+    def _make(self, tmp_path, quiet):
+        return create_docline_frames(HOOK, "Psychology", W, H, str(tmp_path), seconds=1.0,
+                                     quiet=quiet, total=20.0)
+
+    def _clear(self, made, t):
+        img = _at(made, t)
+        return _alpha_max(img, (0, 0, W, img.size[1])) == 0
+
+    def test_gone_during_a_card_and_back_after(self, tmp_path):
+        made = self._make(tmp_path, [(5.0, 8.0)])
+        assert hooks.docline_frame_at(made, 4.5) == made["rest"]
+        assert self._clear(made, 5.2) and self._clear(made, 7.9)
+        fading = _at(made, 5.0 - DOCLINE["quiet_lead"] + DOCLINE["quiet_out"] / 2)
+        assert 0 < _alpha_max(fading, (0, 0, W, fading.size[1])) < 255
+        assert hooks.docline_frame_at(made, 8.0 + DOCLINE["quiet_in"] + 0.05) == made["rest"]
+
+    def test_two_close_cards_keep_it_hidden_between(self, tmp_path):
+        made = self._make(tmp_path, [(5.0, 7.0), (7.2, 9.0)])
+        assert self._clear(made, 7.1)
+
+    def test_far_apart_cards_let_it_come_back_between(self, tmp_path):
+        made = self._make(tmp_path, [(5.0, 7.0), (12.0, 14.0)])
+        assert hooks.docline_frame_at(made, 9.5) == made["rest"]
+        assert self._clear(made, 13.0)
+
+    def test_no_card_no_gap(self, tmp_path):
+        made = self._make(tmp_path, [])
+        assert hooks.docline_frame_at(made, 15.0) == made["rest"]
+        assert [p for p, _ in made["segments"]].count(made["rest"]) == 1
+
+    def test_only_the_cards_above_the_head_count(self):
+        items = [{"t": 5, "dur": 3, "layout": "card"}, {"t": 10, "dur": 3, "layout": "hero"},
+                 {"t": 15, "dur": 2, "layout": "rise"}, "junk", {"layout": "card"}]
+        assert hooks.docline_quiet(items) == [(5.0, 8.0)]
+        assert hooks.docline_quiet(None) == []
+
+
+class TestConcat:
+    def test_the_script_lists_every_state_and_repeats_the_last(self, tmp_path):
+        made = create_docline_frames(HOOK, "Psychology", W, H, str(tmp_path), seconds=1.0, total=4.0)
+        path = hooks.write_docline_concat(made, str(tmp_path / "t.ffconcat"))
+        rows = open(path, encoding="utf-8").read().splitlines()
+        assert rows[0] == "ffconcat version 1.0"
+        files = [r for r in rows if r.startswith("file ")]
+        durs = [float(r.split()[1]) for r in rows if r.startswith("duration ")]
+        assert len(files) == len(made["segments"]) + 1 and files[-1] == files[-2]
+        assert abs(sum(durs) - 5.0) < 1e-3
+        # Names relative to the script, which sits next to the PNGs.
+        assert all("/" not in f and "\\" not in f for f in files)
+
+    def test_the_graph_stops_with_the_picture(self):
+        assert docline_graph() == "[1:v]format=rgba[h];[0:v][h]overlay=0:0:shortest=1[v]"
 
 
 class TestWiring:

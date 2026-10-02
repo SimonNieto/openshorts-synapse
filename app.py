@@ -5977,8 +5977,10 @@ async def add_hook(req: HookRequest, request: Request):
             doc_extra = {}
             if req.style == "docline":
                 import playbook
+                from hooks import docline_quiet
                 doc_extra = {"category": playbook.hook_category(clip_data),
-                             "accent": str(clip_data.get("hook_accent") or "")}
+                             "accent": str(clip_data.get("hook_accent") or ""),
+                             "quiet": [] if clip_data.get("broll_pending") else docline_quiet(clip_data.get("broll"))}
 
             def run_hook():
                 add_hook_to_video(input_path, req.text, output_path, position=req.position, font_scale=font_scale,

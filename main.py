@@ -1178,18 +1178,21 @@ def auto_hook_clip(clip_path, clip):
     except ValueError:
         seconds = 5.0
     try:
-        from hooks import add_hook_to_video, HOOK_STYLES
+        from hooks import add_hook_to_video, docline_quiet, HOOK_STYLES
         if style not in HOOK_STYLES:
             style = "classic"
         output_dir = os.path.dirname(clip_path)
         out_path = os.path.join(
             output_dir, f"hooked_{int(time.time())}_{os.path.basename(clip_path)}")
         import playbook
-        # The documentary line's eyebrow (the clip's topic) and yellow word.
+        # The documentary line's eyebrow (the clip's topic) and yellow word;
+        # the eyebrow steps aside for the B-roll cards burned above the head
+        # (the B-roll layer is under the hook; pending images are not burned yet).
         category = playbook.hook_category(clip)
         accent = str(clip.get("hook_accent") or "").strip()
-        add_hook_to_video(clip_path, text, out_path, position="top",
-                          duration=seconds, style=style, category=category, accent=accent)
+        quiet = [] if clip.get("broll_pending") else docline_quiet(clip.get("broll"))
+        add_hook_to_video(clip_path, text, out_path, position="top", duration=seconds, style=style,
+                          category=category, accent=accent, quiet=quiet)
         print(f"   🪝 Hook burned ({style}, {seconds:g}s): {text}")
         return out_path, {"text": text, "style": style, "position": "top",
                           "duration_seconds": seconds, "category": category, "accent": accent}
