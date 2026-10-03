@@ -96,7 +96,10 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          "faces": "always",
          # B-roll v2 (1-oct-2026): a second call writes the prompt of every picture of a set, each in its look
          # sheet (broll.direct_art), validated on the brain bench (JRE #2515 clips 1, 3, 5) the same day.
-         "art_director": True}
+         "art_director": True,
+         # B-roll v20 « la fiche » (3-oct-2026): the editor's shot specs, the prompt written by the code, a blind
+         # check (broll_v20) — the art director above is the old chain's, kept for the bench only.
+         "chain": "spec"}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set
