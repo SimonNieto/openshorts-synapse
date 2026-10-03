@@ -682,7 +682,7 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
     shutil.rmtree(keep, ignore_errors=True)
     os.makedirs(keep)
     planner = "gemini" if prof["brain"]["stages"]["broll"] == "gemini" else "claude"
-    cfg = {**plus.BROLL, "enabled": True, "planner": planner, "review": "manual", "chain": "", **over}
+    cfg = {**plus.BROLL, "enabled": True, "planner": planner, "review": "manual", "chain": "", "ideas": False, **over}
     start, end = float(clip["start"]), float(clip["end"])
     c = dict(clip)
     inset = c.get("screen_inset")

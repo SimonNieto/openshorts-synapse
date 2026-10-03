@@ -99,7 +99,9 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          "art_director": True,
          # B-roll v20 « la fiche » (3-oct-2026): the editor's shot specs, the prompt written by the code, a blind
          # check (broll_v20) — the art director above is the old chain's, kept for the bench only.
-         "chain": "spec"}
+         # v21 « idées » (4-oct-2026): the round of ideas in text before the rendering (broll_ideas: art director,
+         # verifier, viewer on the channel's own text), the hero chosen among the ideas kept.
+         "chain": "spec", "ideas": True}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set
