@@ -9,3 +9,4 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # variable, so this must be set here — before any test module imports app — or
 # the suite's behavior would depend on the developer's personal .env.
 os.environ["BILLING_ENABLED"] = "0"
+os.environ["BROLL_LESSONS"] = "0"          # the tests never write the real lessons journal (broll_lessons)

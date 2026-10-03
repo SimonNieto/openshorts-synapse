@@ -27,10 +27,16 @@ words in it).
 3. "answers": one entry per listed question, {{"id": the question's id, "a": your answer}}. Answer literally, from the \
 picture alone: yes or no, a number, or a short word. Look again at the picture for each question.
 4. "look": 1 to 5, a clean, well-made picture (5 = clean; 1 = deformed hands or faces, garbled text, smeared, broken).
+5. "score": 1 to 5, as the viewer of this channel with those words in your ear: 5 = you smile, you understand more \
+than you were told; 3 = it goes with the words and adds a little; 1 = nothing of the words in it, or a stock photo \
+you scroll past.
 The pictures, in the order they appear:
 {items}
 Return JSON: {{"checks": [{{"file": "...", "sees": "...", "fits": "with", "answers": [{{"id": "...", "a": "..."}}], \
-"look": 4}}]}}"""
+"look": 4, "score": 3}}]}}"""
+
+IMAGE_MIN_SCORE = int(os.environ.get("BROLL_IMAGE_MIN_SCORE") or 2)   # a rendered picture scored at or under this does
+LAST_WHY = ""                                                          # not beat the face alone; the last decide()'s why
 
 FITS = ("with", "against", "away")
 
@@ -39,8 +45,8 @@ CHECK_SCHEMA = {"type": "object", "properties": {"checks": {"type": "array", "it
         "file": {"type": "string"}, "sees": {"type": "string"}, "fits": {"type": "string", "enum": list(FITS)},
         "answers": {"type": "array", "items": {"type": "object", "properties": {
             "id": {"type": "string"}, "a": {"type": "string"}}, "required": ["id", "a"]}},
-        "look": {"type": "integer"}},
-    "required": ["file", "sees", "fits", "answers", "look"]}}}, "required": ["checks"]}
+        "look": {"type": "integer"}, "score": {"type": "integer"}},
+    "required": ["file", "sees", "fits", "answers", "look", "score"]}}}, "required": ["checks"]}
 
 
 # ---------------------------------------------------------------------------------------------- the questions
@@ -111,7 +117,7 @@ def check(cands, words, model="sonnet"):
         fits = r.get("fits") if r.get("fits") in FITS else ("with" if r.get("links") is not False else "away")
         out[os.path.basename(str(r["file"]))] = {
             "sees": str(r.get("sees") or "")[:200], "fits": fits, "links": fits == "with",
-            "answers": _as_dict(r.get("answers")), "look": _look_of(r)}
+            "answers": _as_dict(r.get("answers")), "look": _look_of(r), "score": _look_of({"look": r.get("score")})}
     return out
 
 
@@ -302,7 +308,9 @@ _SHAPE_WRONG = (("count_ok", "wrong count"), ("people_ok", "wrong people"), ("te
 
 
 def _verdict(spec, result, verdict, why, extra=""):
-    """Count the filter hit (``check: <why>``) and give the verdict."""
+    """Count the filter hit (``check: <why>``), remember the reason (LAST_WHY, for the lessons) and give the verdict."""
+    global LAST_WHY
+    LAST_WHY = why
     subject = str((spec or {}).get("subject") or "")[:60]
     sees = str((result or {}).get("sees") or "")[:80]
     broll.filter_hit(f"check: {why}", f'check: {why}{extra} → {verdict} — "{subject}", seen: "{sees}"')
@@ -340,6 +348,13 @@ def decide(spec, result, tries, alt_used):
     look = _look_of(result)
     if look is not None and look <= LOOK_BAD and tries < LINK_TRIES:
         return _verdict(spec, result, "rerender", "look", f" ({look}/5)")
+    score = result.get("score")
+    if isinstance(score, int) and not isinstance(score, bool) and score <= IMAGE_MIN_SCORE:
+        # the house rule at the picture's level (v22): what does not beat the face alone leaves — the alternative
+        # (another idea), else nothing; the same prompt again would score the same
+        return _verdict(spec, result, other, "under the face alone", f" ({score}/5)")
+    global LAST_WHY
+    LAST_WHY = ""
     return "keep"
 
 
@@ -358,7 +373,8 @@ def pick_best(takes):
         bad = [g["unsafe"], g["body_photo"], r.get("links") is False] + [not g[k] for k in
                                                                       ("subject_ok", "count_ok", "people_ok",
                                                                        "text_ok", "medium_ok", "pair_ok")]
-        return (not any(bad), not (g["unsafe"] or g["body_photo"]), -sum(bad), _look_of(r) or 0)
+        score = r.get("score") if isinstance(r.get("score"), int) and not isinstance(r.get("score"), bool) else 0
+        return (not any(bad), not (g["unsafe"] or g["body_photo"]), -sum(bad), score, _look_of(r) or 0)
     best, best_rank = None, None
     for t in takes or []:
         k = rank(t)

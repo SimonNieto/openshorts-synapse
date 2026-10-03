@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Trash2, RefreshCw, Check } from 'lucide-react';
+import { Loader2, Trash2, RefreshCw, Check, ThumbsUp, ThumbsDown } from 'lucide-react';
 import Modal from './ui/Modal';
 import { getApiUrl } from '../config';
 import { apiJson } from '../lib/api';
@@ -39,6 +39,26 @@ export default function BrollModal({ isOpen, onClose, jobId, index, clip, profil
     }, [isOpen, clip]);
 
     const patch = (image, changes) => setItems((list) => list.map((it) => (it.image === image ? { ...it, ...changes } : it)));
+    // The owner's verdict on a picture (v22): a lesson the B-roll chain reads in its next calls (broll_lessons).
+    // A thumbs-down may carry a short note — the most useful signal there is.
+    const [fb, setFb] = useState({});
+    const feedback = async (it, verdict) => {
+        let note = '';
+        if (verdict === 'down') {
+            const typed = window.prompt('Pourquoi ? (facultatif, une ligne : ce qui ne va pas sur cette image)', '');
+            if (typed === null) return;
+            note = typed.trim();
+        }
+        try {
+            await apiJson(`/api/clip/${jobId}/${index}/broll/feedback`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: it.image, verdict, note }),
+            });
+            setFb((m) => ({ ...m, [it.image]: verdict }));
+        } catch (e) {
+            setError(e.message || String(e));
+        }
+    };
     const setDurAll = () => {
         const d = clampDur(allDur);
         setAllDur(String(d));
@@ -165,6 +185,20 @@ export default function BrollModal({ isOpen, onClose, jobId, index, clip, profil
                                         {busy === it.image ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
                                         redo
                                     </button>
+                                )}
+                                {!isScreen(it) && (
+                                    <>
+                                        <button type="button" onClick={() => feedback(it, 'up')} disabled={!!busy}
+                                            title="Bien vu : la chaîne retient ce niveau"
+                                            className={`btn-quiet px-2 py-1 text-xs inline-flex items-center ${fb[it.image] === 'up' ? 'text-green-500' : ''}`}>
+                                            <ThumbsUp size={13} />
+                                        </button>
+                                        <button type="button" onClick={() => feedback(it, 'down')} disabled={!!busy}
+                                            title="Mauvaise image : dis pourquoi, la chaîne apprend"
+                                            className={`btn-quiet px-2 py-1 text-xs inline-flex items-center ${fb[it.image] === 'down' ? 'text-red-500' : ''}`}>
+                                            <ThumbsDown size={13} />
+                                        </button>
+                                    </>
                                 )}
                                 <button type="button" onClick={() => patch(it.image, { _keep: !it._keep })} disabled={!!busy}
                                     className="btn-quiet px-2.5 py-1 text-xs inline-flex items-center gap-1.5">

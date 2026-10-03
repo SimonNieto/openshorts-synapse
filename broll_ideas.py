@@ -71,7 +71,7 @@ DA_PROMPT = """You are the art director of the channel described below (its text
 THE CHANNEL'S PRINCIPLES (read them first; everything you propose obeys them, and first of all "ce qui passe avant \
 l'impact"):
 {principes}
-
+{lessons}
 THE CLIP: title "{title}", hook "{hook}". Clip gravity: {gravity}{grave_line}
 Never pictured: the speakers ({speakers}) and any real person of the story.
 {brief}
@@ -125,7 +125,7 @@ THE CHANNEL'S PRINCIPLES:
 
 THE CALIBRATION:
 {calibrage}
-
+{lessons}
 THE CLIP: title "{title}", hook "{hook}". Clip gravity: {gravity} ("grave" = a death is the clip's subject: every
 picture is an absence, nobody in the frame, never the means; "real" = a death, an illness or a loss is mentioned).
 Speakers, never pictured: {speakers}. {brief}
@@ -153,7 +153,7 @@ THE CHANNEL'S PRINCIPLES:
 
 THE CALIBRATION:
 {calibrage}
-
+{lessons}
 For each sentence you get the subtitle you read while the picture is on screen, what you heard just before, and the
 pictures proposed (described). The level zero is the FACE ALONE: the speaker's face, no picture. For every picture:
 "stops" (yes / maybe / no: does your thumb stop), "feels" (what it does to you, 8 words), "link" (yes / blurry / no:
@@ -203,6 +203,17 @@ VIEWER_SCHEMA = {"type": "object", "properties": {"moments": {"type": "array", "
         "required": ["i", "stops", "feels", "link", "adds", "score", "flaw"]}},
         "order": {"type": "array", "items": _STR}},
     "required": ["k", "views", "order"]}}}, "required": ["moments"]}
+
+
+def _lessons(for_who):
+    """The lessons block of the last days (broll_lessons, v22), "" when there is nothing to say; never breaks a call."""
+    try:
+        import broll_lessons
+        text = broll_lessons.summary(for_who)
+    except Exception as e:
+        print(f"   ⚠️ Lessons: not read ({str(e)[:80]}).")
+        return ""
+    return ("\n" + text + "\n") if text else ""
 
 
 # --- the clip's words around a moment --------------------------------------------------------------------------------
@@ -308,7 +319,8 @@ def _direct(moments, words, clip, gravity):
     """The art director's call -> {k: {"idea", "role", "ideas": [...], "why": ""}}."""
     planned = ", ".join(_q((m.get("spec") or {}).get("subject"), 6) for m in moments) or "-"
     prompt = DA_PROMPT.format(principes=skill_text("principes"), per=IDEAS_PER_MOMENT, planned=planned,
-                              moments=_moment_lines(moments, words), **_clip_lines(clip, gravity))
+                              lessons=_lessons("director"), moments=_moment_lines(moments, words),
+                              **_clip_lines(clip, gravity))
     data = _call(prompt, DA_SCHEMA, "broll_ideas", _model("broll_ideas", "opus"),
                  effort=os.environ.get("CLAUDE_EFFORT_BROLL_IDEAS") or "high")
     out = {}
@@ -323,7 +335,8 @@ def _direct(moments, words, clip, gravity):
 def _verify(moments, words, clip, gravity, ideas):
     """The verifier's call -> {(k, i): {"verdict", "reason", "details", "flaw"}}."""
     prompt = VERIFIER_PROMPT.format(principes=skill_text("principes"), calibrage=skill_text("calibrage"),
-                                    moments=_idea_lines(moments, words, ideas), **_clip_lines(clip, gravity))
+                                    lessons=_lessons("judges"), moments=_idea_lines(moments, words, ideas),
+                                    **_clip_lines(clip, gravity))
     data = _call(prompt, VERIFIER_SCHEMA, "broll_verify", _model("broll_verify", "sonnet"), effort="medium")
     out = {}
     for mm in data.get("moments") or []:
@@ -340,7 +353,8 @@ def _verify(moments, words, clip, gravity, ideas):
 def _view(moments, words, clip, gravity, ideas):
     """The viewer's call -> {k: {"views": {i: {...}}, "order": [ids, FACE among them]}}."""
     prompt = VIEWER_PROMPT.format(principes=skill_text("principes"), calibrage=skill_text("calibrage"), face=FACE,
-                                  moments=_idea_lines(moments, words, ideas, viewer=True), **_clip_lines(clip, gravity))
+                                  lessons=_lessons("judges"), moments=_idea_lines(moments, words, ideas, viewer=True),
+                                  **_clip_lines(clip, gravity))
     data = _call(prompt, VIEWER_SCHEMA, "broll_viewer", _model("broll_viewer", "sonnet"), effort="medium")
     out = {}
     for mm in data.get("moments") or []:
@@ -517,7 +531,8 @@ def idea_round(moments, reserves, clip, words, gravity, clip_text, avoid=(), hea
             else:
                 spec.pop("alt", None)
             idea = ideas[k][i0]
-            m2 = {**m, "spec": spec, "idea_text": d.get("idea"), "role": d.get("role"), "picture": idea.get("picture")}
+            m2 = {**m, "spec": spec, "idea_text": d.get("idea"), "role": d.get("role"), "picture": idea.get("picture"),
+                  "idea_flaw": (verdicts.get((k, i0)) or {}).get("flaw") or ""}
             # the idea may land on other words of the sentence (or the next): the anchor moves there
             if idea.get("anchor"):
                 probe = {"anchor": _q(idea["anchor"], 3), "time": float(m["t"]), "subject_words": ""}

@@ -9,6 +9,19 @@ import visual_mood
 
 MAX_ROUNDS = 4        # check rounds per clip (each round: one check call for every picture still undecided)
 LAST_CHECKS = []      # every check of the last clip (the bench's board): file, moment, verdict, what was seen
+LESSON_CTX = {}       # what the lessons journal notes with every picture of the clip being made (its title)
+
+
+def _lesson(c, verdict, why):
+    """One event of the lessons journal (broll_lessons) for a picture decided after the render."""
+    import broll_lessons
+    m, spec, r = c.get("m") or {}, (c.get("m") or {}).get("spec") or {}, c.get("check") or {}
+    broll_lessons.record({"source": "check", "verdict": verdict, "why": why or "", "kind": spec.get("kind"),
+                          "role": m.get("role") or spec.get("role"), "flaw": m.get("idea_flaw") or "",
+                          "score": r.get("score"), "look": r.get("look"), "fits": r.get("fits"),
+                          "subject": str(spec.get("subject") or "")[:80], "title": str(m.get("picture") or "")[:120],
+                          "said": str(m.get("said") or "")[:120], "layout": c.get("layout"),
+                          "clip_title": LESSON_CTX.get("clip_title") or ""})
 
 
 def _layout(m):
@@ -147,6 +160,10 @@ def _settle(cands, words, render, tmp):
             spec = c["m"]["spec"]
             verdict = broll_check.decide(spec, c["check"], c["tries"], c["alt_used"])
             c["verdict"] = verdict
+            if verdict != "rerender":
+                # the lesson of this picture (v22): kept with its score, or dropped with its reason; an "alt" is the
+                # first idea's failure
+                _lesson(c, "drop" if verdict in ("alt", "drop") else "keep", broll_check.LAST_WHY if verdict != "keep" else "")
             for g in group:
                 LAST_CHECKS.append({"file": os.path.basename(g["file"]), "k": k, "layout": g["layout"],
                                     "checked": bool(g["check"]),
@@ -197,6 +214,7 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
     import broll_check
     import broll_spec
     del LAST_CHECKS[:]
+    LESSON_CTX.update(clip_title=str(clip.get("video_title_for_youtube_short") or "")[:120])
     try:
         sheets = broll._frame_sheets(clip_path, tmp)
     except Exception as e:

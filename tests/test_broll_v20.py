@@ -13,6 +13,7 @@ from PIL import Image
 import broll
 import broll_check
 import broll_ideas
+import broll_lessons
 import broll_spec
 import broll_v20
 import shot_prompt
@@ -424,3 +425,203 @@ def test_a_pair_is_made_as_two_halves_each_with_its_own_prompt_and_composed(monk
     assert pair["verdict"] == "keep" and pair["m"]["spec"]["kind"] == "pair"
     assert pair["m"]["prompt"] == f"PAIR — left: {left} — right: {right}"
     assert Image.open(pair["file"]).size == broll._gen_size("card")                      # the two halves, composed
+
+
+# ------------------------------------------------------------------------------------------- v22: the lessons journal
+# Every picture decided after the render — kept with the viewer's score, or dropped with its reason — is one line of the
+# lessons journal (broll_lessons, via broll_v20._lesson); a picture to be rendered again is a lesson once it is decided.
+# The journal is off for the whole suite (tests/conftest.py): the ``lessons`` fixture turns it on, in a temporary folder.
+
+LESSON_KEYS = {"source", "verdict", "why", "kind", "role", "flaw", "score", "look", "fits", "subject", "title", "said",
+               "layout", "clip_title", "at"}
+
+
+@pytest.fixture
+def lessons(monkeypatch, tmp_path):
+    """The journal on, in a temporary folder; the value reads it (the events, oldest first)."""
+    monkeypatch.setenv("BROLL_LESSONS", "1")
+    monkeypatch.setattr(broll_lessons, "LESSONS_DIR", str(tmp_path / "journal"))
+    monkeypatch.setattr(broll_v20, "LESSON_CTX", {})
+    return broll_lessons.recent
+
+
+def _scored(score, **kw):
+    """A clean check result that carries the viewer's score (``kw``: the keywords of _ok)."""
+    return {**_ok(**kw), "score": score}
+
+
+def test_a_kept_picture_is_a_lesson_with_its_score_its_look_and_where_it_came_from(monkeypatch, tmp_path, lessons):
+    idea = {**_m(5.0, role="point"), "role": "vehicle", "idea_flaw": "object", "picture": "A glass of water on a table"}
+    kept, _p, _made = _run(monkeypatch, tmp_path, [idea, _m(12.0)], [], {"broll_0.jpg": _scored(4, look=3)},
+                           clip={"video_title_for_youtube_short": "Water is life"})
+    assert [c["verdict"] for c in kept] == ["keep", "keep"]
+    first, second = lessons()
+    assert set(first) == LESSON_KEYS
+    assert {k: v for k, v in first.items() if k != "at"} == {
+        "source": "check", "verdict": "keep", "why": "", "kind": "thing", "role": "vehicle", "flaw": "object", "score": 4,
+        "look": 3, "fits": "with", "subject": "a glass of water", "title": "A glass of water on a table",
+        "said": "a glass of water", "layout": "card", "clip_title": "Water is life"}
+    # nothing of its own to say: a flaw, a title and a role left empty, the check gave no score; never a missing key
+    assert set(second) == LESSON_KEYS
+    assert (second["flaw"], second["title"], second["role"], second["score"]) == ("", "", None, None)
+    assert (second["verdict"], second["look"], second["fits"]) == ("keep", 4, "with")
+
+
+def test_the_role_of_the_spec_stands_in_when_the_moment_has_none(monkeypatch, tmp_path, lessons):
+    _run(monkeypatch, tmp_path, [_m(5.0, role="point"), _m(12.0, role="point")], [], {})
+    assert [e["role"] for e in lessons()] == ["point", "point"]
+
+
+def test_a_dropped_picture_is_a_lesson_with_its_reason_its_flaw_and_what_the_viewer_gave_it(monkeypatch, tmp_path, lessons):
+    first = {**_m(5.0, alt=None), "idea_flaw": "setting"}                 # no alternative: it is dropped
+    kept, _p, _made = _run(monkeypatch, tmp_path, [first, _m(12.0), _m(20.0)], [], {"broll_0.jpg": _scored(4, fits="away")})
+    assert [c["k"] for c in kept] == [1, 2]
+    drop, *rest = lessons()
+    assert (drop["verdict"], drop["why"], drop["flaw"], drop["fits"], drop["score"], drop["subject"]) == (
+        "drop", "pulls attention away", "setting", "away", 4, "a glass of water")
+    assert [(e["verdict"], e["why"]) for e in rest] == [("keep", ""), ("keep", "")]
+
+
+def test_a_picture_that_takes_its_alternative_is_a_drop_and_the_alternative_has_its_own_lesson(monkeypatch, tmp_path, lessons):
+    _kept, _p, made = _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [], {"broll_0.jpg": _ok(fits="against")})
+    assert [m[0] for m in made] == ["broll_0.jpg", "broll_1.jpg", "broll_0_alt.jpg"]
+    assert [(e["verdict"], e["why"], e["subject"]) for e in lessons()] == [
+        ("drop", "contradicts the words", "a glass of water"), ("keep", "", "a glass of water"), ("keep", "", "a tap running")]
+
+
+def test_a_picture_that_does_not_beat_the_face_alone_is_a_lesson_and_takes_its_alternative(monkeypatch, tmp_path, lessons):
+    # v22: scored 2 (or 1) by the viewer, a clean picture that fits the words still leaves
+    kept, _p, made = _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [], {"broll_0.jpg": _scored(2)})
+    assert [m[0] for m in made] == ["broll_0.jpg", "broll_1.jpg", "broll_0_alt.jpg"]
+    assert [c["m"]["spec"]["subject"] for c in kept] == ["a tap running", "a glass of water"]
+    assert [(e["verdict"], e["why"], e["score"], e["subject"]) for e in lessons()] == [
+        ("drop", "under the face alone", 2, "a glass of water"), ("keep", "", None, "a glass of water"),
+        ("keep", "", None, "a tap running")]
+    assert broll.FILTERS["check: under the face alone"] == 1
+
+
+def test_an_alternative_that_does_not_beat_the_face_alone_either_is_dropped_and_recorded(monkeypatch, tmp_path, lessons):
+    kept, _p, _made = _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [],
+                           {"broll_0.jpg": _scored(2), "broll_0_alt.jpg": _scored(1)})
+    assert [c["k"] for c in kept] == [1]
+    assert [(e["verdict"], e["why"], e["score"], e["subject"]) for e in lessons()] == [
+        ("drop", "under the face alone", 2, "a glass of water"), ("keep", "", None, "a glass of water"),
+        ("drop", "under the face alone", 1, "a tap running")]
+
+
+def test_a_picture_scored_three_is_kept(monkeypatch, tmp_path, lessons):
+    kept, _p, made = _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [], {"broll_0.jpg": _scored(3), "broll_1.jpg": _scored(5)})
+    assert len(kept) == 2 and len(made) == 2
+    assert [(e["verdict"], e["score"]) for e in lessons()] == [("keep", 3), ("keep", 5)]
+
+
+def test_a_picture_to_render_again_is_a_lesson_once_decided_not_before(monkeypatch, tmp_path, lessons):
+    wrong = _ok(subject="no")                                            # the first render and its second one miss the subject
+    kept, _p, made = _run(monkeypatch, tmp_path, [_m(5.0, alt=None), _m(12.0)], [],
+                          {"broll_0.jpg": wrong, "broll_0_v2.jpg": wrong})
+    assert [m[0] for m in made] == ["broll_0.jpg", "broll_1.jpg", "broll_0_v2.jpg"] and [c["k"] for c in kept] == [1]
+    # the first render of the moment is no lesson: "rerender" is not a decision
+    assert [(e["verdict"], e["why"]) for e in lessons()] == [("keep", ""), ("drop", "wrong subject")]
+
+
+def test_a_picture_that_was_rendered_again_and_kept_is_one_keep(monkeypatch, tmp_path, lessons):
+    kept, _p, _made = _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [], {"broll_0.jpg": _ok(subject="no")})
+    assert len(kept) == 2
+    assert [(e["verdict"], e["why"]) for e in lessons()] == [("keep", ""), ("keep", "")]
+
+
+def test_a_picture_nobody_checked_is_a_lesson_too(monkeypatch, tmp_path, lessons):
+    monkeypatch.setattr(broll_spec, "plan_specs", lambda *a, **k: ([_m(5.0)], []))
+    monkeypatch.setattr(broll_check, "check", lambda cands, words, **k: {})
+    kept, _p = broll_v20.run("clip.mp4", {}, [], None, 0, 30, 4, [], 1.0, 2.0, 2.0, (), None, str(tmp_path),
+                             _render(tmp_path, []))
+    (event,) = lessons()
+    assert kept == [] and (event["verdict"], event["why"]) == ("drop", "not checked")
+    assert (event["score"], event["look"], event["fits"]) == (None, None, None)
+
+
+def test_the_heros_takes_make_one_lesson_the_best_ones(monkeypatch, tmp_path, lessons):
+    kept, _p, made = _run(monkeypatch, tmp_path, [_m(5.0, hero=True), _m(12.0)], [],
+                          {"broll_0.jpg": _scored(2, look=2), "broll_0_t2.jpg": _scored(5, look=5)})
+    assert [m[0] for m in made][:2] == ["broll_0.jpg", "broll_0_t2.jpg"] and len(kept) == 2
+    # the other take leaves before any decision and is no lesson: one line for the moment, the take that stayed
+    assert [(e["layout"], e["verdict"], e["score"], e["look"]) for e in lessons()] == [
+        ("hero", "keep", 5, 5), ("card", "keep", None, 4)]
+
+
+def test_the_clip_title_goes_with_every_lesson_cut_to_120_and_the_next_clip_starts_clean(monkeypatch, tmp_path, lessons):
+    _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [], {}, clip={"video_title_for_youtube_short": "T" * 200})
+    assert [e["clip_title"] for e in lessons()] == ["T" * 120] * 2
+    assert broll_v20.LESSON_CTX == {"clip_title": "T" * 120}
+    _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [], {}, clip={})        # a clip with no title
+    assert [e["clip_title"] for e in lessons()][2:] == ["", ""] and broll_v20.LESSON_CTX == {"clip_title": ""}
+
+
+def test_the_long_fields_of_a_lesson_are_cut(monkeypatch, tmp_path, lessons):
+    long = {**_m(5.0, subject="s" * 100), "picture": "p" * 200, "said": "w" * 200}
+    _run(monkeypatch, tmp_path, [long, _m(12.0)], [], {})
+    first = lessons()[0]
+    assert (first["subject"], first["title"], first["said"]) == ("s" * 80, "p" * 120, "w" * 120)
+
+
+def test_each_field_of_a_lesson_comes_from_its_own_place(lessons):
+    # the kind and the subject are the spec's, the role the moment's (the spec's when it has none), the flaw, the title (its
+    # "picture") and the words the moment's, the score / look / fits the check's, the layout the candidate's
+    broll_v20.LESSON_CTX["clip_title"] = "The clip"
+    c = {"m": {"role": "vehicle", "idea_flaw": "stock", "picture": "the picture", "said": "the words",
+               "subject": "NOT THIS", "kind": "NOT THIS", "spec": {"kind": "scene", "subject": "the subject", "role": "NOT THIS"}},
+         "check": {"score": 4, "look": 3, "fits": "against", "sees": "x"}, "layout": "hero"}
+    broll_v20._lesson(c, "drop", "contradicts the words")
+    (event,) = lessons()
+    assert {k: v for k, v in event.items() if k != "at"} == {
+        "source": "check", "verdict": "drop", "why": "contradicts the words", "kind": "scene", "role": "vehicle",
+        "flaw": "stock", "score": 4, "look": 3, "fits": "against", "subject": "the subject", "title": "the picture",
+        "said": "the words", "layout": "hero", "clip_title": "The clip"}
+
+
+def test_a_lesson_of_a_bare_candidate_is_empty_never_an_error(lessons):
+    broll_v20._lesson({}, "keep", None)
+    broll_v20._lesson({"m": None, "check": None, "layout": None}, "drop", "wrong count")
+    bare, other = lessons()
+    assert set(bare) == set(other) == LESSON_KEYS
+    assert (bare["source"], bare["verdict"], bare["why"], bare["flaw"], bare["subject"], bare["said"], bare["title"]) == (
+        "check", "keep", "", "", "", "", "")
+    assert (bare["kind"], bare["role"], bare["score"], bare["look"], bare["fits"], bare["layout"]) == (None,) * 6
+    assert (other["verdict"], other["why"]) == ("drop", "wrong count")
+
+
+def test_nothing_is_recorded_while_the_journal_is_off(monkeypatch, tmp_path):
+    monkeypatch.setenv("BROLL_LESSONS", "0")
+    monkeypatch.setattr(broll_lessons, "LESSONS_DIR", str(tmp_path / "journal"))
+    kept, _p, _made = _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [], {"broll_0.jpg": _scored(1)})
+    assert len(kept) == 2 and not os.path.exists(tmp_path / "journal")      # the chain ran, the journal was never made
+
+
+def test_a_journal_that_cannot_be_written_never_breaks_the_chain(monkeypatch, tmp_path, capsys):
+    (tmp_path / "blocker").write_text("a file, not a folder")
+    monkeypatch.setenv("BROLL_LESSONS", "1")
+    monkeypatch.setattr(broll_lessons, "LESSONS_DIR", str(tmp_path / "blocker" / "journal"))
+    kept, _p, _made = _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [], {})
+    assert len(kept) == 2 and "Lessons: not recorded" in capsys.readouterr().out
+
+
+def test_the_flaw_the_idea_round_found_reaches_the_lesson_of_the_picture(monkeypatch, tmp_path, lessons):
+    """broll_ideas puts the verifier's flaw of the chosen idea in the moment (``idea_flaw``); _settle notes it."""
+    idea = {"title": "A noon kitchen", "picture": "A busy restaurant kitchen at noon.", "adds": "", "reads": "",
+            "kind": "scene", "subject": "a busy restaurant kitchen", "count": "1", "state": "steam rising from pans",
+            "setting": "a restaurant at noon", "details": "steel pans, a wide window", "people": "none", "person": "none",
+            "shot": "wide", "light": "hard noon daylight through a window"}
+    flaws = ["object", "none"]
+    monkeypatch.setattr(broll_ideas, "_direct", lambda moments, words, clip, gravity: {
+        k: {"idea": "a kitchen", "role": "point", "ideas": [dict(idea)], "why": ""} for k in range(len(moments))})
+    monkeypatch.setattr(broll_ideas, "_verify", lambda moments, words, clip, gravity, ideas: {
+        (k, 0): {"verdict": "pass", "reason": "", "details": "", "flaw": flaws[k]} for k in range(len(moments))})
+    monkeypatch.setattr(broll_ideas, "_view", lambda moments, words, clip, gravity, ideas: {
+        k: {"views": {0: {"stops": "yes", "feels": "", "link": "yes", "adds": "", "score": 5, "flaw": "none",
+                          "unease": ""}}, "order": ["0", "face"]} for k in range(len(moments))})
+    kept, pictured, _made = _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [], {"broll_0.jpg": _ok(fits="away")},
+                                 words=WORDS, ideas=True)
+    assert [m["idea_flaw"] for m in pictured] == ["object", "none"] and [c["k"] for c in kept] == [1]
+    drop, keep = lessons()
+    assert (drop["verdict"], drop["why"], drop["flaw"], drop["kind"]) == ("drop", "pulls attention away", "object", "scene")
+    assert (keep["verdict"], keep["flaw"]) == ("keep", "none")

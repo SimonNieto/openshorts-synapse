@@ -3465,6 +3465,31 @@ async def regenerate_clip_broll(job_id: str, clip_index: int, req: BrollRegenReq
     return {"image": new_name, "item": item}
 
 
+class BrollFeedbackRequest(BaseModel):
+    image: str
+    verdict: str          # "up" or "down"
+    note: str = ""
+
+
+@app.post("/api/clip/{job_id}/{clip_index}/broll/feedback")
+async def broll_feedback(job_id: str, clip_index: int, req: BrollFeedbackRequest, request: Request):
+    """The owner's verdict on one B-roll picture (the dashboard's thumbs, v22): a lesson the chain reads in its next
+    calls (broll_lessons: the owner's verdicts weigh from one occurrence)."""
+    import broll_lessons
+    if req.verdict not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="verdict must be up or down")
+    job, output_dir, meta_file, meta, clip = await _broll_clip_ctx(job_id, clip_index, request)
+    item = next((it for it in (clip.get('broll') or []) if it.get('image') == req.image), {})
+    spec = item.get('spec') if isinstance(item.get('spec'), dict) else {}
+    ok = broll_lessons.record({"source": "owner", "verdict": req.verdict, "note": (req.note or "")[:200],
+                               "subject": str(item.get('subject') or item.get('query') or "")[:80],
+                               "kind": spec.get('kind') or ("body_inside" if item.get('inside_body') else ""),
+                               "role": item.get('role') or spec.get('role') or "", "said": str(item.get('said') or "")[:120],
+                               "title": str(item.get('picture') or "")[:120], "job": job_id, "clip": clip_index,
+                               "image": req.image, "clip_title": str(clip.get('video_title_for_youtube_short') or "")[:120]})
+    return {"ok": ok}
+
+
 @app.post("/api/clip/{job_id}/{clip_index}/broll/apply")
 async def apply_clip_broll(job_id: str, clip_index: int, req: BrollApplyRequest, request: Request):
     """Manual B-roll review, last step: keep the listed images (optionally at a

@@ -3,6 +3,7 @@ decide() and pick_best(). No model is called: broll.claude_json and shot_prompt.
 v21: the viewer hears the words and reads them as subtitles, so "links" became "fits" ("with" / "against" / "away");
 a picture that does not fit goes to its alternative, whatever its kind."""
 import os
+import subprocess
 import sys
 import types
 
@@ -125,7 +126,7 @@ class TestCheck:
         assert "[q_count] How many lamps?" in seen["prompt"]
 
     def test_the_prompt_template_is_short(self):
-        assert len(bc.CHECK_PROMPT.split()) <= 250
+        assert len(bc.CHECK_PROMPT.split()) <= 320                     # v22: the viewer's score joined the five points
         low = bc.CHECK_PROMPT.lower()
         assert "15 words" in low and "1 to 5" in low
         # item 2 is "fits": the viewer hears the words and reads them as subtitles; with / against / away
@@ -138,7 +139,8 @@ class TestCheck:
         item = bc.CHECK_SCHEMA["properties"]["checks"]["items"]
         assert bc.FITS == ("with", "against", "away")
         assert item["properties"]["fits"] == {"type": "string", "enum": ["with", "against", "away"]}
-        assert "links" not in item["properties"] and set(item["required"]) == {"file", "sees", "fits", "answers", "look"}
+        assert "links" not in item["properties"] and set(item["required"]) == {"file", "sees", "fits", "answers", "look",
+                                                                                "score"}
 
     def test_words_around_the_moment_when_it_has_no_said(self, monkeypatch, tmp_path):
         c = cand(tmp_path, said="")
@@ -158,11 +160,11 @@ class TestCheck:
                             {"file": "/somewhere/broll_1.jpg", "sees": "x" * 400, "fits": "with", "look": "high",
                              "answers": {"q_text": "yes"}}]}
         out, _seen = self._run(monkeypatch, tmp_path, cands, reply)
-        assert out["broll_0.jpg"] == {"sees": "two apples", "fits": "against", "links": False, "look": 5,
+        assert out["broll_0.jpg"] == {"sees": "two apples", "fits": "against", "links": False, "look": 5, "score": None,
                                       "answers": {"q_subject": "no", "q_count": "3"}}       # look clamped to 1-5
         assert out["broll_1.jpg"]["look"] is None and len(out["broll_1.jpg"]["sees"]) == 200
         assert out["broll_1.jpg"]["answers"] == {"q_text": "yes"}
-        assert set(out["broll_1.jpg"]) == {"sees", "fits", "links", "answers", "look"}
+        assert set(out["broll_1.jpg"]) == {"sees", "fits", "links", "answers", "look", "score"}
         assert out["broll_1.jpg"]["fits"] == "with" and out["broll_1.jpg"]["links"] is True
 
     def test_links_is_fits_with_and_an_old_links_answer_is_mapped(self, monkeypatch, tmp_path):
@@ -195,6 +197,26 @@ class TestCheck:
         c["m"]["spec"] = None
         _out, seen = self._run(monkeypatch, tmp_path, [c], {"checks": []})
         assert "questions:" not in seen["prompt"] and 'heard "she ate two apples"' in seen["prompt"]
+
+    # --- v22: the viewer's score
+    def test_the_score_is_the_viewers_one_to_five_read_like_the_look_and_apart_from_it(self, monkeypatch, tmp_path):
+        cands = [cand(tmp_path, k) for k in range(8)]
+
+        def one(k, **fields):
+            return {"file": f"broll_{k}.jpg", "sees": "x", "fits": "with", "answers": [], "look": 4, **fields}
+        reply = {"checks": [one(0, score=2), one(1, look=2, score=5), one(2, score=9), one(3, score=0), one(4, score=3.9),
+                            one(5, score="high"), one(6, score=True), one(7)]}
+        out, _seen = self._run(monkeypatch, tmp_path, cands, reply)
+        assert [out[f"broll_{k}.jpg"]["score"] for k in range(8)] == [2, 5, 5, 1, 3, None, None, None]   # 1-5, else None
+        assert [out[f"broll_{k}.jpg"]["look"] for k in range(8)] == [4, 2, 4, 4, 4, 4, 4, 4]               # apart from the look
+
+    def test_the_prompt_asks_for_the_score_as_the_viewer_of_the_channel(self, monkeypatch, tmp_path):
+        _out, seen = self._run(monkeypatch, tmp_path, [cand(tmp_path)], {"checks": []})
+        p = seen["prompt"]
+        assert '"score": 1 to 5' in p and "5 = you smile" in p and "1 = " in p and "stock photo" in p
+        assert '"look": 4, "score": 3}' in p                          # the JSON example asks for it too
+        item = bc.CHECK_SCHEMA["properties"]["checks"]["items"]
+        assert item["properties"]["score"] == {"type": "integer"} and "score" in item["required"]
 
 
 # ---------------------------------------------------------------------------------------------- grading
@@ -543,6 +565,127 @@ class TestDecide:
         assert decide(result("against"), tries=2, alt_used=True, spec=spec) == "drop"
         assert decide(result("away"), tries=2, alt_used=True, spec={**SPEC}) == "drop"       # any kind: it leaves
         assert decide(result("against"), tries=2, alt_used=True, spec={**SPEC}) == "drop"
+
+
+# ---------------------------------------------------------------------------------------------- v22: under the face alone
+
+def scored(score, fits="with", look=4, **answers):
+    """A check result that carries the viewer's score (v22): result() plus "score"."""
+    return {**result(fits, look=look, **answers), "score": score}
+
+
+class TestUnderTheFaceAlone:
+    """The house rule at the picture's level: a picture the viewer scored at or under IMAGE_MIN_SCORE does not beat the
+    face alone and leaves, by its alternative when it has one not tried yet, else for good; after the checks of the
+    shape and the look. LAST_WHY keeps the reason of the last decision (empty after a keep) for the lessons journal."""
+    NAME = "check: under the face alone"
+
+    @pytest.fixture(autouse=True)
+    def _last_why(self, monkeypatch):
+        monkeypatch.setattr(bc, "LAST_WHY", "")                       # decide() sets the module's own: put back as it was
+
+    def test_the_minimum_is_two(self):
+        assert bc.IMAGE_MIN_SCORE == 2
+
+    @pytest.mark.parametrize("score", [1, 2])
+    def test_a_score_at_or_under_the_minimum_takes_the_alternative_else_drops(self, score):
+        r = scored(score)
+        assert decide(r) == "alt" and broll.FILTERS[self.NAME] == 1
+        assert decide(r, tries=3) == "alt"                           # not a matter of budget
+        assert decide(r, alt_used=True) == "drop"                    # the alternative itself gets no further alt
+        assert decide(r, spec={**SPEC}) == "drop"                    # no alt in the spec
+        assert decide(r, spec={**SPEC, "alt": None}) == "drop"
+        assert broll.FILTERS[self.NAME] == 5 and set(broll.FILTERS) == {self.NAME}
+
+    @pytest.mark.parametrize("score", [3, 4, 5, None])
+    def test_a_better_score_or_none_is_kept_and_the_last_reason_is_forgotten(self, score, monkeypatch):
+        monkeypatch.setattr(bc, "LAST_WHY", "stale")
+        assert decide(scored(score)) == "keep" and not broll.FILTERS and bc.LAST_WHY == ""
+
+    def test_a_score_that_is_no_number_is_not_held_against_the_picture(self):
+        for odd in (False, True, "1", "low", [1]):                   # False is no 0: a bool is no score
+            assert decide(scored(odd)) == "keep", odd
+        assert not broll.FILTERS
+
+    def test_the_score_comes_after_the_checks_of_the_shape_and_the_look(self):
+        # unsafe, a wrong subject, no fit, a wrong shape and a bad look each answer first: the score never takes their reason
+        def why(r, **kw):
+            broll.FILTERS.clear()
+            verdict = decide(r, **kw)
+            return verdict, sorted(broll.FILTERS), bc.LAST_WHY
+        low = {"score": 1}
+        assert why({**result(q_unsafe="yes"), **low}) == ("alt", ["check: unsafe"], "unsafe")
+        assert why({**result(q_subject="no"), **low}) == ("rerender", ["check: wrong subject"], "wrong subject")
+        assert why({**result("away"), **low}) == ("alt", ["check: pulls attention away"], "pulls attention away")
+        assert why({**result("against"), **low}) == ("alt", ["check: contradicts the words"], "contradicts the words")
+        assert why({**result(q_count="9"), **low}) == ("rerender", ["check: wrong count"], "wrong count")
+        assert why({**result(q_count="9"), **low}, tries=3) == ("drop", ["check: wrong count"], "wrong count")
+        assert why({**result(look=1), **low}, tries=1) == ("rerender", ["check: look"], "look")
+        # the look rendered again and still bad: the score has the last word
+        assert why({**result(look=1), **low}, tries=2) == ("alt", [self.NAME], "under the face alone")
+        assert why(scored(1)) == ("alt", [self.NAME], "under the face alone")
+
+    @pytest.mark.parametrize("kind,medium", [("thing", "photograph"), ("scene", "photograph"), ("vision", "photograph"),
+                                             ("instrument", "scientific image"), ("body_inside", "drawing")])
+    def test_every_kind_follows_the_rule(self, kind, medium):
+        spec = {**SPEC, "kind": kind, "alt": ALT}
+        assert decide(scored(2, q_medium=medium), spec=spec) == "alt"
+        assert decide(scored(2, q_medium=medium), spec=spec, alt_used=True) == "drop"
+        assert decide(scored(3, q_medium=medium), spec=spec) == "keep"
+
+    def test_a_vision_read_as_away_stays_advisory_but_its_score_still_counts(self):
+        spec = {**SPEC, "kind": "vision", "alt": ALT}
+        assert decide(scored(4, "away"), spec=spec) == "keep"
+        assert broll.FILTERS["check: a vision read as away (kept)"] == 1
+        broll.FILTERS.clear()
+        assert decide(scored(2, "away"), spec=spec) == "alt" and bc.LAST_WHY == "under the face alone"
+        assert broll.FILTERS[self.NAME] == 1 and "check: pulls attention away" not in broll.FILTERS
+
+    def test_the_hit_names_the_score_and_the_verdict(self, monkeypatch):
+        hits = []
+        monkeypatch.setattr(broll, "filter_hit", lambda name, detail="": hits.append((name, detail)))
+        assert decide(scored(2)) == "alt" and decide(scored(1), alt_used=True) == "drop"
+        assert [h[0] for h in hits] == [self.NAME] * 2
+        assert "(2/5)" in hits[0][1] and "alt" in hits[0][1] and "a red apple" in hits[0][1]
+        assert "(1/5)" in hits[1][1] and "drop" in hits[1][1]
+
+    def test_the_minimum_is_read_from_the_module_at_each_decision(self, monkeypatch):
+        monkeypatch.setattr(bc, "IMAGE_MIN_SCORE", 3)
+        assert decide(scored(3)) == "alt" and decide(scored(4)) == "keep"
+        monkeypatch.setattr(bc, "IMAGE_MIN_SCORE", 0)                # 0: the rule is off
+        assert decide(scored(1)) == "keep"
+
+    def test_the_environment_sets_the_minimum_when_the_module_is_loaded(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        def loaded(value):
+            env = {k: v for k, v in os.environ.items() if k != "BROLL_IMAGE_MIN_SCORE"}
+            if value is not None:
+                env["BROLL_IMAGE_MIN_SCORE"] = value
+            out = subprocess.run([sys.executable, "-c", "import broll_check; print(broll_check.IMAGE_MIN_SCORE)"],
+                                 cwd=root, env=env, capture_output=True, text=True, timeout=60)
+            assert out.returncode == 0, out.stderr
+            return out.stdout.strip()
+        assert [loaded(v) for v in (None, "", "3", "1", "0")] == ["2", "2", "3", "1", "0"]
+
+    @pytest.mark.parametrize("r,why", [
+        (None, "not checked"), ({}, "not checked"), (result(q_unsafe="yes"), "unsafe"),
+        (result(q_body_photo="yes"), "body photo"), (result(q_subject="no"), "wrong subject"),
+        (result("away"), "pulls attention away"), (result("against"), "contradicts the words"),
+        (result(q_text="yes"), "text in it"), (result(q_count="9"), "wrong count"), (result(look=1), "look"),
+        (scored(2), "under the face alone"), (result(), ""), (scored(5), "")])
+    def test_last_why_is_the_reason_of_the_last_decision_and_empty_after_a_keep(self, r, why, monkeypatch):
+        monkeypatch.setattr(bc, "LAST_WHY", "stale")
+        decide(r)
+        assert bc.LAST_WHY == why
+
+    def test_last_why_follows_each_decision(self):
+        decide(scored(1))
+        assert bc.LAST_WHY == "under the face alone"
+        decide(result())
+        assert bc.LAST_WHY == ""
+        decide(result("against"), alt_used=True)
+        assert bc.LAST_WHY == "contradicts the words"
 
 
 # ---------------------------------------------------------------------------------------------- hero takes, minimum
