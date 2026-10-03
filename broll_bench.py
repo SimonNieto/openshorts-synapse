@@ -458,6 +458,10 @@ VERSIONS = {
     "v18s": {"env": {"BRAIN_BROLL_ART": "sonnet", "CLAUDE_EFFORT_BROLL_ART": "high"}},   # v18, the director on Sonnet
     "v19": {},                                # v18 + one drawing per episode, figures of speech, the bench minimum; the
                                               # director on Sonnet (the profile, after the v18 A/B)
+    "v20": {"chain": "spec"},                 # « la fiche »: the editor's shot specs, the prompt written by the code,
+                                              # a blind check with the spec's questions (broll_v20)
+    "v20c": {"chain": "spec"},                # v20 + the fixes of its first two runs (questions per kind, empty scenes
+                                              # said in the positive, more candidates and real reserves)
 }
 GROUP_S = 2.5   # two pictures closer than this (or on the same sentence) show the same moment
 MIN_PER_CLIP = int(os.environ.get("BENCH_MIN_PER_CLIP") or 2)   # fewer kept pictures on a clip = the bench failed
@@ -687,6 +691,11 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
                               cfg, keep_dir=keep, keep_prefix="", ground_hook=False)
     seconds = {**w.seconds, "total": round(time.time() - t0, 1)}
     usage = {k: ai_brain.USAGE[k] - u0[k] for k in u0}
+    if cfg.get("chain") == "spec":
+        # v20: no planner nor review spy fires — the specs are the pictured moments, the checks its reviews
+        import broll_v20
+        w.moments = [dict(m) for m in broll.LAST_PICTURED]
+        w.reviews = [dict(r) for r in broll_v20.LAST_CHECKS]
     items = [dict(it) for it in (rep or {}).get("items") or []]
     for it in items:
         k = _k_of(it.get("image"))

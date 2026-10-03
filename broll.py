@@ -2695,18 +2695,19 @@ def _image_text(prompt, style, look="", art=False, faces=False, register=None, m
 
 def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", art=False,
                 seed=None, steps=None, faces=False, register=None, mood="", people=None, model="turbo", negative="",
-                body=False, drawing=""):
+                body=False, drawing="", raw=False):
     """One 9:16 image from ComfyUI. Measured on an RTX 3060 (ComfyUI on
     PyTorch cu130 — the int8 kernels need it): Z-Image Turbo ~12 s per
     image, FLUX.1 schnell ~25 s; the first call of a job also loads the
     models from disk (~45 s in all). ``seed``: the one to use (kept in the
     item, so a picture can be made again at another size or step count),
     else a new one; ``steps``: the sampler steps, else the usual. ``model``
-    "base" with its ``negative`` prompt: Z-Image (v16, _graph)."""
+    "base" with its ``negative`` prompt: Z-Image (v16, _graph). ``raw``: the prompt goes out as is (v20: the code
+    wrote it from the shot spec — no guardrail, no look sentence, no rule appended)."""
     import random
     import uuid
     import httpx
-    text = _image_text(prompt, style, look, art, faces, register, mood, people, body, drawing)
+    text = prompt if raw else _image_text(prompt, style, look, art, faces, register, mood, people, body, drawing)
     seed = random.randint(0, 2 ** 48) if seed is None else int(seed)
     graph = _graph(engine if engine in ENGINES else "zimage", text, seed, *size, steps=steps, model=model,
                    negative=negative)
@@ -3498,251 +3499,285 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
 
     _comfy_enter()
     try:
-        # Planner: Claude (the user's subscription) when chosen and set up —
-        # it reads the conversation around the clip and SEES the clip (frame
-        # sheets), so it illustrates the idea and never what is already on
-        # screen. Gemini is the fallback: a quota hit on one never costs the
-        # clip its B-roll.
-        if cfg.get("planner") == "claude":
-            if claude_ready():
-                try:
-                    try:
-                        sheets = _frame_sheets(clip_path, tmp)
-                    except Exception as e:
-                        print(f"   ⚠️ B-roll frame sheets failed ({e}) — Claude plans from the words only.")
-                        sheets = []
-                    # A screen clip's hook is rewritten from its frames in this
-                    # same call (main.py then skips its own hook_grounding call).
-                    ground = None
-                    if ground_hook:
-                        try:
-                            import hook_grounding
-                            ground = hook_grounding.request(clip_path, clip, transcript, start, end)
-                        except Exception as e:
-                            print(f"   ⚠️ Hook frames failed ({e}) — the hook is grounded on its own later.")
-                    moments = plan_with_claude(clip, words, n, avoid, auto_style, transcript, start, end, sheets,
-                                               ground=ground,
-                                               mode=cfg.get("mode") or "mixed",
-                                               density=density,
-                                               hero=mixed, dur_range=dur_range, gap_min=gap_min, tail=tail, head=head,
-                                               block=block, fixed=fixed, parallel=bool(cfg.get("parallel")))
-                    planner = "claude"
-                    if not moments:
-                        print("   ℹ️ B-roll: Claude found no moment where an image would add meaning — none added.")
-                        return screen_only()
-                except Exception as e:
-                    print(f"   ⚠️ B-roll planning via Claude failed ({str(e)[:200]}) — Gemini instead.")
-            else:
-                print("   ⚠️ B-roll planner is Claude but it is not set up "
-                      "(claude CLI / CLAUDE_CODE_OAUTH_TOKEN) — Gemini instead.")
-        if not moments and api_key:
-            try:
-                import ai_brain
-                ai_brain.say("Gemini — Claude unavailable", "B-roll: choosing the images")
-                moments = plan_with_gemini(clip, words, n, avoid, api_key, auto_style, dur_range=dur_range,
-                                           gap=max(MIN_GAP, gap_min), tail=tail, head=head, block=block)
-                planner = "gemini"
-            except Exception as e:
-                print(f"   ⚠️ B-roll planning via Gemini failed ({e}) — local pick instead.")
-        if not moments:
-            # The local pick only knows words, not what they mean ("needle" ->
-            # the Space Needle): no B-roll beats a wrong one.
-            print("   ℹ️ B-roll skipped: moments need the Claude or Gemini planner (not set up or call failed).")
-            return screen_only()
-        if mixed:
-            if auto_style:
-                # A photo or a register of the episode: whatever else the planner picked is a photo.
-                for m in moments:
-                    m["style"] = premium_style(m.get("style"))
-            # Every picture has a mood (a planner that gave none: the plainest levels), and the clip a base mood: the
-            # median of its pictures with the episode's as one more vote (visual_mood.base).
-            import ai_brain
-            for m in moments:
-                m["mood"] = m.get("mood") or visual_mood.clean(None)
-            if any(m.get("clip_gravity") == "grave" for m in moments):
-                # The whole clip is about a death: every picture is grave and an absence (the editor's clip_gravity).
-                for m in moments:
-                    m["mood"] = {**m["mood"], "gravity": "grave", "absence": not register_of(m.get("style"))}
-            # Experience pictures: real suffering first (sober), and a cap per clip.
-            moments = experience_guard(moments)
-            clip_base = visual_mood.base([m["mood"] for m in moments], visual_mood.episode_levels(ai_brain.EPISODE_BIBLE))
-            for m in moments:
-                m["mood_base"] = clip_base
-            print(f"   🎚️ Clip mood: {visual_mood.describe(clip_base)}")
-            # The code has the last word on the hero: the planner's pick counts, the timing rules win.
-            k_hero = pick_hero(moments, words[-1]["end"], avoid, head, block, adaptive=cfg.get("mode") == "adaptive")
-            for i, m in enumerate(moments):
-                m["hero"] = i == k_hero
-            if k_hero is None:
-                print("   ℹ️ B-roll: no moment of this clip reads well on a whole screen — small cards only.")
-        # The notion memory: a notion whose library is not complete gets a new picture this time, in the shot the
-        # library lacks (the art director is told); a complete one is reused, its variants in turn.
-        look = current_look() if mixed else look_key("")
-        for m in moments:
-            if m.get("notion"):
-                want = notion_missing_shot(m["notion"], (m.get("style") or "photo") if auto_style else style, engine,
-                                           item_layout(m), look, m.get("shot"))
-                if want:
-                    m["notion_shot"] = want
-        if planner == "claude" and cfg.get("art_director"):
-            # The second call: the prompts of the whole set, each in its look sheet (the editor's drafts stay
-            # when it fails).
-            direct_art(moments, clip, mixed=mixed, rise=rise, auto_style=auto_style, style=style,
-                       clip_text=" ".join(w["text"] for w in words), faces=face_mode)
-        if mixed:
-            # A picture made sober (real suffering) needs the director's rewrite: the editor's draft still paints
-            # what the person lives inside. Without it, no picture.
-            for m in [m for m in moments if ((m.get("mood") or {}).get("sober") or (m.get("mood") or {}).get("absence"))
-                      and not m.get("art")]:
-                filter_hit("experience: sober picture not rewritten",
-                           f'Moment "{m.get("anchor")}" dropped: made sober (or an absence), but its prompt is still the editor\'s draft.')
-                moments.remove(m)
-            if not moments:
+        if mixed and cfg.get("chain") == "spec":
+            # v20 « la fiche »: the editor's shot specs, the prompt written by the code, a blind check per batch
+            # (broll_v20). No Gemini fallback: without Claude, no B-roll — a wrong picture is worse than none.
+            if not claude_ready():
+                print("   ⚠️ B-roll v20 needs Claude (claude CLI / CLAUDE_CODE_OAUTH_TOKEN) — no B-roll for this clip.")
                 return screen_only()
-        LAST_PICTURED[:] = moments
+            import broll_v20
 
-        used_urls, cands = set(), []
-        for k, m in enumerate(moments):
-            m_style = (m.get("style") or "photo") if auto_style else style
-            m_layout = item_layout(m)
-            raw = os.path.join(tmp, f"broll_{k}.jpg")
-            kept = (notion_get(m.get("notion"), m_style, engine, m_layout, raw, look)
-                    if m.get("notion") and not m.get("notion_shot") and not m.get("inside_body") else None)
-            if kept:
-                print(f"   ♻️ Notion \"{m['notion']}\": the channel's picture is reused (no image made, no review).")
-                cands.append({"k": k, "m": m, "style": m_style, "file": kept, "source": "local", "credit": None,
-                              "score": 5, "reused": True, "layout": m_layout})
-                continue
-            # A notion's picture is the channel's usual one, kept for other clips:
-            # made without this clip's look.
-            model, negative = image_model(m, m_layout, m_style)
-            people = "none" if is_inner(m) else m.get("people")     # an inner picture never gets a person
-            got, used, credit = make_image(m["prompt"], m_style, raw, m["query"], used_urls,
-                                           None if m.get("notion") else m.get("sheet"), layout=m_layout,
-                                           art=bool(m.get("art")), register=register_look(m), mood=m.get("mood"),
-                                           people=people, model=model, negative=negative,
-                                           body=bool(m.get("inside_body")))
-            takes = HERO_TAKES if m_layout == "hero" else 1
-            if got:
-                cands.append({"k": k, "m": m, "style": m_style, "file": got, "source": used, "credit": credit,
-                              "layout": m_layout, "seed": seeds.get(got), "model": model,
-                              **({"take": 1} if takes > 1 else {})})
-                # The hero's other takes: the director's other composition of the same moment (v16 — Turbo paints
-                # one prompt alike whatever the seed), else the same prompt with a new seed. The judge sees the takes
-                # together, the best one stays.
-                for j in range(2, takes + 1):
-                    raw_j = os.path.join(tmp, f"broll_{k}_t{j}.jpg")
-                    alt = m.get("prompt_alt") if j == 2 else None
-                    m_j = {**m, "prompt": alt} if alt else m
-                    got_j, used_j, credit_j = make_image(m_j["prompt"], m_style, raw_j, m["query"], used_urls,
-                                                         None if m.get("notion") else m.get("sheet"), layout=m_layout,
-                                                         art=bool(m.get("art")), register=register_look(m),
-                                                         mood=m.get("mood"), people=people, model=model,
-                                                         negative=negative, body=bool(m.get("inside_body")))
-                    if got_j:
-                        cands.append({"k": k, "m": m_j, "style": m_style, "file": got_j, "source": used_j,
-                                      "credit": credit_j, "layout": m_layout, "seed": seeds.get(got_j), "take": j,
-                                      "model": model, **({"alt": True} if alt else {})})
+            def render(text, out, layout):
+                """One picture of the v20 chain: the code's prompt as is (no guardrail, no look sentence)."""
+                size = _gen_size(layout, hero_res)
+                steps = HERO_STEPS if layout == "hero" and HERO_STEPS > 0 else None
+                for _attempt in range(2):
+                    t0 = time.time()
+                    seed = random.randint(0, 2 ** 48)
+                    try:
+                        got = local_image(text, "photo", out, engine=engine, size=size, seed=seed, steps=steps, raw=True)
+                        LAST_GEN.append({"file": os.path.basename(got), "model": "turbo", "layout": layout,
+                                         "size": list(size), "s": round(time.time() - t0, 1)})
+                        return got, seed
+                    except Exception as e:
+                        if not comfy_available():
+                            raise ComfyDown(f"ComfyUI stopped answering ({str(e)[:160]})") from e
+                    finally:
+                        gpu[0] += time.time() - t0
+                return None, None
 
-        # Claude checks every image against the idea it must carry; a weak
-        # generated one is redone once from its better prompt, then dropped
-        # if it is still not clear.
-        if planner == "claude" and any(not c.get("reused") for c in cands):
-            try:
-                checked = [c for c in cands if not c.get("reused")]
-                for c, r in zip(checked, review_images(checked, words)):
-                    _take_review(c, r)
-                # Several takes of one moment: the best one stays (meaning, then look; the first on a tie), the
-                # others leave before the redo rounds.
-                best = {}
-                for c in checked:
-                    if c.get("take") and (c["k"] not in best or _better(c, best[c["k"]])):
-                        best[c["k"]] = c
-                if best:
-                    drop = [c for c in checked if c.get("take") and best[c["k"]] is not c]
-                    cands = [c for c in cands if c not in drop]
-                    checked = [c for c in checked if c not in drop]
-                    for c in best.values():
-                        print(f"   🎬 Hero: take {c['take']} kept (score {c['score']}, look {c.get('look_score')}) of "
-                              f"{1 + len([d for d in drop if d['k'] == c['k']])}.")
-                for c in checked:
-                    # the best take still failing means every take failed: as many failures as takes
-                    c["failed"] = (1 + len([d for d in (drop if best else []) if d["k"] == c["k"]])) if _needs_redo(c) else 0
-                redone = 0
-                for _round in range(max(REDO_CARD + REDO_NEW_IDEA, REDO_HERO)):
-                    # A weak picture is made again from the reviewer's better prompt: once for a card (and once
-                    # more with another idea when that one failed too), twice for the hero. The better prompt of an
-                    # art-directed picture is in the director's grammar and goes out as such; a short one is the
-                    # editor's kind again. Another idea (v16) is the art director's: one call for every picture of
-                    # the round that needs one, with what was tried and what the review saw.
-                    wants = [c for c in checked if _needs_redo(c) and c.get("tries", 0) < _redo_budget(c)
-                             and _wants_new_idea(c)
-                             and (not c.get("new_prompt") or c["new_prompt"] in (c.get("tried") or ()))]
-                    if wants and cfg.get("art_director"):
-                        another_idea(wants, clip, " ".join(w["text"] for w in words), mixed=mixed,
-                                     auto_style=auto_style, style=style, faces=face_mode)
-                    todo = [c for c in checked if _needs_redo(c) and _next_prompt(c)
-                            and c.get("tries", 0) < _redo_budget(c)]
-                    pairs = []
-                    for c in todo:
-                        c["tries"] = c.get("tries", 0) + 1
-                        nxt = _next_prompt(c)
-                        c.setdefault("tried", []).append(nxt)
-                        new = c.get("new") if nxt == c.get("new_prompt") else None
-                        if new:
-                            filter_hit("redo: a new idea", f'Picture "{c["m"]["anchor"]}": '
-                                       + ("not safe" if not _safe(c) else f'{c.get("failed")} failed attempts')
-                                       + " — another idea, not the same scene reworded.")
-                        raw = os.path.join(tmp, f"broll_{c['k']}_v{c['tries'] + 1}.jpg")
-                        art = (bool(c["m"].get("art")) or bool(new)) and len(nxt.split()) >= ART_MIN_WORDS
-                        m_next = {**c["m"], "prompt": nxt, "art": art}
-                        if new:
-                            # The director's new picture comes with its own judge line, fx and people.
-                            m_next.update(judge=new.get("judge") or c["m"].get("judge"), fx=new.get("fx"),
-                                          people=new.get("people") or c["m"].get("people"),
-                                          inside_body=bool(new.get("inside_body") or c["m"].get("inside_body")))
-                        model, negative = image_model(m_next, c["layout"], c["style"])
-                        got, used, credit = make_image(nxt, c["style"], raw, c["m"]["query"],
-                                                       used_urls, None if c["m"].get("notion") else c["m"].get("sheet"),
-                                                       layout=c["layout"], art=art, register=register_look(c["m"]),
-                                                       mood=c["m"].get("mood"),
-                                                       people="none" if is_inner(m_next) else m_next.get("people"),
-                                                       model=model, negative=negative,
-                                                       body=bool(m_next.get("inside_body")))
-                        if got:
-                            pairs.append((c, {**c, "file": got, "source": used, "credit": credit, "seed": seeds.get(got),
-                                             "m": m_next, "model": model}))
-                    if not pairs:
-                        break
-                    redone += len(pairs)
-                    for (c, c2), r2 in zip(pairs, review_images([c2 for _, c2 in pairs], words)):
-                        _take_review(c2, r2)
-                        failed = c.get("failed", 0) + (1 if _needs_redo(c2) else 0)
-                        if _better(c2, c):
-                            c.update(c2)
-                        c["failed"] = failed
-                kept = _keep_meaningful(cands)
-                print(f"   🔎 B-roll review: scores {[c['score'] for c in cands]}, looks "
-                      f"{[c.get('look_score') for c in cands]}"
-                      f"{f', {redone} redone' if redone else ''}, {len(kept)}/{len(cands)} kept")
-                for c in cands:
-                    if c not in kept:
-                        why = ("unsafe" if not _safe(c) else "false fact" if not _facts_ok(c)
-                               else "sense" if c["score"] < KEEP_SCORE else "look")
-                        filter_hit(f"review: dropped ({why})", f'Picture "{c["m"]["anchor"]}" dropped by the review ({why}: sense '
-                                                               f'{c["score"]}, look {c.get("look_score")}): {c.get("problem") or "-"}')
-                for c in kept:
-                    if c["m"].get("notion") and not c["m"].get("inside_body") and not c.get("reused") and c["score"] >= NOTION_MIN_SCORE and c["style"] in STYLES:
-                        if notion_put(c["m"]["notion"], c["style"], engine, c["layout"], c["file"], c["m"]["prompt"],
-                                      c["score"], look=look, shot=c["m"].get("notion_shot") or c["m"].get("shot"),
-                                      mood=c["m"].get("mood")):
-                            print(f"   📚 Notion \"{c['m']['notion']}\": picture kept for the next clips "
-                                  f"({c['m'].get('notion_shot') or c['m'].get('shot') or '-'} shot).")
-                cands = kept
-            except ComfyDown:
-                raise
-            except Exception as e:
-                print(f"   ⚠️ B-roll review via Claude failed ({str(e)[:160]}) — images kept unchecked.")
+            cands, moments = broll_v20.run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail,
+                                           gap_min, block, dur_range, tmp, render)
+            planner = "claude"
+            if not cands:
+                print("   ℹ️ B-roll v20: no picture kept for this clip.")
+                return screen_only()
+        else:
+            # Planner: Claude (the user's subscription) when chosen and set up —
+            # it reads the conversation around the clip and SEES the clip (frame
+            # sheets), so it illustrates the idea and never what is already on
+            # screen. Gemini is the fallback: a quota hit on one never costs the
+            # clip its B-roll.
+            if cfg.get("planner") == "claude":
+                if claude_ready():
+                    try:
+                        try:
+                            sheets = _frame_sheets(clip_path, tmp)
+                        except Exception as e:
+                            print(f"   ⚠️ B-roll frame sheets failed ({e}) — Claude plans from the words only.")
+                            sheets = []
+                        # A screen clip's hook is rewritten from its frames in this
+                        # same call (main.py then skips its own hook_grounding call).
+                        ground = None
+                        if ground_hook:
+                            try:
+                                import hook_grounding
+                                ground = hook_grounding.request(clip_path, clip, transcript, start, end)
+                            except Exception as e:
+                                print(f"   ⚠️ Hook frames failed ({e}) — the hook is grounded on its own later.")
+                        moments = plan_with_claude(clip, words, n, avoid, auto_style, transcript, start, end, sheets,
+                                                   ground=ground,
+                                                   mode=cfg.get("mode") or "mixed",
+                                                   density=density,
+                                                   hero=mixed, dur_range=dur_range, gap_min=gap_min, tail=tail, head=head,
+                                                   block=block, fixed=fixed, parallel=bool(cfg.get("parallel")))
+                        planner = "claude"
+                        if not moments:
+                            print("   ℹ️ B-roll: Claude found no moment where an image would add meaning — none added.")
+                            return screen_only()
+                    except Exception as e:
+                        print(f"   ⚠️ B-roll planning via Claude failed ({str(e)[:200]}) — Gemini instead.")
+                else:
+                    print("   ⚠️ B-roll planner is Claude but it is not set up "
+                          "(claude CLI / CLAUDE_CODE_OAUTH_TOKEN) — Gemini instead.")
+            if not moments and api_key:
+                try:
+                    import ai_brain
+                    ai_brain.say("Gemini — Claude unavailable", "B-roll: choosing the images")
+                    moments = plan_with_gemini(clip, words, n, avoid, api_key, auto_style, dur_range=dur_range,
+                                               gap=max(MIN_GAP, gap_min), tail=tail, head=head, block=block)
+                    planner = "gemini"
+                except Exception as e:
+                    print(f"   ⚠️ B-roll planning via Gemini failed ({e}) — local pick instead.")
+            if not moments:
+                # The local pick only knows words, not what they mean ("needle" ->
+                # the Space Needle): no B-roll beats a wrong one.
+                print("   ℹ️ B-roll skipped: moments need the Claude or Gemini planner (not set up or call failed).")
+                return screen_only()
+            if mixed:
+                if auto_style:
+                    # A photo or a register of the episode: whatever else the planner picked is a photo.
+                    for m in moments:
+                        m["style"] = premium_style(m.get("style"))
+                # Every picture has a mood (a planner that gave none: the plainest levels), and the clip a base mood: the
+                # median of its pictures with the episode's as one more vote (visual_mood.base).
+                import ai_brain
+                for m in moments:
+                    m["mood"] = m.get("mood") or visual_mood.clean(None)
+                if any(m.get("clip_gravity") == "grave" for m in moments):
+                    # The whole clip is about a death: every picture is grave and an absence (the editor's clip_gravity).
+                    for m in moments:
+                        m["mood"] = {**m["mood"], "gravity": "grave", "absence": not register_of(m.get("style"))}
+                # Experience pictures: real suffering first (sober), and a cap per clip.
+                moments = experience_guard(moments)
+                clip_base = visual_mood.base([m["mood"] for m in moments], visual_mood.episode_levels(ai_brain.EPISODE_BIBLE))
+                for m in moments:
+                    m["mood_base"] = clip_base
+                print(f"   🎚️ Clip mood: {visual_mood.describe(clip_base)}")
+                # The code has the last word on the hero: the planner's pick counts, the timing rules win.
+                k_hero = pick_hero(moments, words[-1]["end"], avoid, head, block, adaptive=cfg.get("mode") == "adaptive")
+                for i, m in enumerate(moments):
+                    m["hero"] = i == k_hero
+                if k_hero is None:
+                    print("   ℹ️ B-roll: no moment of this clip reads well on a whole screen — small cards only.")
+            # The notion memory: a notion whose library is not complete gets a new picture this time, in the shot the
+            # library lacks (the art director is told); a complete one is reused, its variants in turn.
+            look = current_look() if mixed else look_key("")
+            for m in moments:
+                if m.get("notion"):
+                    want = notion_missing_shot(m["notion"], (m.get("style") or "photo") if auto_style else style, engine,
+                                               item_layout(m), look, m.get("shot"))
+                    if want:
+                        m["notion_shot"] = want
+            if planner == "claude" and cfg.get("art_director"):
+                # The second call: the prompts of the whole set, each in its look sheet (the editor's drafts stay
+                # when it fails).
+                direct_art(moments, clip, mixed=mixed, rise=rise, auto_style=auto_style, style=style,
+                           clip_text=" ".join(w["text"] for w in words), faces=face_mode)
+            if mixed:
+                # A picture made sober (real suffering) needs the director's rewrite: the editor's draft still paints
+                # what the person lives inside. Without it, no picture.
+                for m in [m for m in moments if ((m.get("mood") or {}).get("sober") or (m.get("mood") or {}).get("absence"))
+                          and not m.get("art")]:
+                    filter_hit("experience: sober picture not rewritten",
+                               f'Moment "{m.get("anchor")}" dropped: made sober (or an absence), but its prompt is still the editor\'s draft.')
+                    moments.remove(m)
+                if not moments:
+                    return screen_only()
+            LAST_PICTURED[:] = moments
+
+            used_urls, cands = set(), []
+            for k, m in enumerate(moments):
+                m_style = (m.get("style") or "photo") if auto_style else style
+                m_layout = item_layout(m)
+                raw = os.path.join(tmp, f"broll_{k}.jpg")
+                kept = (notion_get(m.get("notion"), m_style, engine, m_layout, raw, look)
+                        if m.get("notion") and not m.get("notion_shot") and not m.get("inside_body") else None)
+                if kept:
+                    print(f"   ♻️ Notion \"{m['notion']}\": the channel's picture is reused (no image made, no review).")
+                    cands.append({"k": k, "m": m, "style": m_style, "file": kept, "source": "local", "credit": None,
+                                  "score": 5, "reused": True, "layout": m_layout})
+                    continue
+                # A notion's picture is the channel's usual one, kept for other clips:
+                # made without this clip's look.
+                model, negative = image_model(m, m_layout, m_style)
+                people = "none" if is_inner(m) else m.get("people")     # an inner picture never gets a person
+                got, used, credit = make_image(m["prompt"], m_style, raw, m["query"], used_urls,
+                                               None if m.get("notion") else m.get("sheet"), layout=m_layout,
+                                               art=bool(m.get("art")), register=register_look(m), mood=m.get("mood"),
+                                               people=people, model=model, negative=negative,
+                                               body=bool(m.get("inside_body")))
+                takes = HERO_TAKES if m_layout == "hero" else 1
+                if got:
+                    cands.append({"k": k, "m": m, "style": m_style, "file": got, "source": used, "credit": credit,
+                                  "layout": m_layout, "seed": seeds.get(got), "model": model,
+                                  **({"take": 1} if takes > 1 else {})})
+                    # The hero's other takes: the director's other composition of the same moment (v16 — Turbo paints
+                    # one prompt alike whatever the seed), else the same prompt with a new seed. The judge sees the takes
+                    # together, the best one stays.
+                    for j in range(2, takes + 1):
+                        raw_j = os.path.join(tmp, f"broll_{k}_t{j}.jpg")
+                        alt = m.get("prompt_alt") if j == 2 else None
+                        m_j = {**m, "prompt": alt} if alt else m
+                        got_j, used_j, credit_j = make_image(m_j["prompt"], m_style, raw_j, m["query"], used_urls,
+                                                             None if m.get("notion") else m.get("sheet"), layout=m_layout,
+                                                             art=bool(m.get("art")), register=register_look(m),
+                                                             mood=m.get("mood"), people=people, model=model,
+                                                             negative=negative, body=bool(m.get("inside_body")))
+                        if got_j:
+                            cands.append({"k": k, "m": m_j, "style": m_style, "file": got_j, "source": used_j,
+                                          "credit": credit_j, "layout": m_layout, "seed": seeds.get(got_j), "take": j,
+                                          "model": model, **({"alt": True} if alt else {})})
+
+            # Claude checks every image against the idea it must carry; a weak
+            # generated one is redone once from its better prompt, then dropped
+            # if it is still not clear.
+            if planner == "claude" and any(not c.get("reused") for c in cands):
+                try:
+                    checked = [c for c in cands if not c.get("reused")]
+                    for c, r in zip(checked, review_images(checked, words)):
+                        _take_review(c, r)
+                    # Several takes of one moment: the best one stays (meaning, then look; the first on a tie), the
+                    # others leave before the redo rounds.
+                    best = {}
+                    for c in checked:
+                        if c.get("take") and (c["k"] not in best or _better(c, best[c["k"]])):
+                            best[c["k"]] = c
+                    if best:
+                        drop = [c for c in checked if c.get("take") and best[c["k"]] is not c]
+                        cands = [c for c in cands if c not in drop]
+                        checked = [c for c in checked if c not in drop]
+                        for c in best.values():
+                            print(f"   🎬 Hero: take {c['take']} kept (score {c['score']}, look {c.get('look_score')}) of "
+                                  f"{1 + len([d for d in drop if d['k'] == c['k']])}.")
+                    for c in checked:
+                        # the best take still failing means every take failed: as many failures as takes
+                        c["failed"] = (1 + len([d for d in (drop if best else []) if d["k"] == c["k"]])) if _needs_redo(c) else 0
+                    redone = 0
+                    for _round in range(max(REDO_CARD + REDO_NEW_IDEA, REDO_HERO)):
+                        # A weak picture is made again from the reviewer's better prompt: once for a card (and once
+                        # more with another idea when that one failed too), twice for the hero. The better prompt of an
+                        # art-directed picture is in the director's grammar and goes out as such; a short one is the
+                        # editor's kind again. Another idea (v16) is the art director's: one call for every picture of
+                        # the round that needs one, with what was tried and what the review saw.
+                        wants = [c for c in checked if _needs_redo(c) and c.get("tries", 0) < _redo_budget(c)
+                                 and _wants_new_idea(c)
+                                 and (not c.get("new_prompt") or c["new_prompt"] in (c.get("tried") or ()))]
+                        if wants and cfg.get("art_director"):
+                            another_idea(wants, clip, " ".join(w["text"] for w in words), mixed=mixed,
+                                         auto_style=auto_style, style=style, faces=face_mode)
+                        todo = [c for c in checked if _needs_redo(c) and _next_prompt(c)
+                                and c.get("tries", 0) < _redo_budget(c)]
+                        pairs = []
+                        for c in todo:
+                            c["tries"] = c.get("tries", 0) + 1
+                            nxt = _next_prompt(c)
+                            c.setdefault("tried", []).append(nxt)
+                            new = c.get("new") if nxt == c.get("new_prompt") else None
+                            if new:
+                                filter_hit("redo: a new idea", f'Picture "{c["m"]["anchor"]}": '
+                                           + ("not safe" if not _safe(c) else f'{c.get("failed")} failed attempts')
+                                           + " — another idea, not the same scene reworded.")
+                            raw = os.path.join(tmp, f"broll_{c['k']}_v{c['tries'] + 1}.jpg")
+                            art = (bool(c["m"].get("art")) or bool(new)) and len(nxt.split()) >= ART_MIN_WORDS
+                            m_next = {**c["m"], "prompt": nxt, "art": art}
+                            if new:
+                                # The director's new picture comes with its own judge line, fx and people.
+                                m_next.update(judge=new.get("judge") or c["m"].get("judge"), fx=new.get("fx"),
+                                              people=new.get("people") or c["m"].get("people"),
+                                              inside_body=bool(new.get("inside_body") or c["m"].get("inside_body")))
+                            model, negative = image_model(m_next, c["layout"], c["style"])
+                            got, used, credit = make_image(nxt, c["style"], raw, c["m"]["query"],
+                                                           used_urls, None if c["m"].get("notion") else c["m"].get("sheet"),
+                                                           layout=c["layout"], art=art, register=register_look(c["m"]),
+                                                           mood=c["m"].get("mood"),
+                                                           people="none" if is_inner(m_next) else m_next.get("people"),
+                                                           model=model, negative=negative,
+                                                           body=bool(m_next.get("inside_body")))
+                            if got:
+                                pairs.append((c, {**c, "file": got, "source": used, "credit": credit, "seed": seeds.get(got),
+                                                 "m": m_next, "model": model}))
+                        if not pairs:
+                            break
+                        redone += len(pairs)
+                        for (c, c2), r2 in zip(pairs, review_images([c2 for _, c2 in pairs], words)):
+                            _take_review(c2, r2)
+                            failed = c.get("failed", 0) + (1 if _needs_redo(c2) else 0)
+                            if _better(c2, c):
+                                c.update(c2)
+                            c["failed"] = failed
+                    kept = _keep_meaningful(cands)
+                    print(f"   🔎 B-roll review: scores {[c['score'] for c in cands]}, looks "
+                          f"{[c.get('look_score') for c in cands]}"
+                          f"{f', {redone} redone' if redone else ''}, {len(kept)}/{len(cands)} kept")
+                    for c in cands:
+                        if c not in kept:
+                            why = ("unsafe" if not _safe(c) else "false fact" if not _facts_ok(c)
+                                   else "sense" if c["score"] < KEEP_SCORE else "look")
+                            filter_hit(f"review: dropped ({why})", f'Picture "{c["m"]["anchor"]}" dropped by the review ({why}: sense '
+                                                                   f'{c["score"]}, look {c.get("look_score")}): {c.get("problem") or "-"}')
+                    for c in kept:
+                        if c["m"].get("notion") and not c["m"].get("inside_body") and not c.get("reused") and c["score"] >= NOTION_MIN_SCORE and c["style"] in STYLES:
+                            if notion_put(c["m"]["notion"], c["style"], engine, c["layout"], c["file"], c["m"]["prompt"],
+                                          c["score"], look=look, shot=c["m"].get("notion_shot") or c["m"].get("shot"),
+                                          mood=c["m"].get("mood")):
+                                print(f"   📚 Notion \"{c['m']['notion']}\": picture kept for the next clips "
+                                      f"({c['m'].get('notion_shot') or c['m'].get('shot') or '-'} shot).")
+                    cands = kept
+                except ComfyDown:
+                    raise
+                except Exception as e:
+                    print(f"   ⚠️ B-roll review via Claude failed ({str(e)[:160]}) — images kept unchecked.")
 
         items, credits, sources = [], [], []
         for c in cands:
