@@ -24,12 +24,14 @@ bonne pour autant, elle est copiée.
    explication. Les deux moitiés sont vraies ; l'effet vient de ce qu'elles sont mises côte à côte, pas d'un
    trucage.
 
-3. **Le dobok au mur** (clip 9 de l'épisode e9e44926, « He was a martial arts guy, Taekwondo », un clip qui
-   raconte un suicide). Un dobok blanc à ceinture noire pendu à un crochet de bois dans un dojang vide, les paddles
-   empilés dessous, le miroir qui reflète les tapis que personne ne foule.
-   **Pourquoi ça marche** : il dit la mort sans la montrer. La chose de sa vie, à sa place, et personne pour la
+3. **La veste de dobok sur une patère** (clip 9 de l'épisode e9e44926, « He was a martial arts guy, Taekwondo »,
+   un clip qui raconte un suicide). Une veste de dobok blanche posée sur une patère murale, rien qui pende, des
+   tenues pliées sur un banc, la salle vide, la lumière calme d'une fenêtre.
+   **Pourquoi ça marche** : elle dit la mort sans la montrer. La chose de sa vie, à sa place, et personne pour la
    porter : l'absence serre le cœur, sans moyen, sans symbole. Et la pièce vide est juste ici, précisément parce
-   que le clip raconte une mort.
+   que le clip raconte une mort. **Ce qui la rendrait fausse** : une ceinture, un lacet, un vêtement suspendu à un
+   fil ou un cordon — la silhouette d'un pendu, que le vérificateur refuse ; le spectateur ne récompense jamais ce
+   que le vérificateur refuse.
 
 4. **L'homme au frigo** (clip 3 de l'épisode 88a7e7c1, « they're carrying refrigerators down alleys »). Un homme
    seul, courbé sous un grand réfrigérateur blanc, dans une rue, en plein jour.
@@ -56,7 +58,7 @@ par la lumière, l'échelle ou l'absence, jamais par un symbole.
   remarque même pas.
 
 ## Comment s'en servir
-- **Le spectateur** compare chaque image à ce niveau : a-t-elle la force du dobok, la clarté de la paire, la
+- **Le spectateur** compare chaque image à ce niveau : a-t-elle la force de la veste sur sa patère, la clarté de la paire, la
   justesse du frigo, l'intériorité du voyage ? Il nomme le défaut quand il en reconnaît un.
 - **Le vérificateur** signale un défaut de cette liste par ⚠️ avec sa raison ; seul un point de « ce qui passe
   avant l'impact » refuse une image (❌).
