@@ -462,6 +462,11 @@ VERSIONS = {
                                               # a blind check with the spec's questions (broll_v20)
     "v20c": {"chain": "spec"},                # v20 + the fixes of its first two runs (questions per kind, empty scenes
                                               # said in the positive, more candidates and real reserves)
+    "v23": {"chain": "spec", "ideas": True, "prose": True, "judge": "rank", "reserves": "above_face", "shown": True},
+                                              # v21 + the director's prose leads the prompt (shot_prompt prose mode), the
+                                              # viewer answers the calibration's flaws then ranks (no score), the engine's
+                                              # risks refused before the render, the ideas already shown in the episode
+                                              # given to the director, a reserve made only when it beats the face alone
     "v21": {"chain": "spec", "ideas": True},  # « idées »: the idea of the sentence first (literal when the thing is the
                                               # point, illustrative when it is the vehicle), a round of ideas in text
                                               # before the rendering (art director, verifier, viewer; the face alone
@@ -682,7 +687,10 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
     shutil.rmtree(keep, ignore_errors=True)
     os.makedirs(keep)
     planner = "gemini" if prof["brain"]["stages"]["broll"] == "gemini" else "claude"
-    cfg = {**plus.BROLL, "enabled": True, "planner": planner, "review": "manual", "chain": "", "ideas": False, **over}
+    # The bench keeps the minimum as an alarm and lets its older versions fill it ("quota"); production never does
+    # (plus.BROLL has no "reserves": a weak picture harms more than no picture).
+    cfg = {**plus.BROLL, "enabled": True, "planner": planner, "review": "manual", "chain": "", "ideas": False,
+           "reserves": "quota", **over}
     start, end = float(clip["start"]), float(clip["end"])
     c = dict(clip)
     inset = c.get("screen_inset")

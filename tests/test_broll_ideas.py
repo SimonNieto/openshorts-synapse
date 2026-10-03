@@ -5,10 +5,15 @@ chosen idea becoming the moment's shot spec (the second one its alternative). No
 replaced by a fake that answers by the schema object it is given (DA_SCHEMA / VERIFIER_SCHEMA / VIEWER_SCHEMA).
 Rules of the end of v21: the hero is chosen AFTER the round among the ideas kept (hero_ok, the viewer's 4, the timing:
 _pick_hero), an idea the verifier flags as weak is under the face unless the viewer gave it 5 (_above_face), and the
-spec of an idea has two nets of the house (the inside of a body is drawn, nothing hangs near a death: _spec_of)."""
+spec of an idea has two nets of the house (the inside of a body is drawn, nothing hangs near a death: _spec_of).
+Then: the "rank" judge (no score: four flaws asked first, then a ranking with the face alone; JUDGE / ``judge``), the
+director's engine risk (refused before the judges in "rank" mode, a pair resting on the same shape excepted), the
+right half's prose of a pair (picture_b) and the episode's file of the ideas already shown (``shown``)."""
 import inspect
+import json
 import os
 import re
+import threading
 
 import pytest
 
@@ -85,6 +90,14 @@ SCAR = dict(title="The old scar", picture="A healed scar across a weathered hand
 SPEAKER = dict(CAST, title="A speaker", subject="Joe Rogan at the desk", picture="Joe Rogan at the desk, listening.")
 DINER_HERO = dict(DINER, hero_ok=True)       # the director says this one could fill the whole phone screen (a real scene)
 NO_HERO = "ideas: no hero"                   # the filter hit of a round whose ideas kept cannot fill the screen
+# a pair: "picture" is the left half's prose, "picture_b" the right one's (each half is made on its own)
+PAIR = dict(title="Few and many", picture="A drawn synapse with a few pale spheres in its gap.",
+            picture_b="The same drawn synapse, its gap packed wall to wall with pale spheres.",
+            adds="a flood, not a trickle", reads="a little against a lot", kind="pair",
+            subject="a drawn synapse with few spheres", subject_b="a drawn synapse packed with spheres",
+            kind_a="body_inside", kind_b="body_inside", count="1", state="releasing a few spheres", setting="plain",
+            details="few scattered pale spheres, intact vesicles", details_b="spheres crowded wall to wall",
+            people="none", person="none", shot="close", light="soft even light on the drawing")
 
 
 # --- the fake model ------------------------------------------------------------------------------------------------------
@@ -111,13 +124,24 @@ def verifier_reply(*moments):
 
 
 def viewer_reply(*moments):
-    """``moments``: (k, [views], order)."""
+    """``moments``: (k, [views], order) — the views of either way (view / look)."""
     return {"moments": [{"k": k, "views": list(vs), "order": list(order)} for k, vs, order in moments]}
+
+
+def look(i, **flaws):
+    """One idea as the "rank" viewer answers it: "no" to each of the four flaws unless given."""
+    return {"i": i, **{f: flaws.get(f, "no") for f in broll_ideas.RANK_FLAWS}}
+
+
+def rank_round(monkeypatch, moments, reserves=(), **kw):
+    """run_round in "rank" mode (idea_round's ``judge``)."""
+    return run_round(monkeypatch, moments, reserves, judge="rank", **kw)
 
 
 class Judges:
     """broll.claude_json, faked: answers by the schema object it is given and keeps every call as (judge, prompt,
-    keywords). A reply is a dict or a function of the prompt; a judge with no reply answers nothing."""
+    keywords, schema). A reply is a dict or a function of the prompt; a judge with no reply answers nothing. The viewer
+    is one judge whichever way it judges (VIEWER_SCHEMA, or VIEWER_SCHEMA_RANK in "rank" mode)."""
 
     def __init__(self, da=None, verifier=None, viewer=None):
         self.replies = {"da": da, "verifier": verifier, "viewer": viewer}
@@ -125,10 +149,10 @@ class Judges:
 
     def __call__(self, prompt, schema, **kw):
         by_schema = {id(broll_ideas.DA_SCHEMA): "da", id(broll_ideas.VERIFIER_SCHEMA): "verifier",
-                     id(broll_ideas.VIEWER_SCHEMA): "viewer"}
+                     id(broll_ideas.VIEWER_SCHEMA): "viewer", id(broll_ideas.VIEWER_SCHEMA_RANK): "viewer"}
         judge = by_schema.get(id(schema))
         assert judge, "a call with a schema that is none of the three judges'"
-        self.calls.append((judge, prompt, kw))
+        self.calls.append((judge, prompt, kw, schema))
         reply = self.replies[judge]
         return (reply(prompt) if callable(reply) else reply) or {"moments": []}
 
@@ -141,9 +165,13 @@ class Judges:
     def keywords(self, judge):
         return next(c[2] for c in self.calls if c[0] == judge)
 
+    def schema(self, judge):
+        return next(c[3] for c in self.calls if c[0] == judge)
+
 
 def run_round(monkeypatch, moments, reserves=(), da=None, verifier=None, viewer=None, gravity="none", **timing):
-    """``timing``: the keywords of the clip's timing rules (avoid, head, block) idea_round hands to the hero's choice."""
+    """``timing``: idea_round's keywords — the clip's timing rules (avoid, head, block) it hands to the hero's choice,
+    the viewer's way (judge) and the episode's file of the ideas already shown (shown)."""
     judges = Judges(da, verifier, viewer)
     monkeypatch.setattr(broll, "claude_json", judges)
     return judges, broll_ideas.idea_round(list(moments), list(reserves), CLIP, WORDS, gravity, CLIP_TEXT, **timing)
@@ -172,6 +200,7 @@ def _clean(monkeypatch):
     broll.FILTERS.clear()
     del broll_ideas.LAST_IDEAS[:]
     monkeypatch.setattr(broll_ideas, "_CACHE", {})                    # skill_text keeps what it read
+    monkeypatch.setattr(broll_ideas, "JUDGE", "score")                # today's way unless a test says otherwise
     monkeypatch.setattr(ai_brain, "EPISODE_BRIEF", None)
     monkeypatch.setattr(ai_brain, "EPISODE_BIBLE", None)
     for stage in ("BROLL_IDEAS", "BROLL_VERIFY", "BROLL_VIEWER"):
@@ -1002,9 +1031,11 @@ class TestTheHero:
         assert [a[1:] for a in asked] == [(22.0, (), 0.0, ())] * 2
 
     def test_the_round_takes_the_timing_rules_as_keywords(self):
+        # then the viewer's way and the file of the ideas already shown (TestTheRankJudge, TestTheShownFile)
         params = inspect.signature(broll_ideas.idea_round).parameters
-        assert list(params) == ["moments", "reserves", "clip", "words", "gravity", "clip_text", "avoid", "head", "block"]
-        assert [params[k].default for k in ("avoid", "head", "block")] == [(), 0.0, ()]
+        assert list(params) == ["moments", "reserves", "clip", "words", "gravity", "clip_text", "avoid", "head", "block",
+                                "judge", "shown"]
+        assert [params[k].default for k in ("avoid", "head", "block", "judge", "shown")] == [(), 0.0, (), None, None]
 
     def test_the_hero_flag_follows_the_round_not_the_input(self, monkeypatch):
         first, second = moment(hero=True), moment(10.8, anchor="two sessions")
@@ -1393,3 +1424,578 @@ def test_the_whole_round_on_one_moment_down_to_the_image_prompt(monkeypatch):
         ("The cast comes off", "fix", 4, True), ("Back to the door", "pass", 2, False), ("A real one", "refuse", None, False)]
     # the moment is still a moment: where, how long, hero
     assert moments[0]["t"] == m["t"] and moments[0]["dur"] == 2.5 and moments[0]["hero"] is True
+
+
+# ====================================================================================================================
+# the "rank" judge
+# ====================================================================================================================
+class TestTheRankJudge:
+    """"rank" mode: the viewer of the idea round gave 4-5 to the eight weakest pictures of the third bench as to the ten
+    others (v21_diagnostic.md), so it gives no score: for every idea it answers "yes" / "no" to four of the
+    calibration's flaws first (repeats the word, stock photo, a setting, contradicts the idea), then ranks the ideas
+    with four "no" together with the face alone. The code: one "yes" and the idea is out ("ideas: <flaw> (viewer)"), the
+    ranking gives the chosen idea and the alt as in "score" mode, an idea after the face is out."""
+    FOUR_NO = {f: "no" for f in broll_ideas.RANK_FLAWS}
+
+    def _ideas(self):
+        return da_reply(da(0, [dict(CAST), dict(DINER), dict(SCAR)]))
+
+    def _passes(self):
+        return verifier_reply((0, [verdict(0), verdict(1), verdict(2)]))
+
+    def _round(self, monkeypatch, looks, order, **kw):
+        """Three ideas the verifier passes, the rank viewer's ``looks`` and ``order``. -> (moments, reserves)."""
+        return rank_round(monkeypatch, [moment()], da=self._ideas(), verifier=self._passes(),
+                          viewer=viewer_reply((0, looks, order)), **kw)[1]
+
+    def test_the_viewer_answers_four_flaws_first_then_ranks_and_gives_no_score(self, monkeypatch):
+        monkeypatch.setattr(ai_brain, "EPISODE_BRIEF", {"speakers": [{"name": "Joe Rogan"}],
+                                                       "glossary": [{"term": "Default mode network"}]})
+        judges, _out = rank_round(monkeypatch, [moment()], da=self._ideas(), verifier=self._passes(), gravity="grave",
+                                  viewer=viewer_reply((0, [look(0), look(1), look(2)], ["0", "face"])))
+        assert judges.judges() == ["da", "verifier", "viewer"] and judges.schema("viewer") is broll_ideas.VIEWER_SCHEMA_RANK
+        p = judges.prompt("viewer")
+        for question in ('"repeats": does it show the WORD of the sentence instead of its idea',
+                         '"stock": is it the first picture a stock-photo bank would give for these words?',
+                         '"setting": is it a setting (a room, a place, a background) instead of the idea?',
+                         '"contradicts": does it contradict the idea'):
+            assert question in p, question
+        flat = " ".join(p.split())                                   # the sentences wrap across lines in the source
+        assert p.index('"repeats"') < p.index("THEN rank") and "You give no score. FIRST, for every picture" in flat
+        assert 'the pictures with four "no" only, together with the FACE ALONE ("face": the speaker\'s face' in flat
+        assert '"score"' not in p and "1-5" not in p
+        assert "score" not in " ".join(broll_ideas.VIEWER_PROMPT_RANK.split()).replace("You give no score", "")
+        # the score viewer's lines and the channel's text; nothing of the episode
+        assert f'SENTENCE k=0: subtitle "{SENTENCES[1]}"; heard just before: "{SENTENCES[0]}"' in p
+        assert f"[0] {CAST['picture']}\n" in p and "kind thing" not in p and "light:" not in p
+        assert broll_ideas.skill_text("principes") in p and broll_ideas.skill_text("calibrage") in p
+        for episode in (CLIP["video_title_for_youtube_short"], CLIP["viral_hook_text"], "Clip gravity", "rogan",
+                        "Default mode network"):
+            assert episode not in p, episode
+        kw = judges.keywords("viewer")
+        assert (kw["stage"], kw["model"], kw["effort"]) == ("broll_viewer", "sonnet", "medium")
+
+    def test_its_prompt_and_its_schema(self):
+        p = broll_ideas.VIEWER_PROMPT_RANK
+        assert "ENGLISH" in p and "{principes}" in p and "{calibrage}" in p and "{moments}" in p and "{lessons}" in p
+        assert '"order": ["0", "{face}", "1"]' in p and '"{face}"' in p and "FACE ALONE" in p
+        item = broll_ideas.VIEWER_SCHEMA_RANK["properties"]["moments"]["items"]
+        assert item["required"] == ["k", "views", "order"] and item["properties"]["order"]["items"] == {"type": "string"}
+        view_ = item["properties"]["views"]["items"]
+        assert broll_ideas.RANK_FLAWS == ("repeats", "stock", "setting", "contradicts")
+        assert view_["required"] == ["i", "repeats", "stock", "setting", "contradicts"]
+        assert all(view_["properties"][f] == {"type": "string", "enum": ["yes", "no"]} for f in broll_ideas.RANK_FLAWS)
+        assert set(view_["properties"]) == {"i", *broll_ideas.RANK_FLAWS}                  # no score, no feeling
+        # the "score" mode keeps its own prompt and schema
+        assert "score" in broll_ideas.VIEWER_SCHEMA["properties"]["moments"]["items"]["properties"]["views"]["items"][
+            "properties"] and "score" in broll_ideas.VIEWER_PROMPT
+
+    @pytest.mark.parametrize("flaw", ["repeats", "stock", "setting", "contradicts"])
+    def test_one_yes_puts_the_idea_out_whatever_its_rank(self, monkeypatch, flaw):
+        moments, _r = self._round(monkeypatch, [look(0, **{flaw: "yes"}), look(1), look(2)], ["0", "1", "2", "face"])
+        spec = moments[0]["spec"]
+        assert spec["subject"] == DINER["subject"] and spec["alt"]["subject"] == SCAR["subject"]
+        assert broll.FILTERS[f"ideas: {flaw} (viewer)"] == 1
+        assert [n for n in broll.FILTERS if n.endswith("(viewer)")] == [f"ideas: {flaw} (viewer)"]
+        record = broll_ideas.LAST_IDEAS[0]
+        assert record["chosen"] == 1 and [i["above_face"] for i in record["ideas"]] == [False, True, True]
+        assert record["ideas"][0]["flags"] == {**self.FOUR_NO, flaw: "yes"}
+        assert [i["rank"] for i in record["ideas"]] == [1, 2, 3] and record["face_rank"] == 4   # it ranked it anyway
+
+    def test_the_ranking_gives_the_chosen_idea_and_the_alt_and_after_the_face_is_out(self, monkeypatch):
+        moments, reserves = self._round(monkeypatch, [look(0), look(1), look(2)], ["2", "0", "face", "1"])
+        assert reserves == [] and len(moments) == 1
+        m, spec = moments[0], moments[0]["spec"]
+        assert spec["subject"] == SCAR["subject"] and spec["light"] == SCAR["light"]
+        assert set(spec["alt"]) == set(broll_spec.ALT_FIELDS) | {"light"} and spec["alt"]["subject"] == CAST["subject"]
+        assert DINER["subject"] not in repr(spec)
+        assert m["picture"] == SCAR["picture"] and m["viewer_rank"] == 1 and m["viewer_score"] is None
+        record = broll_ideas.LAST_IDEAS[0]
+        assert record["chosen"] == 2 and [i["above_face"] for i in record["ideas"]] == [True, False, True]
+        assert [i["rank"] for i in record["ideas"]] == [2, 4, 1] and record["face_rank"] == 3
+        assert [i["score"] for i in record["ideas"]] == [None, None, None]
+        assert not [n for n in broll.FILTERS if n.endswith("(viewer)")]
+
+    def test_one_idea_before_the_face_has_no_alternative_and_the_face_first_is_no_picture(self, monkeypatch):
+        moments, _r = self._round(monkeypatch, [look(0), look(1), look(2)], ["1", "face", "0", "2"])
+        assert moments[0]["spec"]["subject"] == DINER["subject"] and "alt" not in moments[0]["spec"]
+        broll.FILTERS.clear()
+        moments, reserves = self._round(monkeypatch, [look(0), look(1), look(2)], ["face", "0", "1", "2"])
+        assert (moments, reserves) == ([], [])
+        assert broll.FILTERS["ideas: no idea above the face alone"] == 1
+        record = broll_ideas.LAST_IDEAS[0]
+        assert record["chosen"] is None and record["face_rank"] == 1 and not any(i["above_face"] for i in record["ideas"])
+
+    def test_every_idea_flagged_is_no_picture_and_each_flaw_is_counted(self, monkeypatch, capsys):
+        looks = [look(0, stock="yes", setting="yes"), look(1, repeats="yes"), look(2, contradicts="yes")]
+        moments, reserves = self._round(monkeypatch, looks, ["0", "1", "2", "face"])
+        assert (moments, reserves) == ([], [])
+        assert {n: c for n, c in broll.FILTERS.items() if n.endswith("(viewer)")} == {
+            "ideas: stock (viewer)": 1, "ideas: setting (viewer)": 1, "ideas: repeats (viewer)": 1,
+            "ideas: contradicts (viewer)": 1}
+        assert broll.FILTERS["ideas: no idea above the face alone"] == 1
+        out = capsys.readouterr().out
+        assert f'Idea "{CAST["title"]}" of "move through" out: stock, setting (the viewer).' in out
+        assert 'Moment "move through": the viewer found a flaw in every idea.' in out
+
+    def test_the_answers_are_read_in_any_form_and_one_not_given_is_no_yes(self, monkeypatch):
+        looks = [{"i": 0, "repeats": "YES", "stock": "no"}, {"i": 1, "stock": True, "setting": "no"},
+                 {"i": 2, "setting": "No.", "contradicts": "maybe"}]
+        moments, _r = self._round(monkeypatch, looks, ["0", "1", "2", "face"])
+        assert moments[0]["spec"]["subject"] == SCAR["subject"] and "alt" not in moments[0]["spec"]
+        flags = [i["flags"] for i in broll_ideas.LAST_IDEAS[0]["ideas"]]
+        assert flags[0] == {"repeats": "yes", "stock": "no", "setting": None, "contradicts": None}
+        assert flags[1] == {"repeats": None, "stock": "yes", "setting": "no", "contradicts": None}
+        assert flags[2] == {"repeats": None, "stock": None, "setting": "no", "contradicts": None}
+        assert broll_ideas._yes_no(False) == "no" and broll_ideas._yes_no(None) is None and broll_ideas._yes_no("y") == "yes"
+
+    def test_an_idea_the_viewer_did_not_answer_is_not_held_against_it(self, monkeypatch):
+        _j, (moments, _r) = rank_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST), dict(DINER)])),
+                                       verifier=verifier_reply((0, [verdict(0), verdict(1)])),
+                                       viewer=viewer_reply((0, [look(0)], ["1", "0", "face"])))
+        assert moments[0]["spec"]["subject"] == DINER["subject"] and moments[0]["spec"]["alt"]["subject"] == CAST["subject"]
+        assert broll_ideas.LAST_IDEAS[0]["ideas"][1]["flags"] is None
+
+    def test_an_order_in_numbers_and_a_face_in_capitals_are_read(self, monkeypatch):
+        _j, (moments, _r) = rank_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST), dict(DINER)])),
+                                       viewer=viewer_reply((0, [look(0), look(1)], [1, " FACE ", 0])))
+        assert moments[0]["spec"]["subject"] == DINER["subject"] and "alt" not in moments[0]["spec"]
+        assert broll_ideas.LAST_IDEAS[0]["face_rank"] == 2
+
+    def test_an_idea_the_viewer_never_saw_counts_for_nothing(self, monkeypatch):
+        # the verifier refused "0": a rank or a flag naming it, an unknown id, a repeated one change nothing
+        _j, (moments, _r) = rank_round(
+            monkeypatch, [moment()], da=self._ideas(),
+            verifier=verifier_reply((0, [verdict(0, "refuse", "a real person"), verdict(1), verdict(2)])),
+            viewer=viewer_reply((0, [look(1), look(2), look(0, stock="yes")], ["0", "7", "2", "1", "2", "face"])))
+        spec = moments[0]["spec"]
+        assert spec["subject"] == SCAR["subject"] and spec["alt"]["subject"] == DINER["subject"]
+        assert "ideas: stock (viewer)" not in broll.FILTERS
+        record = broll_ideas.LAST_IDEAS[0]
+        assert [i["rank"] for i in record["ideas"]] == [None, 2, 1] and record["face_rank"] == 3
+
+    def test_flags_without_a_ranking_still_put_an_idea_out(self, monkeypatch):
+        moments, _r = self._round(monkeypatch, [look(0, stock="yes"), look(1), look(2)], [])
+        spec = moments[0]["spec"]
+        assert spec["subject"] == DINER["subject"] and spec["alt"]["subject"] == SCAR["subject"]   # the director's order
+        assert broll.FILTERS["ideas: stock (viewer)"] == 1 and moments[0]["viewer_rank"] is None
+
+    def test_the_verifiers_verdicts_still_apply_its_flaw_is_information_only(self, monkeypatch):
+        # no score to outweigh it in "rank" mode: the viewer's own four answers decide; the flaw stays on the board
+        judges, (moments, _r) = rank_round(
+            monkeypatch, [moment()], da=self._ideas(),
+            verifier=verifier_reply((0, [verdict(0, "refuse", "a real person"),
+                                         verdict(1, "fix", "too dark", details="a bright noon street", flaw="setting"),
+                                         verdict(2, flaw="stock")])),
+            viewer=viewer_reply((0, [look(1), look(2)], ["1", "2", "face"])))
+        assert CAST["picture"] not in judges.prompt("viewer")
+        spec = moments[0]["spec"]
+        assert spec["subject"] == DINER["subject"] and spec["details"] == "a bright noon street"
+        assert spec["alt"]["subject"] == SCAR["subject"] and moments[0]["idea_flaw"] == "setting"
+        assert [i["flaw"] for i in broll_ideas.LAST_IDEAS[0]["ideas"]] == ["none", "setting", "stock"]
+
+    def test_a_viewer_with_no_ranking_leaves_a_moment_the_directors_order_and_a_reserve_nothing(self, monkeypatch,
+                                                                                                 capsys):
+        _j, (moments, reserves) = rank_round(
+            monkeypatch, [moment()], [moment(15.3, anchor="alarm is gone")],
+            da=da_reply(da(0, [dict(DINER_HERO), dict(CAST)]), da(1, [dict(SCAR)])),
+            verifier=verifier_reply((0, [verdict(0), verdict(1)]), (1, [verdict(0)])))       # the viewer says nothing
+        assert [m["spec"]["subject"] for m in moments] == [DINER["subject"]]
+        assert moments[0]["spec"]["alt"]["subject"] == CAST["subject"]
+        assert reserves == []                                     # a reserve is kept only for an idea ranked before the face
+        assert moments[0]["viewer_rank"] is None and moments[0]["hero"] is False and broll.FILTERS[NO_HERO] == 1
+        assert broll.FILTERS["ideas: no idea above the face alone"] == 1
+        assert 'Moment "alarm is gone": a reserve the viewer did not rank.' in capsys.readouterr().out
+        records = broll_ideas.LAST_IDEAS
+        assert [r["chosen"] for r in records] == [0, None] and [r["face_rank"] for r in records] == [None, None]
+        assert [i["rank"] for i in records[0]["ideas"]] == [None, None]
+
+    def test_the_record_keeps_the_flags_the_rank_and_the_engine_risk(self, monkeypatch):
+        _j, _out = rank_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST), dict(DINER)])),
+                              verifier=verifier_reply((0, [verdict(0), verdict(1)])),
+                              viewer=viewer_reply((0, [look(0), look(1, stock="yes")], ["0", "face", "1"])))
+        record = broll_ideas.LAST_IDEAS[0]
+        assert set(record) == {"k", "anchor", "t", "said", "idea", "role", "why", "hero", "reserve", "ideas", "chosen",
+                               "face_rank"}
+        assert set(record["ideas"][0]) == {"i", "title", "picture", "adds", "verdict", "reason", "flaw", "score", "stops",
+                                           "link", "feels", "viewer_adds", "unease", "above_face", "flags", "rank",
+                                           "engine_risk"}
+        a, b = record["ideas"]
+        assert (a["flags"], a["rank"], a["engine_risk"], a["above_face"]) == (self.FOUR_NO, 1, "none", True)
+        assert (b["flags"]["stock"], b["rank"], b["above_face"]) == ("yes", 3, False) and record["face_rank"] == 2
+
+    def test_the_hero_is_an_idea_the_viewer_ranked_that_can_fill_the_screen(self, monkeypatch, capsys):
+        def heroes(ms, ideas):
+            n = len(ms)
+            _j, (moments, _r) = rank_round(
+                monkeypatch, ms, da=da_reply(*(da(k, [dict(ideas[k])]) for k in range(n))),
+                verifier=verifier_reply(*((k, [verdict(0)]) for k in range(n))),
+                viewer=viewer_reply(*((k, [look(0)], ["0", "face"]) for k in range(n))))
+            return [m["hero"] for m in moments]
+        # no score: every idea ranked before the face qualifies, the editor's mark (+1) and the payoff half (+0.5) decide
+        assert heroes([moment(5.4), moment(10.8, anchor="two sessions")], [DINER_HERO, DINER_HERO]) == [False, True]
+        assert heroes([moment(5.4, hero=True), moment(10.8, anchor="two sessions")], [DINER_HERO, DINER_HERO]) == [True, False]
+        assert NO_HERO not in broll.FILTERS
+        assert heroes([moment(5.4), moment(10.8, anchor="two sessions")], [DINER_HERO, DINER]) == [True, False]
+        assert heroes([moment()], [DINER]) == [False] and broll.FILTERS[NO_HERO] == 1       # no hero_ok, no hero
+        assert "(hero_ok, ranked by the viewer, the timing)" in capsys.readouterr().out
+
+    def test_the_way_is_the_keyword_else_the_module_flag_and_score_by_default(self, monkeypatch):
+        assert broll_ideas.JUDGE == "score" and broll_ideas.JUDGES == ("score", "rank")
+
+        def viewer_schema(**kw):
+            judges, _out = run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST)])), **kw)
+            return judges.schema("viewer")
+        assert viewer_schema() is broll_ideas.VIEWER_SCHEMA                             # today's
+        assert viewer_schema(judge="score") is broll_ideas.VIEWER_SCHEMA
+        assert viewer_schema(judge="rank") is broll_ideas.VIEWER_SCHEMA_RANK
+        assert viewer_schema(judge=" Rank ") is broll_ideas.VIEWER_SCHEMA_RANK
+        assert viewer_schema(judge="weird") is broll_ideas.VIEWER_SCHEMA                # anything else: today's
+        assert broll_ideas.JUDGE == "score"                                  # a round's keyword sets nothing for the next
+        monkeypatch.setattr(broll_ideas, "JUDGE", "rank")
+        assert viewer_schema() is broll_ideas.VIEWER_SCHEMA_RANK                        # the module's flag
+        assert viewer_schema(judge="score") is broll_ideas.VIEWER_SCHEMA                # the keyword first
+
+    def test_the_line_of_the_round_shows_the_rank(self, monkeypatch, capsys):
+        self._round(monkeypatch, [look(0), look(1), look(2)], ["2", "face"])
+        assert f'💡 Ideas: move through: #2 "{SCAR["title"]}" (ranked 1)' in capsys.readouterr().out
+
+
+class TestReservesInRankMode:
+    def test_out_reserves_only_holds_reserves_with_an_idea_ranked_before_the_face(self, monkeypatch):
+        reserves = [moment(10.8, anchor="two sessions"), moment(15.3, anchor="alarm is gone"), moment(18.9, anchor="year")]
+        _j, (out_moments, out_reserves) = rank_round(
+            monkeypatch, [moment(5.4)], reserves,
+            da=da_reply(da(0, [dict(CAST)]), da(1, [dict(DINER), dict(SCAR)]), da(2, [dict(SCAR)]), da(3, [dict(CAST)])),
+            verifier=verifier_reply((0, [verdict(0)]), (1, [verdict(0), verdict(1)]), (2, [verdict(0)]), (3, [verdict(0)])),
+            viewer=viewer_reply((0, [look(0)], ["0", "face"]),
+                                (1, [look(0, stock="yes"), look(1)], ["0", "1", "face"]),   # "0" out: "1" is its idea
+                                (2, [look(0)], ["face", "0"]),                             # after the face: none
+                                (3, [look(0, setting="yes")], ["0", "face"])))             # out: none
+        assert [m["spec"]["subject"] for m in out_moments] == [CAST["subject"]]
+        assert [(m["anchor"], m["spec"]["subject"]) for m in out_reserves] == [("two sessions", SCAR["subject"])]
+        assert "alt" not in out_reserves[0]["spec"] and out_reserves[0]["viewer_rank"] == 2
+        assert out_reserves[0]["hero"] is False
+        records = broll_ideas.LAST_IDEAS
+        assert [r["chosen"] for r in records] == [0, 1, None, None] and [r["reserve"] for r in records] == [
+            False, True, True, True]
+        assert broll.FILTERS["ideas: no idea above the face alone"] == 2
+
+
+# ====================================================================================================================
+# the engine's risk
+# ====================================================================================================================
+class TestTheEngineRisk:
+    """The director knows what Z-Image draws badly (the icon of the strongest word, a scale, a precise position, "the
+    same shape" between two things) and says of each idea what it needs the engine to get right ("engine_risk"). In
+    "rank" mode an idea with a risk is refused before the judges ("ideas: engine risk <risk>"), a pair resting on the
+    same shape excepted (pairs are handled apart); in "score" mode the answer changes nothing."""
+
+    def test_the_director_is_told_in_both_modes_and_only_the_director(self, monkeypatch):
+        for judge in ("score", "rank"):
+            judges, _out = run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST)])), judge=judge)
+            flat = " ".join(judges.prompt("da").split())
+            assert "WHAT THE ENGINE (Z-Image) DRAWS BADLY: it falls back to the icon of the strongest word" in flat, judge
+            assert 'it does not follow a scale ("macro", "thousands of tiny"), a precise position' in flat, judge
+            assert 'nor "the same shape / structure" between two things' in flat, judge
+            assert ('"engine_risk": "none" (the picture holds whatever the engine does), "icon" (it holds only if the '
+                    'engine resists the icon of its strongest word), "scale", "position" or "same_shape"') in flat, judge
+            assert "calibration" not in flat.lower(), judge                     # still never the calibration
+            for other in ("verifier", "viewer"):
+                assert "engine_risk" not in judges.prompt(other) and "Z-Image" not in judges.prompt(other), judge
+
+    def test_the_schema_and_the_answer_read(self):
+        props, required = broll_ideas._IDEA_SCHEMA["properties"], broll_ideas._IDEA_SCHEMA["required"]
+        assert props["engine_risk"] == {"type": "string", "enum": ["none", "icon", "scale", "position", "same_shape"]}
+        assert list(broll_ideas.ENGINE_RISKS) == props["engine_risk"]["enum"]
+        assert "engine_risk" not in required and "engine_risk" not in broll_ideas._IDEA_FIELDS     # optional, no render field
+        risk = broll_ideas._engine_risk
+        assert risk({}) == "none" and risk({"engine_risk": None}) == "none" and risk({"engine_risk": "weird"}) == "none"
+        assert risk({"engine_risk": " Icon "}) == "icon" and risk({"engine_risk": "same_shape"}) == "same_shape"
+
+    @pytest.mark.parametrize("risk", ["icon", "scale", "position", "same_shape"])
+    def test_in_rank_mode_an_idea_with_a_risk_never_reaches_the_judges(self, monkeypatch, risk, capsys):
+        judges, (moments, _r) = rank_round(
+            monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST, engine_risk=risk), dict(DINER)])),
+            verifier=verifier_reply((0, [verdict(1)])), viewer=viewer_reply((0, [look(1)], ["0", "1", "face"])))
+        for judge in ("verifier", "viewer"):
+            assert CAST["picture"] not in judges.prompt(judge) and DINER["picture"] in judges.prompt(judge), judge
+        assert broll.FILTERS[f"ideas: engine risk {risk}"] == 1
+        assert f'Idea "{CAST["title"]}" of "move through" refused by the code: engine risk {risk}.' in capsys.readouterr().out
+        assert moments[0]["spec"]["subject"] == DINER["subject"] and "alt" not in moments[0]["spec"]
+        a, b = broll_ideas.LAST_IDEAS[0]["ideas"]
+        assert (a["verdict"], a["engine_risk"], a["above_face"], a["rank"]) == ("refused by the code", risk, False, None)
+        assert (b["engine_risk"], b["rank"]) == ("none", 1)
+
+    def test_every_idea_with_a_risk_calls_no_judge(self, monkeypatch):
+        judges, (moments, reserves) = rank_round(
+            monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST, engine_risk="icon"), dict(DINER, engine_risk="scale")])))
+        assert judges.judges() == ["da"] and (moments, reserves) == ([], [])
+        assert broll.FILTERS["ideas: engine risk icon"] == 1 and broll.FILTERS["ideas: engine risk scale"] == 1
+        assert broll.FILTERS["ideas: no idea above the face alone"] == 1
+
+    def test_a_pair_resting_on_the_same_shape_is_judged_its_other_risks_are_not(self, monkeypatch):
+        judges, (moments, _r) = rank_round(
+            monkeypatch, [moment()], da=da_reply(da(0, [dict(PAIR, engine_risk="same_shape")])),
+            verifier=verifier_reply((0, [verdict(0)])), viewer=viewer_reply((0, [look(0)], ["0", "face"])))
+        assert "[0] Left: " in judges.prompt("viewer") and moments[0]["spec"]["kind"] == "pair"
+        assert not [n for n in broll.FILTERS if "engine risk" in n]
+        assert broll_ideas.LAST_IDEAS[0]["ideas"][0]["engine_risk"] == "same_shape"
+        for risk in ("icon", "scale", "position"):
+            broll.FILTERS.clear()
+            judges, (moments, _r) = rank_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(PAIR, engine_risk=risk)])))
+            assert moments == [] and judges.judges() == ["da"] and broll.FILTERS[f"ideas: engine risk {risk}"] == 1
+        # a "pair" that names no right thing is no pair (a thing): its "same shape" is refused like any other's
+        broll.FILTERS.clear()
+        judges, (moments, _r) = rank_round(monkeypatch, [moment()],
+                                           da=da_reply(da(0, [dict(PAIR, subject_b="", engine_risk="same_shape")])))
+        assert moments == [] and broll.FILTERS["ideas: engine risk same_shape"] == 1
+
+    def test_the_codes_own_refusal_comes_first(self, monkeypatch):
+        monkeypatch.setattr(broll, "_speaker_words", lambda: {"rogan"})
+        rank_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(SPEAKER, engine_risk="icon")])))
+        assert broll.FILTERS["ideas: a speaker of the video"] == 1 and "ideas: engine risk icon" not in broll.FILTERS
+
+    def test_in_score_mode_the_risk_changes_nothing(self, monkeypatch):
+        judges, (moments, _r) = run_round(
+            monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST, engine_risk="icon"), dict(DINER, engine_risk="scale")])),
+            verifier=verifier_reply((0, [verdict(0), verdict(1)])),
+            viewer=viewer_reply((0, [view(0, 4), view(1, 3)], ["0", "1", "face"])))
+        assert judges.schema("viewer") is broll_ideas.VIEWER_SCHEMA and CAST["picture"] in judges.prompt("viewer")
+        assert moments[0]["spec"]["subject"] == CAST["subject"] and moments[0]["spec"]["alt"]["subject"] == DINER["subject"]
+        assert not [n for n in broll.FILTERS if "engine risk" in n or n.endswith("(viewer)")]
+        assert "viewer_rank" not in moments[0] and moments[0]["viewer_score"] == 4
+        record = broll_ideas.LAST_IDEAS[0]
+        assert "face_rank" not in record and not any({"flags", "rank", "engine_risk"} & set(i) for i in record["ideas"])
+
+
+# ====================================================================================================================
+# the pair's two proses
+# ====================================================================================================================
+class TestThePairsProse:
+    """A pair's halves are made one by one: "picture" is the left half's prose, "picture_b" (45 words at most) the right
+    one's, carried into the spec of a pair (spec["picture_b"]); the moment's "picture" stays the left one. The judges
+    read the two halves; the nets of a clip about a death read the right one too."""
+
+    def test_the_director_is_told_and_the_schema_has_it(self, monkeypatch):
+        judges, _out = run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(PAIR)])))
+        flat = " ".join(judges.prompt("da").split())
+        assert ('"subject_b" (the right thing, 8 words), "picture_b" (the right half alone in plain words, 45 at most; '
+                '"picture" is then the left half alone);') in flat
+        props, required = broll_ideas._IDEA_SCHEMA["properties"], broll_ideas._IDEA_SCHEMA["required"]
+        assert props["picture_b"] == {"type": "string"} and "picture_b" not in required
+        assert "picture_b" not in broll_ideas._IDEA_FIELDS
+
+    def test_the_spec_of_a_pair_carries_the_right_halfs_prose(self):
+        s = spec_of(dict(PAIR))
+        assert (s["kind"], s["picture_b"], s["subject_b"], s["details_b"]) == (
+            "pair", PAIR["picture_b"], PAIR["subject_b"], PAIR["details_b"])
+        assert (s["kind_a"], s["kind_b"]) == ("body_inside", "body_inside") and "picture" not in s
+        assert spec_of(dict(PAIR, picture_b=" ".join(["sphere"] * 60) + "  "))["picture_b"] == " ".join(["sphere"] * 45)
+        assert spec_of(dict(PAIR, picture_b=None))["picture_b"] == "" and spec_of(dict(PAIR, picture_b="  a  b "))[
+            "picture_b"] == "a b"
+
+    def test_no_picture_b_for_anything_else(self):
+        assert "picture_b" not in spec_of(dict(CAST, picture_b="a stray right half"))
+        lone = spec_of(dict(PAIR, subject_b=""))                        # a pair that names no right thing is no pair
+        assert lone["kind"] != "pair" and "picture_b" not in lone
+
+    def test_the_moment_keeps_the_left_prose_and_the_judges_read_both_halves(self, monkeypatch):
+        judges, (moments, _r) = run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(PAIR)])),
+                                          verifier=verifier_reply((0, [verdict(0)])),
+                                          viewer=viewer_reply((0, [view(0, 4)], ["0", "face"])))
+        m = moments[0]
+        assert m["picture"] == PAIR["picture"] and m["spec"]["picture_b"] == PAIR["picture_b"]
+        both = f"Left: {PAIR['picture'].rstrip('.')}. Right: {PAIR['picture_b']}"
+        assert f"[0] {both}\n" in judges.prompt("viewer")
+        assert f"[0] {both} (kind pair, people none, light: {PAIR['light']})" in judges.prompt("verifier")
+        assert broll_ideas.LAST_IDEAS[0]["ideas"][0]["picture_b"] == PAIR["picture_b"]
+
+    def test_the_judges_line_of_a_pair(self):
+        line = broll_ideas._picture_line
+        assert line(dict(PAIR, picture="Left: a neuron, drawn.")) == f"Left: a neuron, drawn. Right: {PAIR['picture_b']}"
+        assert line(dict(PAIR, picture_b="")) == PAIR["picture"]          # no right prose: the picture as written
+        assert line(dict(CAST, picture_b="a stray right half")) == CAST["picture"]
+        assert broll_ideas._pair_b(dict(CAST, picture_b="x")) == "" and broll_ideas._pair_b(PAIR) == PAIR["picture_b"]
+
+    def test_another_idea_has_no_picture_b_on_the_board(self, monkeypatch):
+        run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST, picture_b="a stray right half")])))
+        assert "picture_b" not in broll_ideas.LAST_IDEAS[0]["ideas"][0]
+
+    def test_in_a_clip_about_a_death_the_right_halfs_prose_is_netted_too(self):
+        assert spec_of(dict(PAIR, picture_b="A white coat hanging on a wall hook."), "grave")["picture_b"] == \
+            "A white coat on a wall hook."
+        assert spec_of(dict(PAIR, picture_b="A white coat hanging on a wall hook."), "none", death_near=True)[
+            "picture_b"] == "A white coat on a wall hook."
+        assert spec_of(dict(PAIR, picture_b="A white coat hanging on a wall hook."))["picture_b"] == \
+            "A white coat hanging on a wall hook."                             # any other clip: as written
+        strap = dict(PAIR, picture_b="A black belt folded flat on a bench.")
+        assert broll_ideas._spec_of(moment(), strap, CLIP_TEXT, "grave") == (None, "a strap-like thing in a clip about a death")
+        assert broll_ideas._spec_of(moment(), strap, CLIP_TEXT, "none")[0]["picture_b"] == strap["picture_b"]
+
+
+# ====================================================================================================================
+# the ideas already shown in the episode
+# ====================================================================================================================
+class TestTheShownFile:
+    """``shown``: the episode's JSON file of the ideas already shown ({"ideas": [{"title", "subject", "kind", "clip"}]}).
+    The director reads them (other clips' ones, each once, the last SHOWN_MAX) under "ALREADY SHOWN IN THIS EPISODE";
+    after the round the chosen ideas of the moments kept are appended (read-modify-write under a lock, a missing or
+    corrupt file tolerated). Without it nothing changes."""
+    HEADER = "ALREADY SHOWN IN THIS EPISODE (never the same picture again, nor its close variant):"
+    PLANNED = "already planned elsewhere in the clip: therapy room, therapy room, therapy room."
+    OTHER = "Psilocybin Rewires The Brain"
+    TITLE = CLIP["video_title_for_youtube_short"]
+
+    def _round(self, monkeypatch, shown, **kw):
+        """Two moments and a reserve: the first moment keeps CAST, the second none (the face first), the reserve DINER."""
+        return run_round(monkeypatch, [moment(), moment(10.8, anchor="two sessions")], [moment(15.3, anchor="alarm is gone")],
+                         da=da_reply(da(0, [dict(CAST), dict(DINER)]), da(1, [dict(SCAR)]), da(2, [dict(DINER)])),
+                         verifier=verifier_reply((0, [verdict(0), verdict(1)]), (1, [verdict(0)]), (2, [verdict(0)])),
+                         viewer=viewer_reply((0, [view(0, 4), view(1, 3)], ["0", "1", "face"]),
+                                             (1, [view(0, 4)], ["face", "0"]), (2, [view(0, 4)], ["0", "face"])),
+                         shown=shown, **kw)
+
+    def _entry(self, idea, subject=None, kind=None):
+        return {"title": idea["title"], "subject": subject or idea["subject"], "kind": kind or idea["kind"],
+                "clip": self.TITLE}
+
+    def test_without_it_nothing_is_read_nor_written(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(broll_ideas, "add_shown", lambda *a: calls.append(("add", a)))
+        monkeypatch.setattr(broll_ideas, "shown_ideas", lambda *a: calls.append(("read", a)) or [])
+        judges, (moments, _r) = self._round(monkeypatch, None)
+        assert calls == [] and len(moments) == 1
+        p = judges.prompt("da")
+        assert "ALREADY SHOWN" not in p and f"{self.PLANNED}\nTHE RENDER FIELDS ARE DRAWN LITERALLY" in p
+
+    @pytest.mark.parametrize("content", [None, '{"ideas": []}', '{"episode": "x"}'])
+    def test_an_empty_or_missing_file_gives_the_prompt_of_no_file(self, monkeypatch, tmp_path, content):
+        judges, _out = self._round(monkeypatch, None)
+        without = judges.prompt("da")
+        path = tmp_path / "shown.json"
+        if content is not None:
+            path.write_text(content, encoding="utf-8")
+        judges, _out = self._round(monkeypatch, str(path))
+        assert judges.prompt("da") == without
+
+    def test_the_director_reads_what_other_clips_showed(self, monkeypatch, tmp_path):
+        path = tmp_path / "shown.json"
+        path.write_text(json.dumps({"ideas": [
+            {"title": "The empty chair", "subject": "an empty armchair by a window", "kind": "scene", "clip": self.OTHER},
+            {"title": "Few and many", "subject": "a drawn synapse / a packed synapse", "kind": "pair", "clip": self.OTHER}]}),
+            encoding="utf-8")
+        judges, _out = self._round(monkeypatch, path)                   # a path object or a string
+        assert (f"{self.PLANNED}\n{self.HEADER}\n"
+                f'- "The empty chair" — scene: an empty armchair by a window (clip "{self.OTHER}")\n'
+                f'- "Few and many" — pair: a drawn synapse / a packed synapse (clip "{self.OTHER}")\n'
+                "THE RENDER FIELDS ARE DRAWN LITERALLY") in judges.prompt("da")
+        for judge in ("verifier", "viewer"):
+            assert "ALREADY SHOWN" not in judges.prompt(judge) and "The empty chair" not in judges.prompt(judge), judge
+
+    def test_the_chosen_ideas_of_the_moments_kept_are_appended_and_the_rest_is_kept(self, monkeypatch, tmp_path):
+        path = tmp_path / "shown.json"
+        first = {"title": "The empty chair", "subject": "an empty armchair", "kind": "scene", "clip": self.OTHER}
+        path.write_text(json.dumps({"episode": "e9e44926", "ideas": [first]}), encoding="utf-8")
+        _j, (moments, reserves) = self._round(monkeypatch, str(path))
+        assert len(moments) == 1 and len(reserves) == 1
+        # the moment under the face alone and the reserve are no picture shown
+        assert json.loads(path.read_text(encoding="utf-8")) == {"episode": "e9e44926", "ideas": [first, self._entry(CAST)]}
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["shown.json"]          # no temporary file left
+        # the next clip (the one titled OTHER) reads it: this clip's idea, not its own clip's older one
+        judges = Judges(da=da_reply(da(0, [dict(SCAR)])))
+        monkeypatch.setattr(broll, "claude_json", judges)
+        broll_ideas.idea_round([moment()], [], {"video_title_for_youtube_short": self.OTHER}, WORDS, "none", CLIP_TEXT,
+                               shown=str(path))
+        p = judges.prompt("da")
+        assert f'{self.HEADER}\n- "{CAST["title"]}" — thing: {CAST["subject"]} (clip "{self.TITLE}")\nTHE RENDER' in p
+        assert "The empty chair" not in p
+        assert json.loads(path.read_text(encoding="utf-8"))["ideas"][-1] == {**self._entry(SCAR), "clip": self.OTHER}
+
+    def test_the_rank_modes_chosen_idea_is_the_one_appended(self, monkeypatch, tmp_path):
+        path = tmp_path / "shown.json"
+        rank_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST), dict(DINER)])), shown=str(path),
+                   viewer=viewer_reply((0, [look(0), look(1)], ["1", "0", "face"])))
+        assert json.loads(path.read_text(encoding="utf-8")) == {"ideas": [self._entry(DINER)]}
+
+    def test_a_missing_file_and_folder_are_created_and_a_pair_keeps_its_two_subjects(self, monkeypatch, tmp_path):
+        path = tmp_path / "episode" / "shown.json"
+        run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(PAIR)])), shown=str(path))
+        assert json.loads(path.read_text(encoding="utf-8")) == {
+            "ideas": [self._entry(PAIR, subject=f'{PAIR["subject"]} / {PAIR["subject_b"]}')]}
+        # what the engine will draw is what the file keeps: the inside of a body named is drawn
+        path2 = tmp_path / "other.json"
+        arm = dict(CAST, subject="a forearm with its muscles laid bare")
+        run_round(monkeypatch, [moment()], da=da_reply(da(0, [arm])), shown=str(path2))
+        assert json.loads(path2.read_text(encoding="utf-8"))["ideas"][0]["kind"] == "body_inside"
+
+    def test_no_picture_kept_writes_nothing(self, monkeypatch, tmp_path):
+        path = tmp_path / "shown.json"
+        run_round(monkeypatch, [moment()], da=da_reply(da(0, [])), shown=str(path))
+        run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST)])), shown=str(path),
+                  viewer=viewer_reply((0, [view(0, 4)], ["face", "0"])))
+        assert not path.exists()
+
+    @pytest.mark.parametrize("content", [b"{not json", b"[1, 2", b'"a string"', b'{"ideas": "none"}', b"", b"\xff\xfe{"])
+    def test_a_corrupt_file_is_read_as_empty_and_starts_again(self, monkeypatch, tmp_path, capsys, content):
+        path = tmp_path / "shown.json"
+        path.write_bytes(content)
+        judges, (moments, _r) = run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST)])), shown=str(path))
+        assert "ALREADY SHOWN" not in judges.prompt("da") and len(moments) == 1        # the round goes on
+        assert json.loads(path.read_text(encoding="utf-8")) == {"ideas": [self._entry(CAST)]}
+        assert "⚠️ Ideas:" in capsys.readouterr().out
+
+    def test_the_entries_are_read_clean_each_once_and_this_clips_own_are_not_listed(self, monkeypatch, tmp_path):
+        path = tmp_path / "shown.json"
+        chair = {"title": 'The "first"\n chair', "subject": "a chair", "kind": "scene", "clip": self.OTHER}
+        path.write_text(json.dumps({"ideas": [
+            "junk", chair, {"title": "The cast comes off", "subject": "a forearm", "kind": "thing", "clip": self.TITLE},
+            dict(chair), {"subject": "a lone subject"}, {"title": "", "subject": ""}]}), encoding="utf-8")
+        read = broll_ideas.shown_ideas(str(path))
+        assert len(read) == 5 and read[0] == {"title": "The 'first' chair", "subject": "a chair", "kind": "scene",
+                                              "clip": self.OTHER}
+        assert read[3] == {"title": "", "subject": "a lone subject", "kind": "", "clip": ""}
+        judges, _out = run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(SCAR)])), shown=str(path))
+        p = judges.prompt("da")
+        assert p.count("- \"The 'first' chair\" — scene: a chair") == 1                  # once
+        assert '"The cast comes off" — thing' not in p                                   # this clip, made before
+        assert f'{self.HEADER}\n- "The \'first\' chair" — scene: a chair (clip "{self.OTHER}")\n' \
+               f'- "-" — -: a lone subject\nTHE RENDER FIELDS' in p                      # an empty entry: nothing
+
+    def test_the_director_reads_the_last_ones_in_order(self, monkeypatch, tmp_path):
+        path = tmp_path / "shown.json"
+        path.write_text(json.dumps({"ideas": [{"title": f"idea {n}", "subject": f"thing {n}", "kind": "thing",
+                                               "clip": self.OTHER} for n in range(100)]}), encoding="utf-8")
+        judges, _out = run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST)])), shown=str(path))
+        listed = re.findall(r'^- "idea (\d+)"', judges.prompt("da"), re.M)
+        assert broll_ideas.SHOWN_MAX == 60 and listed == [str(n) for n in range(100 - broll_ideas.SHOWN_MAX, 100)]
+
+    def test_appends_from_clips_made_at_once_are_all_kept(self, tmp_path):
+        path = str(tmp_path / "shown.json")
+
+        def one_clip(n):
+            for j in range(10):
+                broll_ideas.add_shown(path, [{"title": f"{n}-{j}", "subject": "s", "kind": "thing", "clip": str(n)}])
+        threads = [threading.Thread(target=one_clip, args=(n,)) for n in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        with open(path, encoding="utf-8") as f:
+            titles = sorted(i["title"] for i in json.load(f)["ideas"])
+        assert titles == sorted(f"{n}-{j}" for n in range(8) for j in range(10))
+        assert isinstance(broll_ideas._SHOWN_LOCK, type(threading.Lock()))
+
+    def test_add_shown_never_raises_and_writes_nothing_for_nothing(self, tmp_path, capsys):
+        folder = tmp_path / "a_folder"
+        folder.mkdir()
+        broll_ideas.add_shown(str(folder), [{"title": "x"}])                  # a folder in its place: a warning, no file
+        assert "not written" in capsys.readouterr().out and folder.is_dir()
+        assert [p.name for p in tmp_path.iterdir()] == ["a_folder"]                   # no temporary file left
+        path = tmp_path / "shown.json"
+        for path_, entries in ((str(path), []), (str(path), None), (None, [{"title": "x"}]), (str(path), ["junk"])):
+            broll_ideas.add_shown(path_, entries)
+        assert not path.exists()
+        broll_ideas.add_shown(str(path), [{"title": "x", "subject": None, "other": "dropped"}])
+        assert json.loads(path.read_text(encoding="utf-8")) == {"ideas": [{"title": "x", "subject": "", "kind": "",
+                                                                            "clip": ""}]}

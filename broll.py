@@ -3529,7 +3529,11 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 return None, None
 
             cands, moments = broll_v20.run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail,
-                                           gap_min, block, dur_range, tmp, render, ideas=bool(cfg.get("ideas")))
+                                           gap_min, block, dur_range, tmp, render, ideas=bool(cfg.get("ideas")),
+                                           reserve_mode=str(cfg.get("reserves") or "none"),
+                                           prose=bool(cfg.get("prose")), judge=cfg.get("judge") or None,
+                                           shown=(os.path.join(os.path.dirname(os.path.abspath(clip_path)), "_broll_shown.json")
+                                                  if cfg.get("shown") else None))
             planner = "claude"
             if not cands:
                 print("   ℹ️ B-roll v20: no picture kept for this clip.")

@@ -11,6 +11,14 @@ Nothing is appended by regex: a "3 metres" or "85 mm" in the details never becom
 cleaned (clauses that negate, name a camera or are filler are dropped; measures are dropped), so the prompt holds no
 negation word whatever the editor wrote. The same spec also gives the judge's line and the yes/no questions the
 checker asks of the picture (`questions`). Deterministic: the same spec gives the same string. No model is called.
+
+PROSE mode (v24, the bench only: ``build_prompt(..., prose=...)``, see output/_test_broll/brain/v21_diagnostic.md):
+the art director's own description of the picture ("picture", 45 words at most) is the prompt's body as written —
+[the episode's drawing] + the medium's lead + the prose (cleaned by _clean only: no count, no plural, nothing rebuilt
+from the fields, no padding, no "empty and still") + who is in the frame (people one / hands / group: the code still
+guarantees it) + the shot and the frame's shape (none of "the whole setting in view") + the director's light (the
+mood's only when he gave none; never a "Colours:" block, the mood's colours describe the editor's first picture).
+Without a prose, nothing changes. ``descriptive_share`` measures how much of a prompt is the director's own words.
 """
 import re
 
@@ -57,6 +65,19 @@ _KEY_INSTRUMENT = {"low": "dark field, the subject glowing against a deep dark b
 _PAD = ("True colours and fine detail on every surface.", "The main subject is sharp and clearly set apart.")
 # What the code drops when the editor's words are tightened to fit (cheapest first): see build_prompt.
 _SHRINK = ({"details": 14}, {"details": 8}, {"light": 18}, {"state": 8, "setting": 8}, {"details": 4}, {"light": 12})
+# PROSE mode (see _prose_prompt): the frame is the shot and the frame's shape, nothing more; what is tightened when a
+# prompt is over MAX_WORDS, cheapest first, before the prose itself is ever cut.
+_SHOT_PROSE = {"wide": "wide shot", "medium": "medium shot", "close": "close-up", "macro": "macro close-up"}
+_SHAPE_PROSE = {"hero": "vertical frame", "card": "horizontal frame", "half": "square frame"}
+_PROSE_SHRINK = ({"frame": 1}, {"light": 8}, {"frame": 0}, {"light": 0})
+# A label that opens a prose and only restates the lead: "The episode's drawing[ of]:" for a drawing (its paragraph
+# leads), "What the person lying back perceives:" for a vision (it would also put the one who perceives in the frame).
+_LABEL_END = r"\s*(?::|\s[—–-]\s)\s*"
+_LABEL_DRAWING = re.compile(r"^(?:the\s+)?(?:episode|house)(?:['’]s)?\s+drawing(?:\s+of\s+|" + _LABEL_END + ")", re.I)
+_LABEL_PERCEIVED = re.compile(r"^what\b[^:;.]{0,80}?\b(?:perceives?|perceived|sees|seen|hears|heard|feels|notices)\b"
+                              r"[^:;.]{0,40}?" + _LABEL_END, re.I)
+_WORD = re.compile(r"[a-z0-9]+(?:['’][a-z]+)*")          # descriptive_share's words
+STEM = 5                                                  # letters two words share to count as one (descriptive_share)
 
 # --- cleaning the editor's words -------------------------------------------------------------------------------------
 NEGATION = re.compile(r"\b(?:no|not|never|without|avoid\w*|nothing|none|nobody|nowhere|neither|nor|cannot|lacking)\b"
@@ -261,25 +282,33 @@ def _palette(m, kind):
     return ", ".join(p for p in (text, "muted colours" if muted else "") if p)
 
 
+def _given_light(spec):
+    """v21: the art director's concrete light words (time of day, direction, source), cleaned, no emotion word; ''."""
+    return _EMOTION.sub("", _clean(spec.get("light"), 12)).strip(" ,")
+
+
+def _mood_light(spec, room):
+    """The light the mood calls for: its exposure (key_of) and, when both fit in ``room`` words, its direction (the
+    intensity's light, a soft daylight around a death; none for an instrument's image)."""
+    kind, m = _kind(spec), _mood(spec)
+    key = visual_mood.key_of(m)
+    if kind == "instrument":
+        lead, direction = _KEY_INSTRUMENT[key], ""
+    else:
+        intensity = "charged" if m["gravity"] == "real" and m["intensity"] == "extreme" else m["intensity"]
+        lead = _KEY[key]
+        direction = ("soft natural daylight" if m["gravity"] == "grave"
+                     else visual_mood.LIGHT_BY_INTENSITY[intensity])
+    return f"{lead}; {direction}" if direction and _wc(lead) + _wc(direction) <= room else lead
+
+
 def _look(spec, cap):
     """Light, then colours, in at most ``cap`` words: concrete light words from the mood's exposure (key_of) and its
     intensity's light; no valence or intensity adjective."""
     kind, m = _kind(spec), _mood(spec)
-    key = visual_mood.key_of(m)
     pal = _palette(m, kind)
     pal = f"Colours: {pal}." if pal else ""
-    given = _EMOTION.sub("", _clean(spec.get("light"), 12)).strip(" ,")
-    if given:
-        light = given                                     # v21: the art director's concrete light words
-    else:
-        if kind == "instrument":
-            lead, direction = _KEY_INSTRUMENT[key], ""
-        else:
-            intensity = "charged" if m["gravity"] == "real" and m["intensity"] == "extreme" else m["intensity"]
-            lead = _KEY[key]
-            direction = ("soft natural daylight" if m["gravity"] == "grave"
-                         else visual_mood.LIGHT_BY_INTENSITY[intensity])
-        light = f"{lead}; {direction}" if direction and _wc(lead) + _wc(direction) <= cap - _wc(pal) else lead
+    light = _given_light(spec) or _mood_light(spec, cap - _wc(pal))
     return " ".join(p for p in (_cap(light) + ".", pal) if p)
 
 
@@ -317,11 +346,123 @@ def _blocks(spec, layout, era_words, caps):
     return out
 
 
-def build_prompt(spec, layout="hero", drawing="", era_words=""):
-    """The image prompt of one shot spec for ``layout`` ("hero": a full vertical scene, "card": a wide frame).
-    ``drawing``: the episode's drawing text, which leads a "body_inside" picture and is the only text beyond the word
-    cap; ``era_words``: an override of the mood's era wording (photo kinds). Deterministic, no negation."""
+# --- PROSE mode: the art director's own picture (v24, the bench) ------------------------------------------------------
+def _prose_text(prose, kind):
+    """The art director's picture made safe for the prompt: a label that opens it and only restates the lead goes (a
+    drawing's "The episode's drawing:", a vision's "What the person lying back perceives:"), then each sentence is
+    cleaned by _clean (clauses that negate or name a camera, measures). Nothing else: no count, no plural, no word of
+    the fields. '' when nothing is left."""
+    text = re.sub(r"\s+", " ", str(prose or "")).strip()
+    if kind == "body_inside":
+        text = _LABEL_DRAWING.sub("", text, count=1)
+    elif kind == "vision":
+        text = _LABEL_PERCEIVED.sub("", text, count=1)
+    sentences = (_clean(s) for s in re.split(r"(?<=[.!?])\s+", text))
+    return ". ".join(s.rstrip(".!?;,: ") for s in sentences if s.rstrip(".!?;,: "))
+
+
+def _continued(text):
+    """``text`` going on after a lead ("... edge to edge by", "A documentary photograph:"): a plain capitalised first
+    word is lowered ("A wiry man" -> "a wiry man"); an acronym or a mixed-case name stays as written."""
+    plain = re.match(r"[A-Z][a-z'’-]*\b", text) and not re.match(r"I\b", text)
+    return text[:1].lower() + text[1:] if plain else text
+
+
+def _prose_first(spec, era_words, prose):
+    """The prompt's first sentence in PROSE mode: the medium's lead and the prose. A photograph's or an instrument's
+    lead ends on a colon instead of "showing" (a prose may open on "Seen from a bus seat"), a vision's stays "... edge
+    to edge by", a pair's is a sentence of its own; a drawing has none (the episode's drawing leads)."""
+    kind = _kind(spec)
+    if kind == "body_inside":
+        return f"{_cap(prose)}."
+    lead = _medium(spec, era_words)
+    if kind == "pair":
+        return f"{lead} {_cap(prose)}."
+    if kind != "vision":
+        lead = re.sub(r",?\s+showing$", ":", lead)
+    return f"{lead} {_continued(prose)}."
+
+
+def _prose_frame(spec, layout, level=2):
+    """The frame in PROSE mode: the shot and the frame's shape ("Wide shot, vertical frame."), none of the old frame's
+    fillers ("the whole setting in view", "depth behind", "the subject large and centred"). Level 1: the shape only;
+    0: nothing."""
+    if level <= 0:
+        return ""
+    shape = _SHAPE_PROSE.get(layout, _SHAPE_PROSE["hero"])
+    if _kind(spec) == "pair":
+        shape += ", two equal halves"
+    shot = _SHOT_PROSE.get(spec.get("shot"), _SHOT_PROSE["medium"])
+    return _cap(f"{shot}, {shape}" if level >= 2 else shape) + "."
+
+
+def _prose_light(spec, cap):
+    """The light in PROSE mode, at most ``cap`` words: the art director's own (cleaned), the mood's only when he gave
+    none; never a "Colours:" block (the mood's colours were written for the editor's first picture, not this one)."""
+    if cap <= 0:
+        return ""
+    light = _DANGLING.sub("", _trim(_given_light(spec) or _mood_light(spec, cap), cap)).strip(" ,;")
+    return _cap(light) + "." if light else ""
+
+
+def _prose_blocks(spec, layout, era_words, prose, caps):
+    out = [_prose_first(spec, era_words, prose)]
+    people = _PEOPLE_LINE.get(_people(spec))           # the code still guarantees who is in the frame
+    if people:
+        out.append(people)
+    for block in (_prose_frame(spec, layout, caps["frame"]), _prose_light(spec, caps["light"])):
+        if block:
+            out.append(block)
+    return out
+
+
+def _prose_prompt(spec, layout, drawing, era_words, prose):
+    """The prompt of PROSE mode (``prose``: _prose_text's). Over MAX_WORDS (the drawing excluded): the frame, then the
+    light are tightened and dropped, and only then the end of the prose is cut. No padding under MIN_WORDS."""
+    caps = {"frame": 2, "light": 12}
+    blocks = _prose_blocks(spec, layout, era_words, prose, caps)
+    for step in _PROSE_SHRINK:
+        if _wc(" ".join(blocks)) <= MAX_WORDS:
+            break
+        caps.update(step)
+        blocks = _prose_blocks(spec, layout, era_words, prose, caps)
+    over = _wc(" ".join(blocks)) - MAX_WORDS
+    if over > 0:                                              # the last resort: the prose itself is too long
+        cut = _DANGLING.sub("", _trim(prose, max(1, _wc(prose) - over))).rstrip(".!?;,: ")
+        blocks = _prose_blocks(spec, layout, era_words, cut or prose.split()[0], caps)
+    if _kind(spec) == "body_inside":
+        blocks.insert(0, _drawing_text(drawing))
+    return " ".join(blocks)
+
+
+def descriptive_share(prompt, spec, prose=None):
+    """The share (0-1) of the prompt's words that are the art director's own: his ``prose`` (without one: the fields
+    subject, state, setting, details, subject_b), details_b and light. A word counts when it is one of theirs (case
+    aside) or shares its first STEM letters with one of theirs ("galaxies" / "galaxy"; both words that long). The
+    drawing and the code's own words (lead, frame, people line, padding, the mood's colours) count only where they are
+    the director's words too. 0.0 for an empty prompt."""
     spec = spec if isinstance(spec, dict) else {}
+    own = [prose] if prose else [spec.get(k) for k in ("subject", "state", "setting", "details", "subject_b")]
+    vocab = {w for text in (*own, spec.get("details_b"), spec.get("light"))
+             for w in _WORD.findall(str(text or "").lower())}
+    stems = {w[:STEM] for w in vocab if len(w) >= STEM}
+    words = _WORD.findall(str(prompt or "").lower())
+    if not words:
+        return 0.0
+    return sum(1 for w in words if w in vocab or (len(w) >= STEM and w[:STEM] in stems)) / len(words)
+
+
+def build_prompt(spec, layout="hero", drawing="", era_words="", prose=None):
+    """The image prompt of one shot spec for ``layout`` ("hero": a full vertical scene, "card": a wide frame, "half":
+    one square half of a pair). ``drawing``: the episode's drawing text, which leads a "body_inside" picture and is the
+    only text beyond the word cap; ``era_words``: an override of the mood's era wording (photo kinds). ``prose`` (PROSE
+    mode, the bench): the art director's own picture of this spec, which becomes the prompt's body as written
+    (_prose_prompt); None, or nothing left once cleaned: the fields make the prompt, as in production. Deterministic,
+    no negation."""
+    spec = spec if isinstance(spec, dict) else {}
+    text = _prose_text(prose, _kind(spec)) if prose else ""
+    if text:
+        return _prose_prompt(spec, layout, drawing, era_words, text)
     caps = {"details": 24, "state": 12, "setting": 12, "light": LIGHT_CAP}
     blocks = _blocks(spec, layout, era_words, caps)
     for step in _SHRINK:                                       # too long: tighten the optional words, cheapest first

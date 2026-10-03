@@ -1,14 +1,19 @@
 """B-roll v22 « leçons » (4-oct-2026): the chain learns from its own generations (broll_lessons). Every picture decided
-after the render and every verdict of the channel's owner is a line of a journal; the last days of it are summed up in a
-few principle-like lines that the art director, the verifier and the viewer read in their calls (broll_ideas).
+after the render and every verdict of the channel's owner is a line of a journal. The code only PROPOSES what it finds in
+the last days of it (proposées.md); what the art director, the verifier and the viewer read in their calls (broll_ideas)
+is what the owner stands behind: her own verdicts (thumbs down for everyone, thumbs up for the judges) and the lines she
+moved to validées.md.
   - the journal: record / recent / clear, where it lives, what switches it off, what it never does (raise);
-  - the summary: the owner's verdicts first (from one occurrence), then the patterns of the chain's own checks that
-    reach MIN_COUNT, MAX_LINES at most, nothing when there is nothing to say, never a scene to copy;
+  - the summary: the owner's verdicts first (from one occurrence), then the lines of validées.md, MAX_LINES at most,
+    nothing when there is nothing to say, never a pattern of the checks and never a scene to copy;
+  - the proposals: the patterns of the chain's own checks that reach MIN_COUNT, written to proposées.md by ``propose``
+    (which summary() calls on the way) for the owner to validate; validées.md is made with a header, never rewritten;
   - where it meets the round of ideas: the block in the three prompts (what the owner liked: the judges only) and the
     flaw of the chosen idea (``idea_flaw``, which broll_v20 notes with the picture).
 The check's score and decide()'s "under the face alone" are tested in test_broll_check, the lessons that broll_v20
 records after each decision in test_broll_v20. No model is called (broll.claude_json is faked as in test_broll_ideas) and
-tests/conftest.py turns the journal off for the whole suite: every test here turns it on again, in a temporary folder."""
+tests/conftest.py turns the journal off for the whole suite: every test here turns it on again, in a temporary folder
+(the autouse ``journal`` fixture also moves the two md files there)."""
 import json
 import os
 import subprocess
@@ -26,7 +31,9 @@ from test_broll_ideas import CAST, DINER, da, da_reply, full_round, moment, run_
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DAY = 86400
-HEADER = "LESSONS OF THE LAST DAYS (measured on this channel's own pictures; principles, never scenes to copy):"
+HEADER = ("LESSONS OF THE LAST DAYS (the channel's owner's own verdicts and the rules she validated; principles, never "
+          "scenes to copy):")
+PROPOSED, VALIDATED = "proposées.md", "validées.md"      # the two files of the owner, in the journal's folder
 
 
 @pytest.fixture(autouse=True)
@@ -110,6 +117,47 @@ def bullets(for_who="director"):
     head, *rest = text.split("\n")
     assert head.startswith("LESSONS OF THE LAST DAYS (") and rest and all(l.startswith("- ") for l in rest), text
     return [line[2:] for line in rest]
+
+
+def read_file(name):
+    """One of the owner's two files, as text."""
+    with open(os.path.join(bl.LESSONS_DIR, name), encoding="utf-8") as f:
+        return f.read()
+
+
+def validate(*lines):
+    """What the owner does by hand: write ``lines`` (as they are) to validées.md."""
+    os.makedirs(bl.LESSONS_DIR, exist_ok=True)
+    with open(os.path.join(bl.LESSONS_DIR, VALIDATED), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def proposal_file():
+    """proposées.md as (its header, its lines): the header is everything before the first "- " bullet."""
+    lines = read_file(PROPOSED).split("\n")
+    first = next((i for i, line in enumerate(lines) if line.startswith("- ")), len(lines))
+    return lines[:first], [line[2:] for line in lines[first:] if line.startswith("- ")]
+
+
+def patterns():
+    """The patterns the code finds in the journal as it is: the lines ``propose`` gives back, which must be the lines of
+    proposées.md (checked on the way, as bullets() checks the shape of the summary)."""
+    lines = bl.propose()
+    assert proposal_file()[1] == lines
+    return lines
+
+
+def every_pattern(n):
+    """The chain's own checks with each of the six kinds of pattern in them, ``n`` pictures each."""
+    return [drops(n, "pulls attention away", kind="scene", flaw="stock"), drops(n, "text in it"),
+            drops(n, "wrong subject", kind="thing"), drops(n, "unsafe"), keeps(n, 5, kind="vision")]
+
+
+# one thumb down and one thumb up of the owner, and the lines the summary makes of them
+DOWN = owner("down", note="a stock photo of a kitchen, nothing of the words")
+UP = owner("up", subject="a forearm out of its cast", said="healed in weeks")
+DOWN_LINE = "The channel's owner rejected a picture: a stock photo of a kitchen, nothing of the words."
+UP_LINE = 'The channel\'s owner liked: a forearm out of its cast for "healed in weeks" — that level is the bar.'
 
 
 def fresh(code, **env):
@@ -256,6 +304,14 @@ class TestClear:
         bl.clear()                                                      # nothing left: no error
         assert bl.record(ev()) and len(bl.recent()) == 1                # and it starts again
 
+    def test_clear_leaves_the_owners_own_file_alone(self):
+        validate("A rule she wrote.")
+        put(owner("down", note="too dark"))
+        assert len(bullets()) == 2
+        bl.clear()
+        assert bullets() == ["A rule she wrote."]                       # the journal is gone, not what she validated
+        assert read_file(VALIDATED) == "A rule she wrote.\n"
+
 
 # ======================================================================================================== the summary
 
@@ -264,10 +320,13 @@ class TestTheShapeOfTheSummary:
         assert bl.summary() == "" and bl.summary("director") == "" and bl.summary("judges") == ""
 
     def test_the_block_is_a_header_and_one_bullet_per_line(self):
-        put(drops(3, "text in it"))
+        put(owner("down", note="too dark"))
         text = bl.summary()
-        assert text.startswith(HEADER + "\n- ") and len(text.split("\n")) == 2
+        assert text == HEADER + "\n- The channel's owner rejected a picture: too dark."
         assert text == bl.summary("director")                           # "director" is the default
+        validate("Rule one.", "Rule two.")                              # a line of the owner's file is a bullet like the others
+        assert bl.summary().split("\n") == [HEADER, "- The channel's owner rejected a picture: too dark.", "- Rule one.",
+                                            "- Rule two."]
 
     def test_events_that_teach_nothing_give_an_empty_string_not_a_header(self):
         put(keeps(4, 3, kind="thing"), drops(2, "text in it"), ev(verdict="keep", why="", kind="scene"))
@@ -279,15 +338,6 @@ class TestTheShapeOfTheSummary:
 
     def test_clean_flattens_the_white_space_and_the_double_quotes(self):
         assert bl._clean('a  "b"\n\tc ') == "a 'b' c" and bl._clean(None) == "" and bl._clean(12) == "12"
-
-    def test_the_lines_of_a_pattern_never_name_a_picture(self):
-        # "principles, never scenes to copy": only the owner's own verdicts say what a picture was
-        names = dict(subject="UNIQUE SUBJECT", title="UNIQUE TITLE", said="UNIQUE WORDS", clip_title="UNIQUE CLIP")
-        put(drops(3, "pulls attention away", kind="scene", flaw="stock", **names), drops(3, "text in it", **names),
-            drops(3, "wrong subject", kind="thing", **names), drops(3, "unsafe", **names), keeps(3, 5, kind="vision", **names))
-        text = bl.summary("judges")
-        assert len(bullets("judges")) == 6                              # all six patterns, the flaw one included
-        assert not any(unique in text for unique in names.values())
 
 
 class TestTheOwnersVerdicts:
@@ -334,51 +384,237 @@ class TestTheOwnersVerdicts:
             owner("meh", note="n3"), owner("down-ish", note="n4"), owner("", note="n5"))
         assert bl.summary("judges") == ""
 
-    def test_the_owners_lines_come_before_a_big_pattern(self):
-        put(drops(50, "pulls attention away", kind="scene"), owner("down", note="too dark"), owner("up", subject="a cast"))
-        got = bullets("judges")
-        assert len(got) == 3 and got[0].startswith("The channel's owner rejected") \
-            and got[1].startswith("The channel's owner liked") and got[2].startswith("50 pictures of a scene")
-        got = bullets("director")                                       # what the owner liked is not for the director
-        assert len(got) == 2 and got[0].startswith("The channel's owner rejected") and got[1].startswith("50 pictures of a scene")
+    def test_a_rejection_ranks_above_a_like_and_both_above_any_pattern(self):
+        events = [owner("up", subject="a cast"), *drops(50, "pulls attention away", kind="scene"),
+                  owner("down", note="too dark")]
+        by_rank = {rank: line for rank, line in bl._lines(events, "judges")}
+        assert sorted(by_rank, reverse=True) == [10 ** 6, 10 ** 6 - 1, 50]
+        assert by_rank[10 ** 6].startswith("The channel's owner rejected")
+        assert by_rank[10 ** 6 - 1].startswith("The channel's owner liked")
+        assert by_rank[50].startswith("50 pictures of a scene")
+        assert sorted(rank for rank, _line in bl._lines(events, "director")) == [50, 10 ** 6]      # no like for the director
+
+    def test_a_rejection_comes_before_a_like_whatever_the_order_they_were_given_in(self):
+        put(UP, owner("down", note="too dark"))
+        assert bullets("judges") == ["The channel's owner rejected a picture: too dark.", UP_LINE]
+
+
+class TestTheLinesTheOwnerValidated:
+    """validées.md: the lines she moved there (or wrote there), one rule per line, are the other half of the summary."""
+
+    def test_a_validated_line_enters_the_summary_for_the_director_and_the_judges(self):
+        line = "Show the idea itself, with one or two true particular details."
+        validate(line)
+        assert bullets("director") == bullets("judges") == [line]
+        assert bl.summary() == HEADER + "\n- " + line
+
+    def test_comments_blank_lines_and_a_leading_dash_are_dealt_with(self):
+        validate("# a note she left herself", "", "   ", "- A rule with its dash.", "A rule without one.", "#another note",
+                 "  - An indented rule, with trailing spaces.  ", "Rule #2 stays whole.")
+        assert bullets() == ["A rule with its dash.", "A rule without one.", "An indented rule, with trailing spaces.",
+                             "Rule #2 stays whole."]
+
+    def test_a_file_of_comments_and_blank_lines_is_no_lesson(self):
+        validate("# one", "", "# two", "   ")
+        assert bl.summary("judges") == ""
+
+    def test_her_lines_come_after_her_verdicts_in_the_order_of_the_file(self):
+        put(UP, owner("down", note="too dark"))
+        validate("- First rule.", "- Second rule.")
+        assert bullets("judges") == ["The channel's owner rejected a picture: too dark.", UP_LINE, "First rule.", "Second rule."]
+        assert bullets("director") == ["The channel's owner rejected a picture: too dark.", "First rule.", "Second rule."]
+
+    def test_a_validated_line_has_no_age_and_is_no_event_of_the_journal(self):
+        write_raw([aged(40, ev(why="text in it")) for _ in range(5)], aged(40, owner("down", note="too old")))
+        validate("A rule she validated long ago.")
+        assert bullets() == ["A rule she validated long ago."]         # the old verdict is gone, her rule stays
+
+    def test_the_cap_cuts_her_lines_before_her_verdicts(self):
+        put([owner("down", note=f"reason {i}") for i in range(4)], [owner("up", subject=f"liked {i}") for i in range(3)])
+        validate(*(f"Rule {i}." for i in range(5)))
+        got = bullets("judges")                                         # 4 + 3 verdicts, one place left
+        assert len(got) == bl.MAX_LINES == 8 and sum(b.startswith("The channel's owner") for b in got) == 7
+        assert got[-1] == "Rule 0."
+        got = bullets("director")                                       # 4 verdicts, the first four rules
+        assert len(got) == 8 and sum(b.startswith("The channel's owner") for b in got) == 4
+        assert got[4:] == ["Rule 0.", "Rule 1.", "Rule 2.", "Rule 3."]
+
+    def test_without_a_verdict_the_first_eight_lines_of_the_file_are_all_there_is(self):
+        validate(*(f"Rule {i}." for i in range(12)))
+        assert bullets() == [f"Rule {i}." for i in range(8)]
+
+    def test_a_file_that_cannot_be_read_says_nothing_and_costs_nothing(self, journal):
+        put(owner("down", note="too dark"))
+        os.makedirs(journal / VALIDATED)                                # a folder where her file should be
+        assert bullets() == ["The channel's owner rejected a picture: too dark."]
+
+
+class TestThePatternsStayOutOfTheSummary:
+    """What the code finds in the journal is only PROPOSED (proposées.md): it never enters a call on its own."""
+
+    def test_a_journal_of_patterns_alone_says_nothing(self):
+        put(every_pattern(9))
+        assert len(patterns()) == 6                                     # they are all found ...
+        assert bl.summary("director") == "" and bl.summary("judges") == ""      # ... and none is said
+
+    def test_no_pattern_line_is_in_the_summary_whatever_else_there_is_to_say(self):
+        put(every_pattern(50), owner("down", note="too dark"), owner("up", subject="a cast"))
+        validate("A rule she validated.")
+        proposed = patterns()
+        assert len(proposed) == 6
+        for who, expected in (("director", 2), ("judges", 3)):
+            got = bullets(who)
+            assert len(got) == expected and got[-1] == "A rule she validated.", who
+            assert not any(line in bl.summary(who) for line in proposed), who
+            assert not any(words in bl.summary(who) for words in ("did not beat the face alone", "carried writing",
+                                                                  "missed the subject", "refused for safety",
+                                                                  "What worked", "flagged as")), who
+
+    def test_the_lines_of_a_pattern_never_name_a_picture(self):
+        # "principles, never scenes to copy": only the owner's own verdicts say what a picture was
+        names = dict(subject="UNIQUE SUBJECT", title="UNIQUE TITLE", said="UNIQUE WORDS", clip_title="UNIQUE CLIP")
+        put(drops(3, "pulls attention away", kind="scene", flaw="stock", **names), drops(3, "text in it", **names),
+            drops(3, "wrong subject", kind="thing", **names), drops(3, "unsafe", **names), keeps(3, 5, kind="vision", **names))
+        proposed = patterns()
+        assert len(proposed) == 6                                       # all six patterns, the flaw one included
+        assert not any(unique in line for line in proposed for unique in names.values())
+        assert not any(unique in read_file(PROPOSED) for unique in names.values())
+
+
+# ====================================================================================================== the proposals
+
+class TestPropose:
+    """``propose``: the patterns of the chain's own checks, written to proposées.md for the owner to read."""
+
+    def test_the_file_is_a_header_of_comments_then_one_bullet_per_pattern_the_strongest_first(self, journal):
+        put(drops(3, "text in it"), drops(5, "pulls attention away", kind="scene"))
+        assert not os.path.exists(journal / PROPOSED)
+        lines = bl.propose()
+        assert len(lines) == 2 and lines[0].startswith("5 pictures of a scene") and lines[1].startswith("3 pictures carried")
+        header, bulleted = proposal_file()
+        assert bulleted == lines
+        assert header and all(line.startswith("#") or not line.strip() for line in header)    # comments and blank lines
+        assert header[0].startswith("#") and "validées.md" in "\n".join(header)               # and where a line becomes a rule
+        assert read_file(PROPOSED).endswith("\n")
+
+    def test_with_nothing_to_propose_the_file_is_its_header_alone(self):
+        assert bl.propose() == []
+        header, bulleted = proposal_file()
+        assert header and bulleted == []
+
+    def test_the_events_given_are_proposed_in_place_of_the_journal_none_means_the_journal(self):
+        put(drops(3, "text in it"))                                     # the journal says one thing ...
+        lines = bl.propose([ev(why="unsafe") for _ in range(4)])        # ... the events given another
+        assert len(lines) == 1 and lines[0].startswith("4 pictures were refused for safety")
+        assert proposal_file()[1] == lines
+        assert bl.propose(None)[0].startswith("3 pictures carried writing")
+        assert bl.propose([]) == [] and proposal_file()[1] == []        # no event given is no event, not the journal
+
+    def test_the_owners_verdicts_are_no_proposal_and_the_proposals_do_not_depend_on_who_asked(self):
+        put(drops(3, "text in it"), owner("down", note="too dark"), owner("up", subject="a cast"))
+        assert bl.summary("director") and proposal_file()[1][0].startswith("3 pictures carried writing")
+        director = proposal_file()
+        assert bl.summary("judges") and proposal_file() == director
+        assert len(director[1]) == 1 and "owner" not in director[1][0]
+
+    def test_the_file_is_rewritten_each_time_never_added_to(self):
+        put(drops(3, "text in it"))
+        assert len(patterns()) == 1
+        bl.clear()
+        put(drops(4, "unsafe"))
+        assert patterns()[0].startswith("4 pictures were refused") and "carried writing" not in read_file(PROPOSED)
+        bl.clear()
+        assert patterns() == []                                         # nothing any more: the header alone
+
+    def test_the_folder_is_made_with_both_files_when_there_is_none(self, journal):
+        assert not os.path.exists(journal)
+        bl.propose()
+        assert os.path.isfile(journal / PROPOSED) and os.path.isfile(journal / VALIDATED)
+
+    def test_validees_md_is_made_with_a_header_when_missing_and_then_never_touched(self, journal):
+        bl.propose()
+        text = read_file(VALIDATED)
+        assert text.startswith("#") and all(line.startswith("#") or not line.strip() for line in text.split("\n"))
+        assert bl.summary() == ""                                       # the header is no lesson
+        validate("- A rule she wrote.", "# and a note to herself")
+        before = read_file(VALIDATED)
+        put(drops(3, "text in it"), owner("down", note="too dark"))
+        bl.propose()
+        bl.summary("judges")
+        bl.propose([ev(why="unsafe")] * 5)
+        assert read_file(VALIDATED) == before                           # her file is hers
+
+    def test_summary_proposes_on_the_way_even_when_it_has_nothing_to_say(self, journal):
+        put(drops(3, "text in it"))
+        assert bl.summary("judges") == ""
+        assert os.path.isfile(journal / VALIDATED) and proposal_file()[1][0].startswith("3 pictures carried writing")
+        put(drops(2, "text in it"), drops(4, "unsafe"))                 # more events: the next summary() refreshes the file
+        bl.summary("director")
+        assert [line.split(" ")[0] for line in proposal_file()[1]] == ["5", "4"]
+
+    def test_summary_proposes_what_it_reads_not_what_is_too_old(self):
+        write_raw([aged(15, ev(why="text in it")) for _ in range(5)], [aged(1, ev(why="unsafe")) for _ in range(3)])
+        bl.summary()
+        (line,) = proposal_file()[1]
+        assert line.startswith("3 pictures were refused for safety")   # the five old ones are not read
+
+    def test_a_folder_that_cannot_be_written_proposes_nothing_and_never_raises(self, monkeypatch, tmp_path, capsys):
+        (tmp_path / "blocker").write_text("a file, not a folder")
+        monkeypatch.setattr(bl, "LESSONS_DIR", str(tmp_path / "blocker" / "journal"))
+        assert bl.propose([ev(why="text in it")] * 3) == []
+        assert "Lessons: not proposed" in capsys.readouterr().out
+        assert bl.summary() == "" and "Lessons: not proposed" in capsys.readouterr().out
+
+    def test_events_that_are_no_events_are_refused_with_a_warning_not_an_error(self, capsys):
+        assert bl.propose([None, "text"]) == []
+        assert "Lessons: not proposed" in capsys.readouterr().out
+
+    def test_a_proposal_that_fails_never_costs_the_summary_its_lines(self, journal, capsys):
+        put(owner("down", note="too dark"))
+        validate("A rule she wrote.")
+        os.makedirs(journal / PROPOSED)                                 # a folder where the proposals should be written
+        assert bullets() == ["The channel's owner rejected a picture: too dark.", "A rule she wrote."]
+        assert "Lessons: not proposed" in capsys.readouterr().out
 
 
 class TestThePatternsOfTheChecks:
+    """What the code finds in the journal, as ``propose`` gives it back (and writes it to proposées.md): ``patterns()``."""
+
     def test_three_occurrences_make_a_line_two_do_not(self):
         put(drops(2, "pulls attention away", kind="scene"), drops(2, "text in it"), drops(2, "wrong subject", kind="thing"),
             drops(1, "unsafe"), drops(1, "body photo"), drops(2, "wrong count", flaw="setting"),
             keeps(2, 5, kind="thing"), keeps(2, 1, kind="vision"))
-        assert bullets("judges") == []
+        assert patterns() == []
         put(drops(1, "text in it"))
-        assert len(bullets()) == 1 and bullets()[0].startswith("3 pictures carried writing")
+        assert len(patterns()) == 1 and patterns()[0].startswith("3 pictures carried writing")
 
     # --- not beating the face alone (by kind)
     @pytest.mark.parametrize("why", ["pulls attention away", "contradicts the words", "under the face alone"])
     def test_each_reason_of_the_bucket_counts(self, why):
         put(drops(3, why, kind="thing"))
-        (line,) = bullets()
+        (line,) = patterns()
         assert line.startswith("3 pictures of a thing did not beat the face alone lately") and "show the idea itself" in line
 
     def test_the_reasons_of_the_bucket_add_up_and_an_alt_verdict_counts_like_a_drop(self):
         put(ev(why="pulls attention away", kind="scene"), ev(verdict="alt", why="contradicts the words", kind="scene"),
             ev(verdict="alt", why="under the face alone", kind="scene"))
-        (line,) = bullets()
+        (line,) = patterns()
         assert line.startswith("3 pictures of a scene did not beat the face alone lately")
 
     def test_a_kept_picture_scored_two_or_less_counts_with_the_dropped_ones(self):
         put(ev(why="under the face alone", kind="thing"), keeps(1, 2, kind="thing"), keeps(1, 1, kind="thing"))
-        (line,) = bullets()
+        (line,) = patterns()
         assert line.startswith("3 pictures of a thing did not beat the face alone lately")
 
     def test_a_kept_picture_scored_three_or_not_scored_is_no_failure(self):
         put(keeps(5, 3, kind="thing"), keeps(5, None, kind="thing"), [ev(verdict="keep", score="1", kind="thing")] * 5)
-        assert bullets() == []
+        assert patterns() == []
 
     def test_the_kinds_are_counted_apart(self):
         put(drops(2, "pulls attention away", kind="thing"), drops(2, "pulls attention away", kind="scene"))
-        assert bullets() == []
+        assert patterns() == []
         put(drops(1, "pulls attention away", kind="thing"))
-        (line,) = bullets()
+        (line,) = patterns()
         assert line.startswith("3 pictures of a thing ")
 
     @pytest.mark.parametrize("kind,words", [("thing", "a thing"), ("scene", "a scene"), ("vision", "what a person perceives"),
@@ -387,29 +623,29 @@ class TestThePatternsOfTheChecks:
                                             ("pair", "two things side by side"), ("picture", "a picture")])
     def test_each_kind_has_its_words(self, kind, words):
         put(drops(3, "under the face alone", kind=kind))
-        assert bullets()[0].startswith(f"3 pictures of {words} did not beat the face alone lately")
+        assert patterns()[0].startswith(f"3 pictures of {words} did not beat the face alone lately")
         bl.clear()
         put(drops(3, "wrong subject", kind=kind))
-        assert bullets()[0].startswith(f"The engine missed the subject of 3 pictures of {words}:")
+        assert patterns()[0].startswith(f"The engine missed the subject of 3 pictures of {words}:")
 
     @pytest.mark.parametrize("kind", [None, "", "weird", "photo", 7, ["thing"]])
     def test_a_missing_or_unknown_kind_is_a_picture(self, kind):
         put(drops(3, "under the face alone", kind=kind))
-        assert bullets()[0].startswith("3 pictures of a picture did not beat the face alone lately")
+        assert patterns()[0].startswith("3 pictures of a picture did not beat the face alone lately")
 
     def test_a_kind_is_read_whatever_its_case_and_its_spaces(self):
         put(drops(1, "under the face alone", kind=" Scene "), drops(1, "under the face alone", kind="SCENE"),
             drops(1, "under the face alone", kind="scene"))
-        assert bullets()[0].startswith("3 pictures of a scene did not beat")
+        assert patterns()[0].startswith("3 pictures of a scene did not beat")
 
     def test_a_drop_for_another_reason_is_no_pattern(self):
         put(*(drops(5, why, kind="scene") for why in ("wrong count", "wrong people", "wrong medium", "not a pair", "look",
                                                       "not checked")))
-        assert bullets() == []
+        assert patterns() == []
 
     def test_only_the_chains_own_checks_make_a_pattern(self):
         put([owner("drop", why="text in it") for _ in range(5)], [{"verdict": "drop", "why": "text in it"}] * 5)
-        assert bullets() == []
+        assert patterns() == []
 
     # --- the verifier's flaws on the ideas that were dropped
     @pytest.mark.parametrize("flaw,words", [("setting", "the setting instead of the idea"),
@@ -417,108 +653,101 @@ class TestThePatternsOfTheChecks:
                                             ("stock", "a stock-photo look"), ("symbol", "a symbol to decode")])
     def test_a_flaw_of_the_verifier_on_dropped_ideas_is_a_pattern(self, flaw, words):
         put(drops(2, "wrong count", flaw=flaw), ev(verdict="alt", why="wrong count", flaw=flaw))
-        (line,) = bullets()
+        (line,) = patterns()
         assert line.startswith(f"3 ideas flagged as {words} were dropped after the render") and "leave such ideas out" in line
 
     def test_two_flawed_ideas_are_no_pattern_and_the_flaws_are_counted_apart(self):
         put(drops(2, "wrong count", flaw="setting"), drops(2, "wrong count", flaw="object"))
-        assert bullets() == []
+        assert patterns() == []
 
     def test_the_other_flaws_the_kept_pictures_and_the_unflagged_are_no_pattern(self):
         put(*(drops(5, "wrong count", flaw=f) for f in ("figure", "none", "", None)), drops(5, "wrong count"),
             keeps(5, 3, flaw="setting"))
-        assert bullets() == []
+        assert patterns() == []
 
     # --- writing, the subject the engine missed, safety
     def test_pictures_that_carried_writing(self):
         put(drops(2, "text in it"), ev(verdict="alt", why="text in it"))
-        (line,) = bullets()
+        (line,) = patterns()
         assert line.startswith("3 pictures carried writing") and "never a thing that bears text" in line
 
     def test_the_subject_the_engine_missed_is_counted_by_kind(self):
         put(drops(2, "wrong subject", kind="instrument"), ev(verdict="alt", why="wrong subject", kind="instrument"),
             drops(2, "wrong subject", kind="thing"))
-        (line,) = bullets()
+        (line,) = patterns()
         assert line.startswith("The engine missed the subject of 3 pictures of an instrument's image:")
         assert "name the thing plainly" in line
 
     def test_pictures_refused_for_safety_count_together(self):
         put(drops(1, "unsafe"), ev(verdict="alt", why="unsafe"), drops(1, "body photo"))
-        (line,) = bullets()
+        (line,) = patterns()
         assert line.startswith("3 pictures were refused for safety after the render") and "no gore" in line
         bl.clear()
         put(drops(2, "unsafe"), drops(1, "wrong count"))
-        assert bullets() == []
+        assert patterns() == []
 
     # --- what worked
     def test_what_worked_is_three_pictures_of_a_kind_scored_four_or_five(self):
         put(keeps(2, 4, kind="thing"), keeps(1, 5, kind="thing"))
-        assert bullets() == ["What worked: 3 pictures of a thing scored 4 or 5 (the viewer understood more than he was told)."]
+        assert patterns() == ["What worked: 3 pictures of a thing scored 4 or 5 (the viewer understood more than he was told)."]
 
     def test_two_good_pictures_a_three_and_what_was_not_kept_are_no_success(self):
         put(keeps(2, 5, kind="thing"), keeps(5, 3, kind="scene"), drops(5, "wrong count", kind="vision", score=5),
             [ev(verdict="alt", why="wrong count", kind="vision", score=5)] * 5)
-        assert bullets() == []
+        assert patterns() == []
 
     def test_at_most_two_what_worked_lines_the_strongest_kinds(self):
         put(keeps(5, 5, kind="scene"), keeps(4, 4, kind="thing"), keeps(3, 5, kind="vision"))
-        assert [b.split(" scored")[0] for b in bullets()] == ["What worked: 5 pictures of a scene",
-                                                              "What worked: 4 pictures of a thing"]
+        assert [b.split(" scored")[0] for b in patterns()] == ["What worked: 5 pictures of a scene",
+                                                               "What worked: 4 pictures of a thing"]
 
-    # --- the order, the cap
+    # --- the order, no cap
     def test_the_strongest_pattern_comes_first(self):
         put(drops(3, "text in it"), drops(7, "pulls attention away", kind="scene"), drops(5, "unsafe"))
-        got = bullets()
+        got = patterns()
         assert got[0].startswith("7 pictures of a scene") and got[1].startswith("5 pictures were refused")
         assert got[2].startswith("3 pictures carried writing")
 
-    def test_at_most_eight_lines_the_weakest_patterns_leave(self):
+    def test_every_pattern_is_proposed_none_is_cut_the_owner_reads_them_all(self):
         kinds = ["thing", "scene", "vision", "instrument", "body_inside", "pair"]
         put([drops(12 - i, "pulls attention away", kind=kind) for i, kind in enumerate(kinds)],          # 12 ... 7
             drops(6, "wrong count", flaw="setting"), drops(5, "wrong count", flaw="object"),
             drops(4, "wrong count", flaw="stock"), drops(3, "wrong count", flaw="symbol"))              # ten patterns
-        got = bullets()
-        assert len(got) == bl.MAX_LINES == 8
-        assert [b.split(" ")[0] for b in got] == ["12", "11", "10", "9", "8", "7", "6", "5"]
-        assert not any("a stock-photo look" in b or "a symbol to decode" in b for b in got)
-
-    def test_the_owners_lines_survive_the_cap_before_any_pattern(self):
-        put([owner("down", note=f"reason {i}") for i in range(4)], [owner("up", subject=f"liked {i}") for i in range(3)],
-            drops(6, "text in it"), drops(9, "pulls attention away", kind="scene"))
-        got = bullets("judges")                                         # 4 + 3 owner lines, one place left
-        assert len(got) == 8 and sum(b.startswith("The channel's owner") for b in got) == 7
-        assert got[-1].startswith("9 pictures of a scene") and not any("carried writing" in b for b in got)
-        got = bullets("director")                                       # 4 owner lines and both patterns
-        assert len(got) == 6 and sum(b.startswith("The channel's owner") for b in got) == 4
+        got = patterns()
+        assert len(got) == 10 > bl.MAX_LINES                            # the cap is the summary's, not the proposals'
+        assert [b.split(" ")[0] for b in got] == ["12", "11", "10", "9", "8", "7", "6", "5", "4", "3"]
+        assert any("a stock-photo look" in b for b in got) and any("a symbol to decode" in b for b in got)
+        assert bl.summary() == ""                                       # and none of the ten reaches a call
 
 
 class TestWhatIsRecent:
     def test_a_pattern_of_old_events_is_gone_and_so_is_an_old_verdict(self):
         write_raw([aged(15, ev(why="text in it")) for _ in range(5)], aged(15, owner("down", note="too dark")),
                   aged(15, owner("up", subject="a cast")))
-        assert bl.summary("judges") == ""
+        assert bl.summary("judges") == "" and patterns() == []
 
     def test_the_days_decide_which_events_count(self):
         write_raw([aged(13, ev(why="text in it")) for _ in range(3)])
-        assert bullets()[0].startswith("3 pictures carried writing")
+        assert patterns()[0].startswith("3 pictures carried writing")
         write_raw([aged(13, ev(why="text in it")) for _ in range(2)], aged(15, ev(why="text in it")))
-        assert bullets() == []                                          # two left, the third is too old
+        assert patterns() == []                                         # two left, the third is too old
 
     def test_only_the_last_three_hundred_events_are_summed_up(self):
         neutral = [aged(0, ev(verdict="keep", why="", score=3)) for _ in range(bl.RECENT - 3)]
         write_raw([aged(0, ev(why="text in it")) for _ in range(3)], neutral)
-        assert bullets()[0].startswith("3 pictures carried writing")     # exactly 300 lines: the three are the oldest read
+        assert patterns()[0].startswith("3 pictures carried writing")    # exactly 300 lines: the three are the oldest read
         write_raw([aged(0, ev(why="text in it")) for _ in range(3)], neutral, aged(0, ev(verdict="keep", why="", score=3)))
-        assert bullets() == []                                          # one more line: the first one slides out
+        assert patterns() == []                                         # one more line: the first one slides out
+
+    def test_an_owner_verdict_slides_out_with_the_three_hundred_lines_too(self):
+        neutral = [aged(0, ev(verdict="keep", why="", score=3)) for _ in range(bl.RECENT - 1)]
+        write_raw(aged(0, owner("down", note="too dark")), neutral)
+        assert bullets() == ["The channel's owner rejected a picture: too dark."]     # the last of the 300 lines read
+        write_raw(aged(0, owner("down", note="too dark")), neutral, aged(0, ev(verdict="keep", why="", score=3)))
+        assert bullets() == []
 
 
 # ======================================================================================== the round of ideas reads it
-
-DOWN = owner("down", note="a stock photo of a kitchen, nothing of the words")
-UP = owner("up", subject="a forearm out of its cast", said="healed in weeks")
-DOWN_LINE = "The channel's owner rejected a picture: a stock photo of a kitchen, nothing of the words."
-UP_LINE = 'The channel\'s owner liked: a forearm out of its cast for "healed in weeks" — that level is the bar.'
-
 
 @pytest.mark.usefixtures("ideas_state")
 class TestTheBlockInThePrompts:
@@ -572,6 +801,23 @@ class TestTheBlockInThePrompts:
         put(drops(2, "text in it"), keeps(3, 3))
         judges, _out = full_round(monkeypatch)
         assert not any("LESSONS OF THE LAST DAYS" in judges.prompt(j) for j in ("da", "verifier", "viewer"))
+
+    def test_a_journal_of_patterns_alone_adds_no_block_either(self, monkeypatch):
+        put(every_pattern(5))
+        judges, _out = full_round(monkeypatch)
+        assert len(bl.propose()) == 6                                   # the chain finds six patterns ...
+        assert not any("LESSONS OF THE LAST DAYS" in judges.prompt(j) for j in ("da", "verifier", "viewer"))   # ... says none
+
+    def test_a_validated_line_reaches_the_three_calls_and_no_pattern_does(self, monkeypatch):
+        put(every_pattern(6))
+        validate("Show the idea itself, never the setting around it.")
+        proposed = bl.propose()
+        assert len(proposed) == 6
+        judges, _out = full_round(monkeypatch)
+        for judge in ("da", "verifier", "viewer"):
+            prompt = judges.prompt(judge)
+            assert HEADER in prompt and "\n- Show the idea itself, never the setting around it.\n" in prompt, judge
+            assert not any(line in prompt for line in proposed), judge
 
     def test_braces_and_percent_signs_of_a_note_do_not_break_a_prompt(self, monkeypatch):
         text = "a {chart} with {0} and {{x}} labels, 100% %s"

@@ -633,3 +633,325 @@ class TestCompoundSubject:
         qs = sp.questions(spec)
         assert [q["id"] for q in qs][:2] == ["q_subject", "q_count"]
         assert qs[0]["q"] == "Is the main subject sand dune?" and qs[1]["q"] == "How many sand dunes are visible?"
+
+
+# ------------------------------------------------------------------------------------ v24: the PROSE mode (the bench)
+# build_prompt(..., prose=the art director's "picture"): the prose is the prompt's body as written — the medium's lead,
+# the prose cleaned by _clean only, who is in the frame (people one / hands / group), the shot and the frame's shape, the
+# director's light. No count, no plural, nothing from the fields, no padding, no "empty and still", no "Colours:".
+# Specs and proses of the third bench (output/_test_broll/brain/*_v21.json; the diagnosis: v21_diagnostic.md).
+
+P_THING = {"kind": "thing", "subject": "brass toggle light switch", "count": "1", "state": "flipped firmly down",
+           "setting": "a tiled wall", "details": "finger-worn brass plate, single crooked screw", "people": "none",
+           "shot": "macro", "light": "soft daylight from a window to the left, everyday",
+           "mood": mood(true_colours="law books, dark wood courtroom table")}
+PROSE_THING = ("A close view of an old brass toggle light switch on a tiled wall, flipped firmly down, finger-worn brass "
+               "plate, single screw slightly crooked.")
+P_SCENE = {"kind": "scene", "subject": "man hauling a white refrigerator", "count": "1", "state": "hauling it upright",
+           "setting": "a narrow brick back alley", "details": "thin bare arms, cracked asphalt", "people": "one",
+           "person": "anonymous", "shot": "wide", "hero": True,
+           "light": "low early morning sun along the alley, long shadows",
+           "mood": mood(valence="uneasy", intensity="charged", true_colours="grey brick, white enamel")}
+PROSE_SCENE = ("A wiry anonymous man, thin bare arms, hauling a full-size white refrigerator upright over cracked "
+               "asphalt in a narrow brick back alley, early morning.")
+P_VISION = {"kind": "vision", "subject": "white ceiling with a round light", "count": "1", "state": "steady view upward",
+            "setting": "clinic room ceiling seen from a reclined chair", "details": "window top, blanket edge, knees",
+            "people": "none", "shot": "wide", "hero": True,
+            "light": "daylight spilling from the window at frame edge, calm",
+            "mood": mood(visibility="inner", true_colours="deep red, gold, black")}
+PROSE_VISION = ("What the person lying back perceives: a plain white ceiling with a round diffuser light, the top of a "
+                "window frame, a blanket edge and knees in the lower frame.")
+P_INSTR = {"kind": "instrument", "instrument": "space telescope", "subject": "deep space field of galaxies and filaments",
+           "count": "many", "state": "glowing still", "setting": "plain",
+           "details": "tiny orange galaxies on faint bright filaments", "people": "none", "shot": "wide",
+           "light": "faint light from the galaxies themselves, no other source",
+           "mood": mood(visibility="instrument", true_colours="orange galaxies on black")}
+PROSE_INSTR = ("A telescope frame of deep space: thousands of tiny galaxies strung along faint bright filaments that "
+               "branch across the whole frame, wide empty gaps between them.")
+P_BODY = {"kind": "body_inside", "subject": "coronal section of human brain", "count": "1",
+          "state": "pale rounded mass sitting in the deep tissue", "setting": "plain",
+          "details": "folded cortex, soft grey and pink inks", "people": "none", "shot": "close", "hero": True,
+          "light": "even flat daylight tone, soft and uniform",
+          "mood": mood(valence="grim", gravity="real", true_colours="pink grey tissue")}
+PROSE_BODY = ("The episode's drawing: a coronal section of a human brain, folded cortex in soft grey and pink inks, a "
+              "pale rounded mass sitting in the deep tissue, nudging the folds aside.")
+P_PAIR = {"kind": "pair", "subject": "drawn synapse with few spheres", "subject_b": "drawn synapse packed with spheres",
+          "kind_a": "body_inside", "kind_b": "body_inside", "count": "1", "state": "releasing spheres",
+          "setting": "plain", "details": "few scattered pale spheres", "details_b": "spheres crowded wall to wall",
+          "people": "none", "shot": "macro", "light": "even flat daylight, no shadows", "mood": mood()}
+PROSE_PAIR = ("Left: drawn synapse with a few scattered dopamine spheres in the gap. Right: drawn synapse of the same "
+              "shape with the gap completely packed with spheres.")
+# name -> (spec, layout, drawing, prose)
+PROSE_SIX = {"thing": (P_THING, "card", "", PROSE_THING), "scene": (P_SCENE, "hero", "", PROSE_SCENE),
+             "vision": (P_VISION, "hero", "", PROSE_VISION), "instrument": (P_INSTR, "card", "", PROSE_INSTR),
+             "body_inside": (P_BODY, "hero", DRAW, PROSE_BODY), "pair": (P_PAIR, "card", "", PROSE_PAIR)}
+
+PROSE_GOLDEN = {
+    "thing": "A documentary photograph: a close view of an old brass toggle light switch on a tiled wall, flipped firmly "
+             "down, finger-worn brass plate, single screw slightly crooked. Macro close-up, horizontal frame. Soft "
+             "daylight from a window to the left, everyday.",
+    "scene": "A documentary photograph: a wiry anonymous man, thin bare arms, hauling a full-size white refrigerator "
+             "upright over cracked asphalt in a narrow brick back alley, early morning. One anonymous person, a "
+             "stranger, seen from the side. Wide shot, vertical frame. Low early morning sun along the alley, long "
+             "shadows.",
+    "vision": "What is perceived from inside the experience, the whole frame filled edge to edge by a plain white "
+              "ceiling with a round diffuser light, the top of a window frame, a blanket edge and knees in the lower "
+              "frame. Wide shot, vertical frame. Daylight spilling from the window at frame edge, calm.",
+    "instrument": "A space telescope image: a telescope frame of deep space, thousands of tiny galaxies strung along "
+                  "faint bright filaments that branch across the whole frame, wide empty gaps between them. Wide shot, "
+                  "horizontal frame. Faint light from the galaxies themselves.",
+    "body_inside": DRAW + " A coronal section of a human brain, folded cortex in soft grey and pink inks, a pale rounded "
+                   "mass sitting in the deep tissue, nudging the folds aside. Close-up, vertical frame. Even flat "
+                   "daylight tone, soft and uniform.",
+    "pair": "Two images side by side, the same scale. Left, drawn synapse with a few scattered dopamine spheres in the "
+            "gap. Right, drawn synapse of the same shape with the gap completely packed with spheres. Macro close-up, "
+            "horizontal frame, two equal halves. Even flat daylight.",
+}
+# the old frame's and the code's own sentences that a prose prompt never holds
+FILLERS = ("whole setting in view", "depth behind", "middle ground", "large and centred", "filling most of the frame",
+           "sliver of sharp focus", "few steps away", "full-screen", "deserted", "empty and still", "Visible details",
+           "Colours:", "muted colours", *sp._PAD)
+
+
+def prose_body(prompt, drawing=""):
+    return prompt.replace(drawing, "", 1) if drawing else prompt
+
+
+class TestProse:
+    @pytest.mark.parametrize("name", list(PROSE_SIX))
+    def test_golden_prompt(self, name):
+        spec, layout, drawing, prose = PROSE_SIX[name]
+        assert sp.build_prompt(spec, layout, drawing, prose=prose) == PROSE_GOLDEN[name]
+
+    @pytest.mark.parametrize("name", list(PROSE_SIX))
+    def test_nothing_comes_from_the_fields_but_the_kind_the_people_the_shot_and_the_light(self, name):
+        # the fields the old prompt was built from are not read: another subject, state, setting, details, count or
+        # mood give the very same prompt
+        spec, layout, drawing, prose = PROSE_SIX[name]
+        other = {**spec, "subject": "zebra", "subject_b": "giraffe", "state": "galloping", "setting": "a savannah",
+                 "details": "black stripes", "details_b": "long neck", "count": "many", "instrument": "space telescope",
+                 "mood": mood(era="recent", valence="grim", intensity="extreme", colours_said="red and gold",
+                              true_colours="black stripes")}
+        p = sp.build_prompt(other, layout, drawing, prose=prose)
+        assert p == sp.build_prompt(spec, layout, drawing, prose=prose).replace(
+            "A documentary photograph:", "A documentary photograph on colour film from the late twentieth century:")
+        assert not re.search(r"zebra|giraffe|galloping|savannah|stripes|long neck|red and gold", p, re.I)
+
+    @pytest.mark.parametrize("count", ["1", "2", "3", "4", "many", "seven"])
+    @pytest.mark.parametrize("subject", ["swollen nerve ending", "eye mask, earbuds", "galaxy and filaments"])
+    def test_the_prose_is_never_counted_nor_made_plural(self, count, subject):
+        prose = "A dense tangle of swollen nerve endings, each releasing fine pale granules into the narrow gap."
+        spec = {**P_BODY, "subject": subject, "count": count}
+        p = sp.build_prompt(spec, "card", DRAW, prose=prose)
+        assert p.startswith(DRAW + " A dense tangle of swollen nerve endings, each releasing fine pale granules into "
+                                   "the narrow gap. Close-up, horizontal frame.")
+        assert not re.search(r"\b(?:many|single|two|three|four|tangles|granuleses|endingses)\b", p.replace(DRAW, ""))
+        thing = sp.build_prompt({**P_THING, "subject": subject, "count": count}, "card",
+                                prose="Three pairs of small sneakers lined up on a mat by a front door.")
+        assert thing.startswith("A documentary photograph: three pairs of small sneakers lined up on a mat by a front "
+                                "door. Macro close-up, horizontal frame.")
+        assert "a single" not in thing and "many" not in thing
+
+    @pytest.mark.parametrize("name", list(PROSE_SIX))
+    def test_none_of_the_codes_own_sentences(self, name):
+        # the diagnosis: "Colours:" from the editor's mood, "empty and still, deserted", "the whole setting in view",
+        # "depth behind", the padding — the code's words contradicted the director's picture
+        spec, _layout, drawing, prose = PROSE_SIX[name]
+        for layout in ("hero", "card", "half"):
+            for people in ("none", "hands", "one", "group"):
+                p = prose_body(sp.build_prompt({**spec, "people": people}, layout, drawing, prose=prose), drawing)
+                for filler in FILLERS:
+                    assert filler not in p, (name, layout, people, filler)
+
+    def test_a_short_prose_is_never_padded(self):
+        p = sp.build_prompt({**P_THING, "shot": "close"}, "card", prose="A red apple.")
+        assert p == ("A documentary photograph: a red apple. Close-up, horizontal frame. Soft daylight from a window "
+                     "to the left, everyday.")
+        assert len(p.split()) < sp.MIN_WORDS
+
+    @pytest.mark.parametrize("people,line", [("hands", "Only a pair of hands enters the frame."),
+                                             ("one", "One anonymous person, a stranger, seen from the side."),
+                                             ("group", "A small group of anonymous strangers, seen together from a "
+                                                       "distance.")])
+    def test_who_is_in_the_frame_is_still_the_codes_guarantee(self, people, line):
+        for spec, layout, prose in ((P_THING, "card", PROSE_THING), (P_SCENE, "hero", PROSE_SCENE)):
+            p = sp.build_prompt({**spec, "people": people}, layout, prose=prose)
+            first = p.split(". ")[0] + "."
+            assert p.startswith(first + " " + line + " "), p          # right after the prose
+        for spec, layout, drawing, prose in (PROSE_SIX["vision"], PROSE_SIX["instrument"], PROSE_SIX["body_inside"],
+                                             PROSE_SIX["pair"]):
+            p = sp.build_prompt({**spec, "people": people}, layout, drawing, prose=prose)
+            assert line not in p and "anonymous person" not in p and "strangers" not in p
+        none = sp.build_prompt({**P_SCENE, "people": "none"}, "hero", prose=PROSE_SCENE)
+        assert not any(x in none for x in sp._PEOPLE_LINE.values()) and "deserted" not in none
+
+    @pytest.mark.parametrize("shot,words", [("wide", "Wide shot"), ("medium", "Medium shot"), ("close", "Close-up"),
+                                            ("macro", "Macro close-up"), ("huge", "Medium shot")])
+    @pytest.mark.parametrize("layout,shape", [("hero", "vertical frame"), ("card", "horizontal frame"),
+                                              ("half", "square frame"), ("other", "vertical frame")])
+    def test_the_frame_is_the_shot_and_the_frames_shape(self, shot, words, layout, shape):
+        p = sp.build_prompt({**P_THING, "shot": shot}, layout, prose=PROSE_THING)
+        assert f" {words}, {shape}. Soft daylight" in p
+        pair = sp.build_prompt({**P_PAIR, "shot": shot}, layout, prose=PROSE_PAIR)
+        assert f" {words}, {shape}, two equal halves. Even flat daylight." in pair
+
+    @pytest.mark.parametrize("name", list(PROSE_SIX))
+    def test_the_directors_light_and_never_a_colours_block(self, name):
+        spec, layout, drawing, prose = PROSE_SIX[name]
+        loud = {**spec, "mood": {**spec["mood"], "colours_said": "bright orange and black", "true_colours": "teal"}}
+        p = sp.build_prompt(loud, layout, drawing, prose=prose)
+        assert p == PROSE_GOLDEN[name]                         # the mood's colours never come in
+        assert "Colours" not in p and "orange and black" not in p and "teal" not in p
+        for lead in (*sp._KEY.values(), *sp._KEY_INSTRUMENT.values()):
+            assert lead.lower() not in p.lower()              # nor the mood's light when the director gave one
+        given = sp._cap(sp._given_light(spec)) + "."
+        assert p.endswith(" " + given)
+
+    @pytest.mark.parametrize("light", ["", None, "no shadows", "ominous, eerie"])
+    def test_without_the_directors_light_the_moods_light_and_still_no_colours(self, light):
+        p = sp.build_prompt({**P_THING, "light": light, "mood": mood(true_colours="law books")}, "card",
+                            prose=PROSE_THING)
+        assert p.endswith(" Macro close-up, horizontal frame. Balanced light, a clear key light with soft shadows; "
+                          "soft directional light.")
+        assert "Colours" not in p and "law books" not in p
+        grave = sp.build_prompt({**P_THING, "light": light, "mood": mood(gravity="grave", valence="grim")}, "card",
+                                prose=PROSE_THING)
+        assert "soft natural daylight" in grave and "Low-key" not in grave
+        instrument = sp.build_prompt({**P_INSTR, "light": light}, "card", prose=PROSE_INSTR)
+        assert instrument.endswith(" Wide shot, horizontal frame. Even illumination, clear detail.")
+
+    def test_the_lead_by_kind_and_era(self):
+        assert sp.build_prompt({**P_THING, "mood": mood(era="recent")}, "card", prose=PROSE_THING).startswith(
+            "A documentary photograph on colour film from the late twentieth century: a close view of an old brass")
+        assert sp.build_prompt({**P_SCENE, "mood": mood(era="early")}, "hero", prose=PROSE_SCENE).startswith(
+            "A documentary photograph in black and white from the early twentieth century: a wiry anonymous man")
+        assert sp.build_prompt(P_THING, "card", era_words="in sepia from the 1990s", prose=PROSE_THING).startswith(
+            "A documentary photograph in sepia from the 1990s: a close view")
+        assert sp.build_prompt({**P_INSTR, "instrument": "electron microscope"}, "card", prose=PROSE_INSTR).startswith(
+            "An electron microscope image: a telescope frame of deep space")
+        # a prose may open on anything: the photograph's lead ends on a colon, never "showing seen from ..."
+        bus = sp.build_prompt({**P_SCENE, "people": "group"}, "hero", prose="Seen from a bus seat: four strangers "
+                              "standing, mouths mid-speech, hands on grab rails, condensation on the window.")
+        assert bus.startswith("A documentary photograph: seen from a bus seat, four strangers standing, mouths "
+                              "mid-speech, hands on grab rails, condensation on the window. A small group of")
+        assert "showing" not in bus
+        # an acronym or a name keeps its capitals; a drawing's and a pair's prose is a sentence of its own
+        assert "photograph: MRI scan" in sp.build_prompt(P_THING, "card", prose="MRI scan of a knee joint.")
+        assert "photograph: McIntosh apples" in sp.build_prompt(P_THING, "card", prose="McIntosh apples in a crate.")
+        assert sp.build_prompt(P_BODY, "card", DRAW, prose="drawn deep brain tissue").startswith(
+            DRAW + " Drawn deep brain tissue. Close-up, horizontal frame.")
+
+    def test_a_label_that_only_restates_the_lead_goes(self):
+        synapse = sp.build_prompt(P_BODY, "card", DRAW, prose="The episode's drawing of a single synapse: a cup-shaped "
+                                  "nerve ending crowded with round vesicles.")
+        assert synapse.startswith(DRAW + " A single synapse, a cup-shaped nerve ending crowded with round vesicles. ")
+        assert "episode" not in synapse.replace(DRAW, "")
+        # a vision never names the one who perceives (the engine draws him): "What ... perceives / sees:" goes
+        for label in ("What the person lying back perceives:", "What she sees from the bed:", "what is seen —"):
+            p = sp.build_prompt(P_VISION, "hero", prose=f"{label} a ceiling fan turning slowly.")
+            assert p.startswith(TestWordsOfTheMedium.VISION_LEAD + " a ceiling fan turning slowly. Wide shot"), p
+            assert "person" not in p and " she " not in p
+        # only those: a thing keeps its opening words, a vision its other ones
+        assert "photograph: what the man sees, a coat on a hook." in sp.build_prompt(
+            P_THING, "card", prose="What the man sees: a coat on a hook.")
+        assert "edge to edge by what remains, a blur of light." in sp.build_prompt(
+            P_VISION, "hero", prose="What remains: a blur of light.")
+
+    PROSES = ("Edge-to-edge vivid saturated shapes, soft glowing fields, no objects and no people.",
+              "An open office door at night; inside, a desk lamp still glowing, nobody there.",
+              "A coat on a hook. Nothing else in the room. Never a person.",
+              "A hand that isn't moving, a cup without a handle, shot on a Canon with an 85 mm lens, a ledge 3 metres away",
+              "No stars. Not one light. Nobody.")
+
+    @pytest.mark.parametrize("prose", PROSES)
+    def test_no_negation_no_camera_whatever_the_prose(self, prose):
+        for kind, layout, people in itertools.product(sp.KINDS, ("hero", "card", "half"), ("none", "hands", "group")):
+            spec = {**P_THING, "kind": kind, "people": people, "light": "low sun, no shadows, 85 mm glow"}
+            p = sp.build_prompt(spec, layout, DRAW, prose=prose)
+            body = prose_body(p, DRAW) if kind == "body_inside" else p
+            assert not NEG.search(body) and not CAMERA.search(body), body
+            assert not re.search(r"\b(?:3|85)\b|metres", body), body
+            assert len(body.split()) <= sp.MAX_WORDS
+        p = sp.build_prompt(P_THING, "card", prose="A coat on a hook. Nothing else in the room. Never a person.")
+        assert p.startswith("A documentary photograph: a coat on a hook. Macro close-up")   # each sentence on its own
+        office = sp.build_prompt(P_SCENE, "card", prose=self.PROSES[1])
+        assert "an open office door at night, inside, a desk lamp still glowing. One anonymous" in office
+
+    @pytest.mark.parametrize("prose", ["", "   ", None, "No people, nothing there.", "Nobody. Never.", 0])
+    def test_no_prose_or_nothing_left_of_it_is_the_old_prompt(self, prose):
+        for name, (spec, layout, drawing) in SIX.items():
+            assert sp.build_prompt(spec, layout, drawing, prose=prose) == GOLDEN[name], name
+
+    def test_the_old_path_is_unchanged(self):
+        for name, (spec, layout, drawing) in SIX.items():
+            assert sp.build_prompt(spec, layout, drawing) == GOLDEN[name]
+            assert sp.build_prompt(spec, layout, drawing, "", None) == GOLDEN[name]
+        # a spec that carries the director's picture is not read for it: only the prose argument counts
+        assert sp.build_prompt({**THING, "picture": PROSE_THING, "picture_b": "x"}, "card") == GOLDEN["thing"]
+
+    def test_deterministic_and_the_spec_is_not_changed(self):
+        for spec, layout, drawing, prose in PROSE_SIX.values():
+            before = repr(spec)
+            assert sp.build_prompt(spec, layout, drawing, prose=prose) == sp.build_prompt(dict(spec), layout, drawing,
+                                                                                          prose=prose)
+            assert repr(spec) == before
+
+    WORDS = [f"stone{i}" for i in range(130)]
+
+    def test_over_the_cap_the_frame_then_the_light_go_before_the_prose(self):
+        # lead 3 + prose + frame 4 ("Macro close-up, horizontal frame.") + light 9 ("Soft daylight ... everyday.")
+        p = sp.build_prompt(P_THING, "card", prose=" ".join(self.WORDS[:95]))            # 111 words: the shot goes
+        assert p == ("A documentary photograph: " + " ".join(self.WORDS[:95]) + ". Horizontal frame. Soft daylight "
+                     "from a window to the left, everyday.")
+        assert len(p.split()) <= sp.MAX_WORDS
+        p = sp.build_prompt(P_THING, "card", prose=" ".join(self.WORDS[:104]))           # 120: the frame, the light
+        assert p == "A documentary photograph: " + " ".join(self.WORDS[:104]) + "."
+        p = sp.build_prompt(P_THING, "card", prose=" ".join(self.WORDS[:120]))           # last resort: the prose's end
+        assert p == "A documentary photograph: " + " ".join(self.WORDS[:107]) + "."
+        assert len(p.split()) == sp.MAX_WORDS
+        # who is in the frame is never cut; the drawing stays outside the cap
+        group = sp.build_prompt({**P_SCENE, "people": "group"}, "hero", prose=" ".join(self.WORDS))
+        assert group.endswith(" A small group of anonymous strangers, seen together from a distance.")
+        assert len(group.split()) == sp.MAX_WORDS
+        drawn = sp.build_prompt(P_BODY, "card", DRAW, prose=" ".join(self.WORDS))
+        assert drawn.startswith(DRAW + " Stone0 stone1") and len(prose_body(drawn, DRAW).split()) == sp.MAX_WORDS
+
+    def test_the_judges_side_never_reads_the_prose(self):
+        for spec, _layout, _drawing, _prose in PROSE_SIX.values():
+            assert sp.questions(spec) == sp.questions({**spec, "picture": "a zebra"})
+            assert sp.judge_line(spec) == sp.judge_line({**spec, "picture": "a zebra"})
+
+
+class TestDescriptiveShare:
+    def test_examples(self):
+        assert sp.descriptive_share("Studio photo of a red apple", {"subject": "red apple"}) == pytest.approx(2 / 6)
+        assert sp.descriptive_share("RED Apple", {"subject": "red apple"}) == 1.0                  # case aside
+        assert sp.descriptive_share("Two galaxies glow", {}, prose="a galaxy") == pytest.approx(1 / 3)   # 5 letters
+        assert sp.descriptive_share("dopa", {"subject": "dopamine"}) == 0.0                     # under 5: the word
+        assert sp.descriptive_share("dopamine", {"subject": "dopa"}) == 0.0
+        assert sp.descriptive_share("Tendons in soft light", {"details_b": "long tendons", "light": "soft light"}) == 0.75
+        assert sp.descriptive_share("the doctor's coat", {"details": "the doctor's white coat"}) == 1.0
+        # "doctor" shares "docto" with "doctor's"; "coats" and "coat" are one word, but "coat" is under 5 letters
+        assert sp.descriptive_share("doctor coats", {"details": "the doctor's white coat"}) == 0.5
+        assert sp.descriptive_share("a human skull", {"subject_b": "human skull"}) == pytest.approx(2 / 3)
+
+    def test_the_prose_takes_the_place_of_the_fields(self):
+        spec = {"subject": "red apple", "state": "resting", "setting": "a table", "details": "green stem"}
+        assert sp.descriptive_share("red apple resting", spec) == 1.0
+        assert sp.descriptive_share("red apple resting", spec, prose="a green pear") == 0.0
+        assert sp.descriptive_share("red apple resting", {**spec, "light": "red dawn"}, prose="a green pear") == 1 / 3
+
+    @pytest.mark.parametrize("prompt,spec", [("", THING), ("   ", THING), (None, THING), ("...", THING),
+                                             ("a red apple", None), ("a red apple", {})])
+    def test_empty_or_odd(self, prompt, spec):
+        share = sp.descriptive_share(prompt, spec)
+        assert share == 0.0
+
+    @pytest.mark.parametrize("name", list(PROSE_SIX))
+    def test_the_prose_prompt_is_more_the_directors_than_the_old_one(self, name):
+        spec, layout, drawing, prose = PROSE_SIX[name]
+        old = sp.descriptive_share(sp.build_prompt(spec, layout, drawing), spec)
+        new = sp.descriptive_share(sp.build_prompt(spec, layout, drawing, prose=prose), spec, prose)
+        assert 0.0 < old < new <= 1.0, (old, new)
+        if not drawing:
+            assert new >= 0.65, new

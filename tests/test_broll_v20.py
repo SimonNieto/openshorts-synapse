@@ -1,9 +1,14 @@
 """B-roll v20 « la fiche » (3-oct-2026): the whole chain on fakes — the editor's specs, the code's prompt, the blind
-check and decide(), the hero's takes, the alternative, the reserve under the minimum. No model, no ComfyUI.
+check and decide(), the hero's takes, the alternative, the reserves. No model, no ComfyUI.
 v21 (« idées »): ``run(..., ideas=True)`` puts the round of ideas (broll_ideas) between the editor and the rendering;
 a picture that does not fit the words ("against" / "away") takes its alternative, whatever its kind; a pair is made as
-two halves that share nothing (``_halves``)."""
+two halves that share nothing (``_halves``).
+Reserves (``run(..., reserve_mode=...)``): "none" is the default and what production gets, no reserve and no
+alternative is made to reach a count; "quota" is the bench's older behaviour (the reserves, then the alternatives, while
+under broll_check.MIN_PER_CLIP kept); "above_face" makes every reserve the round returned, never for a count. The tests
+that need a reserve to be rendered say reserve_mode="quota" or "above_face"; the last section is about the three modes."""
 import copy
+import inspect
 import os
 import re
 
@@ -56,10 +61,11 @@ def _ok(subject="yes", fits="with", look=4):
 
 
 def _run(monkeypatch, tmp_path, moments, reserves, verdicts, plan_kw=None, clip=None, words=None, avoid=None, head=1.0,
-         block=(), **run_kw):
+         block=(), reserve_mode=None, **run_kw):
     """``verdicts``: file basename -> check result (missing: a clean one). ``plan_kw`` is filled with the keywords
     plan_specs was called with; ``avoid`` (default none), ``head`` and ``block``: the clip's timing rules;
-    ``run_kw``: more keywords of broll_v20.run (``ideas``)."""
+    ``reserve_mode``: the keyword of broll_v20.run ("none" / "quota" / "above_face"), None to say nothing and get run's
+    own default, which is what production gets; ``run_kw``: more keywords of broll_v20.run (``ideas``)."""
     def plan(*a, **k):
         if plan_kw is not None:
             plan_kw.update(k, args=a)                    # the keywords, and under "args" the positional arguments
@@ -67,6 +73,8 @@ def _run(monkeypatch, tmp_path, moments, reserves, verdicts, plan_kw=None, clip=
     monkeypatch.setattr(broll_spec, "plan_specs", plan)
     monkeypatch.setattr(broll_check, "check", lambda cands, words, **k: {
         os.path.basename(c["file"]): verdicts.get(os.path.basename(c["file"]), _ok()) for c in cands})
+    if reserve_mode is not None:
+        run_kw["reserve_mode"] = reserve_mode
     made = []
     kept, pictured = broll_v20.run("clip.mp4", clip if clip is not None else {}, words if words is not None else [],
                                    None, 0, 30, 4, avoid if avoid is not None else [], head, 2.0, 2.0, block, None,
@@ -131,9 +139,10 @@ def test_a_picture_that_fits_is_kept_as_it_is(monkeypatch, tmp_path):
 
 
 def test_under_the_minimum_a_reserve_is_made(monkeypatch, tmp_path):
+    # the bench's older behaviour, asked for: the default (none) makes no reserve, see the last section
     unsafe = {**_ok(), "answers": {**_ok()["answers"], "q_unsafe": "yes"}}
     kept, pictured, made = _run(monkeypatch, tmp_path, [_m(5.0, alt=None), _m(12.0, alt=None)], [_m(20.0)],
-                                {"broll_0.jpg": unsafe, "broll_1.jpg": unsafe})
+                                {"broll_0.jpg": unsafe, "broll_1.jpg": unsafe}, reserve_mode="quota")
     assert len(kept) == 1 and kept[0]["file"].endswith("broll_2r.jpg") and len(pictured) == 3
     assert broll.LAST_PICTURED[2]["t"] == 20.0 and broll.FILTERS["check: unsafe"] == 2
 
@@ -150,6 +159,7 @@ def test_add_broll_branches_on_the_chain():
     src = open(os.path.join(os.path.dirname(broll.__file__), "broll.py"), encoding="utf-8").read()
     assert 'cfg.get("chain") == "spec"' in src and "broll_v20.run(" in src and "raw=True" in src
     assert 'ideas=bool(cfg.get("ideas"))' in src               # v21: the profile's switch reaches the chain
+    assert 'reserve_mode=str(cfg.get("reserves") or "none")' in src      # the reserves' too; saying nothing is "none"
 
 
 # ---------------------------------------------------------------------------------------------- v21: the round of ideas
@@ -182,7 +192,7 @@ def test_with_ideas_the_round_chooses_what_is_rendered(monkeypatch, tmp_path):
     seen, plan_kw, clip = {}, {}, {"video_title_for_youtube_short": "Water"}
     _round_returning(monkeypatch, [chosen], [again], seen)
     kept, pictured, made = _run(monkeypatch, tmp_path, [first, second], [spare], {}, plan_kw=plan_kw, clip=clip,
-                                words=WORDS, ideas=True)
+                                words=WORDS, ideas=True, reserve_mode="quota")
     # the editor is told it works for the round, and the round gets the clip: moments, reserves, clip, words, the
     # clip's gravity (the first moment's) and its text
     assert plan_kw["ideas"] is True
@@ -190,8 +200,9 @@ def test_with_ideas_the_round_chooses_what_is_rendered(monkeypatch, tmp_path):
     assert moments == [first, second] and reserves == [spare] and got_clip is clip and words is WORDS
     assert gravity == "grave" and clip_text == "a glass of water"
     # the clip's timing rules go with it, as keywords (the round picks the hero with them): run's own, here none
-    assert seen["kwargs"] == {"avoid": [], "head": 1.0, "block": ()} and len(seen["args"]) == 6
-    # what it returns is what is rendered: its moment first, then its reserve (under the minimum), nothing of the rest
+    assert seen["kwargs"] == {"avoid": [], "head": 1.0, "block": (), "judge": None, "shown": None} and len(seen["args"]) == 6
+    # what it returns is what is rendered: its moment first, then its reserve (under the minimum: the "quota" mode),
+    # nothing of the rest
     assert [m[0] for m in made] == ["broll_0.jpg", "broll_1r.jpg"]
     assert "Low sodium lamp from the right." in made[0][2]            # the art director's light is in the prompt
     assert [c["m"]["spec"]["subject"] for c in kept] == ["a tap running", "a kettle on the hob"]
@@ -205,7 +216,7 @@ def test_the_round_gets_the_timing_rules_the_editor_was_given_as_keywords(monkey
     _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [], {}, plan_kw=plan_kw, words=WORDS, ideas=True,
          avoid=avoid, head=2.5, block=block)
     # avoid, head and block are keywords of the round (the other six arguments stay positional) ...
-    assert set(seen["kwargs"]) == {"avoid", "head", "block"} and len(seen["args"]) == 6
+    assert set(seen["kwargs"]) == {"avoid", "head", "block", "judge", "shown"} and len(seen["args"]) == 6
     assert seen["kwargs"]["avoid"] is avoid and seen["kwargs"]["head"] == 2.5 and seen["kwargs"]["block"] is block
     # ... the very rules the editor placed the moments with
     assert plan_kw["args"][3] is avoid and plan_kw["head"] == 2.5 and plan_kw["block"] is block
@@ -224,7 +235,7 @@ def test_the_hero_is_picked_among_the_ideas_with_the_clips_rules_and_made_full_s
              "kind": "scene", "subject": "a busy restaurant kitchen", "count": "1", "state": "steam rising from pans",
              "setting": "a restaurant at noon", "details": "steel pans, a wide window", "people": "none",
              "person": "none", "shot": "wide", "light": "hard noon daylight through a window", "hero_ok": True}
-    monkeypatch.setattr(broll_ideas, "_direct", lambda moments, words, clip, gravity: {
+    monkeypatch.setattr(broll_ideas, "_direct", lambda moments, words, clip, gravity, shown=(): {
         k: {"idea": "a kitchen", "role": "point", "ideas": [dict(scene)], "why": ""} for k in range(len(moments))})
     monkeypatch.setattr(broll_ideas, "_verify", lambda moments, words, clip, gravity, ideas: {
         (k, 0): {"verdict": "pass", "reason": "", "details": "", "flaw": "none"} for k in range(len(moments))})
@@ -612,7 +623,7 @@ def test_the_flaw_the_idea_round_found_reaches_the_lesson_of_the_picture(monkeyp
             "setting": "a restaurant at noon", "details": "steel pans, a wide window", "people": "none", "person": "none",
             "shot": "wide", "light": "hard noon daylight through a window"}
     flaws = ["object", "none"]
-    monkeypatch.setattr(broll_ideas, "_direct", lambda moments, words, clip, gravity: {
+    monkeypatch.setattr(broll_ideas, "_direct", lambda moments, words, clip, gravity, shown=(): {
         k: {"idea": "a kitchen", "role": "point", "ideas": [dict(idea)], "why": ""} for k in range(len(moments))})
     monkeypatch.setattr(broll_ideas, "_verify", lambda moments, words, clip, gravity, ideas: {
         (k, 0): {"verdict": "pass", "reason": "", "details": "", "flaw": flaws[k]} for k in range(len(moments))})
@@ -625,3 +636,351 @@ def test_the_flaw_the_idea_round_found_reaches_the_lesson_of_the_picture(monkeyp
     drop, keep = lessons()
     assert (drop["verdict"], drop["why"], drop["flaw"], drop["kind"]) == ("drop", "pulls attention away", "object", "scene")
     assert (keep["verdict"], keep["flaw"]) == ("keep", "none")
+
+
+# ------------------------------------------------------------------------------- v24: PROSE mode (the bench only)
+# run(..., prose=True) sets broll_v20.PROSE for the clip: a picture's prompt starts from the art director's own words
+# (the moment's "picture"; a pair's right half, the spec's "picture_b"; shot_prompt.build_prompt(prose=...)). Off — in
+# production — no picture is ever read and every prompt is the fields' one, as before.
+
+GLASS = "A tall glass of water on a kitchen table, drops sliding down its side, morning sun through the window."
+TAP = "A steel tap running into a white sink, a thin stream catching the light."
+MOOD_LIGHT = "Balanced light, a clear key light with soft shadows; soft directional light."     # SPEC gives no light
+GLASS_CARD = ("A documentary photograph: a tall glass of water on a kitchen table, drops sliding down its side, morning "
+              "sun through the window. Medium shot, horizontal frame. " + MOOD_LIGHT)
+TAP_CARD = ("A documentary photograph: a steel tap running into a white sink, a thin stream catching the light. "
+            "Close-up, horizontal frame. " + MOOD_LIGHT)
+PAIR_LEFT = "A prosthetic hand resting palm up on a laboratory bench, carbon-fibre palm, steel finger joints."
+PAIR_RIGHT = "A drawn forearm with its muscles laid bare, long red tendons running down to the wrist."
+LEFT_HALF = ("A documentary photograph: a prosthetic hand resting palm up on a laboratory bench, carbon-fibre palm, "
+             "steel finger joints. Medium shot, square frame. Soft window daylight.")
+RIGHT_HALF = ("A gouache drawing. A drawn forearm with its muscles laid bare, long red tendons running down to the "
+              "wrist. Medium shot, square frame. Soft window daylight.")
+TEXT_IN_IT = {**_ok(), "answers": {**_ok()["answers"], "q_text": "yes"}}          # a shape to fix: rendered again
+
+
+@pytest.fixture(autouse=True)
+def _prose_off(monkeypatch):
+    """Every test starts with PROSE off (run() sets it for its clip; a test of the parts sets it itself)."""
+    monkeypatch.setattr(broll_v20, "PROSE", False)
+
+
+def _pictured(t, picture=GLASS, **spec):
+    """A moment the idea round chose: its spec and the art director's picture of it."""
+    return {**_m(t, **spec), "picture": picture}
+
+
+def _fields(spec, layout="card"):
+    """The prompt a spec's fields make (production)."""
+    return shot_prompt.build_prompt(spec, layout, "A gouache drawing." if spec.get("kind") == "body_inside" else "")
+
+
+def _texts(made):
+    return {name: text for name, _layout, text in made}
+
+
+def _no_alt(spec):
+    return {k: v for k, v in {**spec, **spec["alt"]}.items() if k != "alt"}
+
+
+def test_prose_is_off_unless_run_is_told(monkeypatch, tmp_path):
+    assert inspect.signature(broll_v20.run).parameters["prose"].default is False and broll_v20.PROSE is False
+    _run(monkeypatch, tmp_path, [_pictured(5.0)], [], {}, prose=True)
+    assert broll_v20.PROSE is True
+    _run(monkeypatch, tmp_path, [_pictured(5.0)], [], {})                  # the next clip, production's call
+    assert broll_v20.PROSE is False
+
+
+def test_off_no_picture_is_read_and_production_is_unchanged(monkeypatch, tmp_path):
+    pair = _pictured(12.0, f"Left: {PAIR_LEFT} Right: {PAIR_RIGHT}", alt=None, **PAIR, picture_b=PAIR_RIGHT)
+    kept, _p, made = _run(monkeypatch, tmp_path, [_pictured(5.0), pair], [], {"broll_0.jpg": _ok(fits="against")})
+    texts = _texts(made)
+    assert texts["broll_0.jpg"] == _fields(_m(5.0)["spec"]) and "tall glass" not in texts["broll_0.jpg"]
+    assert texts["broll_0_alt.jpg"] == _fields(_no_alt(_m(5.0)["spec"]))
+    left, right = broll_v20._halves(pair["spec"])
+    assert (texts["broll_1_h0.jpg"], texts["broll_1_h1.jpg"]) == (_fields(left, "half"), _fields(right, "half"))
+    assert not {"picture", "picture_b"} & (set(left) | set(right))
+    assert "prosthetic hand resting palm up" not in texts["broll_1_h0.jpg"] + texts["broll_1_h1.jpg"]
+    assert broll_v20._prose({"picture": GLASS}, {"picture_b": "x"}) == (None, None)
+    assert broll_v20._alt(SPEC) == _no_alt(SPEC)                          # the same alternative as before
+
+
+def test_on_the_prompt_is_the_art_directors_picture(monkeypatch, tmp_path):
+    kept, _p, made = _run(monkeypatch, tmp_path, [_pictured(5.0), _m(12.0)], [], {}, prose=True)
+    assert made[0][2] == GLASS_CARD and kept[0]["m"]["prompt"] == GLASS_CARD
+    assert made[1][2] == _fields(_m(12.0)["spec"])                       # no picture from the round: the fields
+    # the hero's takes: the same prose, in a vertical frame
+    _k, _p, made = _run(monkeypatch, tmp_path, [_pictured(5.0, hero=True)], [], {}, prose=True)
+    assert [(name, layout) for name, layout, _t in made] == [("broll_0.jpg", "hero"), ("broll_0_t2.jpg", "hero")]
+    assert made[0][2] == made[1][2] == GLASS_CARD.replace("horizontal frame", "vertical frame")
+
+
+def test_a_picture_rendered_again_keeps_its_prose(monkeypatch, tmp_path):
+    _k, _p, made = _run(monkeypatch, tmp_path, [_pictured(5.0)], [], {"broll_0.jpg": _ok(subject="no")}, prose=True)
+    assert [name for name, _l, _t in made] == ["broll_0.jpg", "broll_0_v2.jpg"]
+    assert made[0][2] == made[1][2] == GLASS_CARD
+
+
+def test_the_alternative_has_its_own_picture_never_the_first_ideas(monkeypatch, tmp_path):
+    against = {"broll_0.jpg": _ok(fits="against")}
+    kept, _p, made = _run(monkeypatch, tmp_path, [_pictured(5.0)], [], against, prose=True)
+    alt_text = _texts(made)["broll_0_alt.jpg"]
+    # no picture of its own: its fields, as in production — never the glass of the first idea
+    assert alt_text == _fields(_no_alt(_m(5.0)["spec"])) and "tap running" in alt_text and "glass" not in alt_text
+    assert kept[0]["alt_used"] and kept[0]["m"]["prompt"] == alt_text
+    # with its own picture (the round's second idea, in spec["alt"]): that prose
+    own = {**SPEC["alt"], "picture": TAP}
+    kept, _p, made = _run(monkeypatch, tmp_path, [_pictured(5.0, alt=own)], [], against, prose=True)
+    assert _texts(made)["broll_0_alt.jpg"] == TAP_CARD and kept[0]["m"]["prompt"] == TAP_CARD
+    # rendered again, the alternative keeps it
+    _k, _p, made = _run(monkeypatch, tmp_path, [_pictured(5.0, alt=own)], [],
+                        {**against, "broll_0_alt.jpg": TEXT_IN_IT}, prose=True)
+    assert [name for name, _l, _t in made] == ["broll_0.jpg", "broll_0_alt.jpg", "broll_0_v3.jpg"]
+    assert _texts(made)["broll_0_v3.jpg"] == TAP_CARD
+
+
+def test_under_the_minimum_the_alternative_made_keeps_its_own_picture(monkeypatch, tmp_path):
+    # quota (the bench's older versions): the first picture always has writing in it (rendered again twice, then
+    # dropped), the clip is under the minimum, its alternative is made — with the alternative's picture
+    first = _pictured(5.0, alt={**SPEC["alt"], "picture": TAP})
+    kept, pictured, made = _run(monkeypatch, tmp_path, [first, _pictured(12.0)], [],
+                                {"broll_0.jpg": TEXT_IN_IT, "broll_0_v2.jpg": TEXT_IN_IT, "broll_0_v3.jpg": TEXT_IN_IT},
+                                reserve_mode="quota", prose=True)
+    texts = _texts(made)
+    assert [texts[n] for n in ("broll_0.jpg", "broll_0_v2.jpg", "broll_0_v3.jpg")] == [GLASS_CARD] * 3
+    assert texts["broll_2a.jpg"] == TAP_CARD and len(pictured) == 3
+    assert [c["m"]["spec"]["subject"] for c in kept] == ["a tap running", "a glass of water"]
+
+
+def test_a_pairs_halves_each_have_their_own_picture(monkeypatch, tmp_path):
+    # the round's pair: the moment's "picture" is the left half alone, the spec's "picture_b" the right one
+    pair = _pictured(5.0, PAIR_LEFT, alt=None, **PAIR, picture_b=PAIR_RIGHT)
+    kept, _p, made = _run(monkeypatch, tmp_path, [pair, _m(12.0)], [], {}, prose=True)
+    assert [m for m in made if m[0].startswith("broll_0_h")] == [("broll_0_h0.jpg", "half", LEFT_HALF),
+                                                                  ("broll_0_h1.jpg", "half", RIGHT_HALF)]
+    assert next(c for c in kept if c["k"] == 0)["m"]["prompt"] == f"PAIR — left: {LEFT_HALF} — right: {RIGHT_HALF}"
+
+
+@pytest.mark.parametrize("prose,prose_b", [
+    (f"Left: {PAIR_LEFT} Right: {PAIR_RIGHT}", None),                   # written for both halves at once: split
+    (f"left half: {PAIR_LEFT}; right half: {PAIR_RIGHT}", None),
+    (PAIR_LEFT, PAIR_RIGHT),
+    (f"Left: {PAIR_LEFT}", f"Right: {PAIR_RIGHT}"),                     # the labels go
+    (f"Left: {PAIR_LEFT} Right: a forearm.", PAIR_RIGHT)])              # the right half's own picture wins
+def test_each_half_gets_its_own_part_of_the_picture(prose, prose_b):
+    left, right = broll_v20._halves(PAIR, prose, prose_b)
+    assert (left["picture"].rstrip("."), right["picture"].rstrip(".")) == (PAIR_LEFT[:-1], PAIR_RIGHT[:-1])
+    assert (broll_v20._text(left, "half", left["picture"]), broll_v20._text(right, "half", right["picture"])) == (
+        LEFT_HALF, RIGHT_HALF)
+
+
+def test_a_picture_of_the_whole_pair_is_neither_halfs():
+    # no "picture_b" and no "Left: / Right:": the picture describes both things — each half keeps its fields
+    assert broll_v20._halves(PAIR, "A prosthetic hand beside a forearm laid bare.", None) == broll_v20._halves(PAIR)
+    left, right = broll_v20._halves(PAIR, None, PAIR_RIGHT)                # the right one alone has its own
+    assert "picture" not in left and right["picture"] == PAIR_RIGHT
+    assert broll_v20._pair_proses("", "  ") == (None, None) and broll_v20._pair_proses(None, None) == (None, None)
+
+
+def test_a_half_holds_no_picture_of_the_pair_and_the_net_reads_its_own():
+    spec = {**PLAIN_PAIR, "picture": "the whole pair", "picture_b": "a wooden ladder against a wall"}
+    left, right = broll_v20._halves(spec)                                 # nothing passed: production
+    assert not {"picture", "picture_b"} & (set(left) | set(right))
+    # a half whose own picture names the inside of a body is drawn, whatever its kind and fields say
+    left, right = broll_v20._halves(PLAIN_PAIR, "A glowing synapse between two nerve endings.", "A wooden ladder.")
+    assert (left["kind"], right["kind"]) == ("body_inside", "thing")
+    left_text = broll_v20._text(left, "half", left["picture"])
+    right_text = broll_v20._text(right, "half", right["picture"])
+    assert left_text.startswith("A gouache drawing. A glowing synapse") and "ladder" not in left_text
+    assert right_text.startswith("A documentary photograph: a wooden ladder.") and "synapse" not in right_text
+
+
+def test_the_prose_of_a_moment_and_of_its_alternative(monkeypatch):
+    m = {"picture": GLASS, "picture_b": "the moment's right half"}
+    monkeypatch.setattr(broll_v20, "PROSE", True)
+    assert broll_v20._prose(m, {"kind": "thing"}) == (GLASS, "the moment's right half")
+    assert broll_v20._prose(m, {"kind": "pair", "picture_b": "the spec's"}) == (GLASS, "the spec's")
+    assert broll_v20._prose({}, {"kind": "thing"}) == (None, None) and broll_v20._prose(None, None) == (None, None)
+    assert broll_v20._prose(m, {"picture": TAP}) == (TAP, None)          # a spec that carries its own picture
+    spec = {**SPEC, "picture_b": "the first idea's right half", "alt": {**SPEC["alt"], "picture": TAP}}
+    alt = broll_v20._alt(spec)
+    assert (alt["picture"], alt["picture_b"]) == (TAP, "") and broll_v20._prose(m, alt) == (TAP, None)
+    bare = broll_v20._alt({**SPEC, "picture": GLASS})                     # no picture of its own: its fields
+    assert (bare["picture"], bare["picture_b"]) == ("", "") and broll_v20._prose(m, bare) == (None, None)
+
+
+COAT = "A white coat hanging on a wall hook behind an office door, sleeves loose."
+BELT = "A black belt coiled on a wall hook above a folded white uniform."
+
+
+@pytest.mark.parametrize("grave", [{"gravity": "grave"}, {"death_near": True},
+                                   {"mood": {"gravity": "grave"}}], ids=["grave clip", "near a death", "grave mood"])
+def test_around_a_death_the_prose_goes_through_the_nets_of_its_fields(monkeypatch, tmp_path, grave):
+    # broll_ideas._spec_of: in a clip about a death nothing hangs (those words go) and a strap-like thing is refused;
+    # the prose gets the same — a strap in it and the fields (which the code checked) make the prompt
+    kept, _p, made = _run(monkeypatch, tmp_path, [_pictured(5.0, COAT, **grave), _pictured(12.0, BELT, **grave)], [],
+                          {}, prose=True)
+    texts = _texts(made)
+    assert texts["broll_0.jpg"].startswith("A documentary photograph: a white coat on a wall hook behind an office "
+                                           "door, sleeves. Medium shot, horizontal frame.")
+    assert not re.search(r"hang|loose", texts["broll_0.jpg"])
+    assert texts["broll_1.jpg"] == _fields(_m(12.0, **grave)["spec"]) and "belt" not in texts["broll_1.jpg"]
+    # a pair's halves too, each on its own
+    monkeypatch.setattr(broll_v20, "PROSE", True)
+    m = _pictured(5.0, COAT, **{**PAIR, "alt": None, "picture_b": BELT, **grave})
+    assert broll_v20._prose(m, m["spec"]) == ("A white coat on a wall hook behind an office door, sleeves .", None)
+    # anywhere else, as written
+    _k, _p, made = _run(monkeypatch, tmp_path, [_pictured(5.0, COAT), _pictured(12.0, BELT)], [], {}, prose=True)
+    assert "a white coat hanging on a wall hook" in made[0][2] and "a black belt coiled" in made[1][2]
+
+
+# ------------------------------------------------------------------------------------------- the three reserve modes
+# ``run(..., reserve_mode=...)``. What a picture does inside _settle (rendered again, its own alternative when the check
+# asks for it) is the same in the three modes; they differ in what is made AFTER the planned moments:
+#   "none" (the default, what production gets): nothing. A weak picture harms more than no picture, the face alone wins;
+#   "quota" (the bench's older versions): while fewer than broll_check.MIN_PER_CLIP pictures are kept, the reserves one
+#       at a time, then the alternatives that were never rendered;
+#   "above_face" (the bench's v23): every reserve the round returned, whatever the count, and never an alternative.
+
+WRITING = {**_ok(), "answers": {**_ok()["answers"], "q_text": "yes"}}       # writing in the picture
+UNSAFE = {**_ok(), "answers": {**_ok()["answers"], "q_unsafe": "yes"}}
+MODES = ("none", "quota", "above_face")
+UNDER_THE_MINIMUM = ["broll_0.jpg", "broll_1.jpg", "broll_0_v2.jpg", "broll_0_v3.jpg"]   # what _under_the_minimum renders
+
+
+def _under_the_minimum(monkeypatch, tmp_path, reserves, reserve_mode, more=None):
+    """Two planned moments that both have an alternative: the first one shows writing at each of its three renders (it is
+    dropped for its shape, which never reaches its alternative in decide), the second one is kept. One picture kept of the
+    two broll_check.MIN_PER_CLIP asks. ``more``: more verdicts (file -> check result). -> (kept, pictured, made)."""
+    verdicts = {name: WRITING for name in ("broll_0.jpg", "broll_0_v2.jpg", "broll_0_v3.jpg")}
+    return _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], reserves, {**verdicts, **(more or {})},
+                reserve_mode=reserve_mode)
+
+
+def test_none_is_the_default_of_run_and_the_recipe_of_the_real_jobs_asks_for_nothing_else():
+    import plus
+    assert inspect.signature(broll_v20.run).parameters["reserve_mode"].default == "none"
+    assert "reserves" not in plus.BROLL          # only the bench's cfg says "quota"; add_broll hands run() "none" otherwise
+
+
+@pytest.mark.parametrize("mode", [None, "none"], ids=["by default", "asked"])
+def test_none_makes_no_reserve_and_no_alternative_to_reach_a_count(monkeypatch, tmp_path, mode):
+    # one picture kept of the two asked, two reserves ready, the first moment's alternative never rendered: none is made
+    kept, pictured, made = _under_the_minimum(monkeypatch, tmp_path, [_m(20.0), _m(26.0)], mode)
+    assert [m[0] for m in made] == UNDER_THE_MINIMUM
+    assert [c["k"] for c in kept] == [1] and broll_check.needs_reserve(kept)          # under the minimum, and left so
+    assert [m["t"] for m in pictured] == [5.0, 12.0] and broll.LAST_PICTURED == pictured
+
+
+@pytest.mark.parametrize("mode", [None, "none"], ids=["by default", "asked"])
+def test_none_leaves_a_clip_with_no_picture_rather_than_a_reserve(monkeypatch, tmp_path, mode):
+    # the clip of test_under_the_minimum_a_reserve_is_made: both pictures refused, a reserve ready; the face alone wins
+    kept, pictured, made = _run(monkeypatch, tmp_path, [_m(5.0, alt=None), _m(12.0, alt=None)], [_m(20.0)],
+                                {"broll_0.jpg": UNSAFE, "broll_1.jpg": UNSAFE}, reserve_mode=mode)
+    assert kept == [] and [m[0] for m in made] == ["broll_0.jpg", "broll_1.jpg"] and len(pictured) == 2
+    assert broll.FILTERS["check: unsafe"] == 2
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_the_alternative_a_check_asks_for_is_made_in_the_three_modes(monkeypatch, tmp_path, mode):
+    # the picture's own alternative is part of its verdict, not a way to reach a count: "none" keeps it
+    kept, _p, made = _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [], {"broll_0.jpg": _ok(fits="against")},
+                          reserve_mode=mode)
+    assert [m[0] for m in made] == ["broll_0.jpg", "broll_1.jpg", "broll_0_alt.jpg"] and len(kept) == 2
+    assert next(c for c in kept if c["k"] == 0)["m"]["spec"]["subject"] == "a tap running"
+
+
+def test_quota_stops_at_the_minimum_the_reserves_are_made_one_at_a_time(monkeypatch, tmp_path):
+    kept, pictured, made = _run(monkeypatch, tmp_path, [_m(5.0, alt=None), _m(12.0, alt=None)],
+                                [_m(20.0), _m(26.0), _m(32.0)], {"broll_0.jpg": UNSAFE, "broll_1.jpg": UNSAFE},
+                                reserve_mode="quota")
+    assert [m[0] for m in made] == ["broll_0.jpg", "broll_1.jpg", "broll_2r.jpg", "broll_3r.jpg"]   # two make the minimum
+    assert [c["k"] for c in kept] == [2, 3] and [m["t"] for m in pictured] == [5.0, 12.0, 20.0, 26.0]
+
+
+def test_quota_makes_no_reserve_when_the_minimum_is_there(monkeypatch, tmp_path):
+    kept, pictured, made = _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [_m(20.0)], {}, reserve_mode="quota")
+    assert [m[0] for m in made] == ["broll_0.jpg", "broll_1.jpg"] and len(kept) == 2 and len(pictured) == 2
+
+
+def test_quota_then_makes_the_alternatives_that_were_never_rendered(monkeypatch, tmp_path):
+    # no reserve: the first moment's alternative is made (a picture dropped for the writing in it never reaches its alt)
+    kept, pictured, made = _under_the_minimum(monkeypatch, tmp_path, [], "quota")
+    assert [m[0] for m in made] == UNDER_THE_MINIMUM + ["broll_2a.jpg"]
+    assert sorted(c["k"] for c in kept) == [1, 2] and [m["t"] for m in pictured] == [5.0, 12.0, 5.0]
+    alt = pictured[2]
+    assert alt["spec"]["subject"] == "a tap running" and "alt" not in alt["spec"] and alt["hero"] is False
+    assert "tap running" in made[-1][2] and next(c for c in kept if c["k"] == 2)["file"].endswith("broll_2a.jpg")
+
+
+def test_quota_tries_the_reserves_before_the_alternatives(monkeypatch, tmp_path):
+    # the reserve is made first and the check refuses it: the alternative follows, with the next number
+    kept, pictured, made = _under_the_minimum(monkeypatch, tmp_path, [_m(20.0, alt=None)], "quota",
+                                              more={"broll_2r.jpg": UNSAFE})
+    assert [m[0] for m in made] == UNDER_THE_MINIMUM + ["broll_2r.jpg", "broll_3a.jpg"]
+    assert sorted(c["k"] for c in kept) == [1, 3] and len(pictured) == 4
+
+
+def test_quota_makes_the_alternative_of_the_best_worth_first_and_stops_at_the_minimum(monkeypatch, tmp_path):
+    writing = {f"broll_{k}{suffix}.jpg": WRITING for k in (0, 1) for suffix in ("", "_v2", "_v3")}
+    kept, pictured, made = _run(monkeypatch, tmp_path, [_m(5.0, worth=2), _m(12.0, worth=4), _m(20.0)], [], writing,
+                                reserve_mode="quota")
+    assert len(made) == 8 and made[-1][0] == "broll_3a.jpg"          # one alternative is enough, the better one's
+    assert pictured[3]["t"] == 12.0 and sorted(c["k"] for c in kept) == [2, 3]
+
+
+def test_quota_leaves_the_alternative_of_a_picture_nobody_checked(monkeypatch, tmp_path):
+    # no answer from the check: the picture is dropped, and its alternative would go unchecked too, so it is not made
+    monkeypatch.setattr(broll_spec, "plan_specs", lambda *a, **k: ([_m(5.0)], []))
+    monkeypatch.setattr(broll_check, "check", lambda cands, words, **k: {})
+    made = []
+    kept, _p = broll_v20.run("clip.mp4", {}, [], None, 0, 30, 4, [], 1.0, 2.0, 2.0, (), None, str(tmp_path),
+                             _render(tmp_path, made), reserve_mode="quota")
+    assert kept == [] and [m[0] for m in made] == ["broll_0.jpg"]
+
+
+def test_above_the_face_every_reserve_of_the_round_is_made_even_with_the_minimum_reached(monkeypatch, tmp_path):
+    # two kept already: quota would make nothing. The round marked the first reserve a hero: a reserve is a card
+    kept, pictured, made = _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [_m(20.0, hero=True), _m(26.0)], {},
+                                reserve_mode="above_face")
+    assert [(m[0], m[1]) for m in made] == [("broll_0.jpg", "card"), ("broll_1.jpg", "card"), ("broll_2r.jpg", "card"),
+                                           ("broll_3r.jpg", "card")]
+    assert [c["k"] for c in kept] == [0, 1, 2, 3] and [m["t"] for m in pictured] == [5.0, 12.0, 20.0, 26.0]
+    assert [m["hero"] for m in pictured] == [False] * 4
+
+
+def test_above_the_face_nothing_is_made_for_a_count(monkeypatch, tmp_path):
+    # under the minimum with no reserve: the alternative never rendered stays so (quota would make it)
+    kept, pictured, made = _under_the_minimum(monkeypatch, tmp_path, [], "above_face")
+    assert [m[0] for m in made] == UNDER_THE_MINIMUM and [c["k"] for c in kept] == [1] and len(pictured) == 2
+    # a reserve the check refuses is dropped like any picture: nothing else is made in its place
+    kept, pictured, made = _under_the_minimum(monkeypatch, tmp_path, [_m(20.0, alt=None)], "above_face",
+                                              more={"broll_2r.jpg": UNSAFE})
+    assert [m[0] for m in made] == UNDER_THE_MINIMUM + ["broll_2r.jpg"] and [c["k"] for c in kept] == [1]
+
+
+@pytest.mark.parametrize("mode", ["quota", "above_face"])
+def test_a_reserve_too_close_to_a_kept_picture_is_not_made(monkeypatch, tmp_path, mode):
+    # 13 s is under broll.MIN_GAP from the picture kept at 12 s, and 21 s from the reserve kept at 20 s
+    kept, pictured, made = _run(monkeypatch, tmp_path, [_m(5.0, alt=None), _m(12.0)], [_m(13.0), _m(20.0), _m(21.0)],
+                                {"broll_0.jpg": UNSAFE}, reserve_mode=mode)
+    assert [m[0] for m in made] == ["broll_0.jpg", "broll_1.jpg", "broll_2r.jpg"]
+    assert [m["t"] for m in pictured] == [5.0, 12.0, 20.0] and sorted(c["k"] for c in kept) == [1, 2]
+
+
+@pytest.mark.parametrize("mode", ["", "bogus", "Quota", "above-face"])
+def test_a_mode_nobody_knows_is_none(monkeypatch, tmp_path, mode):
+    kept, pictured, made = _under_the_minimum(monkeypatch, tmp_path, [_m(20.0)], mode)
+    assert [m[0] for m in made] == UNDER_THE_MINIMUM and [c["k"] for c in kept] == [1] and len(pictured) == 2
+
+
+@pytest.mark.parametrize("mode,reserve_made", [("none", False), ("quota", True), ("above_face", True)])
+def test_with_ideas_the_reserve_of_the_round_is_made_only_in_the_modes_that_ask_for_it(monkeypatch, tmp_path, mode,
+                                                                                       reserve_made):
+    # the round keeps one moment and one reserve: quota makes the reserve to reach the minimum, above_face because its idea
+    # passed the face alone, none not at all
+    _round_returning(monkeypatch, [_m(12.0, alt=None)], [_m(20.0, alt=None)], {})
+    kept, pictured, made = _run(monkeypatch, tmp_path, [_m(5.0), _m(12.0)], [_m(20.0)], {}, words=WORDS, ideas=True,
+                                reserve_mode=mode)
+    assert [m[0] for m in made] == ["broll_0.jpg"] + (["broll_1r.jpg"] if reserve_made else [])
+    assert len(kept) == len(pictured) == (2 if reserve_made else 1)

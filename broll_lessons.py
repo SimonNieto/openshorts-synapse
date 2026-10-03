@@ -150,15 +150,60 @@ def _clean(v):
     return re.sub(r"\s+", " ", str(v or "")).replace('"', "'").strip()
 
 
+PROPOSED = "proposées.md"      # the patterns the code finds: written for the owner, never read by the calls
+VALIDATED = "validées.md"      # the lines the owner moved there: read by the calls
+_OWNER_RANK = 10 ** 6
+
+
+def _validated():
+    """The lessons the owner validated (one per line of validées.md; '#' lines and blanks ignored)."""
+    try:
+        # utf-8-sig: a file saved with a BOM must not turn its first comment into a rule; a stray byte never raises
+        with open(os.path.join(LESSONS_DIR, VALIDATED), encoding="utf-8-sig", errors="replace") as f:
+            return [l.strip().lstrip("-• ").strip() for l in f if l.strip() and not l.strip().startswith("#")]
+    except OSError:
+        return []
+
+
+def propose(events=None):
+    """Write the patterns the code finds in the recent journal to proposées.md, for the owner to validate (a line
+    becomes a rule only when she moves it to validées.md). Returns the lines. Never raises; writes nothing when the
+    journal is off (BROLL_LESSONS=0: the tests)."""
+    if os.environ.get("BROLL_LESSONS", "1") == "0":
+        return []
+    try:
+        events = recent() if events is None else events
+        lines = [line for c, line in sorted(_lines(events, "judges"), key=lambda cl: -cl[0]) if c < _OWNER_RANK - 1]
+        os.makedirs(LESSONS_DIR, exist_ok=True)
+        with _LOCK:
+            with open(os.path.join(LESSONS_DIR, PROPOSED), "w", encoding="utf-8") as f:
+                f.write("# Leçons proposées par la chaîne (calculées sur les derniers événements du journal).\n"
+                        "# Rien ici n'entre dans les appels : copie une ligne dans validées.md pour en faire une règle,\n"
+                        "# en principe, jamais en liste d'objets. Réécrit à chaque clip.\n\n")
+                for line in lines:
+                    f.write(f"- {line}\n")
+            v = os.path.join(LESSONS_DIR, VALIDATED)
+            if not os.path.exists(v):
+                with open(v, "w", encoding="utf-8") as f:
+                    f.write("# Leçons validées par la propriétaire de la chaîne : une par ligne, en principe (jamais une\n"
+                            "# liste d'objets ni une scène). Ces lignes entrent dans les appels du tour d'idées.\n")
+        return lines
+    except Exception as e:
+        print(f"   ⚠️ Lessons: not proposed ({str(e)[:80]}).")
+        return []
+
+
 def summary(for_who="director"):
-    """The lessons block for a prompt ("" when there is nothing to say): the owner's verdicts, then the strongest
-    patterns of the last RECENT events, MAX_LINES at most. ``for_who``: "director" (what to avoid, principles) or
-    "judges" (the same, plus what the owner liked)."""
+    """The lessons block for a prompt ("" when there is nothing to say). Only what the owner stands behind enters a
+    call: her own verdicts (👎 with its note for everyone, 👍 for the judges) and the lines she validated
+    (validées.md). The patterns the code finds in the journal are only PROPOSED (proposées.md, refreshed here),
+    never applied on their own. MAX_LINES at most, the owner's verdicts first."""
     events = recent()
-    if not events:
-        return ""
-    lines = sorted(_lines(events, for_who), key=lambda cl: -cl[0])[:MAX_LINES]
+    propose(events)
+    owner = [(c, line) for c, line in _lines(events, for_who) if c >= _OWNER_RANK - 1]
+    lines = sorted(owner, key=lambda cl: -cl[0]) + [(0, line) for line in _validated()]
+    lines = lines[:MAX_LINES]
     if not lines:
         return ""
-    return ("LESSONS OF THE LAST DAYS (measured on this channel's own pictures; principles, never scenes to copy):\n"
-            + "\n".join(f"- {line}" for _c, line in lines))
+    return ("LESSONS OF THE LAST DAYS (the channel's owner's own verdicts and the rules she validated; principles, "
+            "never scenes to copy):\n" + "\n".join(f"- {line}" for _c, line in lines))

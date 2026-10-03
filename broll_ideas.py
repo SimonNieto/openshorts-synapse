@@ -10,9 +10,19 @@ placed (broll_spec), three Claude calls for the whole clip, each built on the ch
 
 The code keeps the best idea of each moment (its fields become the moment's shot spec, so shot_prompt still writes the
 image prompt, the subject first) and the second one as the alternative. The Claude Code agents of the same names serve
-the bench only; here the skill's text goes into our own calls."""
+the bench only; here the skill's text goes into our own calls.
+
+The viewer judges in one of two ways (JUDGE, or idea_round's ``judge``): "score" (above, today's) or "rank": no score,
+four questions first for every idea (does it repeat the word of the sentence instead of its idea, is it the first
+picture of a stock bank, a setting instead of the idea, does it contradict the idea?) — one "yes" and the idea is
+out — then the ideas with four "no" ranked together with the face alone. In "rank" mode an idea the director says rests
+on what the engine draws badly ("engine_risk") is refused before the judges, a pair resting on "the same shape"
+excepted. The director may also read the ideas already shown in the episode (``shown``: a JSON file the round appends
+to)."""
+import json
 import os
 import re
+import threading
 
 import broll
 import broll_spec
@@ -27,6 +37,14 @@ FLAWS = ("none", "setting", "object", "figure", "symbol", "stock")
 FACE = "face"                 # the viewer's level zero: the speaker's face alone, no picture
 TIMEOUT = int(os.environ.get("BROLL_IDEAS_TIMEOUT") or 240)
 LAST_IDEAS = []               # the last clip's round, for the bench's board and JSON
+JUDGES = ("score", "rank")    # the viewer's ways: a 1-5 score each (today's) / four flaws asked first, then a ranking
+JUDGE = "score"               # the way of a round that does not say (idea_round's ``judge``)
+ENGINE_RISKS = ("none", "icon", "scale", "position", "same_shape")   # what a picture needs the engine to get right
+RANK_FLAWS = ("repeats", "stock", "setting", "contradicts")          # the rank viewer's four questions, in this order
+YES_NO = ("yes", "no")
+SHOWN_KEYS = ("title", "subject", "kind", "clip")                    # an idea already shown in the episode
+SHOWN_MAX = 60                # the director reads the last ones of them (other clips', each once)
+_SHOWN_LOCK = threading.Lock()   # one read-modify-write of the file of the ideas shown at a time (clips made at once)
 
 
 # --- the channel's text ---------------------------------------------------------------------------------------------
@@ -99,7 +117,8 @@ THE MOMENTS. For each one, in order:
      an inner or an empty picture, never the dark of a horror film), "instrument" (instrument only, 5 words);
      for a PAIR the two halves are made separately and put side by side by the code: "kind_a" (the left thing's
      own kind: thing / scene / instrument / body_inside) and "kind_b" (the right one's), "details_b" (the right
-     thing's 2-3 visible details, 20 words), "subject_b" (the right thing, 8 words);
+     thing's 2-3 visible details, 20 words), "subject_b" (the right thing, 8 words), "picture_b" (the right half
+     alone in plain words, 45 at most; "picture" is then the left half alone);
      "hero_ok": true when this picture could fill the whole phone screen for three seconds (a real scene with
      depth, a drawing or a vision that fills the frame edge to edge), false for a small thing, a pair or a flat
      detail. "instrument" is for a KNOWN kind of image (a scan, a telescope frame, a fluorescence micrograph of
@@ -108,11 +127,16 @@ THE MOMENTS. For each one, in order:
    - "anchor": optional, 1-3 consecutive spoken words of the sentence (or the next one) where the picture should land
      instead, when the idea belongs to those words.
 Keep every precise fact said (a number, a colour, a place, an era); invent none. Vary the subjects across the clip:
-already planned elsewhere in the clip: {planned}.
+already planned elsewhere in the clip: {planned}.{shown}
 THE RENDER FIELDS ARE DRAWN LITERALLY by the engine: never a comparison in them ("almond-shaped" gives a real almond,
 "ribbon of cortex" a real ribbon, "eyeshades" sunglasses) — name the thing itself; never a screen, a display, a
 label, a page, a sign or a chart (they come out with writing); a scene shows its things, never a number of them
 above four.
+WHAT THE ENGINE (Z-Image) DRAWS BADLY: it falls back to the icon of the strongest word (a brain comes out whole, a
+galaxy as a spiral); it does not follow a scale ("macro", "thousands of tiny"), a precise position ("in the opening",
+"coiled on a hook", "folded into the pocket") nor "the same shape / structure" between two things. Each idea says
+"engine_risk": "none" (the picture holds whatever the engine does), "icon" (it holds only if the engine resists the
+icon of its strongest word), "scale", "position" or "same_shape" (it holds only if the engine follows that).
 {moments}
 Return JSON: {{"moments": [{{"k": 0, "idea": "...", "role": "point", "ideas": [...], "no_picture_why": ""}}]}}"""
 
@@ -166,6 +190,33 @@ stands — every picture after "{face}" is worse than no picture.
 Return JSON: {{"moments": [{{"k": 0, "views": [{{"i": 0, "stops": "yes", "feels": "", "link": "yes", "adds": "", \
 "score": 3, "flaw": "none", "unease": ""}}], "order": ["0", "{face}", "1"]}}]}}"""
 
+# "rank" mode: the viewer of the idea round gave 4-5 to the eight weakest pictures of the third bench as to the ten
+# others (v21_diagnostic.md): no score any more, the calibration's flaws asked one by one, then a ranking with the face.
+VIEWER_PROMPT_RANK = """You are the viewer of the channel described below (its text is in French; answer in ENGLISH).
+You scroll Shorts with the sound on: you HEAR the voice and READ the subtitles. You know NOTHING of the episode, the
+context or the team's intentions: only the words and the picture count. The calibration tells you what fails; a
+picture that copies one of its landmarks earns nothing for it.
+
+THE CHANNEL'S PRINCIPLES:
+{principes}
+
+THE CALIBRATION:
+{calibrage}
+{lessons}
+For each sentence you get the subtitle you read while the picture is on screen, what you heard just before, and the
+pictures proposed (described). The IDEA of a sentence is what it means to you, not the words it uses. You give no
+score. FIRST, for every picture, answer "yes" or "no" to each of the calibration's flaws, one by one, without mercy:
+"repeats": does it show the WORD of the sentence instead of its idea (a dollar bill for "money can't buy time")?
+"stock": is it the first picture a stock-photo bank would give for these words?
+"setting": is it a setting (a room, a place, a background) instead of the idea?
+"contradicts": does it contradict the idea (it shows the opposite, or what the sentence denies)?
+THEN rank, best first, the pictures with four "no" only, together with the FACE ALONE ("{face}": the speaker's face,
+no picture): "order" lists their ids with "{face}" placed where the face alone stands — every picture after
+"{face}" is worse than no picture. A picture with one "yes" is never ranked.
+{moments}
+Return JSON: {{"moments": [{{"k": 0, "views": [{{"i": 0, "repeats": "no", "stock": "no", "setting": "no", \
+"contradicts": "no"}}], "order": ["0", "{face}", "1"]}}]}}"""
+
 _IDEA_FIELDS = ("kind", "subject", "subject_b", "instrument", "count", "state", "setting", "details", "people",
                 "person", "shot", "light")
 PAIR_KINDS = ("thing", "scene", "instrument", "body_inside")     # a half of a pair has its own kind
@@ -174,7 +225,8 @@ _IDEA_SCHEMA = {"type": "object", "properties": {
     "title": _STR, "picture": _STR, "adds": _STR, "reads": _STR, "anchor": _STR,
     "kind": {"type": "string", "enum": list(broll_spec.KINDS)}, "subject": _STR, "subject_b": _STR, "instrument": _STR,
     "kind_a": {"type": "string", "enum": list(PAIR_KINDS)}, "kind_b": {"type": "string", "enum": list(PAIR_KINDS)},
-    "details_b": _STR, "hero_ok": {"type": "boolean"},
+    "details_b": _STR, "picture_b": _STR, "hero_ok": {"type": "boolean"},
+    "engine_risk": {"type": "string", "enum": list(ENGINE_RISKS)},         # optional: "none" when not given
     "count": {"type": "string", "enum": list(broll_spec.COUNTS)}, "state": _STR, "setting": _STR, "details": _STR,
     "people": {"type": "string", "enum": list(broll_spec.PEOPLE)},
     "person": {"type": "string", "enum": ["none", "anonymous"]},
@@ -203,6 +255,13 @@ VIEWER_SCHEMA = {"type": "object", "properties": {"moments": {"type": "array", "
         "required": ["i", "stops", "feels", "link", "adds", "score", "flaw"]}},
         "order": {"type": "array", "items": _STR}},
     "required": ["k", "views", "order"]}}}, "required": ["moments"]}
+VIEWER_SCHEMA_RANK = {"type": "object", "properties": {"moments": {"type": "array", "items": {
+    "type": "object", "properties": {"k": {"type": "integer"}, "views": {"type": "array", "items": {
+        "type": "object", "properties": {"i": {"type": "integer"},
+                                         **{f: {"type": "string", "enum": list(YES_NO)} for f in RANK_FLAWS}},
+        "required": ["i", *RANK_FLAWS]}},
+        "order": {"type": "array", "items": _STR}},
+    "required": ["k", "views", "order"]}}}, "required": ["moments"]}
 
 
 def _lessons(for_who):
@@ -214,6 +273,96 @@ def _lessons(for_who):
         print(f"   ⚠️ Lessons: not read ({str(e)[:80]}).")
         return ""
     return ("\n" + text + "\n") if text else ""
+
+
+# --- what the episode already showed ----------------------------------------------------------------------------------
+def _shown_load(path):
+    """The JSON object of the file ``path`` (a bare list is its "ideas"); {} when the file is missing, and when it is
+    unreadable or corrupt (a warning). Called under _SHOWN_LOCK."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as e:
+        print(f"   ⚠️ Ideas: {path} unreadable ({str(e)[:80]}) — nothing counted as already shown.")
+        return {}
+    if isinstance(data, list):
+        data = {"ideas": data}
+    if not isinstance(data, dict):
+        print(f"   ⚠️ Ideas: {path} holds no JSON object — nothing counted as already shown.")
+        return {}
+    if not isinstance(data.get("ideas"), list):
+        if "ideas" in data:
+            print(f'   ⚠️ Ideas: the "ideas" of {path} are no list — started again.')
+        data["ideas"] = []
+    return data
+
+
+def shown_ideas(path):
+    """The ideas already shown in the episode, as the file ``path`` keeps them ({"ideas": [{"title", "subject", "kind",
+    "clip"}]}): each a clean line of text, an entry that is no object skipped; a missing or corrupt file is []."""
+    with _SHOWN_LOCK:
+        data = _shown_load(path)
+    return [{k: _q(item.get(k), 20) for k in SHOWN_KEYS} for item in data.get("ideas") or [] if isinstance(item, dict)]
+
+
+def add_shown(path, entries):
+    """Appends ``entries`` to the file ``path``: read, modify, write under _SHOWN_LOCK (the clips of a job may be made
+    at the same time), the file replaced in one move. A missing file (or folder) is created, a corrupt one starts again
+    from these, the file's other keys are kept. Never raises: the round never fails for its memory."""
+    entries = [{k: str(e.get(k) or "") for k in SHOWN_KEYS} for e in entries or () if isinstance(e, dict)]
+    if not (path and entries):
+        return
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with _SHOWN_LOCK:
+        try:
+            data = _shown_load(path)
+            data["ideas"] = list(data.get("ideas") or []) + entries
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, path)
+        except (OSError, TypeError, ValueError) as e:
+            print(f"   ⚠️ Ideas: {path} not written ({str(e)[:80]}).")
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
+def _shown_block(items, clip_name=""):
+    """The director's lines of the ideas already shown: other clips' only (a clip made again does not avoid its own
+    first take), each once, the last SHOWN_MAX; "" when there is none (the prompt is then as without the file)."""
+    lines, seen = [], set()
+    for it in reversed(list(items or ())):
+        if clip_name and it.get("clip") == clip_name:
+            continue
+        key = tuple(str(it.get(k) or "").lower() for k in SHOWN_KEYS)
+        if key in seen or not (it.get("title") or it.get("subject")):
+            continue
+        seen.add(key)
+        lines.append(f'- "{it.get("title") or "-"}" — {it.get("kind") or "-"}: {it.get("subject") or "-"}'
+                     + (f' (clip "{it["clip"]}")' if it.get("clip") else ""))
+        if len(lines) >= SHOWN_MAX:
+            break
+    if not lines:
+        return ""
+    return ("\nALREADY SHOWN IN THIS EPISODE (never the same picture again, nor its close variant):\n"
+            + "\n".join(reversed(lines)))
+
+
+def _shown_entry(idea, spec, clip):
+    """The line the file of the ideas shown keeps for a chosen idea (a pair: its two subjects)."""
+    subject = spec.get("subject") or ""
+    if spec.get("kind") == "pair" and spec.get("subject_b"):
+        subject = f'{subject} / {spec["subject_b"]}'
+    return {"title": _q(idea.get("title"), 20), "subject": _q(subject, 20), "kind": spec.get("kind") or "",
+            "clip": _clip_name(clip)}
+
+
+def _clip_name(clip):
+    return _q((clip or {}).get("video_title_for_youtube_short"), 20)
 
 
 # --- the clip's words around a moment --------------------------------------------------------------------------------
@@ -282,13 +431,27 @@ def _moment_lines(moments, words):
     return "\n".join(lines)
 
 
+def _pair_b(idea):
+    """The right half's own prose of a pair ("" for any other idea)."""
+    return str(idea.get("picture_b") or "").strip() if idea.get("kind") == "pair" else ""
+
+
+def _picture_line(idea):
+    """What the judges read of an idea: its picture — for a pair with its right half apart, the two halves."""
+    left = _q(idea.get("picture"), 50)
+    if not _pair_b(idea):
+        return left
+    left = re.sub(r"^left(?: half)?\s*:\s*", "", left, flags=re.I).rstrip(" .")
+    return f"Left: {left}. Right: {_q(_pair_b(idea), 50)}"
+
+
 def _idea_lines(moments, words, ideas, viewer=False):
     lines = []
     for k, m in enumerate(moments):
         said, before, _after = _around(words, float(m["t"]))
         head = (f'SENTENCE k={k}: subtitle "{_q(said or m.get("said"))}"; heard just before: "{_q(before)}"' if viewer
                 else f'MOMENT k={k}: before "{_q(before)}" / SAID "{_q(said or m.get("said"))}"')
-        body = [f'  [{i}] {_q(idea.get("picture"), 50)}' + ("" if viewer else
+        body = [f'  [{i}] {_picture_line(idea)}' + ("" if viewer else
                 f' (kind {idea.get("kind")}, people {idea.get("people")}, light: {_q(idea.get("light"), 12)})')
                 for i, idea in enumerate(ideas.get(k) or []) if idea]
         if not body:
@@ -315,12 +478,13 @@ def _clip_lines(clip, gravity):
                 gravity=gravity, grave_line=grave_line, speakers=speakers, brief=brief_line)
 
 
-def _direct(moments, words, clip, gravity):
-    """The art director's call -> {k: {"idea", "role", "ideas": [...], "why": ""}}."""
+def _direct(moments, words, clip, gravity, shown=()):
+    """The art director's call -> {k: {"idea", "role", "ideas": [...], "why": ""}}. ``shown``: the ideas already shown
+    in the episode (shown_ideas), listed for it to avoid."""
     planned = ", ".join(_q((m.get("spec") or {}).get("subject"), 6) for m in moments) or "-"
     prompt = DA_PROMPT.format(principes=skill_text("principes"), per=IDEAS_PER_MOMENT, planned=planned,
-                              lessons=_lessons("director"), moments=_moment_lines(moments, words),
-                              **_clip_lines(clip, gravity))
+                              shown=_shown_block(shown, _clip_name(clip)), lessons=_lessons("director"),
+                              moments=_moment_lines(moments, words), **_clip_lines(clip, gravity))
     data = _call(prompt, DA_SCHEMA, "broll_ideas", _model("broll_ideas", "opus"),
                  effort=os.environ.get("CLAUDE_EFFORT_BROLL_IDEAS") or "high")
     out = {}
@@ -368,6 +532,30 @@ def _view(moments, words, clip, gravity, ideas):
     return out
 
 
+def _yes_no(v):
+    """A viewer's answer -> "yes" / "no", None when it is neither (an answer it did not give)."""
+    s = str(v).strip().lower().rstrip(".!") if v is not None else ""
+    return "yes" if s in ("yes", "y", "true") else "no" if s in ("no", "n", "false") else None
+
+
+def _rank_view(moments, words, clip, gravity, ideas):
+    """The viewer's call in "rank" mode -> {k: {"views": {i: {"flags": {flaw: "yes" / "no" / None}}}, "order": [ids,
+    FACE among them]}}: the four flaws of every idea first, then the ideas with four "no" ranked with the face alone."""
+    prompt = VIEWER_PROMPT_RANK.format(principes=skill_text("principes"), calibrage=skill_text("calibrage"), face=FACE,
+                                       lessons=_lessons("judges"),
+                                       moments=_idea_lines(moments, words, ideas, viewer=True),
+                                       **_clip_lines(clip, gravity))
+    data = _call(prompt, VIEWER_SCHEMA_RANK, "broll_viewer", _model("broll_viewer", "sonnet"), effort="medium")
+    out = {}
+    for mm in data.get("moments") or []:
+        if not (isinstance(mm, dict) and isinstance(mm.get("k"), int)):
+            continue
+        views = {v["i"]: {"flags": {f: _yes_no(v.get(f)) for f in RANK_FLAWS}}
+                 for v in mm.get("views") or [] if isinstance(v, dict) and isinstance(v.get("i"), int)}
+        out[mm["k"]] = {"views": views, "order": [str(x).strip().lower() for x in (mm.get("order") or [])]}
+    return out
+
+
 # --- applying the round --------------------------------------------------------------------------------------------
 # The inside of a body named in a picture's words: it is drawn whatever kind the director declared (a skinned arm with
 # its muscles came out as a photograph, the house never shows that). Core anatomy only: "cell", "heart" or "bone"
@@ -401,18 +589,23 @@ def _spec_of(m, idea, clip_text, gravity):
     if s["kind"] in ("thing", "scene", "vision", "instrument") and _BODY_RE.search(
             " ".join((s.get("subject") or "", s.get("details") or "", s.get("state") or ""))):
         s["kind"], s["people"], s["person"], s["instrument"] = "body_inside", "none", "none", ""
-    if gravity == "grave" or s.get("death_near"):
+    grave = gravity == "grave" or s.get("death_near")
+    if grave:
         strap_text = " ".join([s.get("subject") or "", s.get("state") or "", s.get("details") or "",
-                               str(idea.get("subject_b") or ""), str(idea.get("details_b") or "")])
+                               str(idea.get("subject_b") or ""), str(idea.get("details_b") or ""),
+                               str(idea.get("picture_b") or "")])
         if _STRAP_RE.search(strap_text):
             return None, "a strap-like thing in a clip about a death"
         for k in ("subject", "state", "details", "setting"):
             s[k] = re.sub(r"\s{2,}", " ", _HANG_RE.sub("", s.get(k) or "")).strip(" ,")
     if s["kind"] == "pair":
-        # the two halves are made one by one (broll_v20._make): each with its own kind and details
+        # the two halves are made one by one (broll_v20._make): each with its own kind and details, and the right
+        # one with its own prose (the moment's "picture" is the left one's)
         for k in ("kind_a", "kind_b"):
             s[k] = idea.get(k) if idea.get(k) in PAIR_KINDS else "thing"
         s["details_b"] = broll_spec._cap(idea.get("details_b"), 20)
+        picture_b = broll_spec._cap(idea.get("picture_b"), 45)
+        s["picture_b"] = re.sub(r"\s{2,}", " ", _HANG_RE.sub("", picture_b)).strip(" ,") if grave else picture_b
     return {**base, **s}, ""
 
 
@@ -459,23 +652,60 @@ def _pick_hero(moments, specs_of, words, avoid, head, block):
     return best
 
 
-def idea_round(moments, reserves, clip, words, gravity, clip_text, avoid=(), head=0.0, block=()):
+def _judge_mode(judge=None):
+    """The viewer's way for a round: ``judge`` when given, else the module's JUDGE; anything but "rank" is "score"."""
+    mode = str(JUDGE if judge is None else judge).strip().lower()
+    return mode if mode in JUDGES else "score"
+
+
+def _engine_risk(idea):
+    """What the director says the picture needs the engine to get right ("none" for nothing said, or anything else)."""
+    risk = str(idea.get("engine_risk") or "").strip().lower()
+    return risk if risk in ENGINE_RISKS else "none"
+
+
+def _viewer_flaws(view):
+    """The calibration's flaws the rank viewer answered "yes" to, in RANK_FLAWS order ([] for no answer)."""
+    flags = (view or {}).get("flags") or {}
+    return [f for f in RANK_FLAWS if flags.get(f) == "yes"]
+
+
+def _ranked(order, live):
+    """The viewer's ranking as it counts: the live ids and the face, each once, in its order."""
+    out = []
+    for x in order or []:
+        if (x == FACE or x in live) and x not in out:
+            out.append(x)
+    return out
+
+
+def idea_round(moments, reserves, clip, words, gravity, clip_text, avoid=(), head=0.0, block=(), judge=None,
+               shown=None):
     """The round for a clip's moments and reserves -> (moments, reserves) with their specs replaced by the chosen idea's
     fields (the second idea above the face alone as "alt"); a moment with no idea left is dropped (filter hits). The
     hero is then chosen among the ideas kept (_pick_hero; ``avoid``, ``head``, ``block``: the timing rules).
+    ``judge``: the viewer's way, "score" or "rank" (None: the module's JUDGE). In "rank" mode an idea with an engine
+    risk is refused before the judges (a pair resting on the same shape excepted), an idea the viewer answers "yes" to
+    one flaw is out, its ranking with the face alone gives the chosen idea and the alt, and a reserve keeps an idea only
+    if the viewer ranked it before the face. ``shown``: the path of the episode's JSON file of the ideas already shown:
+    the director reads them, the chosen ideas of the moments kept are appended after the round (None: nothing changes).
     LAST_IDEAS keeps the whole round for the bench."""
     del LAST_IDEAS[:]
     everything = list(moments) + list(reserves)
     if not everything:
         return moments, reserves
-    directed = _direct(everything, words, clip, gravity)
+    rank = _judge_mode(judge) == "rank"
+    directed = _direct(everything, words, clip, gravity, shown_ideas(shown) if shown else ())
     ideas = {k: directed.get(k, {}).get("ideas") or [] for k in range(len(everything))}
     # the code's own check first: a refused idea never reaches the judges
-    specs = {}
+    specs, risks = {}, {}
     for k, m in enumerate(everything):
         kept = []
         for i, idea in enumerate(ideas[k]):
             spec, why = _spec_of(m, idea, clip_text, gravity)
+            risks[(k, i)] = risk = _engine_risk(idea)
+            if spec and rank and risk != "none" and not (risk == "same_shape" and spec["kind"] == "pair"):
+                spec, why = None, f"engine risk {risk}"         # it rests on what the engine draws badly
             if spec:
                 specs[(k, i)] = spec
                 kept.append(idea)
@@ -496,32 +726,59 @@ def idea_round(moments, reserves, clip, words, gravity, clip_text, avoid=(), hea
             specs[(k, i)]["details"] = v["details"]
             broll.filter_hit("ideas: fixed by the verifier (fixed)", f'Idea "{_q(ideas[k][i].get("title"), 6)}": '
                                                                     f'{v["reason"]} — details rewritten.')
-    views = _view(everything, words, clip, gravity, ideas) if any(any(ideas[k]) for k in ideas) else {}
-    out_moments, out_reserves = [], []
+    judged = any(any(ideas[k]) for k in ideas)
+    views = (_rank_view if rank else _view)(everything, words, clip, gravity, ideas) if judged else {}
+    out_moments, out_reserves, seen_now = [], [], []
     for k, m in enumerate(everything):
         d = directed.get(k) or {}
         live = [str(i) for i, idea in enumerate(ideas[k]) if idea]
         v = views.get(k) or {}
-        flaws = {i: (verdicts.get((k, i)) or {}).get("flaw") for i in range(len(ideas[k]))}
-        order = _above_face(v.get("order") or live, live, v.get("views"), flaws) if v else live
+        reserve = k >= len(moments)
+        why_none = "every idea refused" if not live else "the viewer ranks the face alone above every idea"
+        if rank:
+            # the four flaws first: one "yes" and the idea is out, whatever its rank
+            flawed = {x: _viewer_flaws((v.get("views") or {}).get(int(x))) for x in live}
+            for x, found in flawed.items():
+                for j, flaw in enumerate(found):
+                    broll.filter_hit(f"ideas: {flaw} (viewer)", "" if j else
+                                     f'Idea "{_q(ideas[k][int(x)].get("title"), 6)}" of "{m.get("anchor")}" out: '
+                                     f'{", ".join(found)} (the viewer).')
+            clean = [x for x in live if not flawed[x]]
+            ranked = _ranked(v.get("order"), live)
+            # then its ranking with the face alone; without one, a moment keeps the director's order (as in "score"
+            # mode) and a reserve no idea: a reserve is kept only for an idea ranked before the face
+            order = _above_face(v["order"], clean) if v.get("order") else ([] if reserve else clean)
+            if live and not clean:
+                why_none = "the viewer found a flaw in every idea"
+            elif reserve and not v.get("order"):
+                why_none = "a reserve the viewer did not rank"
+        else:
+            flaws = {i: (verdicts.get((k, i)) or {}).get("flaw") for i in range(len(ideas[k]))}
+            order = _above_face(v.get("order") or live, live, v.get("views"), flaws) if v else live
         record = {"k": k, "anchor": m.get("anchor"), "t": m.get("t"), "said": m.get("said"), "idea": d.get("idea"),
                   "role": d.get("role"), "why": d.get("why"), "hero": bool(m.get("hero")),
-                  "reserve": k >= len(moments), "ideas": [], "chosen": None}
+                  "reserve": reserve, "ideas": [], "chosen": None}
+        if rank:
+            record["face_rank"] = ranked.index(FACE) + 1 if FACE in ranked else None
         for i, idea in enumerate(directed.get(k, {}).get("ideas") or []):
             vv = (v.get("views") or {}).get(i) or {}
             vd = verdicts.get((k, i)) or {}
-            record["ideas"].append({"i": i, "title": idea.get("title"), "picture": idea.get("picture"),
-                                    "adds": idea.get("adds"), "verdict": vd.get("verdict") or ("refused by the code"
-                                                                                               if ideas[k][i] is None and not vd else "pass"),
-                                    "reason": vd.get("reason"), "flaw": vd.get("flaw"), "score": vv.get("score"),
-                                    "stops": vv.get("stops"), "link": vv.get("link"), "feels": vv.get("feels"),
-                                    "viewer_adds": vv.get("adds"), "unease": vv.get("unease"),
-                                    "above_face": str(i) in order})
+            verdict = vd.get("verdict") or ("refused by the code" if ideas[k][i] is None and not vd else "pass")
+            entry = {"i": i, "title": idea.get("title"), "picture": idea.get("picture"), "adds": idea.get("adds"),
+                     "verdict": verdict, "reason": vd.get("reason"), "flaw": vd.get("flaw"), "score": vv.get("score"),
+                     "stops": vv.get("stops"), "link": vv.get("link"), "feels": vv.get("feels"),
+                     "viewer_adds": vv.get("adds"), "unease": vv.get("unease"), "above_face": str(i) in order}
+            if _pair_b(idea):
+                entry["picture_b"] = _pair_b(idea)
+            if rank:
+                # the viewer's four answers, its place in the ranking (1 = best, the face counted), the director's risk
+                entry.update(flags=vv.get("flags"), rank=ranked.index(str(i)) + 1 if str(i) in ranked else None,
+                             engine_risk=risks.get((k, i), "none"))
+            record["ideas"].append(entry)
         if not d.get("ideas") and not (directed.get(k) is None):
             broll.filter_hit("ideas: no picture (the director)", f'Moment "{m.get("anchor")}": no picture — {d.get("why") or "-"}.')
         elif not order:
-            broll.filter_hit("ideas: no idea above the face alone", f'Moment "{m.get("anchor")}": '
-                             + ("every idea refused" if not live else "the viewer ranks the face alone above every idea") + ".")
+            broll.filter_hit("ideas: no idea above the face alone", f'Moment "{m.get("anchor")}": {why_none}.')
         if order:
             i0 = int(order[0])
             spec = specs[(k, i0)]
@@ -540,20 +797,32 @@ def idea_round(moments, reserves, clip, words, gravity, clip_text, avoid=(), hea
                     m2["t"], m2["anchor"] = probe["time"], probe["anchor"]
             m2.update(query=spec.get("subject"), subject=spec.get("subject"), people=spec.get("people"),
                       inside_body=spec.get("kind") == "body_inside", viewer_score=(v.get("views") or {}).get(i0, {}).get("score"))
+            if rank:
+                m2["viewer_rank"] = ranked.index(order[0]) + 1 if order[0] in ranked else None
             record["chosen"] = i0
-            (out_reserves if k >= len(moments) else out_moments).append(m2)
+            (out_reserves if reserve else out_moments).append(m2)
+            if not reserve:
+                seen_now.append(_shown_entry(idea, spec, clip))
         LAST_IDEAS.append(record)
+
+    def hero_score(i):
+        if rank:      # no score in "rank" mode: an idea the viewer ranked before the face alone has what a hero needs
+            return HERO_MIN if out_moments[i].get("viewer_rank") else 0
+        return int(out_moments[i].get("viewer_score") or 0)
     # The hero, among the ideas kept: the editor's mark is a bonus, no longer the condition.
-    k_hero = _pick_hero(out_moments, lambda i: (out_moments[i]["spec"], int(out_moments[i].get("viewer_score") or 0)),
-                        words, avoid, head, block)
+    k_hero = _pick_hero(out_moments, lambda i: (out_moments[i]["spec"], hero_score(i)), words, avoid, head, block)
     for i, m in enumerate(out_moments):
         m["hero"] = i == k_hero
     for m in out_reserves:
         m["hero"] = False
     if k_hero is None and out_moments:
-        broll.filter_hit("ideas: no hero", "No idea kept can fill the whole screen (hero_ok, viewer 4 or more, the timing) — cards only.")
+        broll.filter_hit("ideas: no hero", "No idea kept can fill the whole screen (hero_ok, "
+                         + ("ranked by the viewer" if rank else "viewer 4 or more") + ", the timing) — cards only.")
     print("   💡 Ideas: " + " | ".join(
         f'{r["anchor"]}: ' + (f'#{r["chosen"]} "{_q((r["ideas"][r["chosen"]] or {}).get("title"), 6)}"'
-                              f' ({(r["ideas"][r["chosen"]] or {}).get("score") or "-"}/5)' if r["chosen"] is not None
-                              else "no picture") for r in LAST_IDEAS if not r["reserve"]))
+                              + (f' (ranked {(r["ideas"][r["chosen"]] or {}).get("rank") or "-"})' if rank else
+                                 f' ({(r["ideas"][r["chosen"]] or {}).get("score") or "-"}/5)')
+                              if r["chosen"] is not None else "no picture") for r in LAST_IDEAS if not r["reserve"]))
+    if shown and seen_now:
+        add_shown(shown, seen_now)          # what this clip shows, for the next clips of the episode
     return out_moments, out_reserves

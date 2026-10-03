@@ -442,6 +442,16 @@ container before stopping the old one (rolling update) and both share
 Before pushing, still batch small commits (tests, docs) with the next real
 change: every deploy is a ~5 min build plus a handover.
 
+## Production changes only on the user's explicit validation (4-oct-2026)
+- `plus.py`'s recipe (`plus.BROLL` and the other fixed dicts), `clip_profiles.json`, `.env`, a backend restart:
+  PRODUCTION CHANGES ONLY WHEN THE USER VALIDATES EXPLICITLY, NAMING THE VERSION (« active la v23 »). An « ok »
+  to run a test, a bench or an agent is NOT a validation for production. A bench-only behaviour lives behind a
+  cfg flag the bench sets (`chain`, `ideas`, `reserves`, …) that `plus.BROLL` does not, so editing a module never
+  changes what the jobs do. Say it when something slipped into production anyway.
+- The B-roll lessons (`broll_lessons`): the journal records on its own, the code only PROPOSES patterns
+  (`output/_lessons/proposées.md`); a line enters the calls only from `validées.md` (the user's own hand) or as
+  her 👍/👎 — a lesson is written as a principle, never as a list of objects.
+
 ## Clip Generator++ B-roll brain (broll.py, 1-oct-2026)
 - The recipe lives in `plus.BROLL` (no profile field): `art_director` (a second Claude call, step `broll_art`,
   writes every picture's prompt in a fixed grammar), `faces` ("always": a clear, natural face on every picture),

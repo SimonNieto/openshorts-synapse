@@ -490,7 +490,7 @@ class TestRunUnderTheMinimum:
             made.append(os.path.basename(out))
             return out, len(made)
         kept, pictured = broll_v20.run("clip.mp4", {}, [], None, 0, 30, 4, [], 1.0, 2.0, 2.0, (), None,
-                                       str(tmp_path), render)
+                                       str(tmp_path), render, reserve_mode="quota")
         assert "broll_2a.jpg" in made and len(kept) == 2 and len(pictured) == 3
         assert [c["m"]["spec"]["subject"] for c in kept] == ["an old camera on a desk", "soldiers carrying water cans"]
         assert "alt" not in kept[0]["m"]["spec"]

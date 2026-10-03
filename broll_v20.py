@@ -2,14 +2,18 @@
 image prompt from it (shot_prompt, the subject first, no negation), one blind check per batch answers questions the
 code builds from the spec (broll_check), and decide() keeps / renders again / takes the alternative / drops. No art
 director, no register, no reviewer's prompt. broll.add_broll calls run() when cfg["chain"] == "spec"; the candidates
-it returns have the old chain's shape, so the rendering is the same."""
+it returns have the old chain's shape, so the rendering is the same.
+PROSE mode (v24, the bench: run(..., prose=True)): the image prompt starts from the art director's own picture of the
+idea (the moment's "picture", a pair's right half "picture_b"; shot_prompt.build_prompt(prose=...)); off in production."""
 import os
+import re
 
 import visual_mood
 
 MAX_ROUNDS = 4        # check rounds per clip (each round: one check call for every picture still undecided)
 LAST_CHECKS = []      # every check of the last clip (the bench's board): file, moment, verdict, what was seen
 LESSON_CTX = {}       # what the lessons journal notes with every picture of the clip being made (its title)
+PROSE = False         # v24: the prompt starts from the art director's picture (set by run(..., prose=); the bench only)
 
 
 def _lesson(c, verdict, why):
@@ -28,11 +32,54 @@ def _layout(m):
     return "hero" if m.get("hero") else "card"
 
 
-def _text(spec, layout):
+def _text(spec, layout, prose=None):
+    """The image prompt of a spec; ``prose``: the art director's picture of it (PROSE mode), None: its fields."""
     import broll
     import shot_prompt
     drawing = broll.episode_drawing() if spec.get("kind") == "body_inside" else ""
-    return shot_prompt.build_prompt(spec, layout, drawing)
+    return shot_prompt.build_prompt(spec, layout, drawing, prose=prose)
+
+
+def _prose(m, spec):
+    """(prose, prose_b): the art director's picture of ``spec`` (a spec of the moment ``m``) and of a pair's right
+    half — (None, None) unless PROSE: production makes the prompt from the fields. The chosen idea's picture is the
+    moment's "picture" (unless the spec carries its own); the right half's is the pair's "picture_b". An alternative
+    carries its own (_alt), "" when it has none: never the first idea's picture. Around a death, each one goes through
+    the nets its fields went through (_grave_safe)."""
+    if not PROSE:
+        return None, None
+    m, spec = m or {}, spec or {}
+    if spec.get("picture") is not None:
+        a, b = spec.get("picture") or None, spec.get("picture_b") or None
+    else:
+        a, b = m.get("picture") or None, spec.get("picture_b") or m.get("picture_b") or None
+    mood = spec.get("mood") if isinstance(spec.get("mood"), dict) else {}
+    if m.get("clip_gravity") == "grave" or spec.get("death_near") or mood.get("gravity") == "grave":
+        a, b = _grave_safe(a), _grave_safe(b)
+    return a, b
+
+
+def _grave_safe(prose):
+    """A picture's prose in a clip about a death, or on a sentence that mentions one, under the house's nets its fields
+    went through (broll_ideas._spec_of): what hangs goes (_HANG_RE); a strap-like thing (_STRAP_RE) and the prose is not
+    used — its fields, which the code checked, make the prompt."""
+    import broll_ideas
+    if not prose:
+        return None
+    if broll_ideas._STRAP_RE.search(prose):
+        return None
+    return re.sub(r"\s{2,}", " ", broll_ideas._HANG_RE.sub("", prose)).strip(" ,") or None
+
+
+def _alt(spec):
+    """The alternative's spec: the chosen one under the alternative's own fields. PROSE mode: it carries its own
+    picture ("" when it has none, so its fields make its prompt), never the first idea's."""
+    own = spec.get("alt") or {}
+    alt = {**spec, **own}
+    alt.pop("alt", None)
+    if PROSE:
+        alt["picture"], alt["picture_b"] = own.get("picture") or "", own.get("picture_b") or ""
+    return alt
 
 
 def _moment_for(m, spec, text):
@@ -55,24 +102,46 @@ def _new_cand(k, m, layout, path, seed, take=None):
 
 
 PAIR_GUTTER = 8       # px between the two halves of a pair
+# "Left: A. Right: B." — a pair's picture written for both halves at once (the director of the third bench)
+_SIDES = re.compile(r"^\s*(?:on\s+the\s+)?left(?:\s+(?:half|side|image))?\s*:\s*(?P<a>.+?)\s*[.;,]\s*"
+                    r"(?:on\s+the\s+)?right(?:\s+(?:half|side|image))?\s*:\s*(?P<b>.+)$", re.I | re.S)
+_SIDE_LABEL = re.compile(r"^\s*(?:on\s+the\s+)?(?:left|right)(?:\s+(?:half|side|image))?\s*(?::|\s[—–-]\s)\s*", re.I)
 
 
-def _halves(spec):
+def _pair_proses(prose, prose_b):
+    """(left, right): the art director's picture of each half of a pair, its "Left:" / "Right:" label dropped. A
+    "Left: A. Right: B." picture is split between the halves (the right one's own "picture_b" wins); a picture of the
+    whole pair with no "picture_b" is neither half's (both keep their fields, as before)."""
+    a, b = str(prose or "").strip() or None, str(prose_b or "").strip() or None
+    sides = _SIDES.match(a) if a else None
+    if sides:
+        a, b = sides.group("a"), b or sides.group("b")
+    elif not b:
+        a = None
+    return tuple(_SIDE_LABEL.sub("", x, count=1).strip() or None if x else None for x in (a, b))
+
+
+def _halves(spec, prose=None, prose_b=None):
     """The two specs of a pair (v21): the left thing with its own kind and details, the right one with its own. Nothing
     of one half leaks into the other (the second bench: a photographed prosthetic hand got the drawn half's "red muscle
     tissue" and came out skinned, a galaxy got the neuron's "branching threads"): no shared state, no colours from the
-    mood, and the inside of a body named in a half is drawn whatever kind the director gave that half."""
+    mood, and the inside of a body named in a half is drawn whatever kind the director gave that half.
+    PROSE mode: ``prose`` / ``prose_b`` (the moment's "picture", the pair's "picture_b": _prose) — each half carries its
+    own picture under "picture" (_pair_proses; none: its fields make its prompt) and the net reads it too."""
     import broll_ideas
-    base = {k: v for k, v in spec.items() if k not in ("alt", "subject_b", "kind_a", "kind_b", "details_b", "state")}
+    base = {k: v for k, v in spec.items() if k not in ("alt", "subject_b", "kind_a", "kind_b", "details_b", "state",
+                                                        "picture", "picture_b")}
     mood = dict(base.get("mood") or {})
     mood.update(colours_said="", true_colours="")
     base["mood"] = mood
     left = {**base, "kind": spec.get("kind_a") or "thing", "subject": spec.get("subject"), "count": "1"}
     right = {**base, "kind": spec.get("kind_b") or "thing", "subject": spec.get("subject_b") or spec.get("subject"),
              "details": spec.get("details_b") or "", "count": "1"}
-    for half in (left, right):
+    for half, own in zip((left, right), _pair_proses(prose, prose_b)):
+        if own:
+            half["picture"] = own
         if half["kind"] in ("thing", "scene", "vision", "instrument") and broll_ideas._BODY_RE.search(
-                f'{half.get("subject") or ""} {half.get("details") or ""}'):
+                f'{half.get("subject") or ""} {half.get("details") or ""} {own or ""}'):
             half["kind"], half["instrument"] = "body_inside", ""
         if half["kind"] in ("instrument", "body_inside"):
             half["setting"] = "plain"
@@ -101,14 +170,15 @@ def _compose_pair(paths, layout, out):
     return out
 
 
-def _make(spec, layout, raw, render):
+def _make(spec, layout, raw, render, prose=None, prose_b=None):
     """One picture of a spec -> (path or None, seed): a pair is two halves made one by one (layout "half", a square
-    each) and composed by the code — Z-Image paints the same thing twice when asked for two in one frame."""
+    each) and composed by the code — Z-Image paints the same thing twice when asked for two in one frame.
+    ``prose`` / ``prose_b``: the art director's pictures (PROSE mode, _prose); None: the fields."""
     if spec.get("kind") != "pair":
-        return render(_text(spec, layout), raw, layout)
+        return render(_text(spec, layout, prose), raw, layout)
     paths, seed = [], None
-    for i, half in enumerate(_halves(spec)):
-        got, s = render(_text(half, "half"), raw.replace(".jpg", f"_h{i}.jpg"), "half")
+    for i, half in enumerate(_halves(spec, prose, prose_b)):
+        got, s = render(_text(half, "half", half.get("picture")), raw.replace(".jpg", f"_h{i}.jpg"), "half")
         if not got:
             return None, None
         paths.append(got)
@@ -121,16 +191,18 @@ def _render_moment(k, m, render, tmp, tag=""):
     import broll
     layout = _layout(m)
     spec = m["spec"]
-    text = _text(spec, layout)
+    prose, prose_b = _prose(m, spec)
     if spec.get("kind") == "pair":
-        a, b = _halves(spec)
-        text = f"PAIR — left: {_text(a, 'half')} — right: {_text(b, 'half')}"
+        a, b = _halves(spec, prose, prose_b)
+        text = f"PAIR — left: {_text(a, 'half', a.get('picture'))} — right: {_text(b, 'half', b.get('picture'))}"
+    else:
+        text = _text(spec, layout, prose)
     m = _moment_for(m, spec, text)
     takes = broll.HERO_TAKES if layout == "hero" else 1
     out = []
     for j in range(1, takes + 1):
         raw = os.path.join(tmp, f"broll_{k}{tag}" + (f"_t{j}" if j > 1 else "") + ".jpg")
-        got, seed = _make(spec, layout, raw, render)
+        got, seed = _make(spec, layout, raw, render, prose, prose_b)
         if got:
             out.append(_new_cand(k, m, layout, got, seed, take=j if takes > 1 else None))
     return out
@@ -169,7 +241,8 @@ def _settle(cands, words, render, tmp):
                                     "checked": bool(g["check"]),
                                     "anchor": g["m"].get("anchor"), "subject": spec.get("subject"),
                                     "verdict": verdict if g is c else "other take", "score": 5 if verdict == "keep" and g is c else 2,
-                                    "look": g["look_score"], "seen": (g["check"] or {}).get("sees"),
+                                    "look": g["look_score"], "viewer": (g["check"] or {}).get("score"),
+                                    "seen": (g["check"] or {}).get("sees"),
                                     "links": (g["check"] or {}).get("links"), "answers": (g["check"] or {}).get("answers"),
                                     "prompt": g["m"].get("prompt")})
             if verdict == "keep":
@@ -177,16 +250,16 @@ def _settle(cands, words, render, tmp):
                 kept.append(c)
             elif verdict == "rerender":
                 raw = os.path.join(tmp, f"broll_{k}_v{c['tries'] + 1}.jpg")
-                got, seed = _make(spec, c["layout"], raw, render)
+                got, seed = _make(spec, c["layout"], raw, render, *_prose(c["m"], spec))
                 if got:
                     pending.append({**c, "file": got, "seed": seed, "tries": c["tries"] + 1, "take": None})
             elif verdict == "alt":
-                alt = {**spec, **(spec.get("alt") or {})}
-                alt.pop("alt", None)
-                text = _text(alt, c["layout"])
+                alt = _alt(spec)
+                prose, prose_b = _prose(c["m"], alt)
+                text = _text(alt, c["layout"], prose)
                 m2 = _moment_for(c["m"], alt, text)
                 raw = os.path.join(tmp, f"broll_{k}_alt.jpg")
-                got, seed = _make(alt, c["layout"], raw, render)
+                got, seed = _make(alt, c["layout"], raw, render, prose, prose_b)
                 if got:
                     pending.append({**c, "m": m2, "file": got, "seed": seed, "tries": c["tries"] + 1,
                                     "alt_used": True, "take": None})
@@ -203,16 +276,22 @@ def _too_close(m, kept):
 
 
 def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, gap_min, block, dur_range, tmp, render,
-        ideas=False):
+        ideas=False, reserve_mode="none", prose=False, judge=None, shown=None):
     """The whole v20 chain for one clip. ``render(text, out_path, layout) -> (path or None, seed)`` makes one picture
     (add_broll's ComfyUI call). ``ideas`` (v21): the round of ideas in text between the editor and the rendering
-    (broll_ideas: art director, verifier, viewer; the face alone as the level zero). Under broll_check.MIN_PER_CLIP
-    kept: the reserves, then the alternatives not yet rendered. Returns (cands, moments) — cands in the old chain's
-    shape, the kept ones only."""
+    (broll_ideas: art director, verifier, viewer; the face alone as the level zero). ``reserve_mode``: "none" (production:
+    a weak picture harms more than no picture, the face alone wins, no picture is made to reach a count), "quota"
+    (the bench's older versions: under broll_check.MIN_PER_CLIP kept, the reserves, then the alternatives not yet
+    rendered) or "above_face" (the bench's v23: every reserve whose idea passed the face alone is made, never for a
+    count). ``prose`` (v24, the bench; sets PROSE for the clip): the image prompt starts from the art director's own
+    picture of the idea, not from its fields. Returns (cands, moments) — cands in the old chain's shape, the kept ones
+    only."""
     import ai_brain
     import broll
     import broll_check
     import broll_spec
+    global PROSE
+    PROSE = bool(prose)
     del LAST_CHECKS[:]
     LESSON_CTX.update(clip_title=str(clip.get("video_title_for_youtube_short") or "")[:120])
     try:
@@ -230,7 +309,7 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
         gravity = moments[0].get("clip_gravity") or "none"
         moments, reserves = broll_ideas.idea_round(moments, reserves, clip, words, gravity,
                                                    " ".join(w["text"] for w in words), avoid=avoid, head=head,
-                                                   block=block)
+                                                   block=block, judge=judge, shown=shown)
         if not moments:
             print("   ℹ️ B-roll v21: no idea above the face alone — no picture for this clip.")
             return [], []
@@ -246,9 +325,20 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
     for k, m in enumerate(moments):
         cands += _render_moment(k, m, render, tmp)
     kept = _settle(cands, words, render, tmp) if cands else []
-    # the minimum: reserves, one at a time, until the clip has broll_check.MIN_PER_CLIP pictures
+    mode = reserve_mode if reserve_mode in ("none", "quota", "above_face") else "none"
     k = len(moments)
-    for m in reserves:
+    if mode == "above_face":
+        # the bench's v23: a reserve whose idea passed the face alone is a picture like the others, never a filler
+        for m in reserves:
+            if _too_close(m, kept):
+                continue
+            m = {**m, "hero": False}
+            print(f'   ➕ Reserve above the face alone: "{m["spec"].get("subject")}" is made.')
+            kept += _settle(_render_moment(k, m, render, tmp, tag="r"), words, render, tmp)
+            moments.append(m)
+            k += 1
+    for m in (reserves if mode == "quota" else []):
+        # the bench's older versions: the minimum, reserves one at a time until broll_check.MIN_PER_CLIP pictures
         if not broll_check.needs_reserve(kept):
             break
         if _too_close(m, kept):
@@ -258,10 +348,10 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
         kept += _settle(_render_moment(k, m, render, tmp, tag="r"), words, render, tmp)
         moments.append(m)
         k += 1
-    # still under it: the alternatives never rendered (a picture dropped for its shape, its count or its writing never
-    # reaches its alt in decide), the best worth first — the reserves' and the planned moments'. Not after a check
-    # that gave no answer: its alternative would go unchecked too.
-    if broll_check.needs_reserve(kept):
+    # still under it (quota only): the alternatives never rendered (a picture dropped for its shape, its count or its
+    # writing never reaches its alt in decide), the best worth first — the reserves' and the planned moments'. Not
+    # after a check that gave no answer: its alternative would go unchecked too.
+    if mode == "quota" and broll_check.needs_reserve(kept):
         last = {e["k"]: e for e in LAST_CHECKS}
         done = ({e["k"] for e in LAST_CHECKS if e.get("verdict") == "alt"} | {c["k"] for c in kept}
                 | {j for j, e in last.items() if not e.get("checked")})
@@ -272,8 +362,7 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
                 break
             if _too_close(m, kept):
                 continue
-            alt = {**m["spec"], **m["spec"]["alt"]}
-            alt.pop("alt", None)
+            alt = _alt(m["spec"])
             m = {**m, "spec": alt, "hero": False}
             print(f'   🪫 Under the minimum ({len(kept)}): the alternative "{alt.get("subject")}" is made.')
             kept += _settle(_render_moment(k, m, render, tmp, tag="a"), words, render, tmp)
