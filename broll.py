@@ -290,7 +290,8 @@ STYLE_RULE_REGISTERS = """
 {lines}
   A register is not an allegory: an experience, a distant or invisible object, a notion the speaker names IS the
   thing named, and its register is how this episode shows it (see REGISTERS in the bible). Never a photo of a
-  stand-in object when a register fits."""
+  stand-in object when a register fits. An INSTRUMENT register only for a sentence that speaks of what that
+  instrument shows (its image or its readout) — never as the look of a place, a treatment or a conversation."""
 
 
 def registers():
@@ -336,28 +337,90 @@ def premium_style(style):
 # the mind, or a state lived from inside, is shown as it is lived — not the room it is taken in — even named in
 # passing; real suffering comes first (sober), and a clip never turns into a string of such pictures.
 EXPERIENCE_RULE = """THE EXPERIENCE, NOT THE SETTING: when the speaker names something taken or practised for its effect on the
-mind, or a state lived from inside, its picture is the experience as it is lived — what the person perceives from
-inside, through their own eyes and senses, never the person seen from outside nor a pensive face ("visibility": inner,
-in its REGISTER when the bible gives one) — not the room, the clinic or the object it comes from — even when he names it
+mind, or a state lived from inside, its picture is the experience as it is lived — what the person perceives, painted
+as WHAT FILLS THE FRAME (shapes, light, colours, surfaces, what is seen), never the person seen from outside nor a
+pensive face, never the viewer: no "first-person", "point of view" or "through his eyes" in a prompt (the image model
+then draws a person) ("visibility": inner, in its REGISTER when the bible gives one) — not the room, the clinic or the
+object it comes from — even when he names it
 in passing or for its results (this wins over the substances line above). ONE such picture in a clip that names it in passing; more only when he describes
-the experience itself. A DEATH FIRST: when the moment is about a death, a victim or someone dying ("gravity"
+the experience itself. AN INNER PICTURE IS FOR WHAT IS SEEN: a vision, a hallucinated sight, the world seen changed.
+A feeling, a rush, a craving, an energy or a chemistry (euphoria, rage, a "high", a dump of dopamine) has nothing to
+see: no picture for it — unless the speaker tells a scene, which is then shown. A DEATH FIRST: when the moment is about a death, a victim or someone dying ("gravity"
 grave), no experience picture — a sober, dignified photograph instead. An illness or an addiction ("gravity" real)
 lived as negative is shown from inside with RESTRAINT: muted colours, few effects, never spectacular or glorifying,
 never horror, never a caricature of the illness; an experience lived as positive, or one that heals, keeps all its
 colours."""
 # A clip about a death (the editor's clip_gravity "grave", v14): its pictures are absences.
 ABSENCE_LINE = ("  ABSENCE (the clip is about a death; this overrules the editor's draft): the places and things the person "
-                "left, as they are — nobody who could be taken for him or for his close ones.")
-# Safety (v14, the user's rule): nothing that evokes an overdose, a means of suicide or a symbol of death.
+                "left, as they are, EMPTY — nobody in the frame (people \"none\"): no colleague, pupil, passer-by, nor "
+                "anyone who could be taken for him or his close ones.")
+# Safety (v14, the user's rule): nothing that evokes an overdose, a means of suicide or a symbol of death. v16: judged
+# WITH the words (a vial is harmless alone, not on "took his own life").
 SAFETY_RULE = """NOTHING THAT EVOKES AN OVERDOSE, A MEANS OF SUICIDE OR A SYMBOL OF DEATH, not even as a visual cliché: no
 pills spilled or heaped, no empty or tipped-over bottle by a bed, no rope, no blade near skin, no weapon aimed at
-anyone, no skull, no coffin, no grave, no wilted flowers or burnt-out candle standing for a death."""
+anyone, no skull, no coffin, no grave, no wilted flowers or burnt-out candle standing for a death, no heart monitor
+with a flat or failing line, no empty hospital bed for a death. A picture is read
+WITH ITS WORDS: on a sentence that tells of a death, nothing that could be taken for its cause or its means — no
+substance, medicine or container of one, however harmless it would be on its own. No drug being taken nor its gear in
+use (a pipe being lit, a needle in a vein, a line on a table)."""
 # The editor's flags (v14): a picture with one of them is not made (in the bench's fixed moments: skipped, with why).
 FLAGS = ("set_phrase", "negated", "precise_structure")
-FLAGS_RULE = """FLAGS, for every picture: "set_phrase" true when the words that name the thing are a figure of speech used for
-emphasis (he does not mean that thing); "negated" true when the speaker says it is NOT that thing, or that it had
-nothing to do with what is told; "precise_structure" true when the picture would need a precise chemical structure, a
-formula, an equation, a chart or a labelled diagram. A picture with a flag true is not made."""
+FLAGS_RULE = """FLAGS, for every picture: "set_phrase" true when the thing the words name, taken literally, does not exist in
+the story the clip tells — it is only called up to qualify something else (an idea, a judgment, an intensity, a
+feeling): a figure of speech, however vivid, whose literal picture would make a viewer think of another subject
+(read the sentence before: a comparison often starts there); "negated" true when the speaker says it is NOT that thing, or that it had
+nothing to do with what is told — also on any other moment of the clip that would show a link he denies; never when
+he only says it does not matter or "even if" (the thing stays real and is what is told: "it doesn't matter if you
+have a tumor" still speaks of a tumor); "precise_structure" true when the picture would need a precise chemical
+structure, a formula, an equation, a chart or a labelled diagram. A picture with a flag true is not made."""
+# v17 (the user, 3-oct-2026: "les images de cerveau… les photos d'opération… pas dégueu, limite en dessin animé"): the
+# inside of a body is drawn, never photographed — declared ("inside_body"), never guessed from the words.
+# v19 (the user: "un seul style de dessin pour tout l'épisode, cohérent avec les photos autour — le nerf en style animé
+# détonne"): ONE drawing per episode (the bible's "drawing", else the house's), the picture's own light and palette.
+BODY_RULE = """THE INSIDE OF A BODY IS DRAWN, NEVER PHOTOGRAPHED: a brain, an organ, tissue, a nerve or a muscle seen inside, a
+wound, an operation (surgeons at work on someone, even seen from afar) — "inside_body": true. It is drawn in the
+episode's ONE drawing (the same for every such picture of the episode, added by code), dry and clean — nothing wet,
+no blood — so nothing is hard to look at; its scene, composition, light and colours are the picture's own, like the
+photographs around it, and its prompt has no camera word. A scan, an X-ray or a micrograph keeps its own instrument look
+("inside_body": false)."""
+BODY_LINE = ("  INSIDE THE BODY (drawn, never photographed; this overrules the medium, the lens and the texture): write "
+             "what is drawn — its forms, their scale and arrangement — with the composition, the light and the palette of "
+             "its look line, like the photographs of the set; no camera word (lens, millimetres, depth of field, "
+             "photograph). The episode's drawing follows your prompt word for word: \"{drawing}\"")
+DRAWING_HOUSE = ("A hand-painted documentary illustration in gouache and coloured pencil: forms true to life and "
+                 "simplified to clear volumes, softly modelled with fine pencil edges, clean dry matte surfaces with the "
+                 "grain of the paper, the true colours of each thing gently muted, painted edge to edge across the whole "
+                 "frame, plainly a drawing made by one hand.")
+
+
+def episode_drawing():
+    """The one drawing of the episode's inside-of-a-body pictures: the bible's "drawing", else the house's (no bible,
+    an older one, a refused drawing, or BROLL_DRAWING=house)."""
+    import ai_brain
+    if os.environ.get("BROLL_DRAWING", "episode") == "house":
+        return DRAWING_HOUSE
+    return str((ai_brain.EPISODE_BIBLE or {}).get("drawing") or "").strip() or DRAWING_HOUSE
+# Who is in the frame (v16): declared by the editor (its draft) and by the art director (its prompt), never guessed from
+# the words — "man-made", "the north face", "portrait-format", "the patient's chart" made the old word guard add a person.
+PEOPLE = ("none", "hands", "one", "group")
+PEOPLE_RULE = """"people", for every picture: who is in its frame — "none" (nobody: a place, a thing, a vision, an instrument's
+image), "hands" (hands only), "one" (one or a few people), "group" (a crowd). An inner picture is "none": what is
+perceived, never the one who perceives."""
+# v16 — the parallel and the known picture (the user's correction): the pair side by side is fine when its two halves
+# share the structure the speaker compares; what failed was a spiral galaxy next to a lone drawn neuron.
+PARALLEL_KINDS = ("none", "one", "pair")
+PARALLEL_RULE = """A PARALLEL: when the speaker compares two things for a structure they share ("parallel" for every picture: "none"
+otherwise). While he announces, describes or wonders about the comparison: "one" — ONE image of the shared structure
+that reads as both. At the moment he SHOWS it ("this is X and that is Y"): "pair" — the two side by side, each half
+the real reference image of its own field, the one the researchers of that field publish (its real subject, its
+imaging technique, its colours), never the famous emblem of the field in its place, both halves at the same scale,
+density and framing so the eye goes back and forth. Either way the shared structure is shown WHOLE, at the scale
+where each field shows it — a network of many elements, never one element of it (one cell, one galaxy). When the
+video itself puts that image on screen, it is shown as it is (no picture is planned there)."""
+KNOWN_PICTURE_RULE = """A KNOWN PICTURE: when the speaker refers to a known image (a published image, a scan, a chart, a comparison),
+the picture is that image as it really is — its real subject, the imaging technique that made it, its real colours and
+textures — never a generic stand-in nor the emblem of the field. Its own medium and colours overrule a register's
+(a register restyles what has no known picture; a known picture is shown as it is)."""
 # A place with nobody in it says someone is missing: kept for that (B-roll « ambiance » v12, 2-oct-2026: the boards
 # were full of empty clinics and objects set on trays).
 EMPTY_RULE = """AN EMPTY PLACE IS AN ABSENCE: a place with nobody in it is for a death or a loss only; elsewhere places have
@@ -368,16 +431,13 @@ PRECISION_RULE = """NOTHING THE IMAGE MODEL WILL GET WRONG: no precise chemical 
 diagram — it invents their details; show the substance as matter, or what it does."""
 RESTRAINT_LINE = ("  RESTRAINT (an illness or an addiction): muted colours, few effects, never spectacular or glorifying, "
                   "never horror, never a caricature of the illness.")
-# v13 — a comparison is one pattern, not two pictures.
-PARALLEL_RULE = """A PARALLEL: when the sentence compares two things (one is like the other, mirrors it, is the same as it), the
-picture brings out the pattern they share — the shape, structure, rhythm or movement common to both — in ONE image
-where that pattern reads as both; never the two things side by side, split or overlaid."""
 INNER_MAX = int(_knob("BROLL_INNER_MAX", 2))   # experience pictures a clip keeps at most (the editor is told one in passing)
 INNER_PRIORITY = 1.0     # worth added to a named experience (not grave): the code keeps it among the candidates
 KEEP_WORTH = 3.0         # a candidate below this worth is a nice extra the clip does without
 CANDIDATES_MORE = 3      # the editor lists this many candidates more than the clip keeps
 LAST_SKIPS = []          # the fixed moments (bench) the editor chose to leave without a picture, with why
 LAST_PICTURED = []       # the moments add_broll made pictures for, in order: broll_<k> is the k-th (the bench reads it)
+LAST_GEN = []            # every picture made by the last add_broll: file, model, layout, size, seconds (the bench reads it)
 
 
 def is_inner(m):
@@ -458,7 +518,8 @@ telling scene, or no image."""
 SET_RULE = """THE SET TELLS THE STORY: seen one after the other, the pictures follow the arc (setup -> claim -> payoff)
 and vary subject and shot. HUMAN CASE FIRST: when the clip follows a person, a patient or a real case (see the
 STORIES), that case is the thread. CAST: describe a recurring person or place ONCE in "style_sheet"."cast" and copy
-it word for word into every image_prompt where it appears; leave "cast" empty when nobody recurs."""
+it word for word into every image_prompt where it appears; leave "cast" empty when nobody recurs. THE SPEAKERS
+themselves and their studio are never a picture: the video already shows them, and nobody real is ever drawn."""
 
 # What makes a B-roll read as cheap AI stock on a science channel: the pictures
 # every generator draws first. The editor and the art director are told never
@@ -474,7 +535,9 @@ CLICHES = ("a glowing brain, a brain floating in space or in blue light", "neuro
            "a lone small figure facing a vast landscape, a starry sky or the sea", "open empty palms held out",
            "a hand reaching toward a light", "a doorway or threshold glowing with light",
            "water or sand running through fingers", "a person seen from behind at a window",
-           "an empty corridor or a long empty road", "a clock, an hourglass or a crossroads for time or a choice")
+           "an empty corridor or a long empty road", "a clock, an hourglass or a crossroads for time or a choice",
+           # v17: the v16 bench drew fire for "rage" and a light tunnel for "high on meth"
+           "flames, an explosion, lightning or a tunnel of light standing for a feeling or a drug's effect")
 CLICHE_RULE = ("NEVER THE AI CLICHÉ (for a PHOTO picture; a register picture follows its register) - the pictures every "
                "generator draws first, and the allegories a clever editor reaches for when nothing concrete was said: "
                + "; ".join(CLICHES) + """. THE STORY ALIVE instead: the speaker's case, its people and its things in
@@ -596,8 +659,10 @@ When an EPISODE VISUAL BIBLE is given below, take the pictures from its WORLD (t
 contains), return to its MOTIFS, and never show its WRONG FACTS."""
 SHEET_RULE_MOOD = """THE LOOK of every picture comes from its "mood" (below): what kind of thing it is for a camera and how THIS moment
 is lived, read from the words said, not from the topic. Write "style_sheet" only for "cast" (see CAST below).
-Also write "clip_gravity": what the clip AS A WHOLE is about — "grave" when someone's death is its subject (a death, a
-suicide, a killing, a victim), "real" when an illness or an addiction is, "none" otherwise.
+Also write "clip_gravity": what the clip AS A WHOLE is about — "grave" only when the clip TELLS someone's death (the
+story of a death, a suicide, a killing, a victim is what it is about); a risk of death, a number of deaths or deaths
+named on the way are not: the clip is about what it argues. "real" when an illness or an addiction is its subject,
+"none" otherwise.
 When an EPISODE VISUAL BIBLE is given below, take the pictures from its WORLD (the things this episode really
 contains), return to its MOTIFS, and never show its WRONG FACTS."""
 
@@ -625,8 +690,15 @@ When a picture carries a "judge it on" line, that line says what must be seen: r
 what a still picture can show of it).
 JUDGE WHAT A STILL PICTURE CAN SHOW: a name (a medicine, a brand, a label), a motion, a sequence or a change over time,
 a sound or a voice cannot be seen — never lower the sense for them, nor because a precise prop is missing. A false
-fact is still false (a person asleep when he was awake, the wrong place, era or number). A picture marked "fx" gets
-its effect at the edit: judge the sharp still.
+fact is still false (a person asleep when he was awake, the wrong place, era or number). A picture marked "fx" is
+judged as the viewer will see it: "double" is shown to you WITH its effect (a faint copy drifting beside it);
+"tremble" shakes finely on screen (judge the picture as trembling).
+AN INNER PICTURE (marked INNER) shows what the person perceives: when the person is seen from outside in it — a face,
+a silhouette, a figure, or people standing in for what is perceived (a crowd for voices) — its sense is 2, and its
+"person_seen" is true (answer "person_seen" for every INNER picture).
+A PAIR (marked PAIR) is two images side by side that must share the structure the speaker compares: each half the
+real reference image of its field (its real subject, imaging technique and colours), both at the same scale, density
+and framing. Halves that do not share that structure (an emblem of the field next to something else) — sense 2.
 "facts_ok" (true / false): false when the picture states a false fact - the wrong organ, tool, animal or place, a
 number or an era that contradicts the words or the EPISODE FACTS given below, or a precise chemical structure,
 formula or labelled diagram (the image model invents their details). Judge facts against the quoted words and
@@ -647,20 +719,22 @@ teeth and hands; a deformed, waxy or doubled face scores look 2 at most.
 
 "safe" (true / false): false when the picture evokes an overdose, a means of suicide or a symbol of death, even as a
 cliché (pills spilled or heaped, an empty or tipped-over bottle by a bed, a rope, a blade near skin, a weapon aimed
-at someone, a skull, a coffin, a grave, wilted flowers or a burnt-out candle for a death) — such a picture is never
-shown, however well it matches the words.
+at someone, a skull, a coffin, a grave, wilted flowers or a burnt-out candle for a death, a heart monitor with a
+flat or failing line) — such a picture is never
+shown, however well it matches the words. Read it WITH ITS WORDS: on a sentence that tells of a death, anything that
+could be taken for its cause or its means — a substance, a medicine, a container of one — is not safe, however
+harmless it would be on its own. Not safe either: a drug being taken or its gear in use (a pipe being lit, a needle in
+a vein), and a PHOTOGRAPH of the inside of a body (an organ, a brain, tissue, blood, an open operation) — those are
+drawn in the episode's drawing, and a drawing of them is safe.
 
 For each image, by "file": "seen", "score" 1-5, "facts_ok" true / false, "safe" true / false, "look" 1-5, "problem" (a few words, empty
-if none), "better_prompt" and "new_prompt" — both empty when the score and the look are both 4 or 5 and facts_ok and
-safe are true; a picture that fails ALWAYS gets both, written in full:
-- "better_prompt": the same idea, made to work — the scene rewritten IN THE POSITIVE: describe only what IS in the
-  frame, never "no", "not", "without" or "instead of" (the image model ignores negations), and take out the words
-  that caused the problem (if a window caused it, there is no window in the new prompt);
-- "new_prompt": a DIFFERENT picture for the same words — another subject, setting or point of view, never the same
-  scene reworded — in the positive too; it is used when this idea has already failed twice or when the picture is
-  not safe.
-When the image's own prompt is given below as ART-DIRECTED, write both in that same grammar, 80 to 120 words, in this
-order: subject and action, setting, composition for its frame, lens and point of view, light (source, direction,
+if none), "better_prompt" — empty when the score and the look are both 4 or 5 and facts_ok and safe are true; a
+picture that fails ALWAYS gets one, written in full: the same idea, made to work — the scene rewritten IN THE
+POSITIVE: describe only what IS in the frame, never "no", "not", "without" or "instead of" (the image model ignores
+negations), and take out the words that caused the problem (if a window caused it, there is no window in the new
+prompt). (Another idea, when this one has failed twice, is the art director's to write.)
+When the image's own prompt is given below as ART-DIRECTED, write it in that same grammar, 80 to 120 words, in this
+order: subject and action, setting, composition for its frame, lens and viewpoint, light (source, direction,
 quality), palette and grade, material and detail, mood - keep what worked, change what failed."""
 REVIEW_SCHEMA = {
     "type": "object",
@@ -669,10 +743,10 @@ REVIEW_SCHEMA = {
         "properties": {"file": {"type": "string"}, "seen": {"type": "string"}, "score": {"type": "integer"},
                        "facts_ok": {"type": "boolean"}, "safe": {"type": "boolean"},
                        "look": {"type": "integer"}, "problem": {"type": "string"}, "better_prompt": {"type": "string"},
-                       "new_prompt": {"type": "string"}},
-        # v15b: both prompts asked every time (empty for a picture that passes) — optional, the review left the
-        # other idea out 9 times in 11, and a picture that failed twice had nothing left to try.
-        "required": ["file", "seen", "score", "look", "better_prompt", "new_prompt"]}}},
+                       "person_seen": {"type": "boolean"}},
+        # v15b: the better prompt asked every time (empty for a picture that passes). The other idea (v15 "new_prompt")
+        # is the art director's since v16 (another_idea): the review's were the same scene, or the cliché.
+        "required": ["file", "seen", "score", "look", "better_prompt"]}}},
     "required": ["reviews"],
 }
 
@@ -961,6 +1035,9 @@ def _parse_moments(data, words, n, avoid, gap=MIN_GAP, dur_range=None, tail=None
                         "hero_why": re.sub(r"\s+", " ", str(m.get("hero_why") or "")).strip()[:200],
                         "mood": visual_mood.clean(m["mood"]) if isinstance(m.get("mood"), dict) else None,
                         "show": m.get("show") if m.get("show") in ("thing", "meaning") else None,
+                        "people": m.get("people") if m.get("people") in PEOPLE else None,
+                        "parallel": m.get("parallel") if m.get("parallel") in ("one", "pair") else None,
+                        "inside_body": m.get("inside_body") is True,
                         "point": re.sub(r"\s+", " ", str(m.get("point") or "")).strip()[:160],
                         "dur": dur,
                         "sheet": sheet,
@@ -1174,8 +1251,8 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
     else:
         count_rule = f"Add up to {n} B-roll images — fewer when the clip names little, none when it names nothing."
     mode_rule = MODE_RULES.get(mode, MODE_RULES["mixed"]).replace(" PARALLEL_PLACEHOLDER", " " + PARALLEL_RULE.replace("\n", " "))
-    if parallel and "A PARALLEL" not in mode_rule:
-        mode_rule += " " + PARALLEL_RULE.replace("\n", " ")
+    if parallel and not hero and "A PARALLEL" not in mode_rule:
+        mode_rule += " " + PARALLEL_RULE.replace("\n", " ")     # the mixed layout has it in every request (v16)
     common = dict(n=n, cap=cap, count_rule=count_rule, avoid=avoid_txt,
                   sheets=", ".join(os.path.basename(p) for p in sheets or []) or "none",
                   frame=FRAME_TEXT["mixed" if hero else "small"],
@@ -1187,7 +1264,8 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
                   hook=clip.get("viral_hook_text") or "-", before=before or "-", after=after or "-",
                   brief=brief or "(no brief for this video)", bible=_bible_block(), text=_numbered_text(words)[:6000],
                   grounding=GROUNDING_RULE, set_rule=SET_RULE, cliche_line=CLICHE_LINE,
-                  experience_rule=("\n".join((EXPERIENCE_RULE, EMPTY_RULE, PRECISION_RULE, SAFETY_RULE, FLAGS_RULE)) + "\n")
+                  experience_rule=("\n".join((EXPERIENCE_RULE, EMPTY_RULE, PRECISION_RULE, SAFETY_RULE, BODY_RULE,
+                                              PARALLEL_RULE, KNOWN_PICTURE_RULE, PEOPLE_RULE, FLAGS_RULE)) + "\n")
                   if hero else "",
                   pace=pace, names=pace_of[density]["names"],
                   gap=gap)
@@ -1201,9 +1279,12 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
         item = schema["properties"]["moments"]["items"]
         item["properties"]["style"]["enum"] = list(PREMIUM_STYLES) + register_names()
         item["properties"]["mood"] = visual_mood.SCHEMA
-        item["required"] = list(item["required"]) + ["mood", "worth"] + list(FLAGS)
+        item["required"] = list(item["required"]) + ["mood", "worth", "people", "parallel", "inside_body"] + list(FLAGS)
+        item["properties"]["inside_body"] = {"type": "boolean"}
         for flag in FLAGS:
             item["properties"][flag] = {"type": "boolean"}
+        item["properties"]["people"] = {"type": "string", "enum": list(PEOPLE)}
+        item["properties"]["parallel"] = {"type": "string", "enum": list(PARALLEL_KINDS)}
         schema["properties"]["clip_gravity"] = {"type": "string", "enum": ["none", "real", "grave"]}
         schema["required"] = list(schema.get("required") or []) + ["clip_gravity"]
         if mode == "adaptive":
@@ -1297,8 +1378,9 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
         m["thesis"] = thesis
         m["hero_options"] = options
         m["clip_gravity"] = clip_gravity
-        if parallel:
-            m["parallel"] = True
+    pairs = [f'{m.get("subject") or m["anchor"]}: {m["parallel"]}' for m in moments if m.get("parallel")]
+    if pairs:
+        print("   🪞 Parallel: " + " | ".join(pairs))
     return moments
 
 
@@ -1310,6 +1392,33 @@ def plan_with_claude(clip, words, n, avoid, auto_style=False, transcript=None, s
 # composition for its frame, lens, light, palette, material, mood. 80-120 words,
 # stated in the positive (at cfg 1.0 a negation does nothing).
 ART_MIN_WORDS, ART_MAX_WORDS = 40, 220   # an answer outside this is not a prompt: the editor's draft stays
+# s: one art director's call at most. Opus at max effort (the user's choice on 2-oct-2026) answers in 25-160 s; one
+# call once hung 658 s for 4k tokens written (an overloaded API, retried in silence): past this, Sonnet does it.
+ART_TIMEOUT = int(_knob("BROLL_ART_TIMEOUT", 240))
+
+
+def art_effort():
+    """The art director's thinking level: its own (profile brain.thinking_art -> CLAUDE_EFFORT_BROLL_ART), else the
+    B-roll's, else high."""
+    return os.environ.get("CLAUDE_EFFORT_BROLL_ART") or os.environ.get("CLAUDE_EFFORT_BROLL") or "high"
+
+
+def _art_call(prompt, stage):
+    """One art director's call on its model and effort; when it does not answer within ART_TIMEOUT, the same request
+    goes to Sonnet (high effort) once — counted."""
+    import subprocess
+    import ai_brain
+    model = ai_brain.stage_model("broll_art")
+    try:
+        return claude_json(prompt, ART_SCHEMA, timeout=ART_TIMEOUT, effort=art_effort(), stage=stage, model=model,
+                           system=ART_SYSTEM)
+    except Exception as e:
+        slow = isinstance(e, subprocess.TimeoutExpired) or "timed out" in str(e).lower()
+        if model == "sonnet" or not slow:
+            raise
+        filter_hit("art: too slow, sonnet instead", f"{stage}: {model} gave no answer in {ART_TIMEOUT} s — Sonnet instead.")
+        return claude_json(prompt, ART_SCHEMA, timeout=ART_TIMEOUT, effort="high", stage=stage, model="sonnet",
+                           system=ART_SYSTEM)
 # Where a clear, natural face may show (plus.BROLL["faces"]): never (every person anonymous, face turned away),
 # hero (the full-screen picture only: a look, a gesture, a posture is often THE picture), always. Nobody real
 # and recognisable in any mode; the other guardrails (counts, lettering, brands, crowds) stay.
@@ -1356,6 +1465,10 @@ RULES
   look.
 - Describe what IS in the frame, never what is not: the image model ignores negations ("no text", "without
   people" do nothing): say what fills the space instead.
+- A VIEWER READS IT IN ONE SECOND: say what is seen in plain, concrete words a viewer would use — the thing, where
+  it is, its light and colours. No ornament, jewel, carving, architecture, paper, ink or material the sentence does
+  not call for, no literary metaphor: an experience is painted with the colours, light and motion it is told with,
+  never decorated.
 - {extra_rules}
 - {medium_rule}
 - Keep every fact the editor gives, the glossary's way of drawing a notion, and the subject of each picture.
@@ -1373,12 +1486,20 @@ And "fx": "none", or what the edit adds to the sharp picture because the image m
 faint copy of the picture that drifts beside it: a presence doubled, a voice that is another person, a split) or
 "tremble" (a fine shake: a perception that shivers, a panic). With an fx, the prompt paints ONE sharp, single image
 (never a doubled, ghosted, blurred or shaking subject).
+And "people": who is in the frame of YOUR prompt — "none" (nobody), "hands" (hands only), "one" (one or a few
+people), "group" (a crowd); an inner picture is "none". The image model's guard adds a face or a crowd only from this.
+And, for THE HERO only, "alt_prompt": the same moment shot another way — another viewpoint, distance or framing of
+the same scene, same rules, same length (the image model paints nearly the same picture from one prompt whatever the
+seed: its second take needs other words); "" for a card.
 
-Return JSON: {{"prompts": [{{"k": 0, "prompt": "...", "judge": "...", "fx": "none"}}, ...]}} with the "k" of every picture above."""
+Return JSON: {{"prompts": [{{"k": 0, "prompt": "...", "judge": "...", "fx": "none", "people": "none", "alt_prompt": ""}}, ...]}}
+with the "k" of every picture above."""
 REGISTER_TEXT = """- REGISTER PICTURES: a picture marked REGISTER below is not a photograph and has no look sheet: its register
-  is its STYLE, never its scene — the scene comes from THIS picture's sentence (what the speaker says happens or is
-  perceived here), so two pictures of one register never share a scene. An inner register shows what the person
-  perceives from inside, through their own eyes and senses — never the person seen from outside. Write it in this
+  is its STYLE (the look of one picture), never its scene — the scene comes from THIS picture's sentence (what the
+  speaker says happens or is perceived here), so two pictures of one register never share a scene. An inner register
+  paints what the person perceives as WHAT FILLS THE FRAME (shapes, light, colours, surfaces) — never the person seen
+  from outside, never the viewer: no "first-person", "point of view" or "through his eyes" (the image model then
+  draws a person), never a sound or a feeling named as such (say what is SEEN). Write it in this
   order: 1. what is seen (this sentence's content), 2. geometry and scale, 3. colours and light (the register's),
   4. composition for its frame, 5. medium and texture, 6. mood. Make it as strange, saturated or vast as its register
   says; its "cheap" line is what to stay away from. Still 80 to 120 words, still nothing written anywhere, still
@@ -1388,10 +1509,22 @@ ART_SCHEMA = {
     "properties": {"prompts": {"type": "array", "items": {
         "type": "object",
         "properties": {"k": {"type": "integer"}, "prompt": {"type": "string"}, "judge": {"type": "string"},
-                       "fx": {"type": "string", "enum": ["none", "double", "tremble"]}},
-        "required": ["k", "prompt"]}}},
+                       "fx": {"type": "string", "enum": ["none", "double", "tremble"]},
+                       "people": {"type": "string", "enum": list(PEOPLE)}, "alt_prompt": {"type": "string"},
+                       "inside_body": {"type": "boolean"}},
+        "required": ["k", "prompt", "people"]}}},
     "required": ["prompts"],
 }
+# The pair and the one image of a parallel (v16), told to the director for the pictures the editor marked.
+PAIR_LINE = ("  PAIR (he shows the comparison now; this overrules the editor's draft and the register's medium and "
+             "palette): the two side by side in one frame, each half the real reference image of its own field — its real "
+             "subject, the imaging technique of that field, its real colours, never the field's emblem — both halves at "
+             "the same scale, density and framing, each showing the shared structure WHOLE (a dense network of many "
+             "elements, never one element of it); name both halves and both imaging techniques in the prompt.")
+ONE_LINE = ("  ONE IMAGE OF THE SHARED STRUCTURE (this overrules the editor's draft and the register's medium and palette): "
+            "the shared structure WHOLE — a dense network of many elements, never one element of it — reading as both "
+            "things compared, in the imaging technique and the real colours of their reference images (name them); "
+            "never two pictures.")
 
 # --- the look of each picture (B-roll « ambiance », 2-oct-2026, "mixed" layout) ------------------------------
 # No house look, no style family: every picture comes with its look sheet, made by code from its mood
@@ -1456,8 +1589,16 @@ def _art_prompt(moments, clip, mixed=True, rise=False, auto_style=True, style="p
             lines.append(f"  said: \"{m['said']}\"")
         if m.get("idea"):
             lines.append(f"  idea: {m['idea']}")
-        lines.append(f"  the editor's draft: {m.get('prompt') or '-'}")
-        reg = register_of(m_style)
+        lines.append(f"  the editor's draft: {m.get('prompt') or '-'}"
+                     + (f" (people: {m['people']})" if m.get("people") else ""))
+        if m.get("tried_line"):
+            lines.append(m["tried_line"])
+        if m.get("parallel") == "pair":
+            lines.append(PAIR_LINE)
+        elif m.get("parallel") == "one":
+            lines.append(ONE_LINE)
+        drawn = bool(m.get("inside_body"))
+        reg = register_of(m_style) if not drawn else None      # a drawing overrules a register
         if reg:
             lines.append(f"  REGISTER \"{reg['name']}\" (not a photograph) — its style; the scene is this sentence's: {reg['look']}"
                          + (f" Cheap version to stay away from: {reg['cheap']}" if reg.get("cheap") else ""))
@@ -1465,7 +1606,7 @@ def _art_prompt(moments, clip, mixed=True, rise=False, auto_style=True, style="p
                 lines.append(RESTRAINT_LINE)
         elif mixed:
             mood = m.get("mood") or visual_mood.clean(None)
-            lines.append(f"  look ({visual_mood.describe(mood)}): {visual_mood.art_line(mood)}")
+            lines.append(f"  look ({visual_mood.describe(mood)}): {visual_mood.art_line(mood, drawn=drawn)}")
             if m.get("show"):
                 lines.append(f"  show: {m['show']}" + (f" — point: {m['point']}" if m.get("point") else "")
                              + (" (what the sentence means, as a real event or process)" if m["show"] == "meaning" else ""))
@@ -1477,8 +1618,10 @@ def _art_prompt(moments, clip, mixed=True, rise=False, auto_style=True, style="p
                              "figures, faces, mouths, shapes or light around him.")
         else:
             lines.append(f"  style note: {STYLES.get(m_style, STYLES['photo'])}")
+        if drawn:
+            lines.append(BODY_LINE.format(drawing=episode_drawing()))
     any_register = any(register_of((m.get("style") or "photo") if auto_style else style) for m in moments)
-    extra = [EMPTY_RULE, PRECISION_RULE, SAFETY_RULE] + ([PARALLEL_RULE] if any(m.get("show") or m.get("parallel") for m in moments) else [])
+    extra = [EMPTY_RULE, PRECISION_RULE, SAFETY_RULE, BODY_RULE, PARALLEL_RULE, KNOWN_PICTURE_RULE]
     return ART_PROMPT.format(extra_rules="\n- ".join(r.replace("\n", "\n  ") for r in extra) if mixed else
                              "Everything in the frame is something the image model can draw right.",
                              look_rule=LOOK_RULE_MOOD if mixed else LOOK_RULE_HISTORICAL,
@@ -1526,16 +1669,32 @@ def facts_of(text):
 _NOTION_SENTENCE_RE = re.compile(r"\s*Draw .{1,80}? the channel's usual way: .*$", re.S)
 
 
-def lost_facts(draft, prompt):
+def _speaker_words():
+    """The words of the episode's speakers' names (the brief's "speakers"): never a fact a picture keeps — the video
+    shows them, and nobody real is drawn."""
+    import ai_brain
+    out = set()
+    for s in (ai_brain.EPISODE_BRIEF or {}).get("speakers") or []:
+        out |= {w.lower() for w in re.findall(r"[A-Za-z']+", str((s or {}).get("name") or "")) if len(w) > 2}
+    return out
+
+
+def lost_facts(draft, prompt, spoken=None):
     """The facts of ``draft`` (facts_of) missing from ``prompt``: [] when every one is there (a crude plural
     is forgiven both ways). The glossary sentence apply_notions glues to a draft ("Draw X the channel's usual
-    way: ...") names the notion, not a fact of the picture: it is not read."""
+    way: ...") names the notion, not a fact of the picture: it is not read. v16b: the speakers' names are never
+    facts, and with ``spoken`` (the clip's words) a word counts only when the speaker said it (a number always) —
+    the director may drop the editor's "MMA" or "LCD", never what was said."""
     draft = _NOTION_SENTENCE_RE.sub("", str(draft or ""))
     have = {t.rstrip("s") for t in re.findall(r"[a-z0-9']+", re.sub(r"(?<=\d)[,.](?=\d)", "", str(prompt or "").lower()))}
-    return sorted(f for f in facts_of(draft) if f.rstrip("s") not in have)
+    facts = facts_of(draft) - _speaker_words()
+    if spoken is not None:
+        said = {t.rstrip("s") for t in re.findall(r"[a-z0-9']+", re.sub(r"(?<=\d)[,.](?=\d)", "", str(spoken).lower()))}
+        facts = {f for f in facts if f.isdigit() or f.rstrip("s") in said}
+    return sorted(f for f in facts if f.rstrip("s") not in have)
 
 
-def _apply_art(moments, data):
+def _apply_art(moments, data, clip_text=None):
     """The art director's prompts onto the moments, by index: ``prompt`` becomes the director's (the editor's
     draft kept in ``prompt_editor``, ``art`` set), when it reads like a prompt AND keeps the editor's facts
     (lost_facts: a number, a place, a name the draft had — the one specific thing of the picture is not the
@@ -1550,7 +1709,7 @@ def _apply_art(moments, data):
         if not 0 <= k < len(moments) or not ART_MIN_WORDS <= len(text.split()) <= ART_MAX_WORDS:
             continue
         m = moments[k]
-        lost = lost_facts(m.get("prompt_editor") or m.get("prompt"), text)
+        lost = lost_facts(m.get("prompt_editor") or m.get("prompt"), text, clip_text)
         if lost:
             filter_hit("art: facts lost")
             print(f"   ⚠️ Art direction #{k}: the director dropped {', '.join(lost)} — the editor's draft is kept "
@@ -1564,6 +1723,15 @@ def _apply_art(moments, data):
         if judge:
             m["judge"] = judge
         m["fx"] = p.get("fx") if p.get("fx") in FX_KINDS else None
+        if p.get("people") in PEOPLE:
+            m["people"] = p["people"]                  # who is in the director's frame (v16): the guard reads it
+        if isinstance(p.get("inside_body"), bool):
+            m["inside_body"] = m.get("inside_body") or p["inside_body"]   # drawn, never photographed (v17)
+        # The hero's second take (v16): the same moment in other words — Turbo paints one prompt alike whatever the seed.
+        alt = re.sub(r"\s+", " ", str(p.get("alt_prompt") or "")).strip()
+        if m.get("hero") and ART_MIN_WORDS <= len(alt.split()) <= ART_MAX_WORDS \
+                and not lost_facts(m.get("prompt_editor") or "", alt, clip_text):
+            m["prompt_alt"] = _cut_at_sentence(alt, PROMPT_MAX)
         taken += 1
     return taken
 
@@ -1581,18 +1749,66 @@ def direct_art(moments, clip, mixed=True, rise=False, auto_style=True, style="ph
             ai_brain.say(f"Gemini · {TEXT_MODEL}", "B-roll: art direction of the set")
             data, _r = ai_brain.gemini_json([prompt], model=TEXT_MODEL)
         else:
-            data = claude_json(prompt, ART_SCHEMA, timeout=300, effort=os.environ.get("CLAUDE_EFFORT_BROLL") or "high",
-                               stage="B-roll: art direction of the set", model=ai_brain.stage_model("broll_art"),
-                               system=ART_SYSTEM)
+            data = _art_call(prompt, "B-roll: art direction of the set")
     except Exception as e:
         print(f"   ⚠️ B-roll art direction failed ({str(e)[:160]}) — the editor's prompts are used.")
         return 0
-    taken = _apply_art(moments, data)
+    taken = _apply_art(moments, data, clip_text or None)
     words = [len(m["prompt"].split()) for m in moments if m.get("art")]
     print(f"   🎨 Art direction: {taken}/{len(moments)} prompt(s) written"
           + (f", {sum(words) // len(words)} words on average" if words else "")
           + (" — the others keep the editor's draft" if taken < len(moments) else ""))
     return taken
+
+
+ANOTHER_IDEA_TEXT = """ANOTHER IDEA. The pictures below were made and judged, and they failed — twice, or as not safe (each one's
+attempts, what the reviewer saw in them and why they failed are given). The image model paints nearly the same
+picture again from the same scene whatever the seed: for each one write ANOTHER picture for the SAME words — another
+subject, setting, viewpoint or scale that carries what is said — never the same scene reworded, never what failed.
+
+"""
+
+
+def another_idea(cands, clip, clip_text="", mixed=True, auto_style=True, style="photo", faces="never"):
+    """v16: the art director (not the review) writes another idea for the pictures that failed twice or are not safe —
+    one call for all of them, with every attempt and what the review saw. Sets c["new"] ({prompt, judge, fx, people})
+    and c["new_prompt"] on each one answered; returns how many."""
+    import ai_brain
+    if not cands:
+        return 0
+    moments = []
+    for c in cands:
+        m = {k: v for k, v in c["m"].items() if k not in ("prompt_alt",)}
+        tries = "; ".join(f'«{h["prompt"][:220]}» — seen: {h["seen"][:160]} — failed: {h["problem"][:160] or "-"}'
+                          for h in (c.get("history") or [])[-3:])
+        m["prompt"] = (c.get("history") or [{}])[0].get("prompt") or m.get("prompt") or ""
+        m["tried_line"] = f"  TRIED AND FAILED: {tries}" if tries else ""
+        moments.append(m)
+    prompt = ANOTHER_IDEA_TEXT + _art_prompt(moments, clip, mixed, False, auto_style, style, clip_text, faces)
+    try:
+        data = _art_call(prompt, "B-roll: another idea for the pictures that failed")
+    except Exception as e:
+        print(f"   ⚠️ Another idea failed ({str(e)[:160]}) — those pictures stop here.")
+        return 0
+    got = 0
+    for p in (data or {}).get("prompts") or []:
+        try:
+            k = int(p.get("k"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        text = positive(re.sub(r"\s+", " ", str(p.get("prompt") or "")).strip())
+        if not 0 <= k < len(cands) or not ART_MIN_WORDS <= len(text.split()) <= ART_MAX_WORDS:
+            continue
+        c = cands[k]
+        c["new"] = {"prompt": _cut_at_sentence(text, PROMPT_MAX),
+                    "judge": re.sub(r"\s+", " ", str(p.get("judge") or "")).strip()[:300],
+                    "fx": p.get("fx") if p.get("fx") in FX_KINDS else None,
+                    "people": p.get("people") if p.get("people") in PEOPLE else None,
+                    "inside_body": p.get("inside_body") is True}
+        c["new_prompt"] = c["new"]["prompt"]
+        got += 1
+    print(f"   💡 Another idea: {got}/{len(cands)} written by the art director.")
+    return got
 
 
 HERO_REVIEW_PX = 768   # a full-screen picture is judged bigger than a card (512): lettering, hands, faces show
@@ -1638,11 +1854,9 @@ def review_with_claude(cands, words, model=None, size=512):
     small_dir = tempfile.mkdtemp(prefix="review_")
     try:
         small = []
-        for f in files:
-            p = os.path.join(small_dir, os.path.basename(f))
-            im = Image.open(f).convert("RGB")
-            im.thumbnail((size, size))
-            im.save(p, quality=88)
+        for c in cands:
+            p = os.path.join(small_dir, os.path.basename(c["file"]))
+            _review_still(c, size).save(p, quality=88)
             small.append(p)
         data = claude_json(prompt, REVIEW_SCHEMA, timeout=240, attach=small, stage="B-roll: checking each image",
                            model=model)
@@ -1678,14 +1892,33 @@ def _review_lines(cands, words):
                (["shown FULL SCREEN for ~3 s: judge it at that size"] if c["m"].get("hero") else []) + \
                ([f"take {c['take']} of the same moment: compare the takes, score each apart"] if c.get("take") else [])
         reg = register_of(c["m"].get("style"))
+        fx = c["m"].get("fx")
         lines.append(f'- file "{os.path.basename(c["file"])}": idea "{c["m"].get("idea") or c["m"]["prompt"]}"'
                      f'{" (" + "; ".join(tags) + ")" if tags else ""}; '
                      f'said: "{c["m"].get("said") or "..." + near + "..."}"'
                      + (f'; judge it on: "{c["m"]["judge"]}"' if c["m"].get("judge") else "")
                      + (f'; REGISTER "{reg["name"]}" (not a photograph; its cheap version: {reg.get("cheap") or "-"})' if reg else "")
-                     + (f'; fx: {c["m"]["fx"]} (added at the edit, not in this still)' if c["m"].get("fx") else "")
+                     + ("; INNER (what the person perceives)" if is_inner(c["m"]) else "")
+                     + ("; PAIR (the two compared, side by side)" if c["m"].get("parallel") == "pair" else "")
+                     + ("; fx double: shown here WITH its effect, as the viewer sees it" if fx == "double" else
+                        "; fx tremble: this picture shakes finely on screen" if fx == "tremble" else "")
                      + (f'; prompt (ART-DIRECTED): "{c["m"]["prompt"]}"' if c["m"].get("art") else ""))
     return lines
+
+
+FX_REVIEW_T = 0.55     # s: the "double" copy at its widest (sin peak of _fx_double), for the review's still
+
+
+def _review_still(c, size):
+    """The picture as the review sees it (v16): ``size`` px at most, with its "double" when it has one — the review
+    judged the sharp still, the viewer saw the doubled one."""
+    im = Image.open(c["file"]).convert("RGB")
+    if c.get("m", {}).get("fx") == "double":
+        import numpy as np
+        arr = _fx_double(np.asarray(im, dtype=np.float32), FX_REVIEW_T)
+        im = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
+    im.thumbnail((size, size))
+    return im
 
 
 def review_with_gemini(cands, words):
@@ -1700,11 +1933,10 @@ def review_with_gemini(cands, words):
     prompt += _review_facts(cands)
     prompt += _hero_test(cands)
     prompt += ('\nReturn only: {"reviews": [{"file": "...", "seen": "...", "score": 1-5, "facts_ok": true, "safe": true, '
-               '"look": 1-5, "problem": "...", "better_prompt": "...", "new_prompt": "..."}]}')
+               '"look": 1-5, "problem": "...", "better_prompt": "..."}]}')
     parts = []
     for c in cands:
-        im = Image.open(c["file"]).convert("RGB")
-        im.thumbnail((512, 512))
+        im = _review_still(c, 512)
         buf = io.BytesIO()
         im.save(buf, "JPEG", quality=88)
         parts += [f'file "{os.path.basename(c["file"])}":',
@@ -1717,7 +1949,114 @@ def review_with_gemini(cands, words):
     return [by_file.get(os.path.basename(c["file"]), {"score": 3}) for c in cands]
 
 
+# v17 — THE COLD VIEWER: the review knows what each picture was meant to show (its idea, its prompt, its judge line,
+# the episode's facts) and passed pictures that read only with that knowledge (the UT Austin tower for "if I had a
+# tumor", a courtroom for "high on meth", a golden smear for "the psychedelic stuff"). A second judge gets ONLY the
+# picture and the words said, like a viewer scrolling past; a picture it does not link is not kept.
+COLD_PROMPT = """You are a viewer scrolling short videos. You know NOTHING about this video: not its subject, not its story,
+not who speaks. For each image below you hear the quoted words while it is on screen.
+For each one: "sees" — one plain sentence of what is in the picture; "links" — true only if, hearing those words,
+you link the picture to them at once, without any explanation, label or knowledge of a story behind it (the picture
+shows what the words talk about: the thing, the scene, the experience, or what they say happens); false when the link
+needs the story, a caption or a clever reading, or when the picture shows something else. An abstract pattern, a
+texture, streaks, a material or an object standing for a feeling or a chemistry does NOT link — only a vision links,
+when the words speak of what is seen. "why" — a few words. "repeats" — the file of an EARLIER picture in this list
+that shows the same thing in the same way (the viewer would see the same picture twice), else "". "body_photo" —
+true when the picture is a PHOTOGRAPH (not a drawing) of the inside of a body (an organ, a brain, tissue, blood) or
+of an operation on someone, even seen from afar.
+The images, in the order they appear:
+{items}
+Return JSON: {{"reads": [{{"file": "...", "sees": "...", "links": true, "why": "...", "repeats": "", "body_photo": false}}]}}"""
+COLD_SCHEMA = {"type": "object", "properties": {"reads": {"type": "array", "items": {
+    "type": "object", "properties": {"file": {"type": "string"}, "sees": {"type": "string"}, "links": {"type": "boolean"},
+                                     "why": {"type": "string"}, "repeats": {"type": "string"},
+                                     "body_photo": {"type": "boolean"}},
+    "required": ["file", "sees", "links", "body_photo"]}}}, "required": ["reads"]}
+COLD_ABSENCE = (" (the video tells of someone who died: an empty place or the things he left link when they are what "
+                "the words name)")
+
+
+def cold_read(cands, words, model=None, size=512):
+    """The cold viewer's verdict on each picture: {"sees", "links", "why"} by file name ({} when the call fails)."""
+    items = []
+    for c in cands:
+        m = c.get("m") or {}
+        said = m.get("said") or (" ".join(w["text"] for w in words if m["t"] - 3 <= w["start"] <= m["t"] + 4)
+                                 if m.get("t") is not None else "")
+        items.append(f'- file "{os.path.basename(c["file"])}"'
+                     + (" (shown FULL SCREEN)" if c.get("layout") == "hero" else "") + f': heard "{said}"'
+                     + (COLD_ABSENCE if (m.get("mood") or {}).get("absence") else ""))
+    small_dir = tempfile.mkdtemp(prefix="cold_")
+    try:
+        small = []
+        for c in cands:
+            p = os.path.join(small_dir, os.path.basename(c["file"]))
+            _review_still(c, size).save(p, quality=88)
+            small.append(p)
+        data = claude_json(COLD_PROMPT.format(items="\n".join(items)), COLD_SCHEMA, timeout=240, attach=small,
+                           stage="B-roll: a cold viewer looks at each image", model=model)
+    except Exception as e:
+        print(f"   ⚠️ Cold read failed ({str(e)[:120]}) — the review's verdicts stand.")
+        return {}
+    finally:
+        shutil.rmtree(small_dir, ignore_errors=True)
+    return {r.get("file"): r for r in (data or {}).get("reads") or [] if isinstance(r, dict)}
+
+
+def _with_cold_read(cands, words, reviews):
+    """The review's verdicts with the cold viewer's: a picture it does not link gets sense 2 at most (counted), its
+    reason in "problem" (the art director reads it to write another idea)."""
+    import ai_brain
+    if os.environ.get("BROLL_COLD_READ", "1") == "0" or not claude_ready():
+        return reviews
+    # One look at every picture in the order they are seen (a repeat shows), by the B-roll's judge: Haiku let pictures
+    # pass that meant nothing (streaks for "high on meth", pellets for a "dump of dopamine"), v17 bench.
+    model = ai_brain.stage_model("broll")
+    reads = cold_read(cands, words, model=None if model == "gemini" else model, size=COLD_PX)
+    names = [os.path.basename(c["file"]) for c in cands]
+    for k, c in enumerate(cands):
+        r = dict(reviews[k] or {})
+        read = reads.get(names[k])
+        if read is None:
+            continue
+        rep = str(read.get("repeats") or "").strip()
+        j = names.index(rep) if rep in names[:k] else None
+        if j is not None and cands[j].get("k") == c.get("k"):
+            j = None                                   # two takes of one moment are meant to look alike
+        r["cold"] = {"sees": str(read.get("sees") or "")[:300], "links": read.get("links") is not False,
+                     "why": str(read.get("why") or "")[:200], **({"repeats": rep} if j is not None else {}),
+                     **({"body_photo": True} if read.get("body_photo") is True else {})}
+        if read.get("body_photo") is True and not (c.get("m") or {}).get("inside_body"):
+            # v17: the inside of a body, or an operation, is drawn — a photograph of it is not shown (another idea,
+            # drawn: _take_review marks the moment)
+            r["safe"] = False
+            r["problem"] = ("a photograph of the inside of a body or of an operation — draw it in the episode's "
+                            "drawing; " + str(r.get("problem") or ""))[:300]
+            filter_hit("cold read: a photo of a body's inside")
+        if read.get("links") is False:
+            r["score"] = min(int(r.get("score") or 3), 2)
+            r["problem"] = (f'a cold viewer does not link it ({r["cold"]["why"] or r["cold"]["sees"]}); '
+                            + str(r.get("problem") or ""))[:300]
+            filter_hit("cold read: no link")
+        elif j is not None:
+            r["score"] = min(int(r.get("score") or 3), 2)
+            r["problem"] = (f"the same picture as {rep} for the viewer; " + str(r.get("problem") or ""))[:300]
+            filter_hit("cold read: a repeat")
+        reviews[k] = r
+    return reviews
+
+
+COLD_PX = 640    # the cold viewer's pictures: one size for the hero and the cards, seen in one row
+
+
 def review_images(cands, words):
+    """The review (``_review_images``), then the cold viewer (v17, ``_with_cold_read``)."""
+    if not cands:
+        return []
+    return _with_cold_read(cands, words, _review_images(cands, words))
+
+
+def _review_images(cands, words):
     """The image check, on the profile's choice (ai_brain "image_review").
     Gemini: it checks every image and only the doubtful ones (score 3 —
     neither clearly good nor clearly wrong) go to Claude, the B-roll's judge,
@@ -1733,7 +2072,7 @@ def review_images(cands, words):
                                                    model=ai_brain.stage_model("broll"), size=HERO_REVIEW_PX)):
             out[k] = r
         rest = [k for k in range(len(cands)) if k not in heroes]
-        for k, r in zip(rest, review_images([cands[k] for k in rest], words)):
+        for k, r in zip(rest, _review_images([cands[k] for k in rest], words)):
             out[k] = r
         return out
     if heroes and claude_ready():
@@ -1821,22 +2160,22 @@ _TEXT_RE = re.compile(r"\b(screens?|monitors?|phones?|smartphones?|laptops?|comp
                       r"documents?|pages?|tweets?|headlines?|whiteboards?|blackboards?|menus?|tickets?|passports?|"
                       r"license|dashboards?|spreadsheets?|prescriptions?|notes?|notebooks?|chalkboards?|equations?|"
                       r"formulas?)\b", re.I)
-_HANDS_RE = re.compile(r"\b(hands?|fingers?|palms?|thumbs?|fists?|typing|writing|scrubbing|gripping|clutching)\b", re.I)
-_CROWD_RE = re.compile(r"\b(crowd|crowds|people|soldiers|audience|students|athletes|team|teams|group of|patients|"
-                       r"surgeons|protesters|workers|children|kids|troops|marching|army)\b", re.I)
-_PERSON_RE = re.compile(r"\b(face|faces|portrait|man|woman|boy|girl|person|doctor|surgeon|patient|athlete|"
-                        r"teenager|teen|child|scientist|neuroscientist|speaker|fighter|martial artist)\b", re.I)
+# Who is in the frame is never read from the words any more (v16): "first-person", "man-made", "the north face",
+# "portrait-format", "the patient's chart" made a word list add a person to a picture with nobody in it. The editor
+# and the art director declare it ("people", PEOPLE); an inner picture is "none" whatever they say.
 _BRANDS = ("iphone", "ipad", "nike", "adidas", "coca-cola", "coke", "pepsi", "starbucks", "mcdonald", "tesla", "google",
            "facebook", "instagram", "tiktok", "youtube", "twitter", "amazon", "netflix", "walmart", "samsung",
            "microsoft", "android", "apple", "logo", "branded")
 _BRAND_RE = re.compile(r"\b(" + "|".join(re.escape(b) for b in _BRANDS) + r")\b", re.I)
 _GENERIC = {"iphone": "smartphone", "ipad": "tablet", "coca-cola": "cola bottle", "coke": "cola bottle",
             "pepsi": "cola bottle", "nike": "plain", "adidas": "plain"}
-def guardrails(prompt, faces=False):
+def guardrails(prompt, faces=False, people=None):
     """(prompt, extra): the prompt with brand names swapped for generic ones, and
     the positive sentences to add at its end for the pitfalls this prompt holds.
     ``faces``: a clear face is allowed on this picture (people stay anonymous:
-    nobody real or recognisable)."""
+    nobody real or recognisable). ``people``: who is in the frame, as the editor or
+    the art director declared it (PEOPLE) — the only source of the hands, crowd and
+    person sentences; undeclared (None) or "none": none of them."""
     def generic(m):
         return _GENERIC.get(m.group(1).lower(), m.group(0))
     had_brand = bool(_BRAND_RE.search(prompt))
@@ -1857,14 +2196,14 @@ def guardrails(prompt, faces=False):
     if had_brand:
         filter_hit("guard: brand")
         extra.append("A generic unbranded version with plain surfaces.")
-    if _HANDS_RE.search(prompt):
+    if people in ("hands", "one"):
         filter_hit("guard: hands")
         extra.append("Hands natural and well formed, each with five fingers, in a simple pose.")
-    if _CROWD_RE.search(prompt):
+    if people == "group":
         filter_hit("guard: crowd")
         extra.append("The group is seen as a whole, the nearest faces natural and anonymous, nobody recognisable."
                      if faces else "The figures are seen from behind or at a distance, as simple silhouettes.")
-    elif _PERSON_RE.search(prompt):
+    elif people == "one":
         filter_hit("guard: person")
         extra.append("An anonymous person, nobody real or recognisable, the face natural, in focus and lit by the "
                      "scene's light." if faces else
@@ -1900,7 +2239,8 @@ def _look_ok(c):
 
 def _take_review(c, r):
     """The reviewer's answer onto a candidate: score (the sense), facts_ok (True unless the judge said false),
-    look_score (None when not given), problem, better_prompt."""
+    look_score (None when not given), problem, better_prompt; every attempt and what the review saw in it go to
+    ``history`` (shared by a candidate and its redos), which the art director reads to write another idea (v16)."""
     c["score"] = int(r.get("score") or 3)
     c["facts_ok"] = r.get("facts_ok") is not False
     c["safe"] = r.get("safe") is not False
@@ -1908,7 +2248,16 @@ def _take_review(c, r):
     c["look_score"] = int(look) if isinstance(look, (int, float)) and not isinstance(look, bool) and 1 <= int(look) <= 5 else None
     c["problem"] = str(r.get("problem") or "")[:300]
     c["better_prompt"] = positive(re.sub(r"\s+", " ", str(r.get("better_prompt") or "")).strip())[:PROMPT_MAX]
-    c["new_prompt"] = positive(re.sub(r"\s+", " ", str(r.get("new_prompt") or "")).strip())[:PROMPT_MAX]
+    if (r.get("cold") or {}).get("body_photo") and c.get("m") is not None:
+        c["m"] = {**c["m"], "inside_body": True}       # its next picture is drawn (v17)
+    if r.get("person_seen") is True and is_inner(c.get("m") or {}):
+        # v16b: the code applies it — as a sense rule the judges followed one time in two (rejudge, 4 runs)
+        c["score"] = min(c["score"], 2)
+        filter_hit("review: inner picture shows the person")
+    if "history" not in c:
+        c["history"] = []
+    c["history"].append({"prompt": str((c.get("m") or {}).get("prompt") or "")[:500],
+                         "seen": str(r.get("seen") or "")[:300], "problem": c["problem"]})
     return c
 
 
@@ -1930,10 +2279,19 @@ def positive(text):
     return " ".join(kept).strip()
 
 
+def _wants_new_idea(c):
+    """The picture's next attempt must be another idea: it is not safe, it failed twice, or nothing of the same idea
+    is left (no better prompt once its negations are out, or it was tried already)."""
+    if not _safe(c) or c.get("failed", 0) >= 2:
+        return True
+    return not c.get("better_prompt") or c["better_prompt"] in (c.get("tried") or ())
+
+
 def _next_prompt(c):
-    """The prompt of a picture's next attempt: the same idea made to work (better_prompt), or another idea
-    (new_prompt) once this one has failed twice, when the picture is not safe, or when nothing of the same idea is
-    left once its negations are out (v15b); never a prompt already tried; None when there is nothing to try."""
+    """The prompt of a picture's next attempt: the same idea made to work (the review's better_prompt), or another
+    idea (new_prompt — the art director's since v16, another_idea) once this one has failed twice, when the picture
+    is not safe, or when nothing of the same idea is left once its negations are out (v15b); never a prompt already
+    tried; None when there is nothing to try."""
     tried = c.get("tried") or ()
     if not _safe(c) or c.get("failed", 0) >= 2:
         order = (c.get("new_prompt"),)
@@ -2246,7 +2604,31 @@ def notion_delete(nid):
             pass
 
 
-def _graph(engine, text, seed, width=768, height=1344, steps=None):
+# Z-Image, the base model (released 27-jan-2026): undistilled, real guidance and negative prompt, more varied
+# compositions than Turbo (rated "low" in diversity by its makers), 28-50 steps on the model card, 25 in ComfyUI's
+# official template. v16: for the pictures that need range (cfg "base_for": the hero, the register pictures); Turbo
+# stays for the photo cards.
+ZIMAGE_BASE_MODEL = os.environ.get("COMFYUI_ZIMAGE_BASE_MODEL") or "z_image_int8_convrot.safetensors"
+ZIMAGE_BASE_STEPS = int(_knob("COMFYUI_ZIMAGE_BASE_STEPS", 25))
+ZIMAGE_BASE_CFG = _knob("COMFYUI_ZIMAGE_BASE_CFG", 4.0)
+BASE_NEGATIVE = ("blurry, low quality, jpeg artifacts, deformed hands, extra fingers, distorted face, waxy skin, "
+                 "watermark, text, letters, logo, signature, frame border, collage")
+BASE_FOR = ("hero", "register")
+
+
+def base_negative(register=None, inner=False, pair=False):
+    """The base model's negative prompt: the usual faults, the register's cheap version, a person for an inner picture
+    (what is perceived, never the one who perceives), the collage word dropped for a pair."""
+    neg = BASE_NEGATIVE.replace(", collage", "") if pair else BASE_NEGATIVE
+    parts = [neg]
+    if inner:
+        parts.append("a person, a face, a figure seen from outside, a selfie")
+    if register and register.get("cheap"):
+        parts.append(str(register["cheap"]).rstrip("."))
+    return ", ".join(parts)
+
+
+def _graph(engine, text, seed, width=768, height=1344, steps=None, model="turbo", negative=""):
     """ComfyUI API graph for one image (768x1344 = 9:16 by default; the cards
     ask 1152x720, the hero 896x1600); node "7" is the PreviewImage (ComfyUI's
     temp folder, wiped on restart — not its gallery). ``steps``: sampler steps
@@ -2255,14 +2637,21 @@ def _graph(engine, text, seed, width=768, height=1344, steps=None):
     One engine: Z-Image Turbo (int8 model + fp8 Qwen3-4B encoder, 8 steps),
     ~12 s an image on an RTX 3060. The FLUX.1 schnell graph (25 s an image,
     never chosen) was removed on 1-oct-2026; ``engine`` stays in the signature
-    because the notion library's file names carry it."""
+    because the notion library's file names carry it. Settings checked against
+    the official ComfyUI templates (2-oct-2026): Turbo 8 steps, cfg 1 (no
+    guidance: its negative is zeroed), res_multistep / simple, shift 3. ComfyUI
+    never truncates the text (diffusers cuts at 512 tokens; ours are 157-286).
+    ``model`` "base" (v16): Z-Image, the undistilled model — guidance, a real
+    negative prompt, more varied compositions, ZIMAGE_BASE_STEPS steps."""
+    base = model == "base"
     latent = {"class_type": "EmptySD3LatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}}
     out = {"6": {"class_type": "VAEDecode", "inputs": {"samples": ["5", 0], "vae": ["v", 0]}},
            "7": {"class_type": "PreviewImage", "inputs": {"images": ["6", 0]}},
            "4": latent}
     out.update({
         "u": {"class_type": "UNETLoader", "inputs": {
-            "unet_name": os.environ.get("COMFYUI_ZIMAGE_MODEL") or "z_image_turbo_int8_convrot.safetensors",
+            "unet_name": ZIMAGE_BASE_MODEL if base else
+            (os.environ.get("COMFYUI_ZIMAGE_MODEL") or "z_image_turbo_int8_convrot.safetensors"),
             "weight_dtype": "default"}},
         "c": {"class_type": "CLIPLoader", "inputs": {
             "clip_name": os.environ.get("COMFYUI_ZIMAGE_TEXT_ENCODER") or "qwen_3_4b_fp8_mixed.safetensors",
@@ -2270,22 +2659,30 @@ def _graph(engine, text, seed, width=768, height=1344, steps=None):
         "v": {"class_type": "VAELoader", "inputs": {"vae_name": os.environ.get("COMFYUI_ZIMAGE_VAE") or "ae.safetensors"}},
         "m": {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": ["u", 0], "shift": 3.0}},
         "2": {"class_type": "CLIPTextEncode", "inputs": {"text": text, "clip": ["c", 0]}},
-        "3": {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["2", 0]}},
+        "3": ({"class_type": "CLIPTextEncode", "inputs": {"text": negative or "", "clip": ["c", 0]}} if base else
+              {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["2", 0]}}),
         "5": {"class_type": "KSampler", "inputs": {
             "model": ["m", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["4", 0],
-            "seed": seed, "steps": int(steps or os.environ.get("COMFYUI_ZIMAGE_STEPS") or 8), "cfg": 1.0,
+            "seed": seed,
+            "steps": int(steps or (ZIMAGE_BASE_STEPS if base else (os.environ.get("COMFYUI_ZIMAGE_STEPS") or 8))),
+            "cfg": ZIMAGE_BASE_CFG if base else 1.0,
             "sampler_name": "res_multistep", "scheduler": "simple", "denoise": 1.0}},
     })
     return out
 
 
-def _image_text(prompt, style, look="", art=False, faces=False, register=None, mood=""):
+def _image_text(prompt, style, look="", art=False, faces=False, register=None, mood="", people=None, body=False,
+                drawing=""):
     """The full prompt sent to the image model: the scene (with its guardrails), then what says its look, then the
     rules. ``art``: the scene is the art director's prompt, which already states the look, the frame and the light:
     only the guardrails and the hard rules follow it. ``mood``: the mixed layout's look sentence of the picture
     (visual_mood.sentence) after a prompt that is not the director's; else (historical layouts) the clip's style
-    sheet (``look``) and the style's own description."""
-    prompt, guard = guardrails(prompt, faces) if os.environ.get("BROLL_GUARDRAILS", "1") != "0" else (prompt, "")
+    sheet (``look``) and the style's own description. ``people``: who is in the frame (declared, PEOPLE)."""
+    prompt, guard = (guardrails(prompt, faces, people) if os.environ.get("BROLL_GUARDRAILS", "1") != "0"
+                     else (prompt, ""))
+    if body:
+        register = None                                            # the drawing overrules a register's medium
+        guard = " ".join(p for p in (drawing or episode_drawing(), guard) if p)   # v19: the episode's drawing
     if register:
         # Not a photograph: the register's block carries the look; no look sentence, no style sentence.
         return " ".join(p for p in (prompt, guard, register, ART_RULES) if p)
@@ -2297,19 +2694,24 @@ def _image_text(prompt, style, look="", art=False, faces=False, register=None, m
 
 
 def local_image(prompt, style, out_path, engine="zimage", timeout=300, size=(768, 1344), look="", art=False,
-                seed=None, steps=None, faces=False, register=None, mood=""):
+                seed=None, steps=None, faces=False, register=None, mood="", people=None, model="turbo", negative="",
+                body=False, drawing=""):
     """One 9:16 image from ComfyUI. Measured on an RTX 3060 (ComfyUI on
     PyTorch cu130 — the int8 kernels need it): Z-Image Turbo ~12 s per
     image, FLUX.1 schnell ~25 s; the first call of a job also loads the
     models from disk (~45 s in all). ``seed``: the one to use (kept in the
     item, so a picture can be made again at another size or step count),
-    else a new one; ``steps``: the sampler steps, else the usual."""
+    else a new one; ``steps``: the sampler steps, else the usual. ``model``
+    "base" with its ``negative`` prompt: Z-Image (v16, _graph)."""
     import random
     import uuid
     import httpx
-    text = _image_text(prompt, style, look, art, faces, register, mood)
+    text = _image_text(prompt, style, look, art, faces, register, mood, people, body, drawing)
     seed = random.randint(0, 2 ** 48) if seed is None else int(seed)
-    graph = _graph(engine if engine in ENGINES else "zimage", text, seed, *size, steps=steps)
+    graph = _graph(engine if engine in ENGINES else "zimage", text, seed, *size, steps=steps, model=model,
+                   negative=negative)
+    if model == "base":
+        timeout = max(timeout, 900)        # 25 guided steps: several times Turbo's time
     base = _comfy_url()
     with httpx.Client(timeout=30) as http:
         r = http.post(f"{base}/prompt", json={"prompt": graph, "client_id": uuid.uuid4().hex})
@@ -2992,6 +3394,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     manual = cfg.get("review") == "manual" and bool(keep_dir)
     FILTERS.clear()
     LAST_PICTURED[:] = []
+    LAST_GEN[:] = []
     # The picture the source itself showed (screen_inset): one of the cards, placed by the source, not planned.
     screen = screen_item(clip.get("screen_inset"), keep_dir)
     block = _block_of(screen)
@@ -3046,18 +3449,30 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     gpu = [0.0]      # seconds spent waiting for ComfyUI, for the clip's log line
     seeds = {}       # picture path -> the seed it was made with (kept in its item)
 
-    def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None, art=False, register=None, mood=None):
+    base_for = {s.strip() for s in str(cfg.get("base_for") or "").split(",") if s.strip() in BASE_FOR}
+
+    def image_model(m, m_layout, m_style):
+        """("base", negative) for a picture that needs range (cfg "base_for": the hero, the register pictures), else
+        ("turbo", "")."""
+        if mixed and (("hero" in base_for and m_layout == "hero")
+                      or ("register" in base_for and register_of(m_style))):
+            return "base", base_negative(register_of(m_style), is_inner(m), m.get("parallel") == "pair")
+        return "turbo", ""
+
+    def make_image(prompt, m_style, raw, query, used_urls, sheet=None, layout=None, art=False, register=None, mood=None,
+                   people=None, model="turbo", negative="", body=False):
         """(path, "local", None) from ComfyUI, or (None, None, None) when this
         one picture could not be made: a second try with a new seed, then the
         picture is skipped and the clip goes on with the others (one refused
         prompt used to stop the whole job). Only a ComfyUI that stopped
         answering raises ComfyDown: images are made nowhere else. ``mood``: the
         picture's mood (mixed layout): a prompt that is not the art director's
-        gets its look sentence."""
+        gets its look sentence. ``people``: who is in its frame (declared);
+        ``model`` / ``negative``: image_model's."""
         size = _gen_size(layout if layout is not None else ("rise" if rise else "full"), hero_res)
-        steps = HERO_STEPS if layout == "hero" and HERO_STEPS > 0 else None
+        steps = HERO_STEPS if layout == "hero" and HERO_STEPS > 0 and model != "base" else None
         faces = face_mode == "always" or (face_mode == "hero" and layout == "hero")
-        mood_text = visual_mood.sentence(mood) if mixed and mood and not art else ""
+        mood_text = visual_mood.sentence(mood, drawn=bool(body)) if mixed and mood and not art else ""
         last = None
         for attempt in range(2):
             t0 = time.time()
@@ -3065,8 +3480,11 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             try:
                 got = local_image(prompt, m_style, raw, engine=engine, size=size,
                                   look="" if mixed else look_text(sheet, m_style), art=art, seed=seed, steps=steps,
-                                  faces=faces, register=register, mood=mood_text)
+                                  faces=faces, register=register, mood=mood_text, people=people, model=model,
+                                  negative=negative, body=body, drawing=episode_drawing() if body else "")
                 seeds[got] = seed
+                LAST_GEN.append({"file": os.path.basename(got), "model": model, "layout": layout,
+                                 "size": list(size), "s": round(time.time() - t0, 1)})
                 return got, "local", None
             except Exception as e:
                 last = e
@@ -3189,7 +3607,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             m_layout = item_layout(m)
             raw = os.path.join(tmp, f"broll_{k}.jpg")
             kept = (notion_get(m.get("notion"), m_style, engine, m_layout, raw, look)
-                    if m.get("notion") and not m.get("notion_shot") else None)
+                    if m.get("notion") and not m.get("notion_shot") and not m.get("inside_body") else None)
             if kept:
                 print(f"   ♻️ Notion \"{m['notion']}\": the channel's picture is reused (no image made, no review).")
                 cands.append({"k": k, "m": m, "style": m_style, "file": kept, "source": "local", "credit": None,
@@ -3197,23 +3615,34 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 continue
             # A notion's picture is the channel's usual one, kept for other clips:
             # made without this clip's look.
+            model, negative = image_model(m, m_layout, m_style)
+            people = "none" if is_inner(m) else m.get("people")     # an inner picture never gets a person
             got, used, credit = make_image(m["prompt"], m_style, raw, m["query"], used_urls,
                                            None if m.get("notion") else m.get("sheet"), layout=m_layout,
-                                           art=bool(m.get("art")), register=register_look(m), mood=m.get("mood"))
+                                           art=bool(m.get("art")), register=register_look(m), mood=m.get("mood"),
+                                           people=people, model=model, negative=negative,
+                                           body=bool(m.get("inside_body")))
             takes = HERO_TAKES if m_layout == "hero" else 1
             if got:
                 cands.append({"k": k, "m": m, "style": m_style, "file": got, "source": used, "credit": credit,
-                              "layout": m_layout, "seed": seeds.get(got), **({"take": 1} if takes > 1 else {})})
-                # The hero is made again with new seeds: the judge sees the takes together, the best one stays.
+                              "layout": m_layout, "seed": seeds.get(got), "model": model,
+                              **({"take": 1} if takes > 1 else {})})
+                # The hero's other takes: the director's other composition of the same moment (v16 — Turbo paints
+                # one prompt alike whatever the seed), else the same prompt with a new seed. The judge sees the takes
+                # together, the best one stays.
                 for j in range(2, takes + 1):
                     raw_j = os.path.join(tmp, f"broll_{k}_t{j}.jpg")
-                    got_j, used_j, credit_j = make_image(m["prompt"], m_style, raw_j, m["query"], used_urls,
+                    alt = m.get("prompt_alt") if j == 2 else None
+                    m_j = {**m, "prompt": alt} if alt else m
+                    got_j, used_j, credit_j = make_image(m_j["prompt"], m_style, raw_j, m["query"], used_urls,
                                                          None if m.get("notion") else m.get("sheet"), layout=m_layout,
                                                          art=bool(m.get("art")), register=register_look(m),
-                                                         mood=m.get("mood"))
+                                                         mood=m.get("mood"), people=people, model=model,
+                                                         negative=negative, body=bool(m.get("inside_body")))
                     if got_j:
-                        cands.append({"k": k, "m": m, "style": m_style, "file": got_j, "source": used_j, "credit": credit_j,
-                                      "layout": m_layout, "seed": seeds.get(got_j), "take": j})
+                        cands.append({"k": k, "m": m_j, "style": m_style, "file": got_j, "source": used_j,
+                                      "credit": credit_j, "layout": m_layout, "seed": seeds.get(got_j), "take": j,
+                                      "model": model, **({"alt": True} if alt else {})})
 
         # Claude checks every image against the idea it must carry; a weak
         # generated one is redone once from its better prompt, then dropped
@@ -3244,7 +3673,14 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     # A weak picture is made again from the reviewer's better prompt: once for a card (and once
                     # more with another idea when that one failed too), twice for the hero. The better prompt of an
                     # art-directed picture is in the director's grammar and goes out as such; a short one is the
-                    # editor's kind again.
+                    # editor's kind again. Another idea (v16) is the art director's: one call for every picture of
+                    # the round that needs one, with what was tried and what the review saw.
+                    wants = [c for c in checked if _needs_redo(c) and c.get("tries", 0) < _redo_budget(c)
+                             and _wants_new_idea(c)
+                             and (not c.get("new_prompt") or c["new_prompt"] in (c.get("tried") or ()))]
+                    if wants and cfg.get("art_director"):
+                        another_idea(wants, clip, " ".join(w["text"] for w in words), mixed=mixed,
+                                     auto_style=auto_style, style=style, faces=face_mode)
                     todo = [c for c in checked if _needs_redo(c) and _next_prompt(c)
                             and c.get("tries", 0) < _redo_budget(c)]
                     pairs = []
@@ -3252,19 +3688,30 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                         c["tries"] = c.get("tries", 0) + 1
                         nxt = _next_prompt(c)
                         c.setdefault("tried", []).append(nxt)
-                        if nxt is not c.get("better_prompt") and nxt == c.get("new_prompt"):
+                        new = c.get("new") if nxt == c.get("new_prompt") else None
+                        if new:
                             filter_hit("redo: a new idea", f'Picture "{c["m"]["anchor"]}": '
                                        + ("not safe" if not _safe(c) else f'{c.get("failed")} failed attempts')
                                        + " — another idea, not the same scene reworded.")
                         raw = os.path.join(tmp, f"broll_{c['k']}_v{c['tries'] + 1}.jpg")
-                        art = bool(c["m"].get("art")) and len(nxt.split()) >= ART_MIN_WORDS
+                        art = (bool(c["m"].get("art")) or bool(new)) and len(nxt.split()) >= ART_MIN_WORDS
+                        m_next = {**c["m"], "prompt": nxt, "art": art}
+                        if new:
+                            # The director's new picture comes with its own judge line, fx and people.
+                            m_next.update(judge=new.get("judge") or c["m"].get("judge"), fx=new.get("fx"),
+                                          people=new.get("people") or c["m"].get("people"),
+                                          inside_body=bool(new.get("inside_body") or c["m"].get("inside_body")))
+                        model, negative = image_model(m_next, c["layout"], c["style"])
                         got, used, credit = make_image(nxt, c["style"], raw, c["m"]["query"],
                                                        used_urls, None if c["m"].get("notion") else c["m"].get("sheet"),
                                                        layout=c["layout"], art=art, register=register_look(c["m"]),
-                                                       mood=c["m"].get("mood"))
+                                                       mood=c["m"].get("mood"),
+                                                       people="none" if is_inner(m_next) else m_next.get("people"),
+                                                       model=model, negative=negative,
+                                                       body=bool(m_next.get("inside_body")))
                         if got:
                             pairs.append((c, {**c, "file": got, "source": used, "credit": credit, "seed": seeds.get(got),
-                                             "m": {**c["m"], "prompt": nxt, "art": art}}))
+                                             "m": m_next, "model": model}))
                     if not pairs:
                         break
                     redone += len(pairs)
@@ -3285,7 +3732,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                         filter_hit(f"review: dropped ({why})", f'Picture "{c["m"]["anchor"]}" dropped by the review ({why}: sense '
                                                                f'{c["score"]}, look {c.get("look_score")}): {c.get("problem") or "-"}')
                 for c in kept:
-                    if c["m"].get("notion") and not c.get("reused") and c["score"] >= NOTION_MIN_SCORE and c["style"] in STYLES:
+                    if c["m"].get("notion") and not c["m"].get("inside_body") and not c.get("reused") and c["score"] >= NOTION_MIN_SCORE and c["style"] in STYLES:
                         if notion_put(c["m"]["notion"], c["style"], engine, c["layout"], c["file"], c["m"]["prompt"],
                                       c["score"], look=look, shot=c["m"].get("notion_shot") or c["m"].get("shot"),
                                       mood=c["m"].get("mood")):
@@ -3322,6 +3769,17 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 item["register"] = reg["look"]       # not a photograph: a manual redo paints it in its register again
             if m.get("judge"):
                 item["judge"] = m["judge"]
+            if m.get("people") in PEOPLE:
+                item["people"] = "none" if is_inner(m) else m["people"]   # a manual redo's guard reads it (v16)
+            if m.get("inside_body"):
+                item["inside_body"] = True           # drawn, never photographed: a manual redo keeps it (v17)
+                item["drawing"] = episode_drawing()  # v19: the episode's one drawing, the same in a manual redo
+                if item["drawing"] == DRAWING_HOUSE:
+                    filter_hit("drawing: the house's (no episode drawing)")
+            if c.get("alt"):
+                item["alt"] = True                   # the hero's other composition won (v16)
+            if c.get("model") == "base":
+                item["model"] = "base"               # made by Z-Image, the base model (v16, cfg base_for)
             if mixed:
                 # The size the picture was made at: a manual redo asks for the same one.
                 item["gen"] = list(_gen_size(c["layout"], hero_res))
@@ -3420,7 +3878,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
 
 
 def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, sheet=None, gen=None, art=False,
-                     seed=None, steps=None, register=None, mood=None):
+                     seed=None, steps=None, register=None, mood=None, people=None, body=False, drawing=""):
     """One image again, from a new prompt / style (the manual review), on the
     local GPU. ``gen``: the (width, height) the first picture was made at (the
     item's "gen"), else the layout's usual size. ``art``: the item's prompt is
@@ -3443,10 +3901,12 @@ def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, 
         art = bool(art) and len(str(prompt).split()) >= ART_MIN_WORDS
         mode = cfg.get("faces") if cfg.get("faces") in FACE_MODES else "never"
         faces = mode == "always" or (mode == "hero" and cfg.get("layout") == "hero")
-        mood_text = visual_mood.sentence(mood or visual_mood.clean(None)) if mixed and not art else ""
+        mood_text = visual_mood.sentence(mood or visual_mood.clean(None), drawn=bool(body)) if mixed and not art else ""
         return local_image(prompt, style, out_path, engine=engine, size=size,
                            look="" if mixed else look_text(sheet, style), art=art, seed=seed, steps=steps,
-                           faces=faces, register=register or None, mood=mood_text), "local", None
+                           faces=faces, register=register or None, mood=mood_text,
+                           people=people if people in PEOPLE else None, body=bool(body),
+                           drawing=drawing or ""), "local", None
     finally:
         comfy_release()
 

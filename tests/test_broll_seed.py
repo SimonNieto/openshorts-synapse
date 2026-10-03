@@ -51,7 +51,7 @@ class TestLocalImage:
     def _run(self, monkeypatch, **kw):
         seen = {}
 
-        def fake_graph(engine, text, seed, width=768, height=1344, steps=None):
+        def fake_graph(engine, text, seed, width=768, height=1344, steps=None, model="turbo", negative=""):
             seen.update(seed=seed, steps=steps, size=(width, height))
             raise RuntimeError("stop here")
 

@@ -78,6 +78,7 @@ const THINKING_OPTS = [
     { v: 'light', label: 'light', hint: 'Short thinking: fewest tokens.' },
     { v: 'normal', label: 'normal', hint: 'Medium thinking.' },
     { v: 'deep', label: 'deep', hint: 'Thinks longest before choosing: best picks, most tokens on these two steps.' },
+    { v: 'max', label: 'max', hint: 'Claude at its maximum effort: the most tokens of all.' },
 ];
 
 function Dots({ n, max = 4, color }) {
@@ -168,7 +169,8 @@ function BrainSection({ brain, presets, onChange, noGemini }) {
             </div>
 
             {[['thinking', 'deep', 'claude thinking: choosing the clips'],
-              ['thinking_broll', 'normal', 'claude thinking: b-roll images']].map(([key, dflt, label]) => (
+              ['thinking_broll', 'normal', 'claude thinking: b-roll images'],
+              ['thinking_art', b.thinking_broll || 'normal', 'claude thinking: b-roll art direction']].map(([key, dflt, label]) => (
                 <div key={key} className="flex flex-wrap items-center gap-x-4 gap-y-2">
                     <span className="text-xs text-muted">{label}</span>
                     <div className="inline-flex rounded-full bg-paper3 p-0.5">

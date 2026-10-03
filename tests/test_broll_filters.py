@@ -126,13 +126,15 @@ class TestANotionTagHoldsWhenTheSubjectIsWhatTheGlossaryDraws:
 
 class TestTheGuards:
     def test_every_guard_that_fires_goes_out(self):
-        _p, extra = broll.guardrails("Two surgeons read a chart on an iPhone, hands on the page, a patient beside them.", faces=True)
-        for part in ("Show exactly 2 surgeons", "plain colour", "generic unbranded", "Hands natural and well formed, each with five fingers",
-                     "The group is seen as a whole"):
+        _p, extra = broll.guardrails("Two surgeons read a chart on an iPhone, hands on the page, a patient beside them.",
+                                     faces=True, people="group")
+        _p, one = broll.guardrails("A surgeon reads a chart.", faces=True, people="one")
+        assert "Hands natural and well formed" in one          # one person declared: the hands sentence too
+        for part in ("Show exactly 2 surgeons", "plain colour", "generic unbranded", "The group is seen as a whole"):
             assert part in extra, part
         assert "from the side or partly out of frame" not in extra
-        assert broll.FILTERS["guard: count"] == 1 and broll.FILTERS["guard: text"] == 1 and broll.FILTERS["guard: brand"] == 1
-        assert broll.FILTERS["guard: hands"] == 1 and broll.FILTERS["guard: crowd"] == 1
+        assert broll.FILTERS["guard: count"] == 1 and broll.FILTERS["guard: text"] == 2 and broll.FILTERS["guard: brand"] == 1
+        assert broll.FILTERS["guard: hands"] == 1 and broll.FILTERS["guard: crowd"] == 1 and broll.FILTERS["guard: person"] == 1
         assert not hasattr(broll, "GUARD_MAX")
 
 
@@ -152,7 +154,7 @@ class TestTheSecondLook:
 
         monkeypatch.setattr(broll, "review_with_claude", fake)
         cands = [{"file": f"/x/broll_{k}.jpg", "layout": "card"} for k in range(3)]
-        out = broll.review_images(cands, [])
+        out = broll._review_images(cands, [])          # the dispatch (v17: review_images adds the cold read)
         assert calls == [("haiku", ["broll_0.jpg", "broll_1.jpg", "broll_2.jpg"]), ("sonnet", ["broll_0.jpg", "broll_1.jpg"])]
         assert [r.get("by") for r in out] == ["judge", "judge", None] and out[2]["score"] == 5
 
@@ -162,5 +164,5 @@ class TestTheSecondLook:
         monkeypatch.setattr(ai_brain, "route", lambda k, *a, **kw: "claude")
         monkeypatch.setattr(ai_brain, "stage_model", lambda k, *a, **kw: "sonnet")
         monkeypatch.setattr(broll, "review_with_claude", lambda cands, words, model=None, size=512: calls.append(model) or [{"score": 3, "look": 3} for _ in cands])
-        broll.review_images([{"file": "/x/broll_0.jpg", "layout": "card"}], [])
+        broll._review_images([{"file": "/x/broll_0.jpg", "layout": "card"}], [])
         assert calls == ["sonnet"]

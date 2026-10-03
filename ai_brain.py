@@ -785,13 +785,27 @@ to THIS episode (nothing generic that would fit any episode):
   experience the episode names — something taken or practised for its effect on the mind, a state lived from
   inside — gets its own register, even when it is named in passing. A REGISTER IS A STYLE, NEVER A SCENE: the
   scene of each picture comes from its own sentence. For each: "kind" (instrument, model or inner), "name" (one
-  lower-case word naming that kind of thing), "when" (which moments of the episode call for it, one line), "look"
-  (40 to 80 words: the STYLE only — the medium, the palette, the light, the texture, the kind of geometry and scale
-  it uses, how strange, saturated, vast or exact it is — from how that kind of thing is known to look and how the
-  speaker tells it; an inner register is the experience as it is perceived from inside, as impossible, saturated or
-  strange as it is lived; never a scene, a place, a subject or a person, never the room it happens in nor its
-  medical version, never a symbol), "judge" (one sentence: what a good picture of this register is),
+  lower-case word naming that kind of thing), "when" (which moments of the episode call for it, one line — for an
+  instrument, only the moments that speak of what it shows: its image or its readout), "look"
+  (40 to 80 words: the STYLE of ONE single picture only — the medium, the palette, the light, the texture, the kind
+  of geometry and scale it uses, how strange, saturated, vast or exact it is — from how that kind of thing is known
+  to look and how the speaker tells it; a register for a KNOWN image the speaker refers to (a published picture, a
+  scan, a comparison) is that image's own medium and real colours — the imaging technique of each field — never a
+  restyling of it; never a chart, a formula or a labelled diagram (the image model invents their details); the inside
+  of a body (organs, tissue, an operation) is never a register: it is the episode's "drawing" (below); an
+  inner register is the experience as it is perceived, as impossible,
+  saturated or strange as it is lived, said as what fills the frame (shapes, light, colours, surfaces) — never the
+  viewer: no "first-person", "point of view" or "through the eyes"; never a scene, a place, a subject or a person,
+  never the room it happens in nor its medical version, never a symbol, never a layout of several pictures: no pair,
+  no side-by-side, no split frame, no panels), "judge" (one sentence: what a good picture of this register is),
   "cheap" (one line: the version that would look cheap or generic, to stay away from).
+- "drawing": the ONE way this episode draws what is never photographed — the inside of a body (organs, tissue, a
+  nerve, an operation) — so every such picture of the episode looks made by one hand and sits among the episode's
+  photographs without breaking them. 25 to 70 words in the positive, the technique only: the medium and its tool, the
+  line, how volumes are modelled, the surface and its grain, how far forms are simplified, how colour is laid. Natural
+  proportions and true colours, dry, clean and calm to look at, plainly a drawing. Never a cartoon, an animated film,
+  a comic, a caricature, a glow, a 3D render or a photograph; never a subject, a scene, a named colour or a mood: each
+  picture brings its own, like the photographs.
 - "heroes": for each story or big theme of the brief, ONE picture that would make a cold viewer stop on a phone
   (full screen, one second): "story" (its name), "picture" (one sentence: a real scene of the story — place, subject,
   action, light — never an allegory of its idea), "why" (what the viewer sees). 6 to 12 of them.
@@ -811,9 +825,30 @@ BIBLE_SCHEMA = {
         "registers": {"type": "array", "items": {"type": "object", "properties": {
             **{k: {"type": "string"} for k in ("name", "when", "look", "judge", "cheap")},
             "kind": {"type": "string", "enum": list(REGISTER_KINDS)}}, "required": ["name", "kind", "look"]}},
+        "drawing": {"type": "string"},
     },
-    "required": ["world", "mood", "motifs", "avoid", "heroes"],
+    "required": ["world", "mood", "motifs", "avoid", "heroes", "drawing"],
 }
+DRAWING_WORDS = (25, 70)
+_DRAWING_NOT_RE = re.compile(r"\b(animat\w*|cartoon\w*|anime|pixar|disney|comics?|chibi|kawaii|children'?s|"
+                             r"caricatur\w*|neon|glow\w*|3d|cgi|photo\w*|hyperreal\w*)\b", re.I)
+_DRAWING_NEG_RE = re.compile(r"\b(no|not|never|nor|without|avoid\w*|instead)\b", re.I)
+
+
+def _clean_drawing(raw):
+    """The bible's "drawing" -> (text, "") or ("", why it is refused): its sentences in the positive only (the image
+    model reads a negation as the thing), DRAWING_WORDS long, none of the renderings that break a documentary."""
+    text = re.sub(r"\s+", " ", str(raw or "")).strip()
+    if not text:
+        return "", "none written"
+    text = " ".join(s for s in re.split(r"(?<=[.;!?])\s+", text) if not _DRAWING_NEG_RE.search(s)).strip()
+    bad = _DRAWING_NOT_RE.search(text)
+    if bad:
+        return "", f"names {bad.group(0).lower()}"
+    n = len(text.split())
+    if not DRAWING_WORDS[0] <= n <= DRAWING_WORDS[1]:
+        return "", f"{n} words"
+    return text[:600], ""
 
 
 def _bible_schema():
@@ -892,6 +927,8 @@ def _clean_bible(data, who):
                      **{k: re.sub(r"\s+", " ", str(r.get(k) or "")).strip()[:300] for k in ("when", "judge", "cheap")}})
     bible = {"world": _strs(data.get("world"), 15), "mood": mood, "motifs": _strs(data.get("motifs"), 5, 200),
              "avoid": _strs(data.get("avoid"), 8), "heroes": heroes[:12], "registers": regs[:REGISTER_MAX], "by": who}
+    drawing, refused = _clean_drawing(data.get("drawing"))
+    bible.update({"drawing": drawing} if drawing else {"drawing_refused": refused})
     return bible if bible["world"] else None
 
 

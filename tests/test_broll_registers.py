@@ -54,7 +54,8 @@ def bible(monkeypatch):
 class TestTheBible:
     def test_the_rules_ask_for_registers_and_only_false_facts_to_avoid(self):
         assert "\"registers\": the episode's own way of showing each KIND of thing it talks about that a camera cannot shoot" in ai_brain.BIBLE_RULES
-        assert "the STYLE only" in ai_brain.BIBLE_RULES and "never a scene, a place, a subject or a person" in ai_brain.BIBLE_RULES
+        assert "the STYLE of ONE single picture only" in ai_brain.BIBLE_RULES
+        assert "never a scene, a place, a subject or a person" in ai_brain.BIBLE_RULES
         assert "never a matter of taste or style" in ai_brain.BIBLE_RULES
         assert "registers" in ai_brain.BIBLE_SCHEMA["properties"] and "registers" not in ai_brain.BIBLE_SCHEMA["required"]
 

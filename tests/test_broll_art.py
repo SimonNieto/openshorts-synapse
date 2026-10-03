@@ -169,8 +169,11 @@ class TestTheImageText:
         assert text.startswith("A lone soldier") and text.endswith(broll.ART_RULES)
         assert "A documentary photograph." not in text and "Same visual look" not in text and broll.STYLES["neon"] not in text
         assert broll.COMMON_RULES not in text
-        # the guardrails still watch the scene (a person: anonymous)
-        assert "anonymous person" in text.lower() or "face turned away" in text.lower()
+        # the guardrails still watch the scene: the person the director declared stays anonymous (v16: from the
+        # declaration, never from the words)
+        declared = broll._image_text(LONG, "neon", art=True, people="one")
+        assert "anonymous person" in declared.lower() or "face turned away" in declared.lower()
+        assert "anonymous person" not in text.lower() and "face turned away" not in text.lower()
 
     def test_the_editors_prompt_is_assembled_as_before(self):
         assert broll._image_text("A brain.", "photo", "L") == broll._image_text("A brain.", "photo", "L", art=False)

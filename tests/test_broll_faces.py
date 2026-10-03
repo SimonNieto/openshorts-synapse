@@ -32,26 +32,44 @@ def _quiet(monkeypatch, tmp_path):
 
 
 class TestGuardrails:
+    """v16: who is in the frame is DECLARED (the editor's or the director's "people"), never read from the words."""
+
     def test_a_person_keeps_a_natural_face_when_faces_are_allowed(self):
-        _p, off = broll.guardrails("A patient looks out of the window with hope.")
-        _p, on = broll.guardrails("A patient looks out of the window with hope.", faces=True)
+        _p, off = broll.guardrails("A patient looks out of the window with hope.", people="one")
+        _p, on = broll.guardrails("A patient looks out of the window with hope.", faces=True, people="one")
         assert "face turned away" in off and "face turned away" not in on
         assert "nobody real or recognisable" in on and "natural, in focus" in on
 
     def test_a_crowd_keeps_its_nearest_faces_when_allowed(self):
-        _p, off = broll.guardrails("A crowd of people in a plaza at dusk.")
-        _p, on = broll.guardrails("A crowd of people in a plaza at dusk.", faces=True)
+        _p, off = broll.guardrails("A crowd of people in a plaza at dusk.", people="group")
+        _p, on = broll.guardrails("A crowd of people in a plaza at dusk.", faces=True, people="group")
         assert "silhouettes" in off and "silhouettes" not in on and "nearest faces natural and anonymous" in on
+
+    def test_words_never_add_a_person(self):
+        """The old word guard put a person into these (the selfie in front of the DMT vision came from "first-person")."""
+        for text in ("A first-person view dissolving into a breathing fractal field.",
+                     "A man-made lake at dawn, its concrete rim catching the light.",
+                     "The north face of the cliff under a cold morning sky.",
+                     "A portrait-format picture of a canyon at noon.",
+                     "The patient's chart on the desk under a lamp."):
+            for faces in (False, True):
+                _p, guard = broll.guardrails(text, faces=faces)
+                assert "person" not in guard and "face" not in guard and "Hands" not in guard, text
+                _p, guard = broll.guardrails(text, faces=faces, people="none")
+                assert "person" not in guard and "face" not in guard and "Hands" not in guard, text
+        _p, guard = broll.guardrails("A quiet room at dusk.", people="hands")
+        assert "Hands natural" in guard and "person" not in guard
 
     def test_the_other_guardrails_stay(self):
         _p, on = broll.guardrails("Two surgeons read a chart on an iPhone.", faces=True)
         assert "exactly 2 surgeons" in on and "plain colour" in on and "unbranded" in on and "iphone" not in _p.lower()
 
-    def test_the_image_text_passes_faces_through(self):
-        off = broll._image_text("A woman smiles at a child.", "photo")
-        on = broll._image_text("A woman smiles at a child.", "photo", faces=True)
+    def test_the_image_text_passes_faces_and_people_through(self):
+        off = broll._image_text("A woman smiles at a child.", "photo", people="one")
+        on = broll._image_text("A woman smiles at a child.", "photo", faces=True, people="one")
         assert "face turned away" in off and "face turned away" not in on
-        art = broll._image_text("A woman smiles at a child. " * 10, "photo", art=True, faces=True)
+        assert "face turned away" not in broll._image_text("A woman smiles at a child.", "photo")
+        art = broll._image_text("A woman smiles at a child. " * 10, "photo", art=True, faces=True, people="one")
         assert "face turned away" not in art and art.endswith(broll.ART_RULES)
 
 

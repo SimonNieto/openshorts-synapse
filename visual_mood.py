@@ -194,9 +194,10 @@ MEDIUM = {
                    "high-speed frame), in that instrument's real light and colours"),
     "model": ("a physical model of the notion in real materials (shapes, wire, glass, paper, water, light) on a table "
               "or in a room, photographed"),
-    "inner": ("what the person perceives from inside, through their own eyes and senses — what they see, hear or feel, "
-              "turned into what is seen — never the person seen from outside, never a face that looks pensive; painted "
-              "from the speaker's own words, its colours, shapes and scale as strange as it is told"),
+    "inner": ("what the person perceives — what they see, hear or feel — painted as what fills the frame (shapes, "
+              "light, colours, surfaces), never the person seen from outside, never a face that looks pensive, never "
+              "the viewer (no first-person, no point of view); from the speaker's own words, its colours, shapes and "
+              "scale as strange as it is told"),
 }
 FRAME_BY_FUNCTION = {
     "setup": "a wide establishing frame that shows where we are",
@@ -275,6 +276,9 @@ def key_of(m):
     return "mid" if level == "low" and m["gravity"] == "grave" else level
 
 
+DRAWN_DROP = ("medium", "lens", "texture")   # a drawn picture (v19): the episode's drawing says how it is made
+
+
 def words(m):
     """The picture's look sheet in words, slot by slot (the art director's grammar)."""
     m = {**DEFAULT, **{k: v for k, v in (m or {}).items() if v}}
@@ -307,17 +311,19 @@ def words(m):
             "texture": texture, "mood": mood}
 
 
-def art_line(m):
-    """The look sheet as one line of the art director's list of pictures."""
+def art_line(m, drawn=False):
+    """The look sheet as one line of the art director's list of pictures. ``drawn`` (v19, the inside of a body): no
+    medium, lens or texture — the episode's drawing says how it is made; frame, light, palette and mood stay."""
     w = words(m)
-    return "; ".join(f"{k}: {v}" for k, v in w.items())
+    return "; ".join(f"{k}: {v}" for k, v in w.items() if not (drawn and k in DRAWN_DROP))
 
 
-def sentence(m):
+def sentence(m, drawn=False):
     """The look sheet as plain sentences after a prompt that is not the art director's (the editor's draft kept):
-    the image model still gets the medium, the frame, the lens and the light."""
+    the image model still gets the medium, the frame, the lens and the light (``drawn``: the frame and the light)."""
     w = words(m)
-    return " ".join(s[0].upper() + s[1:] + "." for s in (w["medium"], w["composition"], w["lens"], w["light"], w["texture"]))
+    keys = ("composition", "light") if drawn else ("medium", "composition", "lens", "light", "texture")
+    return " ".join(w[k][0].upper() + w[k][1:] + "." for k in keys if w.get(k))
 
 
 # --- levels -> grade (colour and contrast only) -----------------------------------------------------------------

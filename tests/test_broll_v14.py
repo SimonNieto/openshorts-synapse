@@ -41,9 +41,11 @@ class TestRegisterIsAStyle:
     def test_the_bible_and_the_director_take_the_scene_from_the_sentence(self, monkeypatch):
         rules = ai_brain.bible_rules()
         assert "A REGISTER IS A STYLE, NEVER A SCENE" in rules and "never a scene, a place, a subject or a person" in rules
-        assert "(40 to 80 words: the STYLE only" in rules
+        assert "(40 to 80 words: the STYLE of ONE single picture only" in rules
+        # v16: one picture's look, never a layout (the universe episode's register was "a side-by-side of two photos")
+        assert "never a layout of several pictures: no pair" in " ".join(rules.split())
         assert "two pictures of one register never share a scene" in broll.REGISTER_TEXT
-        assert "never the person seen from outside" in broll.REGISTER_TEXT
+        assert "never the person seen" in broll.REGISTER_TEXT and "the look of one picture" in broll.REGISTER_TEXT
 
 
 class TestRestraintByValence:
@@ -72,9 +74,13 @@ class TestRestraintByValence:
 class TestInnerIsPerceived:
     def test_the_words_and_the_editor_rule(self, monkeypatch):
         w = visual_mood.words({"visibility": "inner"})["medium"]
-        assert w.startswith("what the person perceives from inside") and "never a face that looks pensive" in w
+        assert w.startswith("what the person perceives") and "never a face that looks pensive" in w
+        # v16: what fills the frame, never the viewer ("first-person" made the image model draw a selfie)
+        assert "painted as what fills the frame" in w and "never the viewer (no first-person" in w
         seen, _m = _plan(monkeypatch)
-        assert "never the person seen from outside nor a pensive face" in seen["prompt"]
+        text = " ".join(seen["prompt"].split())
+        assert "never the person seen from outside nor a pensive face" in text
+        assert 'no "first-person", "point of view" or "through his eyes" in a prompt' in text
 
 
 class TestAClipAboutADeath:
@@ -140,9 +146,15 @@ class TestSafety:
         assert '"safe" (true / false): false when the picture evokes an overdose' in broll.REVIEW_PROMPT
         c = broll._take_review({"layout": "card"}, {"score": 5, "look": 5, "safe": False, "better_prompt": "Same, brighter."})
         assert c["safe"] is False and broll._keep_meaningful([c]) == []
-        # v15: an unsafe picture is never made again with the same idea — only another one, when the review gives it
-        assert broll._next_prompt(c) is None
-        c = broll._take_review({"layout": "card"}, {"score": 5, "look": 5, "safe": False, "new_prompt": "Another idea."})
+        # v15: an unsafe picture is never made again with the same idea — only another one (v16: the director's)
+        assert broll._next_prompt(c) is None and broll._wants_new_idea(c)
+        # v16: judged WITH its words — a container of a substance on a sentence about a death
+        text = " ".join(broll.REVIEW_PROMPT.split())
+        assert "Read it WITH ITS WORDS: on a sentence that tells of a death" in text
+        assert "WITH ITS WORDS: on a sentence that tells of a death" in " ".join(broll.SAFETY_RULE.split())
+        c = broll._take_review({"layout": "card"}, {"score": 5, "look": 5, "safe": False, "new_prompt": "From the review."})
+        assert broll._next_prompt(c) is None               # v16: the review's other idea is not read any more
+        c["new_prompt"] = "Another idea."                  # the art director's (another_idea)
         assert broll._next_prompt(c) == "Another idea."
         ok = broll._take_review({"layout": "card"}, {"score": 4, "look": 4})
         assert ok["safe"] is True and broll._keep_meaningful([ok]) == [ok]
@@ -168,10 +180,19 @@ class TestFlags:
 
 
 class TestParallel:
-    def test_a_bench_option_for_the_editor_and_the_director(self, monkeypatch):
-        seen, moments = _plan(monkeypatch, {"moments": [_mo("soldiers")]}, parallel=True)
-        assert "A PARALLEL: when the sentence compares two things" in seen["prompt"]
-        assert moments[0]["parallel"] is True
-        assert "A PARALLEL" in broll._art_prompt(moments, {})
+    def test_the_editor_says_one_or_pair_and_the_director_paints_it(self, monkeypatch):
+        """v16 (the user's correction): side by side is fine when both halves share the structure compared."""
+        seen, moments = _plan(monkeypatch, {"moments": [_mo("soldiers", parallel="pair"), _mo("desert", parallel="one")]})
+        item = seen["schema"]["properties"]["moments"]["items"]
+        assert item["properties"]["parallel"]["enum"] == ["none", "one", "pair"] and "parallel" in item["required"]
+        prompt = " ".join(seen["prompt"].split())
+        assert "A PARALLEL: when the speaker compares two things for a structure they share" in prompt
+        assert "the real reference image of its own field" in prompt and "same scale, density and framing" in prompt
+        assert "A KNOWN PICTURE" in prompt
+        assert [m["parallel"] for m in moments] == ["pair", "one"]
+        art = broll._art_prompt(moments, {})
+        assert broll.PAIR_LINE in art and broll.ONE_LINE in art
+        lines = broll._review_lines([{"file": "/x/broll_0.jpg", "layout": "card", "m": {**moments[0], "said": "x"}}], [])
+        assert "PAIR (the two compared, side by side)" in lines[0]
         seen, moments = _plan(monkeypatch, {"moments": [_mo("soldiers")]})
-        assert "A PARALLEL" not in seen["prompt"] and "A PARALLEL" not in broll._art_prompt(moments, {})
+        assert moments[0]["parallel"] is None and broll.PAIR_LINE not in broll._art_prompt(moments, {})

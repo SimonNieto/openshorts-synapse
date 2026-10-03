@@ -27,16 +27,19 @@ class TestPositiveRedos:
         assert broll.positive("Notebook on a desk, a knotted rope of wool.") == "Notebook on a desk, a knotted rope of wool."
         assert broll.positive("") == "" and broll.positive("No window.") == ""
 
-    def test_the_review_writes_both_prompts_in_the_positive(self):
-        text = broll.REVIEW_PROMPT
-        assert '"better_prompt": the same idea, made to work — the scene rewritten IN THE POSITIVE' in text
-        assert '"new_prompt": a DIFFERENT picture for the same words' in text
-        assert "new_prompt" in broll.REVIEW_SCHEMA["properties"]["reviews"]["items"]["properties"]
-        # v15b: both are always asked for (the review left the other idea out 9 times in 11 when it was optional)
-        assert {"better_prompt", "new_prompt"} <= set(broll.REVIEW_SCHEMA["properties"]["reviews"]["items"]["required"])
-        c = broll._take_review({"layout": "card"}, {"score": 2, "look": 3, "better_prompt": "A room. Not behind a window.",
-                                                    "new_prompt": "A crowded street at noon."})
-        assert c["better_prompt"] == "A room." and c["new_prompt"] == "A crowded street at noon."
+    def test_the_review_writes_the_better_prompt_in_the_positive(self):
+        text = " ".join(broll.REVIEW_PROMPT.split())
+        assert "the same idea, made to work — the scene rewritten IN THE POSITIVE" in text
+        # v15b: always asked for; v16: the other idea is the art director's (the review's were the same scene, or the
+        # cliché) — the review no longer writes one
+        assert "better_prompt" in broll.REVIEW_SCHEMA["properties"]["reviews"]["items"]["required"]
+        assert "new_prompt" not in broll.REVIEW_SCHEMA["properties"]["reviews"]["items"]["properties"]
+        assert "Another idea, when this one has failed twice, is the art director's to write" in text
+        c = broll._take_review({"layout": "card", "m": {"prompt": "A room by a window."}},
+                               {"score": 2, "look": 3, "better_prompt": "A room. Not behind a window.", "seen": "a window",
+                                "problem": "the window"})
+        assert c["better_prompt"] == "A room." and "new_prompt" not in c
+        assert c["history"] == [{"prompt": "A room by a window.", "seen": "a window", "problem": "the window"}]
 
     def test_after_two_failures_another_idea(self):
         c = {"score": 2, "look_score": 3, "layout": "card", "better_prompt": "Same, closer.", "new_prompt": "Another.", "failed": 1}
@@ -75,7 +78,11 @@ class TestFx:
         broll._apply_art(ms, {"prompts": [{"k": 0, "prompt": long, "fx": "double"}, {"k": 1, "prompt": long, "fx": "spin"}]})
         assert ms[0]["fx"] == "double" and ms[1]["fx"] is None
         lines = broll._review_lines([{"file": "/x/broll_0.jpg", "layout": "card", "m": {**ms[0], "said": "x"}}], [])
-        assert "fx: double (added at the edit, not in this still)" in lines[0]
+        # v16: the review sees the picture as the viewer will (the double drawn in), or is told it trembles
+        assert "fx double: shown here WITH its effect" in lines[0]
+        ms[1]["fx"] = "tremble"
+        lines = broll._review_lines([{"file": "/x/broll_1.jpg", "layout": "card", "m": {**ms[1], "said": "x"}}], [])
+        assert "fx tremble: this picture shakes finely on screen" in lines[0]
 
     def _src(self):
         tmp = tempfile.mkdtemp(prefix="fx_")

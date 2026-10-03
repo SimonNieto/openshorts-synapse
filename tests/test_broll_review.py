@@ -46,7 +46,7 @@ class TestThePrompt:
     def test_the_reviewer_is_asked_for_the_look(self):
         text = broll.REVIEW_PROMPT.format(frame=broll._review_frame([{"layout": "card"}]), items="- x")
         assert "STEP 3 - THE LOOK" in text and '"look" 1-5' in text and "artefacts (hands, faces, lettering" in text
-        assert "ART-DIRECTED, write both in that same grammar" in text and "80 to 120 words" in text
+        assert "ART-DIRECTED, write it in that same grammar" in text and "80 to 120 words" in text
         assert broll.REVIEW_SCHEMA["properties"]["reviews"]["items"]["properties"]["look"] == {"type": "integer"}
         assert "look" in broll.REVIEW_SCHEMA["properties"]["reviews"]["items"]["required"]
 
@@ -101,7 +101,7 @@ class TestWhoJudges:
         monkeypatch.setattr(broll, "review_with_claude", fake_claude)
         cands = [{"file": "/x/broll_0.jpg", "layout": "card"}, {"file": "/x/broll_1.jpg", "layout": "hero"},
                  {"file": "/x/broll_2.jpg", "layout": "card"}]
-        out = broll.review_images(cands, [])
+        out = broll._review_images(cands, [])          # the dispatch (v17: review_images adds the cold read)
         assert [r["file"] for r in out] == ["broll_0.jpg", "broll_1.jpg", "broll_2.jpg"]
         assert ("sonnet", broll.HERO_REVIEW_PX, ["broll_1.jpg"]) in calls
         assert ("haiku", 512, ["broll_0.jpg", "broll_2.jpg"]) in calls
@@ -114,7 +114,7 @@ class TestWhoJudges:
         monkeypatch.setattr(ai_brain, "stage_model", lambda k, *a, **kw: "sonnet")
         monkeypatch.setattr(broll, "review_with_claude", lambda cands, words, model=None, size=512: calls.append((model, size)) or [{"score": 5, "look": 5}])
         monkeypatch.setattr(broll, "review_with_gemini", lambda cands, words: pytest.fail("the hero is never Gemini's"))
-        broll.review_images([{"file": "/x/broll_1.jpg", "layout": "hero"}], [])
+        broll._review_images([{"file": "/x/broll_1.jpg", "layout": "hero"}], [])
         assert calls == [("sonnet", 768)]
 
     def test_the_review_is_resized_to_the_size_asked(self, monkeypatch, tmp_path):
@@ -168,14 +168,32 @@ class TestInTheJob:
         rep = self._run(tr, words)
         assert all(it["score"] == 5 and it["look_score"] == 4 for it in rep["items"])
 
+    @staticmethod
+    def _ideas(monkeypatch, text="Another scene."):
+        """v16: another idea is the art director's (another_idea), not the review's."""
+        calls = []
+
+        def fake(cands, clip, clip_text="", **kw):
+            calls.append([c["k"] for c in cands])
+            for c in cands:
+                c["new"] = {"prompt": text, "judge": "", "fx": None, "people": "none"}
+                c["new_prompt"] = text
+            return len(cands)
+
+        monkeypatch.setattr(broll, "another_idea", fake)
+        monkeypatch.setattr(broll, "direct_art", lambda *a, **k: 0)
+        return calls
+
     def test_a_hero_is_made_again_twice_then_dropped(self, monkeypatch, stubs):
         """v15: the first redo is the same idea made to work; once it has failed twice, the next one is another idea
-        (new_prompt), never the same scene reworded."""
+        (v16: the art director's), never the same scene reworded."""
         made, tr, words = stubs
+        calls = self._ideas(monkeypatch)
         monkeypatch.setattr(broll, "review_images",
-                            lambda cands, words_: [{"score": 4, "look": 2, "better_prompt": "Brighter.", "new_prompt": "Another scene."}
+                            lambda cands, words_: [{"score": 4, "look": 2, "better_prompt": "Brighter."}
                                                    if c["layout"] == "hero" else {"score": 4, "look": 4} for c in cands])
-        rep = self._run(tr, words)
+        rep = self._run(tr, words, art_director=True)
+        assert len(calls) == 1              # asked once the hero had failed twice (its budget ends with that attempt)
         hero_tries = [m for m in made if m["size"] == (896, 1600)]
         k = hero_tries[0]["out"][len("broll_"):-len(".jpg")]
         assert len(hero_tries) == 3 and [m["out"] for m in hero_tries][1:] == [f"broll_{k}_v2.jpg", f"broll_{k}_v3.jpg"]
@@ -186,11 +204,13 @@ class TestInTheJob:
     def test_a_card_failed_twice_gets_another_idea(self, monkeypatch, stubs):
         """v15b: a card's take and its redo both failed — one more attempt, with another idea, then the best one."""
         made, tr, words = stubs
+        calls = self._ideas(monkeypatch)
         monkeypatch.setattr(broll, "review_images",
                             lambda cands, words_: [{"score": 5, "look": 5} if c["layout"] == "hero" or c["file"].endswith("_v3.jpg")
-                                                   else {"score": 3, "look": 2, "better_prompt": "Closer.", "new_prompt": "Another scene."}
+                                                   else {"score": 3, "look": 2, "better_prompt": "Closer."}
                                                    for c in cands])
-        rep = self._run(tr, words)
+        rep = self._run(tr, words, art_director=True)
+        assert len(calls) == 1 and len(calls[0]) == 2       # ONE call of the director for both cards
         cards = [m for m in made if m["size"] == (1152, 720)]
         assert [m["prompt"] for m in cards if m["out"].endswith("_v2.jpg")] == ["Closer.", "Closer."]
         assert [m["prompt"] for m in cards if m["out"].endswith("_v3.jpg")] == ["Another scene.", "Another scene."]
@@ -200,11 +220,12 @@ class TestInTheJob:
 
     def test_an_unsafe_card_gets_another_idea_at_once(self, monkeypatch, stubs):
         made, tr, words = stubs
+        self._ideas(monkeypatch)
         monkeypatch.setattr(broll, "review_images",
                             lambda cands, words_: [{"score": 5, "look": 5} if c["layout"] == "hero" or c["file"].endswith("_v2.jpg")
-                                                   else {"score": 4, "look": 4, "safe": False, "better_prompt": "Closer.",
-                                                         "new_prompt": "Another scene."} for c in cands])
-        rep = self._run(tr, words)
+                                                   else {"score": 4, "look": 4, "safe": False, "better_prompt": "Closer."}
+                                                   for c in cands])
+        rep = self._run(tr, words, art_director=True)
         cards = [m for m in made if m["size"] == (1152, 720)]
         assert [m["prompt"] for m in cards if m["out"].endswith("_v2.jpg")] == ["Another scene.", "Another scene."]
         assert not any(m["out"].endswith("_v3.jpg") for m in cards)

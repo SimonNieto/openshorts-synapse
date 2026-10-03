@@ -35,7 +35,7 @@ class TestTheBible:
     def test_every_inner_experience_gets_a_register_with_a_kind(self, bible):
         rules = ai_brain.bible_rules()
         assert "EVERY inner\n  experience the episode names" in rules and "even when it is named in passing" in rules
-        assert "never the room it happens in nor its\n  medical version" in rules and "0 to 6 in all" in rules
+        assert "never the room it happens in nor its medical version" in " ".join(rules.split()) and "0 to 6 in all" in rules
         assert "A REGISTER IS A STYLE, NEVER A SCENE" in rules
         for topic in ("psychedelic", "DMT", "dream", "trip", "cosmos", "math"):
             assert topic not in rules, topic

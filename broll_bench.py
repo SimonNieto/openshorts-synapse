@@ -444,8 +444,23 @@ VERSIONS = {
     "v14p": {"parallel": True},               # v14 + the visual parallel
     "v15": {},                                # v14 + the review and the redos: positive, a new idea, still-only, fx
     "v15b": {},                               # v15 + a card failed twice gets its new idea (one more attempt)
+    "v16": {},                                # people declared, the hero's other composition, another idea by the
+                                              # director (Opus), review: fx seen, inner, pair, safety with its words
+    "v16z": {"base_for": "hero,register"},    # v16 + Z-Image base for the hero and the register pictures
+    "v16b": {},                               # v16 + a clip about a death tells it, no speaker drawn, facts said,
+                                              # an inner picture with the person dropped by code, Opus with a timeout
+    "v16bz": {"base_for": "hero,register"},   # v16b + Z-Image base for the hero and the register pictures
+    "v17": {},                                # v16b + the cold viewer, the inside of a body drawn, no drug in use,
+                                              # a known picture keeps its own medium
+    "v17z": {"base_for": "hero,register"},    # v17 + Z-Image base for the hero and the register pictures
+    "v18": {},                                # v17 + plain words a viewer reads (the director's rule), the shared
+                                              # structure whole; the director on the profile's model (Opus, max)
+    "v18s": {"env": {"BRAIN_BROLL_ART": "sonnet", "CLAUDE_EFFORT_BROLL_ART": "high"}},   # v18, the director on Sonnet
+    "v19": {},                                # v18 + one drawing per episode, figures of speech, the bench minimum; the
+                                              # director on Sonnet (the profile, after the v18 A/B)
 }
 GROUP_S = 2.5   # two pictures closer than this (or on the same sentence) show the same moment
+MIN_PER_CLIP = int(os.environ.get("BENCH_MIN_PER_CLIP") or 2)   # fewer kept pictures on a clip = the bench failed
 BOARD_W = 1500
 THUMB_W, THUMB_H = 420, 300
 
@@ -622,7 +637,8 @@ class _Watch:
             g = orig["_graph"](engine, text, seed, width, height, *a, **kw)
             steps = next((n["inputs"].get("steps") for n in g.values() if n.get("class_type") == "KSampler"), None)
             self.sent[self._current or f"image_{len(self.sent)}"] = {"text": text, "seed": seed, "size": [width, height],
-                                                                   "steps": steps}
+                                                                   "steps": steps, "model": kw.get("model") or "turbo",
+                                                                   **({"negative": kw["negative"]} if kw.get("negative") else {})}
             return g
 
         for k, fn in (("plan_with_claude", plan), ("plan_with_gemini", plan_gemini), ("direct_art", art), ("review_images", review),
@@ -712,6 +728,8 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
             "planner": (rep or {}).get("planner"), "moments": w.moments, "items": items, "reviews": w.reviews,
             "sent": w.sent, "dropped": dropped, "skipped": list(getattr(broll, "LAST_SKIPS", []) or []),
             "seconds": seconds, "usage": usage, "images_made": w.images,
+            # every picture made, with its model and its seconds on the GPU (v16: Turbo or Z-Image base)
+            "gen": list(getattr(broll, "LAST_GEN", []) or []),
             "images_dir": keep, "cfg": cfg}
 
 
@@ -1073,7 +1091,19 @@ def cmd_plan(args):
                     over = {**over, "fixed_moments": fixed}
                 tag = f"{job8}_clip{n}_{name}"
                 print(f"\n▶ clip {n} · {name}: {clip.get('video_title_for_youtube_short')}", flush=True)
-                res = _plan_clip(job_dir, meta, n, clip, pre_fx, prof, name, over, tag)
+                # A version may set the brain's env for its own run (e.g. the art director's model), put back after.
+                env = dict(over.get("env") or {})
+                saved = {k: os.environ.get(k) for k in env}
+                os.environ.update({k: str(v) for k, v in env.items()})
+                try:
+                    res = _plan_clip(job_dir, meta, n, clip, pre_fx, prof, name,
+                                     {k: v for k, v in over.items() if k != "env"}, tag)
+                finally:
+                    for k, v in saved.items():
+                        if v is None:
+                            os.environ.pop(k, None)
+                        else:
+                            os.environ[k] = v
                 with open(os.path.join(BRAIN_DIR, tag + ".json"), "w", encoding="utf-8") as f:
                     json.dump(res, f, indent=1, ensure_ascii=False)
                 boards.append(_board(res, os.path.join(BRAIN_DIR, tag + ".jpg")))
@@ -1087,10 +1117,14 @@ def cmd_plan(args):
                        "pixel_gaps": sum(bool((it.get("pixels") or {}).get("gap")) for it in res["items"]),
                        "experience": sum(broll.is_inner({"style": it.get("style"), "mood": it.get("mood")}) for it in res["items"]),
                        "scores": scores, "dropped": len(res["dropped"]), "seconds": res["seconds"], "usage": res["usage"]}
+                # v19 (the user): a clip under the minimum is a failure of the bench, not a success of the review.
+                row["min_ok"] = row["images"] >= MIN_PER_CLIP
                 summary.append(row)
                 print(f"   {name}: {row['images']} kept of {row['made']} made ({row['experience']} experience), scores {scores}, hero {row['hero']}, "
                       f"{res['seconds']} s, Claude {res['usage']['calls']} call(s) "
                       f"{res['usage']['input_tokens']:,}/{res['usage']['output_tokens']:,} -> {tag}.jpg", flush=True)
+                if not row["min_ok"]:
+                    print(f"   ⛔ BENCH FAIL: clip {n} keeps {row['images']} picture(s), the minimum is {MIN_PER_CLIP}.", flush=True)
             # Side by side with every version of this clip already on disk ("current" first, then by age), so a
             # version can be run alone and still be compared with the ones made before.
             on_disk = [p for p in glob.glob(os.path.join(glob.escape(BRAIN_DIR), f"{job8}_clip{n}_*.jpg"))
@@ -1338,6 +1372,133 @@ def cmd_content(args):
     print(f"✅ {out}")
 
 
+def _rejudge_cands(res, job8, n, v, only=None):
+    """The pictures of one bench result as the review saw them: the kept ones (``<tag>_images``) and the dropped
+    attempts made again by hidden_pictures (``<tag>_images/hidden``), each with its moment."""
+    images = res.get("images_dir") or ""
+    if not os.path.isdir(images):
+        images = os.path.join(BRAIN_DIR, f"{job8}_clip{n}_{v}_images")
+    final = res.get("final") or res.get("moments") or []
+    thesis = res.get("thesis") or ""
+    out = []
+
+    def moment(k, extra):
+        m = dict(final[k]) if k is not None and 0 <= k < len(final) else {}
+        m.update({kk: vv for kk, vv in extra.items() if vv is not None})
+        m["thesis"] = thesis
+        return m
+
+    for it in res.get("items") or []:
+        if it.get("source") == "screen" or not it.get("image"):
+            continue
+        path = os.path.join(images, it["image"])
+        if not os.path.exists(path):
+            continue
+        hero = it.get("layout") == "hero"
+        m = moment(it.get("k"), {"prompt": it.get("prompt"), "art": it.get("art"), "judge": it.get("judge"),
+                                 "fx": it.get("fx"), "style": it.get("style"), "hero": hero, "t": it.get("t"),
+                                 "said": it.get("said")})
+        out.append({"k": it.get("k"), "file": path, "layout": "hero" if hero else "card", "m": m,
+                    "label": f"{it['image']} kept · {it.get('subject') or it.get('anchor')}"})
+    dropped = {d["k"] for d in res.get("dropped") or [] if d.get("why") == "review" and d.get("k") is not None}
+    for name in sorted((res.get("sent") or {})):
+        k = int(re.match(r"broll_(\d+)", name).group(1)) if re.match(r"broll_(\d+)", name) else None
+        path = os.path.join(images, "hidden", name)
+        if k not in dropped or not os.path.exists(path):
+            continue
+        d = next(x for x in res["dropped"] if x.get("k") == k)
+        hero = d.get("layout") == "hero"
+        out.append({"k": k, "file": path, "layout": "hero" if hero else "card",
+                    "m": moment(k, {"hero": hero, "art": True}),
+                    "label": f"{name} dropped · {d.get('subject') or d.get('anchor')}"})
+    if only:
+        out = [c for c in out if any(o in c["label"] for o in str(only).split(","))]
+    return out
+
+
+def _bible_with(res):
+    """The cached episode bible whose registers hold every register the result's pictures were painted in (the most
+    recent one), or None."""
+    import ai_cache
+    wanted = {str(m.get("style")) for m in (res.get("final") or []) if m.get("style") and m.get("style") != "photo"}
+    if not wanted:
+        return None
+    best, best_t = None, 0.0
+    for path in glob.glob(os.path.join(ai_cache.ROOT, "answers", "*", "*.json")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            continue
+        a = d.get("answer") if isinstance(d, dict) and "answer" in d else d
+        if not isinstance(a, dict) or not isinstance(a.get("registers"), list):
+            continue
+        names = {r.get("name") for r in a["registers"] if isinstance(r, dict)}
+        if wanted <= names and os.path.getmtime(path) > best_t:
+            best, best_t = a, os.path.getmtime(path)
+    return best
+
+
+def cmd_rejudge(args):
+    """The review's own stability (v16): the same pictures judged again and again (the answer cache bypassed), each
+    alone, the way the run judged it (a hero by the B-roll's judge at 768 px, a card by the image_review model or
+    --model): per picture its sense, look, facts and safe per run and whether it would be kept; then the share of
+    pictures whose verdict never changes."""
+    import ai_brain
+    import broll
+    import viral_fx
+    prof = _profile(args.profile)
+    _job_env(prof)
+    if args.model:
+        os.environ["BRAIN_IMAGE_REVIEW"] = args.model
+    table = {}
+    for spec in str(args.jobs).split(","):
+        job, n = spec.split(":")
+        n = int(n)
+        job_dir, meta = _find_job(job)
+        clip, _pre = _clip_of(job_dir, meta, n)
+        brief, _how = _full_brief(meta)
+        ai_brain.EPISODE_BRIEF = brief
+        bible = meta.get("episode_bible") if (meta.get("episode_bible") or {}).get("mood") else None
+        episode_bible = bible or ai_brain.episode_bible(brief, meta.get("transcript"))
+        words = viral_fx.clip_words(meta.get("transcript"), float(clip["start"]), float(clip["end"]))
+        for v in str(args.versions).split(","):
+            path = os.path.join(BRAIN_DIR, f"{job[:8]}_clip{n}_{v}.json")
+            if not os.path.exists(path):
+                continue
+            with open(path, encoding="utf-8") as f:
+                res = json.load(f)
+            # The bible the run had (its registers: their names, cheap lines), found in the answer cache by the
+            # register names the run's pictures used; else today's.
+            ai_brain.EPISODE_BIBLE = _bible_with(res) or episode_bible
+            for c in _rejudge_cands(res, job[:8], n, v, only=args.files):
+                runs = []
+                for _ in range(args.runs):
+                    os.environ["AI_CACHE_REFRESH"] = "1"          # a new answer every time, for the review only
+                    try:
+                        r = broll.review_images([c], words)[0]
+                    finally:
+                        os.environ.pop("AI_CACHE_REFRESH", None)
+                    cc = broll._take_review(dict(c), r)
+                    runs.append({"score": cc["score"], "look": cc.get("look_score"), "facts": cc.get("facts_ok"),
+                                 "safe": cc.get("safe"), "kept": bool(broll._keep_meaningful([cc])),
+                                 "seen": str(r.get("seen") or "")[:200], "problem": cc.get("problem", "")[:200]})
+                key = f"{job[:8]}:{n} {v} {c['label']}"
+                table[key] = runs
+                unstable = len({r["kept"] for r in runs}) > 1
+                print(f"   {key}: sense {[r['score'] for r in runs]} look {[r['look'] for r in runs]} kept "
+                      f"{['yes' if r['kept'] else 'no' for r in runs]}" + ("  <- UNSTABLE" if unstable else ""), flush=True)
+    stable = sum(1 for runs in table.values() if len({r["kept"] for r in runs}) == 1)
+    spread = [max(r["score"] for r in runs) - min(r["score"] for r in runs) for runs in table.values()]
+    print(f"📏 Review stability ({os.environ.get('BRAIN_IMAGE_REVIEW')} for the cards, {args.runs} runs): "
+          f"{stable}/{len(table)} picture(s) always get the same verdict; sense spread "
+          f"{sum(spread) / max(1, len(spread)):.2f} on average, {max(spread or [0])} at most")
+    out = os.path.join(BRAIN_DIR, f"rejudge_{args.name}.json")
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(table, f, indent=1, ensure_ascii=False)
+    print(f"✅ {out}")
+
+
 def cmd_repeats(args):
     """Per episode and version: the kept pictures that share a composition with another picture of the episode."""
     import ai_brain
@@ -1498,6 +1659,15 @@ def main():
     p.add_argument("--versions", required=True)
     p.add_argument("--name", default="run")
     p.set_defaults(fn=cmd_repeats)
+    p = sub.add_parser("rejudge", help="the review's stability: the same pictures judged again and again")
+    p.add_argument("--jobs", required=True, help="job:clip,job:clip")
+    p.add_argument("--versions", required=True)
+    p.add_argument("--runs", type=int, default=4)
+    p.add_argument("--files", default=None, help="only the pictures whose label holds one of these (comma-separated)")
+    p.add_argument("--model", default=None, help="the cards' review model for this run (haiku, sonnet, opus)")
+    p.add_argument("--profile", default=None)
+    p.add_argument("--name", default="run")
+    p.set_defaults(fn=cmd_rejudge)
     args = ap.parse_args()
     args.fn(args)
 

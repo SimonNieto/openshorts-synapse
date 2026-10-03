@@ -61,7 +61,7 @@ class TestNoPositiveExample:
         assert broll.EMPTY_RULE in seen["prompt"] and broll.PRECISION_RULE in seen["prompt"]
         art = broll._art_prompt([{"t": 5.0, "anchor": "a", "prompt": "p", "subject": "s"}], {})
         assert "AN EMPTY PLACE IS AN ABSENCE" in art and "NOTHING THE IMAGE MODEL WILL GET WRONG" in art
-        assert "A PARALLEL" not in art                          # v13 only
+        assert "A PARALLEL" in art                              # v16: in every request (v13: its mode only)
         assert "precise chemical\nstructure" in broll.REVIEW_PROMPT or "precise chemical structure" in broll.REVIEW_PROMPT
 
 
@@ -108,7 +108,8 @@ class TestAdaptive:
         assert "the clip's strongest moment" in p
         seen, _m = _plan(monkeypatch)
         assert "show" not in seen["schema"]["properties"]["moments"]["items"]["properties"]
-        assert "THING OR MEANING" not in seen["prompt"] and "A PARALLEL" not in seen["prompt"]
+        assert "THING OR MEANING" not in seen["prompt"]
+        assert "A PARALLEL" in seen["prompt"]                   # v16: the mixed layout has it in every request
 
     def test_expected_show_follows_the_axes(self):
         assert broll.expected_show({"mood": {"visibility": "model"}}) == "meaning"
@@ -126,7 +127,7 @@ class TestAdaptive:
         ms = [{"t": 5.0, "anchor": "a", "prompt": "p", "subject": "s", "show": "meaning", "point": "it spreads"}]
         art = broll._art_prompt(ms, {})
         assert "  show: meaning — point: it spreads (what the sentence means, as a real event or process)" in art
-        assert "A PARALLEL: when the sentence compares two things" in art
+        assert "A PARALLEL: when the speaker compares two things" in art
 
     def test_the_hero_is_the_strongest_moment(self):
         def m(t, **kw):

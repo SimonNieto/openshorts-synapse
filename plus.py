@@ -119,7 +119,7 @@ BRAIN_PRESETS = {
     "claude_max": {"brief_score": "sonnet", "detail": "opus", "layout": "haiku", "broll": "opus",
                    "broll_art": "sonnet", "image_review": "sonnet", "hook": "sonnet", "text": "haiku"},
 }
-THINKING = {"light": "low", "normal": "medium", "deep": "high"}
+THINKING = {"light": "low", "normal": "medium", "deep": "high", "max": "max"}
 
 
 def _brain(raw, broll):
@@ -143,6 +143,11 @@ def _brain(raw, broll):
             # B-roll's own level; profiles saved before it followed "thinking".
             "thinking_broll": (raw.get("thinking_broll") if raw.get("thinking_broll") in THINKING
                                else raw.get("thinking") if raw.get("thinking") in THINKING else "normal"),
+            # The art director's own level (2-oct-2026: the user wants Opus at its max there); before, it followed
+            # the B-roll's.
+            "thinking_art": (raw.get("thinking_art") if raw.get("thinking_art") in THINKING
+                             else raw.get("thinking_broll") if raw.get("thinking_broll") in THINKING
+                             else raw.get("thinking") if raw.get("thinking") in THINKING else "normal"),
             "fresh": _bool(raw.get("fresh"))}
 
 
@@ -323,6 +328,7 @@ def job_env(profile):
         env[f"BRAIN_{k.upper()}"] = v
     env["CLAUDE_EFFORT_DETAIL"] = THINKING[p["brain"]["thinking"]]
     env["CLAUDE_EFFORT_BROLL"] = THINKING[p["brain"]["thinking_broll"]]
+    env["CLAUDE_EFFORT_BROLL_ART"] = THINKING[p["brain"]["thinking_art"]]
     if p["brain"]["fresh"]:
         env["AI_CACHE_REFRESH"] = "1"
     if p["target_clips"]:
