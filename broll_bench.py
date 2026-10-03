@@ -462,6 +462,10 @@ VERSIONS = {
                                               # a blind check with the spec's questions (broll_v20)
     "v20c": {"chain": "spec"},                # v20 + the fixes of its first two runs (questions per kind, empty scenes
                                               # said in the positive, more candidates and real reserves)
+    "v21": {"chain": "spec", "ideas": True},  # « idées »: the idea of the sentence first (literal when the thing is the
+                                              # point, illustrative when it is the vehicle), a round of ideas in text
+                                              # before the rendering (art director, verifier, viewer; the face alone
+                                              # as the level zero), the channel's viewer after it (broll_ideas)
 }
 GROUP_S = 2.5   # two pictures closer than this (or on the same sentence) show the same moment
 MIN_PER_CLIP = int(os.environ.get("BENCH_MIN_PER_CLIP") or 2)   # fewer kept pictures on a clip = the bench failed
@@ -691,11 +695,15 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
                               cfg, keep_dir=keep, keep_prefix="", ground_hook=False)
     seconds = {**w.seconds, "total": round(time.time() - t0, 1)}
     usage = {k: ai_brain.USAGE[k] - u0[k] for k in u0}
+    ideas_log = []
     if cfg.get("chain") == "spec":
         # v20: no planner nor review spy fires — the specs are the pictured moments, the checks its reviews
         import broll_v20
         w.moments = [dict(m) for m in broll.LAST_PICTURED]
         w.reviews = [dict(r) for r in broll_v20.LAST_CHECKS]
+        if cfg.get("ideas"):
+            import broll_ideas
+            ideas_log = [dict(r) for r in broll_ideas.LAST_IDEAS]       # v21: the round of ideas, for the board
     items = [dict(it) for it in (rep or {}).get("items") or []]
     for it in items:
         k = _k_of(it.get("image"))
@@ -739,6 +747,7 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
             "seconds": seconds, "usage": usage, "images_made": w.images,
             # every picture made, with its model and its seconds on the GPU (v16: Turbo or Z-Image base)
             "gen": list(getattr(broll, "LAST_GEN", []) or []),
+            "ideas": ideas_log,
             "images_dir": keep, "cfg": cfg}
 
 

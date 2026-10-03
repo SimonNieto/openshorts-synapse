@@ -1,5 +1,7 @@
 """B-roll v20 — the check (broll_check): one blind call per batch, answers graded against the spec's questions,
-decide() and pick_best(). No model is called: broll.claude_json and shot_prompt.questions are faked."""
+decide() and pick_best(). No model is called: broll.claude_json and shot_prompt.questions are faked.
+v21: the viewer hears the words and reads them as subtitles, so "links" became "fits" ("with" / "against" / "away");
+a picture that does not fit goes to its alternative, whatever its kind."""
 import os
 import sys
 import types
@@ -9,6 +11,7 @@ from PIL import Image
 
 import broll
 import broll_check as bc
+import shot_prompt as real_shot_prompt          # the autouse fixture below swaps sys.modules["shot_prompt"] for a fake
 
 
 def fake_questions(spec):
@@ -25,8 +28,9 @@ def fake_questions(spec):
         qs.append({"id": "q_people", "q": "How many people or body parts are visible?",
                    "expect": {"none": 0, "one": 1, "group": 2}[spec.get("people", "none")]})
     qs.append({"id": "q_text", "q": "Is there any writing, letters or numbers?", "expect": "no"})
-    qs.append({"id": "q_medium", "q": "Is it a photograph, a drawing or painting, or a scientific image?",
-               "expect": {"body_inside": "drawing", "instrument": "scientific image"}.get(kind, "photograph")})
+    if kind != "pair":                                                                   # each half has its own medium
+        qs.append({"id": "q_medium", "q": "Is it a photograph, a drawing or painting, or a scientific image?",
+                   "expect": {"body_inside": "drawing", "instrument": "scientific image"}.get(kind, "photograph")})
     qs.append({"id": "q_unsafe", "q": "Does it show blood, a wound, a weapon?", "expect": "no"})
     qs.append({"id": "q_body_photo", "q": "Is it a PHOTOGRAPH of the inside of a body?", "expect": "no"})
     if kind == "pair":
@@ -49,7 +53,14 @@ GOOD = {"q_subject": "yes", "q_count": "2", "q_people": "no", "q_text": "no", "q
         "q_unsafe": "no", "q_body_photo": "no"}
 
 
-def result(links=True, look=4, **answers):
+def result(fits="with", look=4, **answers):
+    """A check result as bc.check() gives it: "fits", and "links" (= fits is "with")."""
+    return {"sees": "two apples on a table", "fits": fits, "links": fits == "with", "look": look,
+            "answers": {**GOOD, **answers}}
+
+
+def legacy(links, look=4, **answers):
+    """A result in the shape of before v21: the boolean "links" only, no "fits"."""
     return {"sees": "two apples on a table", "links": links, "look": look, "answers": {**GOOD, **answers}}
 
 
@@ -79,7 +90,7 @@ class TestCheck:
 
     def test_one_call_for_the_batch_with_one_attachment_per_picture(self, monkeypatch, tmp_path):
         cands = [cand(tmp_path, 0), cand(tmp_path, 1, said="the other words"), cand(tmp_path, 2, said="third words")]
-        reply = {"checks": [{"file": f"broll_{k}.jpg", "sees": "apples", "links": True, "look": 4,
+        reply = {"checks": [{"file": f"broll_{k}.jpg", "sees": "apples", "fits": "with", "look": 4,
                              "answers": [{"id": "q_subject", "a": "yes"}]} for k in range(3)]}
         out, seen = self._run(monkeypatch, tmp_path, cands, reply)
         assert seen["calls"] == 1 and len(seen["attach"]) == len(cands) == 3
@@ -116,7 +127,18 @@ class TestCheck:
     def test_the_prompt_template_is_short(self):
         assert len(bc.CHECK_PROMPT.split()) <= 250
         low = bc.CHECK_PROMPT.lower()
-        assert "15 words" in low and "1 to 5" in low and "link" in low
+        assert "15 words" in low and "1 to 5" in low
+        # item 2 is "fits": the viewer hears the words and reads them as subtitles; with / against / away
+        assert '"fits"' in low and "link" not in low and "subtitles" in low
+        for word in ('"with"', '"against"', '"away"'):
+            assert word in low, word
+        assert '"fits": "with"' in bc.CHECK_PROMPT                    # the JSON example
+
+    def test_the_schema_asks_for_fits_not_links(self):
+        item = bc.CHECK_SCHEMA["properties"]["checks"]["items"]
+        assert bc.FITS == ("with", "against", "away")
+        assert item["properties"]["fits"] == {"type": "string", "enum": ["with", "against", "away"]}
+        assert "links" not in item["properties"] and set(item["required"]) == {"file", "sees", "fits", "answers", "look"}
 
     def test_words_around_the_moment_when_it_has_no_said(self, monkeypatch, tmp_path):
         c = cand(tmp_path, said="")
@@ -131,15 +153,34 @@ class TestCheck:
 
     def test_the_result_is_keyed_by_file_with_answers_as_a_dict(self, monkeypatch, tmp_path):
         cands = [cand(tmp_path, 0), cand(tmp_path, 1)]
-        reply = {"checks": [{"file": "broll_0.jpg", "sees": "two apples", "links": False, "look": 9,
+        reply = {"checks": [{"file": "broll_0.jpg", "sees": "two apples", "fits": "against", "look": 9,
                              "answers": [{"id": "q_subject", "a": "no"}, {"id": "q_count", "a": "3"}]},
-                            {"file": "/somewhere/broll_1.jpg", "sees": "x" * 400, "links": True, "look": "high",
+                            {"file": "/somewhere/broll_1.jpg", "sees": "x" * 400, "fits": "with", "look": "high",
                              "answers": {"q_text": "yes"}}]}
         out, _seen = self._run(monkeypatch, tmp_path, cands, reply)
-        assert out["broll_0.jpg"] == {"sees": "two apples", "links": False, "look": 5,
+        assert out["broll_0.jpg"] == {"sees": "two apples", "fits": "against", "links": False, "look": 5,
                                       "answers": {"q_subject": "no", "q_count": "3"}}       # look clamped to 1-5
         assert out["broll_1.jpg"]["look"] is None and len(out["broll_1.jpg"]["sees"]) == 200
         assert out["broll_1.jpg"]["answers"] == {"q_text": "yes"}
+        assert set(out["broll_1.jpg"]) == {"sees", "fits", "links", "answers", "look"}
+        assert out["broll_1.jpg"]["fits"] == "with" and out["broll_1.jpg"]["links"] is True
+
+    def test_links_is_fits_with_and_an_old_links_answer_is_mapped(self, monkeypatch, tmp_path):
+        cands = [cand(tmp_path, k) for k in range(7)]
+
+        def one(k, **fields):
+            return {"file": f"broll_{k}.jpg", "sees": "x", "look": 4, "answers": [], **fields}
+        reply = {"checks": [one(0, fits="away"), one(1, fits="with"),
+                            one(2, links=True),                                  # the old answer: True is "with"
+                            one(3, links=False),                                 # False is "away"
+                            one(4, fits="sideways", links=False),                # not a fits: the old answer
+                            one(5, fits="against", links=True),                  # a fits wins over a links
+                            one(6)]}                                             # nothing said: not held against it
+        out, _seen = self._run(monkeypatch, tmp_path, cands, reply)
+        assert {f: (r["fits"], r["links"]) for f, r in out.items()} == {
+            "broll_0.jpg": ("away", False), "broll_1.jpg": ("with", True), "broll_2.jpg": ("with", True),
+            "broll_3.jpg": ("away", False), "broll_4.jpg": ("away", False), "broll_5.jpg": ("against", False),
+            "broll_6.jpg": ("with", True)}
 
     def test_a_failed_call_gives_nothing(self, monkeypatch, tmp_path):
         out, seen = self._run(monkeypatch, tmp_path, [cand(tmp_path)], RuntimeError("quota"))
@@ -173,7 +214,9 @@ class TestGradeAnswers:
             assert grade({**GOOD, "q_subject": yes})["subject_ok"] is True, yes
         for no in ("no", "No.", "NO", False, "None", "Nope", "not really"):
             assert grade({**GOOD, "q_subject": no})["subject_ok"] is False, no
-        assert grade({**GOOD, "q_subject": "an apple"})["subject_ok"] is False        # neither yes nor no
+        # neither yes nor no: a description that names the thing asked counts as yes, another thing as no
+        assert grade({**GOOD, "q_subject": "an apple"})["subject_ok"] is True
+        assert grade({**GOOD, "q_subject": "a banana on a plate"})["subject_ok"] is False
         for yes in ("yes", "Yes, a few words", True, "yes."):
             assert grade({**GOOD, "q_text": yes})["text_ok"] is False, yes
         for no in ("no", "No", False, "None visible"):
@@ -278,7 +321,7 @@ class TestGradeAnswers:
 # ---------------------------------------------------------------------------------------------- decide
 
 ALT = {"subject": "a green pear", "count": "1", "people": "none"}
-VISION = {**SPEC, "kind": "vision"}                  # the only kind for which "does not link" is a hard fail
+VISION = {**SPEC, "kind": "vision"}                  # v21: a vision is no different from any other kind here
 VISION_ALT = {**VISION, "alt": ALT}
 
 
@@ -315,41 +358,74 @@ class TestDecide:
         assert decide(r, tries=1, alt_used=True) == "rerender"      # the alt itself gets its second render
         assert broll.FILTERS["check: wrong subject"] == 6
 
-    def test_a_vision_that_does_not_link_is_another_idea_at_once(self):
-        r = result(links=False)
-        assert decide(r, tries=1, spec=VISION_ALT) == "alt"          # the same prompt again would not read either
-        assert decide(r, tries=1, alt_used=True, spec=VISION_ALT) == "drop"
-        assert decide(r, tries=1, spec={**VISION}) == "drop"
-        assert decide(r, tries=3, spec=VISION_ALT) == "alt"          # not a matter of budget
-        assert broll.FILTERS["check: no link"] == 4 and "check: no cold link (kept: its subject is said)" not in broll.FILTERS
+    @pytest.mark.parametrize("fits,name", [("away", "check: pulls attention away"),
+                                           ("against", "check: contradicts the words")])
+    def test_a_picture_that_does_not_fit_is_another_idea_at_once(self, fits, name):
+        # the viewer hears the words and reads them as subtitles: a picture that contradicts them ("against") or pulls
+        # his attention elsewhere ("away") leaves; the same prompt again would do the same, so its alt, or nothing
+        r = result(fits)
+        assert decide(r, tries=1) == "alt" and broll.FILTERS[name] == 1
+        assert decide(r, tries=3) == "alt"                           # not a matter of budget
+        assert decide(r, tries=1, alt_used=True) == "drop"           # the alt itself gets no further alt
+        assert decide(r, tries=1, spec={**SPEC}) == "drop"           # no alt in the spec
+        assert decide(r, tries=1, spec={**SPEC, "alt": None}) == "drop"
+        assert broll.FILTERS[name] == 5
+        assert not [n for n in broll.FILTERS if n != name]
 
+    @pytest.mark.parametrize("fits,name", [("away", "check: pulls attention away"),
+                                           ("against", "check: contradicts the words")])
     @pytest.mark.parametrize("kind,medium", [("thing", "photograph"), ("scene", "photograph"),
-                                             ("instrument", "scientific image"), ("body_inside", "drawing")])
-    def test_any_other_kind_that_does_not_link_is_kept_its_subject_is_said(self, kind, medium, monkeypatch):
-        # the subject is right and the speaker names it: not linking cold is advisory, only a vision needs the link
+                                             ("vision", "photograph"), ("instrument", "scientific image"),
+                                             ("body_inside", "drawing")])
+    def test_every_kind_that_does_not_fit_goes_to_its_alt(self, kind, medium, fits, name, monkeypatch):
+        # v21: not only a vision. The old advisory "no cold link (kept: its subject is said)" no longer exists.
+        # One exception: a VISION read as "away" is kept on the idea round's verdict (the blind check called the DMT
+        # trip "nothing to do with the words"); "against" still drops it.
         spec = {**SPEC, "kind": kind, "alt": ALT}
-        r = result(links=False, q_medium=medium)
-        assert decide(r, tries=1, spec=spec) == "keep"
-        assert decide(r, tries=1, alt_used=True, spec=spec) == "keep"
-        assert decide(r, tries=3, spec={**spec, "alt": None}) == "keep"
-        assert broll.FILTERS["check: no cold link (kept: its subject is said)"] == 3
+        r = result(fits, q_medium=medium)
+        if kind == "vision" and fits == "away":
+            assert decide(r, tries=1, spec=spec) == "keep"
+            assert broll.FILTERS["check: a vision read as away (kept)"] == 1 and name not in broll.FILTERS
+            return
+        assert decide(r, tries=1, spec=spec) == "alt"
+        assert decide(r, tries=1, alt_used=True, spec=spec) == "drop"
+        assert decide(r, tries=3, spec={**spec, "alt": None}) == "drop"
+        assert broll.FILTERS[name] == 3
+        assert "check: no cold link (kept: its subject is said)" not in broll.FILTERS
         assert "check: no link" not in broll.FILTERS
         hits = []
-        monkeypatch.setattr(broll, "filter_hit", lambda name, detail="": hits.append((name, detail)))
+        monkeypatch.setattr(broll, "filter_hit", lambda n, detail="": hits.append((n, detail)))
         decide(r, tries=1, spec=spec)
-        assert [h[0] for h in hits] == ["check: no cold link (kept: its subject is said)"]
-        assert "a red apple" in hits[0][1]
+        assert [h[0] for h in hits] == [name] and "a red apple" in hits[0][1]
 
-    def test_a_non_vision_that_does_not_link_goes_on_to_the_other_checks(self):
-        # the advisory note does not stop the decision: what is wrong besides still counts
-        assert decide(result(links=False, q_subject="no"), tries=1) == "rerender"
-        assert decide(result(links=False, q_subject="no"), tries=2) == "alt"
-        assert decide(result(links=False, q_count="9"), tries=2) == "rerender"
-        assert decide(result(links=False, q_count="9"), tries=3) == "drop"
-        assert decide(result(links=False, look=1), tries=1) == "rerender"
-        assert decide(result(links=False, look=1), tries=2) == "keep"
-        assert decide(result(links=False, q_unsafe="yes")) == "alt"
-        assert decide(result(links=False, q_body_photo="yes"), alt_used=True) == "drop"
+    def test_an_old_links_answer_is_read_as_fits(self):
+        # a result in the old shape ("links" only, no "fits"): True fits, False pulls attention away
+        assert decide(legacy(True)) == "keep" and not broll.FILTERS
+        assert decide(legacy(False), tries=1) == "alt" and broll.FILTERS["check: pulls attention away"] == 1
+        assert decide(legacy(False), tries=1, alt_used=True) == "drop"
+        assert decide(legacy(False), tries=1, spec={**SPEC}) == "drop"
+        assert "check: no link" not in broll.FILTERS
+        # neither a "fits" nor a "links": nothing is held against the picture
+        assert decide({"sees": "x", "look": 4, "answers": dict(GOOD)}) == "keep"
+        # a "fits" wins over a "links"
+        assert decide({**result("against"), "links": True}) == "alt"
+        assert decide({**result("with"), "links": False}) == "keep"
+
+    def test_a_picture_that_does_not_fit_still_answers_to_the_checks_before_it(self):
+        # unsafe / body photo, then the wrong subject (a rendering miss: the same prompt, a new seed), then "fits"
+        assert decide(result("away", q_subject="no"), tries=1) == "rerender"
+        assert decide(result("away", q_subject="no"), tries=2) == "alt"
+        assert decide(result("against", q_subject="no"), tries=2, alt_used=True) == "drop"
+        assert decide(result("away", q_unsafe="yes")) == "alt"
+        assert decide(result("against", q_body_photo="yes"), alt_used=True) == "drop"
+        assert broll.FILTERS["check: wrong subject"] == 3
+        assert broll.FILTERS["check: unsafe"] == 1 and broll.FILTERS["check: body photo"] == 1
+        assert "check: pulls attention away" not in broll.FILTERS and "check: contradicts the words" not in broll.FILTERS
+        # and before the shape and the look: no second render for a wrong count or a bad look, the alt at once
+        assert decide(result("away", q_count="9"), tries=1) == "alt"
+        assert decide(result("against", q_count="9"), tries=3) == "alt"
+        assert decide(result("away", look=1), tries=1) == "alt"
+        assert decide(result("away", q_text="yes", q_medium="drawing"), tries=1, alt_used=True) == "drop"
 
     @pytest.mark.parametrize("field,value,name", [("q_count", "5", "check: wrong count"),
                                                   ("q_people", "2", "check: wrong people"),
@@ -366,8 +442,7 @@ class TestDecide:
 
     def test_a_pair_that_is_not_a_pair(self):
         spec = {"kind": "pair", "subject": "a wolf", "subject_b": "a dog", "count": "1", "people": "none"}
-        r = {"sees": "a wolf", "links": True, "look": 4, "answers": {**GOOD, "q_count": "1", "q_people": "0",
-                                                                      "q_pair": "no"}}
+        r = result(q_count="1", q_people="0", q_pair="no")
         assert decide(r, tries=1, spec=spec) == "rerender" and decide(r, tries=3, spec=spec) == "drop"
         assert broll.FILTERS["check: not a pair"] == 2
 
@@ -389,6 +464,43 @@ class TestDecide:
         r = result(q_count="2", q_people="0", q_pair="yes")
         assert decide(r, tries=1, spec=spec) == "keep" and "check: wrong count" not in broll.FILTERS
 
+    def test_a_pair_is_not_dropped_for_its_medium(self, monkeypatch):
+        # each half has its own medium (a drawn neuron beside a telescope's frame): the pair is not asked one, with the
+        # real questions as with the fake ones, and a mixed answer that came anyway is not held against it
+        spec = {"kind": "pair", "subject": "a galaxy", "subject_b": "a neuron", "count": "1", "people": "none"}
+        assert "q_medium" not in [q["id"] for q in fake_questions(spec)]
+        monkeypatch.setitem(sys.modules, "shot_prompt", real_shot_prompt)
+        assert "q_medium" not in [q["id"] for q in bc._questions(spec)]
+        r = result(q_people="0", q_pair="yes", q_medium="drawing")
+        assert decide(r, tries=1, spec=spec) == "keep" and "check: wrong medium" not in broll.FILTERS
+        # a thing is still asked its medium
+        assert decide(result(q_medium="drawing"), tries=1) == "rerender"
+
+    def test_a_list_subject_is_asked_whether_it_is_shown_and_not_dropped_for_its_count(self, monkeypatch, tmp_path):
+        # real questions: "eye mask, earbuds, blood pressure cuff" asked "How many ... cuffs are visible?" (the count
+        # was the list's length) failed the count again and again
+        monkeypatch.setitem(sys.modules, "shot_prompt", real_shot_prompt)
+        spec = {"kind": "thing", "subject": "eye mask, earbuds, blood pressure cuff", "count": "3", "people": "none",
+                "state": "resting", "details": "SECRET DETAILS"}
+        qs = bc._questions(spec)
+        assert qs[0] == {"id": "q_subject", "q": "Does the picture show eye mask, earbuds, blood pressure cuff?",
+                         "expect": "yes"}
+        assert "q_count" not in [q["id"] for q in qs]
+        # what the viewer is asked, word for word
+        seen = {}
+
+        def fake_json(prompt, schema, **k):
+            seen["prompt"] = prompt
+            return {"checks": []}
+        monkeypatch.setattr(broll, "claude_json", fake_json)
+        bc.check([cand(tmp_path, spec=spec)], [])
+        assert "[q_subject] Does the picture show eye mask, earbuds, blood pressure cuff?" in seen["prompt"]
+        assert "[q_count]" not in seen["prompt"]
+        # however many the viewer counts, it is not held against the picture
+        r = result(q_subject="yes", q_people="0", q_count="1")
+        assert decide(r, tries=1, spec=spec) == "keep" and "check: wrong count" not in broll.FILTERS
+        assert decide(result(q_subject="no", q_people="0"), tries=1, spec=spec) == "rerender"
+
     def test_a_bad_look_renders_once_else_keeps(self):
         for look in (1, 2):
             broll.FILTERS.clear()
@@ -399,37 +511,44 @@ class TestDecide:
         assert decide(result(look=None)) == "keep"
 
     def test_the_order_of_the_causes(self):
-        # unsafe beats everything; (a vision) no link beats a wrong count; a wrong count beats a bad look
-        r = result(links=False, look=1, q_unsafe="yes", q_count="9")
-        assert decide(r) == "alt" and decide(r, spec=VISION_ALT) == "alt"
-        r = result(links=False, look=1, q_count="9")
-        assert decide(r, tries=2, spec=VISION_ALT) == "alt"
-        assert decide(r, tries=2) == "rerender"       # any other kind: no link is only a note, the wrong count counts
-        r = result(look=1, q_count="9")
-        assert decide(r, tries=2) == "rerender" and decide(r, tries=3) == "drop"
+        # unsafe beats everything; a wrong subject beats no fit; no fit beats a wrong count; a wrong count beats a bad look
+        def why(r, **kw):
+            broll.FILTERS.clear()
+            verdict = decide(r, **kw)
+            return verdict, sorted(broll.FILTERS)
+        assert why(result("away", look=1, q_unsafe="yes", q_count="9")) == ("alt", ["check: unsafe"])
+        assert why(result("away", look=1, q_count="9", q_subject="no"), tries=1) == ("rerender", ["check: wrong subject"])
+        assert why(result("away", look=1, q_count="9")) == ("alt", ["check: pulls attention away"])
+        assert why(result("against", look=1, q_count="9"), spec=VISION_ALT) == ("alt", ["check: contradicts the words"])
+        assert why(result(look=1, q_count="9"), tries=2) == ("rerender", ["check: wrong count"])
+        assert why(result(look=1, q_count="9"), tries=3) == ("drop", ["check: wrong count"])
+        assert why(result(look=1), tries=1) == ("rerender", ["check: look"])
 
     def test_every_non_keep_calls_filter_hit_with_a_detail(self, monkeypatch):
         hits = []
         monkeypatch.setattr(broll, "filter_hit", lambda name, detail="": hits.append((name, detail)))
         decide(result(q_unsafe="yes"))
-        decide(result(links=False), tries=1, spec=VISION_ALT)
+        decide(result("away"), tries=1)
+        decide(result("against"), tries=1)
         decide(result(q_count="4", q_text="yes"), tries=1)
         decide(result())
-        assert [h[0] for h in hits] == ["check: unsafe", "check: no link", "check: wrong count"]
+        assert [h[0] for h in hits] == ["check: unsafe", "check: pulls attention away", "check: contradicts the words",
+                                        "check: wrong count"]
         assert all(h[0] in h[1] and "a red apple" in h[1] for h in hits)
-        assert "text in it" in hits[2][1]                             # every wrong answer is in the detail
+        assert "text in it" in hits[3][1]                             # every wrong answer is in the detail
 
     def test_the_alt_spec_itself_has_no_further_alt(self):
         spec = {**VISION}                                             # what broll_v20 renders after "alt"
         assert decide(result(q_unsafe="yes"), tries=2, alt_used=True, spec=spec) == "drop"
-        assert decide(result(links=False), tries=2, alt_used=True, spec=spec) == "drop"
-        assert decide(result(links=False), tries=2, alt_used=True, spec={**SPEC}) == "keep"    # not a vision: a note
+        assert decide(result("against"), tries=2, alt_used=True, spec=spec) == "drop"
+        assert decide(result("away"), tries=2, alt_used=True, spec={**SPEC}) == "drop"       # any kind: it leaves
+        assert decide(result("against"), tries=2, alt_used=True, spec={**SPEC}) == "drop"
 
 
 # ---------------------------------------------------------------------------------------------- hero takes, minimum
 
-def take(name, look=4, links=True, spec=None, **answers):
-    return {"file": name, "m": {"spec": spec or dict(SPEC)}, "check": result(links=links, look=look, **answers)}
+def take(name, look=4, fits="with", spec=None, **answers):
+    return {"file": name, "m": {"spec": spec or dict(SPEC)}, "check": result(fits, look=look, **answers)}
 
 
 class TestPickBest:
@@ -446,10 +565,11 @@ class TestPickBest:
         a, b = take("a", look=4), take("b", look=4)
         assert bc.pick_best([a, b]) is a
 
-    def test_unsafe_and_no_link_lose(self):
-        ok, unsafe, nolink = take("ok", look=2), take("u", look=5, q_unsafe="yes"), take("n", look=5, links=False)
-        assert bc.pick_best([unsafe, nolink, ok]) is ok
-        assert bc.pick_best([unsafe, nolink]) is nolink               # fewer failures... and the unsafe one is worse
+    @pytest.mark.parametrize("fits", ["away", "against"])
+    def test_unsafe_and_a_picture_that_does_not_fit_lose(self, fits):
+        ok, unsafe, nofit = take("ok", look=2), take("u", look=5, q_unsafe="yes"), take("n", look=5, fits=fits)
+        assert bc.pick_best([unsafe, nofit, ok]) is ok
+        assert bc.pick_best([unsafe, nofit]) is nofit                 # fewer failures... and the unsafe one is worse
         assert bc.pick_best([take("x", look=5, q_count="3", q_text="yes"), take("y", look=1, q_count="3")])["file"] == "y"
 
     def test_unsafe_weighs_more_than_a_wrong_count(self):

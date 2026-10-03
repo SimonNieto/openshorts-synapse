@@ -448,14 +448,32 @@ change: every deploy is a ~5 min build plus a handover.
   `signature` (the teal/amber stamp's strength in the grade, 0.2), `sfx`. Matters of taste are
   env knobs `BROLL_*` (`_knob`): `BROLL_LOOK_CARD` / `BROLL_LOOK_HERO` (review thresholds), `BROLL_HERO_STEPS`,
   `BROLL_NOTION_VARIANTS`, `BROLL_MIXED_MAX`...
-- The rule of the editor (audit « sens », 1-oct-2026 evening): THE THING NAMED, FIRST (`MODE_RULES["mixed"]`) —
-  every picture shows something the speaker names or tells; an allegory only when he says it himself; no image
-  where nothing is named (zero beats one allegory); a hero only for a real scene (`HERO_MIN_SCORE` 2.5). The
-  prestige allegories (open palms, a glowing doorway, water through fingers, a lone figure before the vastness)
-  are in `CLICHES` with the neon brain. Three guards keep the one specific picture of a clip alive: a hero loses
-  its notion tag (`pick_hero` refuses a notion), `lost_facts` keeps the editor's draft when the director drops a
-  number or a proper noun, `_review_facts` gives the judge the bible's WORLD / AVOID and the glossary line of
-  every notion judged (the review has no transcript: it once called a cage on the White House lawn implausible).
+- THE RULE OF THE EDITOR (4-oct-2026; it replaces « the thing named, first » of 1-oct): THE INTELLIGENT PICTURE.
+  A picture shows what the sentence MEANS, not only the word it contains: LITERAL when the thing named is the
+  point (take it away and the idea falls: exact, at its true scale, in its true setting), ILLUSTRATIVE when the
+  thing is only the vehicle of an idea (a concrete scene a camera could film, an angle, an emotion, a
+  resemblance). It adds what the subtitles do not say, reads in two seconds on a phone, gives a small « ah, bien
+  vu », and stays true and respectful. Before impact, in this order: gravity (a death is the clip's subject only
+  when its title, hook or thesis is about it: then every picture is an absence; a death mentioned in passing is a
+  flag on the sentence), safety, the facts, no real person. A figure of speech has no literal picture; an
+  experience is shown from inside, in a calm everyday light; a scene holds by one or two true particular details,
+  never by a generic place; « no picture » is a valid answer and the face alone is the level zero. The whole
+  identity is the skill `.claude/skills/synapse-cut/` — `SKILL.md` the principles (read by everyone),
+  `calibrage.md` the references and the flaws (read by the judges only, never by the art director); the
+  pipeline's own calls embed that text (`broll_ideas.skill_text`), the Claude Code agents of the same names in
+  `.claude/agents/` serve the bench only.
+- THE CHAIN (v20 « la fiche » + v21 « idées », `plus.BROLL["chain"] == "spec"`, `"ideas"`): the editor
+  (`broll_spec`, Sonnet) places the moments by idea and declares the facts (role point / vehicle, kind, who is in
+  the frame, a death, a substance, the mood); the round of ideas in TEXT (`broll_ideas`: the art director on Opus
+  gives three ideas of different natures per moment or « no picture », the verifier on Sonnet passes / fixes the
+  details / refuses, the viewer on Sonnet scores every idea with the sentence and the subtitles and ranks the face
+  alone among them — an idea under the face alone is dropped; the first idea becomes the shot spec, the second its
+  alternative); the image prompt is written by CODE from the spec (`shot_prompt`: the subject first, 50-110 words,
+  zero negation, the director's concrete light words); the check after the render (`broll_check`, Sonnet, blind:
+  what it sees, « fits » with / against / away as the channel's viewer, the code's questions on facts and safety,
+  the look) and `decide` keep / render again / alternative / drop; under `MIN_PER_CLIP` (2) the reserves and the
+  alternatives. The old chain (`plan_with_claude`, `direct_art`, registers, `review_images`) stays for the bench's
+  versions before v20 only.
 - REGISTERS (1-oct-2026 evening): the photo recipe is for what a camera can shoot. For the rest (a trip, the
   cosmos, a notion, the microscopic) the episode's bible writes 0-4 `registers` (name, when, look of 80-120 words
   from the known iconography and the speaker's words, judge, cheap); the editor names one in `style`

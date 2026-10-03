@@ -18,23 +18,29 @@ CHECK_PROMPT = """You are a viewer scrolling short videos. You know NOTHING abou
 story, not who speaks. Under each picture you get ONLY the spoken words heard while it is on screen, and some questions.
 For each picture:
 1. "sees": what you see, 15 words at most, plain, no guessing at a story.
-2. "links": true only if someone hearing ONLY those words would link this picture to them at once, with no caption \
-and no story behind it. An object standing for a feeling or a chemistry, a pattern, a texture or streaks do NOT link.
+2. "fits": you hear those words and read them as subtitles while the picture is on screen. The picture may show the \
+thing named, or what the sentence MEANS (a scene, an angle, a resemblance), or — when the words name an experience \
+(a trip, a vision, a sensation) — what that person perceives, even abstract: all of these go "with" the words. \
+"against" only when the picture contradicts them (another thing, another time, the opposite of what is said); "away" \
+only when it pulls your attention elsewhere (a scene of something else entirely, a stock photo with nothing of the \
+words in it).
 3. "answers": one entry per listed question, {{"id": the question's id, "a": your answer}}. Answer literally, from the \
 picture alone: yes or no, a number, or a short word. Look again at the picture for each question.
 4. "look": 1 to 5, a clean, well-made picture (5 = clean; 1 = deformed hands or faces, garbled text, smeared, broken).
 The pictures, in the order they appear:
 {items}
-Return JSON: {{"checks": [{{"file": "...", "sees": "...", "links": true, "answers": [{{"id": "...", "a": "..."}}], \
+Return JSON: {{"checks": [{{"file": "...", "sees": "...", "fits": "with", "answers": [{{"id": "...", "a": "..."}}], \
 "look": 4}}]}}"""
+
+FITS = ("with", "against", "away")
 
 CHECK_SCHEMA = {"type": "object", "properties": {"checks": {"type": "array", "items": {
     "type": "object", "properties": {
-        "file": {"type": "string"}, "sees": {"type": "string"}, "links": {"type": "boolean"},
+        "file": {"type": "string"}, "sees": {"type": "string"}, "fits": {"type": "string", "enum": list(FITS)},
         "answers": {"type": "array", "items": {"type": "object", "properties": {
             "id": {"type": "string"}, "a": {"type": "string"}}, "required": ["id", "a"]}},
         "look": {"type": "integer"}},
-    "required": ["file", "sees", "links", "answers", "look"]}}}, "required": ["checks"]}
+    "required": ["file", "sees", "fits", "answers", "look"]}}}, "required": ["checks"]}
 
 
 # ---------------------------------------------------------------------------------------------- the questions
@@ -75,8 +81,12 @@ def check(cands, words, model="sonnet"):
         return {}
     items = []
     for c in cands:
-        qs = _questions((c.get("m") or {}).get("spec"))
+        spec = (c.get("m") or {}).get("spec") or {}
+        qs = _questions(spec)
         line = f'- file "{os.path.basename(c["file"])}": heard "{_said(c, words)}"'
+        if spec.get("kind") == "vision":
+            # the channel's viewer knows the house rule: an experience named is shown as the person perceives it
+            line += " (the words name an experience: this picture shows what the person perceives during it)"
         if qs:
             line += "\n  questions:\n" + "\n".join(f'    [{q["id"]}] {q["q"]}' for q in qs)
         items.append(line)
@@ -98,8 +108,9 @@ def check(cands, words, model="sonnet"):
     for r in (data or {}).get("checks") or []:
         if not isinstance(r, dict) or not r.get("file"):
             continue
+        fits = r.get("fits") if r.get("fits") in FITS else ("with" if r.get("links") is not False else "away")
         out[os.path.basename(str(r["file"]))] = {
-            "sees": str(r.get("sees") or "")[:200], "links": r.get("links") is not False,
+            "sees": str(r.get("sees") or "")[:200], "fits": fits, "links": fits == "with",
             "answers": _as_dict(r.get("answers")), "look": _look_of(r)}
     return out
 
@@ -134,6 +145,19 @@ def _norm(v):
     t = re.sub(r"\s+", " ", str(v if v is not None else "")).strip().lower().strip("\"'`")
     t = re.sub(r"(?<=\d)\.0+\b", "", t)
     return t.rstrip(".!, ")
+
+
+_QUESTION_WORDS = frozenset("is the main subject does picture show one of two subjects are there images and a an".split())
+
+
+def _names_the_thing(answer, question):
+    """A descriptive answer names the thing the question asks about: two content words in common with the question's
+    subject, or one when the subject has two or fewer ("law books" for "stack of four closed law volumes": stack, law)."""
+    import broll
+    asked = [t for t in broll._tokens(question) if t not in broll.STOPWORDS and t not in _QUESTION_WORDS]
+    said = set(t for t in broll._tokens(answer) if t not in broll.STOPWORDS)
+    shared = [t for t in asked if t in said or t.rstrip("s") in {s.rstrip("s") for s in said}]
+    return len(shared) >= 2 or (len(asked) <= 2 and len(shared) >= 1)
 
 
 def _yn(v):
@@ -257,7 +281,11 @@ def grade_answers(questions, answers):
             out["body_photo"] = _flagged(a)
         elif kind in ("subject", "pair", "text"):
             want = _yn(expect) or ("no" if kind == "text" else "yes")
-            out["text_ok" if kind == "text" else f"{kind}_ok"] = _yn(a) == want
+            answer = _yn(a)
+            if answer is None and kind != "text":
+                # a description instead of yes / no ("a stack of five law books"): yes when it names the thing asked
+                answer = "yes" if _names_the_thing(a, q.get("q")) else "no"
+            out["text_ok" if kind == "text" else f"{kind}_ok"] = answer == want
         elif kind == "count":
             out["count_ok"] = _count_ok(a, expect)
         elif kind == "people":
@@ -295,13 +323,16 @@ def decide(spec, result, tries, alt_used):
     if not g["subject_ok"]:
         # the picture missed its subject: a rendering miss, the same prompt with a new seed may hit it
         return _verdict(spec, result, "rerender" if tries < LINK_TRIES else other, "wrong subject")
-    if result.get("links") is False:
-        if spec.get("kind") == "vision":
-            # a sight that does not read: the idea is wrong, the same prompt again would not read either
-            return _verdict(spec, result, other, "no link")
-        # the subject is there and the speaker names it (the spec's check): a viewer who knows the story links it
-        broll.filter_hit("check: no cold link (kept: its subject is said)",
-                         f'Picture "{spec.get("subject")}": a cold viewer does not link it, its subject is said.')
+    fits = result.get("fits") or ("with" if result.get("links", True) else "away")
+    if fits == "away" and spec.get("kind") == "vision":
+        # a vision the idea round already judged (the channel's viewer, with the principles): the picture of what a
+        # person perceives may look like "nothing to do with the words" to a blind check — advisory only
+        broll.filter_hit("check: a vision read as away (kept)", f'Picture "{spec.get("subject")}": the check reads it '
+                                                                 f'as pulling away, a vision is kept on the idea round\'s verdict.')
+    elif fits != "with":
+        # the channel's viewer, the words in his ear: a picture that contradicts them or pulls him elsewhere leaves —
+        # the same prompt again would do the same, so the alternative (another idea) or nothing
+        return _verdict(spec, result, other, "contradicts the words" if fits == "against" else "pulls attention away")
     wrong = [why for key, why in _SHAPE_WRONG if not g[key]]
     if wrong:
         return _verdict(spec, result, "rerender" if tries < BUDGET else "drop", wrong[0],

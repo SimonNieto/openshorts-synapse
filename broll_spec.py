@@ -15,6 +15,7 @@ PEOPLE = ("none", "hands", "one", "group")
 PERSON = ("none", "anonymous", "real")
 SHOTS = ("wide", "medium", "close", "macro")
 GRAVITY = ("none", "real", "grave")
+ROLES = ("point", "vehicle")     # v21: the thing named is the point (literal) or the vehicle of an idea (illustrative)
 FLAGS = ("death_near", "substance", "intake")
 # word caps of the free-text fields (the contract's table)
 CAPS = {"said": 25, "subject": 8, "subject_b": 8, "instrument": 5, "state": 10, "setting": 10, "details": 20}
@@ -52,13 +53,16 @@ others are reserves for a picture that fails. Only moments between {lo:.1f}s and
 video already shows (frame sheets: {sheets}, a thumbnail every 2.5 s).
 
 THE HOUSE PRINCIPLES, in this order:
-1. A PICTURE ONLY FOR WHAT IS NAMED OR TOLD: a thing the speaker names or a scene he tells, at its real scale, in its
-real setting. The subject IS the thing named and holds its spoken name (a product or a substance: its usual look);
-never a stand-in for an idea, a treatment or a length of time (the code ranks it last). A sentence that names nothing
-gets no picture: the face is the picture.
-2. THE LITERAL SENSE ONLY. Read the sentence before the anchor, then its own. "literal" is "figure" when the thing
-named, taken literally, does not exist in the story the clip tells (a figure of speech or a comparison that only
-qualifies something else); "denied" when the speaker says it is not so. Only "literal" gets a picture.
+1. THE IDEA OF THE SENTENCE FIRST: a picture is for what a sentence MEANS, not for the word it contains. Read the
+sentence before the anchor, then its own, and write "idea" (what it means, one line) and "role": "point" when the
+thing named IS the point (take it away and the idea falls: the picture will be literal, exact, at its real scale, in
+its real setting; "subject" is that thing and "subject_words" its spoken name) or "vehicle" when the thing is only the
+vehicle of an idea (the picture will show what the sentence means; "subject" is your first guess of a concrete scene
+a camera could film, the art director proposes others). A sentence that means nothing showable gets no entry: the
+face is the picture.
+2. THE LITERAL SENSE OF THE THING NAMED: "literal" is "figure" when the thing named, taken literally, does not exist
+in the story the clip tells (a figure of speech or a comparison that only qualifies something else); "denied" when
+the speaker says it is not so. A figure or a denial gets no picture.
 3. ONE VISIBLE INSTANT, what one photograph shows: no duration, no sound, no name or writing, no feeling.
 4. AN EXPERIENCE IS WHAT IS SEEN: kind "vision" only for a concrete thing he says was seen; the subject is that
 thing, people "none", never the person who sees. A colour, a light or a blur is no vision (the code drops it).
@@ -68,11 +72,12 @@ are kind "body_inside"; the code adds the episode's drawing.
 subject is what its image shows.
 7. NEVER A REAL PERSON: a real, named or identifiable person of the story is person "real" and the code drops the
 spec. A speaker is never pictured. A stranger is "anonymous".
-8. A DEATH: "clip_gravity" is "grave" ONLY when the clip TELLS a death ("real": real illness, injury, addiction or
-loss; else "none"). Grave: every picture is an absence, the places and things of the person's life, nobody in the
-frame, never the means of the death. In every clip, nothing that evokes an overdose, a means of suicide or a symbol
-of death, not even as a visual cliché. A sentence about a death in a clip that does not tell one gets no picture;
-in a grave clip, no drug, poison or medicine. A DRUG is never shown itself (the substance, its crystals or
+8. A DEATH: "clip_gravity" is "grave" ONLY when a death is the clip's SUBJECT (its title, its hook or its thesis is
+about that death); "real" when a death, an illness, an injury, an addiction or a loss is mentioned in passing; else
+"none". Grave: every picture is an absence, the places and things of the person's life, nobody in the frame, never
+the means of the death. In every clip, nothing that evokes an overdose, a means of suicide or a symbol of death, not
+even as a visual cliché: a sentence that mentions a death is flagged "death_near", and its picture may evoke nothing
+of it. In a grave clip, no drug, poison or medicine. A DRUG is never shown itself (the substance, its crystals or
 powder, its gear): show what is said around it that a camera sees, its plant or place of origin, the place where
 it is given, the people it is given to as anonymous strangers.
 9. KEEP THE FACTS SAID: every precise fact he gives (a number, a colour, a place, an era) goes into the fields; add
@@ -86,6 +91,7 @@ screen.
 THE FIELDS of a spec:
 - "anchor": 1-3 CONSECUTIVE words copied exactly from the transcript where the picture lands (the code finds them
   near "time"); "time": their second (from the markers); "said": the spoken words of that sentence, 25 at most.
+- "idea": what the sentence means, one line (25 words at most); "role": "point" or "vehicle" (principle 1).
 - "kind": "thing", "scene" (a place or a moment of the story), "vision", "instrument", "body_inside", or "pair" (he
   compares two named things now; "subject_b" is the second).
 - "subject": what fills the frame, 8 words at most; "subject_words": the spoken words naming it, copied from the
@@ -134,10 +140,11 @@ _FIELD_REQUIRED = ["literal", "kind", "subject", "subject_words", "count", "stat
 ALT_SCHEMA = {"type": "object", "properties": {k: _FIELD_PROPS[k] for k in ALT_FIELDS}, "required": list(_FIELD_REQUIRED)}
 SPEC_ITEM = {
     "type": "object",
-    "properties": {"anchor": _STR, "time": {"type": "number"}, "said": _STR, **_FIELD_PROPS,
+    "properties": {"anchor": _STR, "time": {"type": "number"}, "said": _STR, "idea": _STR, "role": _enum(ROLES),
+                   **_FIELD_PROPS,
                    "worth": {"type": "integer", "minimum": 1, "maximum": 5}, "hero": _BOOL, "notion": _STR,
                    "alt": ALT_SCHEMA},
-    "required": ["anchor", "time", "said"] + _FIELD_REQUIRED + ["mood", "worth", "hero", "alt"],
+    "required": ["anchor", "time", "said", "idea", "role"] + _FIELD_REQUIRED + ["mood", "worth", "hero", "alt"],
 }
 SPEC_SCHEMA = {
     "type": "object",
@@ -223,31 +230,35 @@ def _clean_fields(raw, gravity):
     s["person"] = p if p in PERSON else ("none" if s["people"] == "none" else "anonymous")
     for k in FLAGS:
         s[k] = raw.get(k) is True
+    s["idea"] = _cap(raw.get("idea"), 25)
+    r = _text(raw.get("role")).lower()
+    s["role"] = r if r in ROLES else "point"
+    s["light"] = _cap(raw.get("light"), 12)          # v21: the art director's concrete light words (shot_prompt)
     s["mood"] = dict(raw["mood"]) if isinstance(raw.get("mood"), dict) else {}
     if gravity == "grave" and s["mood"]:
         s["mood"]["gravity"] = "grave"
     return s
 
 
-def _check(s, raw, clip_text, gravity, alt=False):
-    """Drops (returns a reason) or fixes ``s`` in place (returns "")."""
+def _check(s, raw, clip_text, gravity, alt=False, ideas=False):
+    """Drops (returns a reason) or fixes ``s`` in place (returns ""). ``ideas``: the idea round (v21) chooses the
+    picture after the judges' calls — the spoken-words checks of the subject do not apply (an illustrative picture
+    shows what the sentence means, not the word)."""
     if s["literal"] != "literal":
         return {"figure": "a figure of speech", "denied": "denied by the speaker"}.get(s["literal"], "not literal")
     if s["person"] == "real":
         return "a real person"
     if s["death_near"] and (s["substance"] or s["intake"]):
         return "a death with a substance or an intake"
-    if s["death_near"] and gravity != "grave":
-        return "a death in a clip that does not tell one"     # any picture there evokes the death
     if gravity == "grave" and (s["substance"] or s["intake"]):
         return "a substance in a clip about a death"
     if not s["subject"]:
         return "no subject"
-    if not words_said(s["subject_words"], clip_text):
+    if not ideas and s["role"] == "point" and not words_said(s["subject_words"], clip_text):
         return "subject words not said in the clip"
     if _names_speaker(s["subject"], s["subject_b"], s["subject_words"]):
         return "a speaker of the video"
-    if s["kind"] == "vision" and all(_abstract(w) for w in _named(s["subject"], s["subject_words"])):
+    if not ideas and s["kind"] == "vision" and all(_abstract(w) for w in _named(s["subject"], s["subject_words"])):
         return "a vision of no concrete thing said"    # a colour field, a glare: nobody links it to the words
     # consistency of the kind
     if s["kind"] == "body_inside" and s["instrument"]:
@@ -273,31 +284,33 @@ def _check(s, raw, clip_text, gravity, alt=False):
     return ""
 
 
-def _alt_of(spec, clip_text, gravity):
+def _alt_of(spec, clip_text, gravity, ideas=False):
     """The spec's "alt" merged onto it and checked -> its fields, or None (an invalid one is a filter hit)."""
     raw_alt = spec.get("alt")
     if not (isinstance(raw_alt, dict) and raw_alt):
         return None
-    merged = {**{k: spec.get(k) for k in ALT_FIELDS}, **raw_alt}
+    merged = {**{k: spec.get(k) for k in ALT_FIELDS}, **raw_alt, "role": spec.get("role")}
     a = _clean_fields(merged, gravity)
-    why = _check(a, merged, clip_text, gravity, alt=True)
+    why = _check(a, merged, clip_text, gravity, alt=True, ideas=ideas)
     if why:
         _drop(why, {**merged, "anchor": _text(spec.get("anchor"))}, alt=True)
         return None
-    return {k: a[k] for k in ALT_FIELDS}
+    return {k: a[k] for k in ALT_FIELDS + ("role", "idea", "light")}
 
 
-def validate(spec, clip_text, gravity):
+def validate(spec, clip_text, gravity, ideas=False):
     """One editor's spec -> (the cleaned spec, "ok") or (None, why). Drops: not literal, a real person, a death with a
-    substance or an intake, no subject, subject words not said in the clip, a speaker, a vision of no concrete thing
-    said. Fixes: who is in the frame of a vision, of the inside of a body, of a grave clip; the kind's own fields; the
-    word caps. Its "alt" goes through the same check (merged onto the spec): an invalid alt is removed, the spec kept;
-    a spec dropped for its picture (_PICTURE_FAULTS) hands its place to a valid alt (worth - 1). A subject that holds
-    none of its spoken words is a stand-in: worth - UNNAMED_COST. Every drop is a broll.filter_hit."""
+    substance or an intake, no subject, subject words not said in the clip (a "point" subject, v20 chain), a speaker,
+    a vision of no concrete thing said (v20 chain). Fixes: who is in the frame of a vision, of the inside of a body,
+    of a grave clip; the kind's own fields; the word caps. Its "alt" goes through the same check (merged onto the
+    spec): an invalid alt is removed, the spec kept; a spec dropped for its picture (_PICTURE_FAULTS) hands its place
+    to a valid alt (worth - 1). A "point" subject that holds none of its spoken words is a stand-in: worth -
+    UNNAMED_COST. ``ideas``: the idea round chooses the picture later (v21): the subject checks are its judges'.
+    Every drop is a broll.filter_hit."""
     if not isinstance(spec, dict):
         return _drop("not an object", {})
     s = _clean_fields(spec, gravity)
-    why = _check(s, spec, clip_text, gravity)
+    why = _check(s, spec, clip_text, gravity, ideas=ideas)
     if why and why not in _PICTURE_FAULTS:
         return _drop(why, spec)
     try:
@@ -305,7 +318,7 @@ def validate(spec, clip_text, gravity):
     except (TypeError, ValueError):
         worth = 1
     hero = spec.get("hero") is True
-    alt = _alt_of(spec, clip_text, gravity)
+    alt = _alt_of(spec, clip_text, gravity, ideas)
     if why:
         _drop(why, spec)
         if not alt:
@@ -313,7 +326,7 @@ def validate(spec, clip_text, gravity):
         broll.filter_hit("spec: its alternative instead", f'Spec "{_text(spec.get("anchor"))[:40]}": its alternative '
                                                           f'"{alt["subject"][:40]}" takes its place.')
         s, alt, worth, hero = dict(alt), None, worth - 1, False
-    if not _named(s["subject"], s["subject_words"]):
+    if not ideas and s["role"] == "point" and not _named(s["subject"], s["subject_words"]):
         worth -= UNNAMED_COST
         broll.filter_hit("spec: subject not the thing named (worth lowered)",
                          f'Spec "{_text(spec.get("anchor"))[:40]}": "{s["subject"][:40]}" holds none of the words '
@@ -419,12 +432,13 @@ def _item(k, spec):
 def _finish(m, spec, gravity):
     m.update(spec=spec, mood=visual_mood.clean(spec["mood"]), query=spec["subject"], subject=spec["subject"],
              prompt=spec["subject"], said=spec["said"] or m.get("said") or "", style="photo", people=spec["people"],
-             inside_body=spec["kind"] == "body_inside", clip_gravity=gravity, idea="")
+             inside_body=spec["kind"] == "body_inside", clip_gravity=gravity, idea="", role=spec.get("role"),
+             idea_text=spec.get("idea"))
     return m
 
 
 def plan_specs(clip, words, n, avoid, transcript=None, start=0.0, end=None, sheets=None, head=broll.HEAD_FREE,
-               tail=broll.MIXED_TAIL, gap_min=broll.MIXED_GAP, block=(), dur_range=None):
+               tail=broll.MIXED_TAIL, gap_min=broll.MIXED_GAP, block=(), dur_range=None, ideas=False):
     """The editor's call for one clip -> (moments, reserves). Every concrete thing named is asked, up to
     candidates_cap(n) specs; every one is validated, its anchor put on spoken words (_on_words), then placed by
     broll._parse_moments (anchor, window, duration). The best ``n`` by worth, spaced by broll._space, are the moments
@@ -447,7 +461,7 @@ def plan_specs(clip, words, n, avoid, transcript=None, start=0.0, end=None, shee
     clip_text = " ".join(w["text"] for w in words)
     specs = []
     for raw in data.get("moments") or []:
-        spec, _why = validate(raw, clip_text, gravity)
+        spec, _why = validate(raw, clip_text, gravity, ideas)
         if spec:
             specs.append(spec)
     # Placed one by one (each filter counted once), then chosen together.

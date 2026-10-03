@@ -2367,6 +2367,8 @@ def _gen_size(layout, hero_res="std"):
         return HERO_GEN.get(hero_res) or HERO_GEN["std"]
     if layout == "card":
         return CARD_GEN
+    if layout == "half":
+        return (1024, 1024)       # one half of a pair (v21, broll_v20._make): a square, cropped and composed by code
     return (768, 1344)
 
 
@@ -3527,7 +3529,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 return None, None
 
             cands, moments = broll_v20.run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail,
-                                           gap_min, block, dur_range, tmp, render)
+                                           gap_min, block, dur_range, tmp, render, ideas=bool(cfg.get("ideas")))
             planner = "claude"
             if not cands:
                 print("   ℹ️ B-roll v20: no picture kept for this clip.")

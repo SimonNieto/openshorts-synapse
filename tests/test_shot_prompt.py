@@ -66,11 +66,11 @@ GOLDEN = {
              "together from a distance. Wide shot, the whole setting in view, vertical full-screen scene with a close "
              "foreground, a middle ground and depth behind. Low-key light, deep shadows, one pool of light on the "
              "subject; hard directional light, crisp shadows. Colours: grey tiles, yellow line.",
-    "vision": "A photograph seen through the eyes of someone looking at a single tunnel of white light, narrowing "
-              "ahead, in a dark room. Visible details: soft blurred edges, a bright centre. Wide shot, the whole "
-              "setting in view, vertical full-screen scene with a close foreground, a middle ground and depth behind. "
-              "Bright high-key light with open shadows; hard directional light, crisp shadows. Colours: white light, "
-              "deep black.",
+    "vision": "What is perceived from inside the experience, the whole frame filled edge to edge by a single tunnel "
+              "of white light, narrowing ahead, in a dark room. Visible details: soft blurred edges, a bright centre. "
+              "Wide shot, the whole setting in view, vertical full-screen scene with a close foreground, a middle "
+              "ground and depth behind. Bright high-key light with open shadows; hard directional light, crisp "
+              "shadows. Colours: white light, deep black.",
     "instrument": "A fluorescence microscope image showing a single neuron, glowing along its branches, on a plain "
                   "dark background. Visible details: a round cell body, thin branching fibres. Macro close-up of the "
                   "finest detail, a thin sliver of sharp focus, horizontal frame, the subject large and centred. Even "
@@ -166,13 +166,33 @@ class TestWordsOfTheMedium:
             p = sp.build_prompt({**spec, "mood": {**spec["mood"], "era": "early"}}, "card", DRAW)
             assert "twentieth century" not in p.replace(DRAW, "")
 
+    VISION_LEAD = "What is perceived from inside the experience, the whole frame filled edge to edge by"
+
     def test_the_medium_by_kind(self):
-        assert sp.build_prompt(VISION, "hero").startswith("A photograph seen through the eyes of someone looking at a ")
+        assert sp.build_prompt(VISION, "hero").startswith(self.VISION_LEAD + " a single tunnel of white light")
         assert sp.build_prompt(INSTRUMENT, "card").startswith("A fluorescence microscope image showing")
         assert sp.build_prompt({**INSTRUMENT, "instrument": "electron microscope"}, "card").startswith(
             "An electron microscope image showing")
         assert sp.build_prompt({**INSTRUMENT, "instrument": "x-ray"}, "card").startswith("An x-ray image showing")
         assert sp.build_prompt(PAIR, "card").startswith("Two images side by side, the same scale. On the left, ")
+
+    def test_a_vision_is_what_is_perceived_never_someone_who_perceives(self):
+        # "A photograph seen through the eyes of someone looking at ..." made the engine draw the person who sees (a man
+        # in a kitchen for the voices in his head): the lead names the experience and the frame, never a viewer
+        assert sp._medium(VISION, "") == self.VISION_LEAD
+        assert sp._medium(VISION, "in sepia from the 1990s") == self.VISION_LEAD       # an era is for photographs only
+        assert sp._medium({**VISION, "subject": "a swarm of tiny lights"}, "") == self.VISION_LEAD
+        for layout, people, count, era in itertools.product(("hero", "card", "half"), ("none", "hands", "one", "group"),
+                                                            ("1", "many"), ("now", "recent", "early", "before")):
+            spec = {**VISION, "people": people, "count": count, "mood": {**VISION["mood"], "era": era}}
+            p = sp.build_prompt(spec, layout)
+            assert p.startswith(self.VISION_LEAD + " "), (layout, people, count, era)
+            assert "someone" not in p.lower(), (layout, people, count, era, p)
+            assert sp.MIN_WORDS <= len(p.split()) <= sp.MAX_WORDS and not NEG.search(p), p
+        assert "someone" not in sp.build_prompt({**VISION, "light": "pale light from the left"}, "hero").lower()
+        # the other kinds keep their own lead: only a vision is "what is perceived"
+        for spec in (THING, SCENE, INSTRUMENT, PAIR):
+            assert "perceived" not in sp.build_prompt(spec, "card")
 
     def test_setting(self):
         assert "on a plain dark background" in sp.build_prompt({**THING, "setting": "plain"}, "card")
@@ -281,6 +301,58 @@ class TestLight:
     def test_an_instrument_has_no_directional_light(self):
         p = sp.build_prompt(INSTRUMENT, "card")
         assert "directional" not in p and "Even illumination" in p
+
+    GIVEN = "soft window daylight from the left, late afternoon"
+
+    @pytest.mark.parametrize("name", list(SIX))
+    def test_the_art_directors_light_takes_the_place_of_the_moods(self, name):
+        # v21: spec["light"] holds the art director's concrete light words (time of day, direction, source); the
+        # mood's key light and direction are not used, the mood's colours still follow
+        spec, layout, drawing = SIX[name]
+        by_mood = sp.build_prompt(spec, layout, drawing)
+        p = sp.build_prompt({**spec, "light": self.GIVEN}, layout, drawing)
+        assert "Soft window daylight from the left, late afternoon." in p
+        for lead in (*sp._KEY.values(), *sp._KEY_INSTRUMENT.values()):
+            assert lead.lower() not in p.lower(), lead
+        assert "directional" not in p and "natural daylight" not in p
+        # nothing else changes: the same prompt, its light block replaced
+        mood_look = sp._look(spec, sp.LIGHT_CAP)
+        assert mood_look in by_mood
+        assert p == by_mood.replace(mood_look, sp._look({**spec, "light": self.GIVEN}, sp.LIGHT_CAP))
+        body = p.replace(drawing, "", 1) if drawing else p
+        assert sp.MIN_WORDS <= len(body.split()) <= sp.MAX_WORDS and not NEG.search(body)
+        if spec["mood"].get("true_colours"):
+            assert "Colours: " + spec["mood"]["true_colours"].split(",")[0] in p
+
+    def test_the_art_directors_light_is_capitalised_and_loses_its_emotion_words(self):
+        p = sp.build_prompt({**THING, "light": "ominous low sun from the right, eerie haze over the table"}, "card")
+        assert "Low sun from the right, haze over the table." in p
+        assert not re.search(r"ominous|eerie", p, re.I)
+        # a grave mood keeps its dignity by the words the art director gives, never by the mood's gentle daylight
+        grave = sp.build_prompt({**THING, "mood": mood(gravity="grave", valence="grim", intensity="extreme"),
+                                 "light": "flat grey overcast morning light"}, "card")
+        assert "Flat grey overcast morning light." in grave and "natural daylight" not in grave and "Low-key" not in grave
+
+    def test_the_art_directors_light_is_cleaned_like_every_free_text_field(self):
+        look = sp._look({**THING, "light": "a low lamp on the left, no shadows, 85 mm lens glow, a warm wall"},
+                         sp.LIGHT_CAP)
+        assert look.startswith("A low lamp on the left, a warm wall.") and not NEG.search(look) and "85" not in look
+        long = " ".join(["lamp"] * 20)
+        assert len(sp._look({**THING, "light": long}, sp.LIGHT_CAP).split(" Colours:")[0].split()) == 12
+
+    @pytest.mark.parametrize("light", ["", "   ", None, "no shadows", "ominous, eerie", 0])
+    def test_no_usable_art_directors_light_leaves_the_moods(self, light):
+        # nothing, or only negation and emotion words: the mood's key light and direction as before
+        assert sp.build_prompt({**THING, "light": light}, "card") == sp.build_prompt(THING, "card")
+        assert "Balanced light, a clear key light with soft shadows; soft directional light." in sp.build_prompt(
+            {**THING, "light": light}, "card")
+
+    def test_the_light_does_not_touch_the_judges_side(self):
+        spec = {**THING, "light": self.GIVEN}
+        assert sp.questions(spec) == sp.questions(THING) and sp.judge_line(spec) == sp.judge_line(THING)
+        before = repr(spec)
+        sp.build_prompt(spec, "card")
+        assert repr(spec) == before
 
 
 class TestCleaning:
@@ -397,16 +469,16 @@ class TestJudgeAndQuestions:
         assert "Apart from" not in other["q_people"]["q"]
 
     def test_q_people_is_zero_when_the_kind_never_holds_people(self):
-        for spec in (VISION, PAIR):
-            q = {x["id"]: x for x in sp.questions({**spec, "people": "group"})}
-            assert q["q_people"]["expect"] == 0
+        q = {x["id"]: x for x in sp.questions({**VISION, "people": "group"})}
+        assert q["q_people"]["expect"] == 0
 
-    def test_no_q_people_where_the_body_is_the_subject(self):
-        # an anatomical arm or a drawn brain was answered "1 body part" and dropped as "wrong people"
-        for spec in (BODY, INSTRUMENT):
+    def test_no_q_people_where_the_body_is_the_subject_nor_for_a_pair(self):
+        # an anatomical arm or a drawn brain was answered "1 body part" and dropped as "wrong people"; a pair's halves
+        # each have their own (a drawn synapse beside a clenched fist was dropped as "wrong people")
+        for spec in (BODY, INSTRUMENT, PAIR):
             for people in ("none", "hands", "one", "group"):
                 assert "q_people" not in self.ids({**spec, "people": people}), (spec["kind"], people)
-        for spec in (THING, SCENE, VISION, PAIR):
+        for spec in (THING, SCENE, VISION):
             assert "q_people" in self.ids(spec), spec["kind"]
         assert self.ids(BODY) == ["q_subject", "q_count", "q_text", "q_medium", "q_unsafe", "q_body_photo"]
 
@@ -414,13 +486,25 @@ class TestJudgeAndQuestions:
         # the galaxy / neuron split image was asked how many "galaxy image beside neural cell images" and dropped 3 times
         for count in ("1", "2", "3", "4", "many"):
             assert "q_count" not in self.ids({**PAIR, "count": count}), count
-        assert self.ids(PAIR) == ["q_subject", "q_people", "q_text", "q_medium", "q_unsafe", "q_body_photo", "q_pair"]
+        assert self.ids(PAIR) == ["q_subject", "q_text", "q_unsafe", "q_body_photo", "q_pair"]
         for spec in (THING, SCENE, VISION, INSTRUMENT, BODY):
             assert "q_count" in self.ids({**spec, "count": "2"}), spec["kind"]
 
+    def test_no_q_medium_for_a_pair(self):
+        # each half has its own medium (a drawn neuron beside a telescope's frame): asked one medium for the whole
+        # image, the checker dropped the pair
+        for count in ("1", "2", "many"):
+            assert "q_medium" not in self.ids({**PAIR, "count": count}), count
+        assert "q_medium" not in self.ids({**PAIR, "subject": "eye mask, earbuds"})
+        for spec in (THING, SCENE, INSTRUMENT, BODY):
+            assert "q_medium" in self.ids(spec), spec["kind"]
+        assert self.ids(PAIR) == ["q_subject", "q_text", "q_unsafe", "q_body_photo", "q_pair"]
+        # nor for a vision: what a person perceives reads as "digital art" (the DMT trip was dropped as the wrong medium)
+        assert "q_medium" not in self.ids(VISION)
+
     def test_q_medium_by_kind(self):
-        for spec, expect in ((THING, "photograph"), (SCENE, "photograph"), (VISION, "photograph"),
-                             (PAIR, "photograph"), (INSTRUMENT, "scientific image"), (BODY, "drawing")):
+        for spec, expect in ((THING, "photograph"), (SCENE, "photograph"),
+                             (INSTRUMENT, "scientific image"), (BODY, "drawing")):
             q = {x["id"]: x for x in sp.questions(spec)}
             assert q["q_medium"]["expect"] == expect, spec["kind"]
 
@@ -435,3 +519,117 @@ class TestJudgeAndQuestions:
     def test_questions_use_the_cleaned_subject(self):
         q = {x["id"]: x for x in sp.questions({**THING, "subject": "tower 3 metres tall"})}
         assert q["q_subject"]["q"] == "Is the main subject tower?"
+
+    # a coat on a wall hook was answered "hanging" and dropped as unsafe: the question says what is NOT meant
+    HANGING = ("a garment or an object hanging from a rope, a cord or a thread (a garment on a wall hook, a hanger or "
+               "a peg is NOT that), a belt, a strap, a tie, a scarf, a cord or a tube hanging, draped or looped")
+    PILLS = "pills or a medicine bottle"
+
+    def unsafe(self, spec):
+        return {x["id"]: x for x in sp.questions(spec)}["q_unsafe"]["q"]
+
+    def test_q_unsafe_of_an_ordinary_picture_names_neither_pills_nor_what_hangs(self):
+        q = self.unsafe(THING)
+        assert q.startswith("Does it show blood, a wound, a weapon, a drug being taken or prepared (a syringe, powder, "
+                            "a pipe), a grave, a coffin") and q.endswith("a noose or a lifeless body?")
+        assert self.PILLS not in q and self.HANGING not in q and "hang" not in q and q.count("?") == 1
+
+    @pytest.mark.parametrize("name", list(SIX))
+    def test_q_unsafe_names_what_hangs_near_a_death(self, name):
+        # the engine drew a whole dobok hung from a thread for a sentence about a death: the checker is asked about it
+        spec = SIX[name][0]
+        plain, near = self.unsafe(spec), self.unsafe({**spec, "death_near": True})
+        assert self.HANGING not in plain and self.PILLS not in plain
+        assert self.HANGING in near and self.PILLS in near
+        # nothing else of the question changes: the two phrases join its list, before the grave
+        assert near.replace(f"{self.PILLS}, {self.HANGING}, ", "") == plain
+        assert near.index(self.PILLS) < near.index(self.HANGING) < near.index("a grave")
+
+    @pytest.mark.parametrize("name", list(SIX))
+    def test_q_unsafe_names_what_hangs_in_a_grave_clip(self, name):
+        spec = SIX[name][0]
+        grave = {**spec, "mood": {**spec["mood"], "gravity": "grave"}}
+        assert self.HANGING in self.unsafe(grave)
+        assert self.unsafe(grave) == self.unsafe({**spec, "death_near": True})        # the same question as near a death
+        assert self.HANGING in self.unsafe({**spec, "mood": {"gravity": "grave"}})    # a mood of that one axis is enough
+        both = self.unsafe({**grave, "death_near": True})
+        assert both == self.unsafe(grave) and both.count(self.HANGING) == 1
+
+    @pytest.mark.parametrize("spec", [
+        {**THING, "death_near": False}, {**THING, "death_near": None}, {**THING, "mood": mood(gravity="none")},
+        {**THING, "mood": mood(gravity="real")},               # an illness or a loss in passing: not a death
+        {**THING, "mood": {"gravity": "real"}}, {**THING, "mood": {}}, {**THING, "mood": None}, {**THING, "mood": "grave"}])
+    def test_q_unsafe_does_not_name_what_hangs_otherwise(self, spec):
+        q = self.unsafe(spec)
+        assert self.HANGING not in q and "hanging" not in q
+        assert q == self.unsafe(THING)
+
+    def test_the_rest_of_the_questions_do_not_depend_on_the_death(self):
+        for spec in (THING, SCENE, BODY, PAIR):
+            plain = [q for q in sp.questions(spec) if q["id"] != "q_unsafe"]
+            near = [q for q in sp.questions({**spec, "death_near": True}) if q["id"] != "q_unsafe"]
+            grave = [q for q in sp.questions({**spec, "mood": {**spec["mood"], "gravity": "grave"}})
+                     if q["id"] != "q_unsafe"]
+            assert plain == near == grave, spec["kind"]
+        assert next(q for q in sp.questions({**THING, "death_near": True}) if q["id"] == "q_unsafe")["expect"] == "no"
+
+
+class TestCompoundSubject:
+    """A subject that lists several things ("eye mask, earbuds, blood pressure cuff": a comma or the word "and") gets no
+    count word and no plural (the subject is used as it is), is asked "Does the picture show ...?" and is never counted:
+    the count the editor gave was the length of the list."""
+    LISTED = "eye mask, earbuds, blood pressure cuff"
+    COUNT_WORD = r"(?:a single|two|three|four|many) "
+
+    def ids(self, spec):
+        return [q["id"] for q in sp.questions(spec)]
+
+    @pytest.mark.parametrize("subject", ["eye mask, earbuds, blood pressure cuff", "eye mask, earbuds", "pen and notebook",
+                                         "salt and pepper"])
+    @pytest.mark.parametrize("count", ["1", "2", "3", "4", "many"])
+    def test_no_count_word_and_no_plural_the_subject_as_it_is(self, subject, count):
+        p = sp.build_prompt({**THING, "subject": subject, "count": count}, "card")
+        assert f"showing {subject}, resting on a wooden table, on a plain dark background." in p
+        assert not re.search(r"showing " + self.COUNT_WORD, p) and f"{subject}s" not in p
+        assert sp.judge_line({**THING, "subject": subject, "count": count}) == (
+            f"{subject[0].upper()}{subject[1:]}, resting on a wooden table, on a plain dark background.")
+
+    @pytest.mark.parametrize("name", [n for n in SIX if n != "pair"])
+    def test_every_kind_uses_the_subject_as_it_is(self, name):
+        spec, layout, drawing = SIX[name]
+        p = sp.build_prompt({**spec, "subject": self.LISTED, "count": "3"}, layout, drawing)
+        assert f"{self.LISTED}, " in p
+        assert not re.search(self.COUNT_WORD + re.escape(self.LISTED), p) and "cuffs" not in p
+        body = p.replace(drawing, "", 1) if drawing else p
+        assert sp.MIN_WORDS <= len(body.split()) <= sp.MAX_WORDS and not NEG.search(body)
+
+    def test_a_pair_keeps_its_own_phrase(self):
+        p = sp.build_prompt({**PAIR, "subject": self.LISTED, "subject_b": "human skull"}, "card")
+        assert "On the left, an eye mask, earbuds, blood pressure cuff; on the right, a human skull." in p
+
+    def test_the_question_is_whether_the_picture_shows_it_and_it_is_never_counted(self):
+        for count in ("1", "2", "3", "4", "many"):
+            qs = sp.questions({**THING, "subject": self.LISTED, "count": count})
+            assert [q["id"] for q in qs] == ["q_subject", "q_people", "q_text", "q_medium", "q_unsafe", "q_body_photo"]
+            assert qs[0] == {"id": "q_subject", "q": f"Does the picture show {self.LISTED}?", "expect": "yes"}
+        for spec in (SCENE, VISION, INSTRUMENT, BODY):
+            qs = {q["id"]: q for q in sp.questions({**spec, "subject": self.LISTED, "count": "2"})}
+            assert qs["q_subject"] == {"id": "q_subject", "q": f"Does the picture show {self.LISTED}?", "expect": "yes"}
+            assert "q_count" not in qs, spec["kind"]
+        qs = {q["id"]: q for q in sp.questions({**THING, "subject": "pen and notebook", "count": "2"})}
+        assert qs["q_subject"]["q"] == "Does the picture show pen and notebook?" and "q_count" not in qs
+
+    def test_a_pair_is_asked_in_its_own_words_whatever_its_subject(self):
+        qs = {q["id"]: q for q in sp.questions({**PAIR, "subject": "eye mask, earbuds"})}
+        assert qs["q_subject"]["q"] == "Is one of the two main subjects eye mask, earbuds?"
+
+    def test_a_word_that_only_holds_and_is_not_a_list(self):
+        for plain in ("red apple", "sand dune", "brand new bicycle", "android phone", "", None):
+            assert not sp._compound(plain), plain
+        for listed in ("eye mask, earbuds", "pen and notebook", "Pen AND notebook", "salt and pepper"):
+            assert sp._compound(listed), listed
+        spec = {**THING, "subject": "sand dune", "count": "2"}
+        assert "showing two sand dunes," in sp.build_prompt(spec, "card")           # counted and made plural as before
+        qs = sp.questions(spec)
+        assert [q["id"] for q in qs][:2] == ["q_subject", "q_count"]
+        assert qs[0]["q"] == "Is the main subject sand dune?" and qs[1]["q"] == "How many sand dunes are visible?"

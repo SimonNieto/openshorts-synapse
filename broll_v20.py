@@ -41,18 +41,83 @@ def _new_cand(k, m, layout, path, seed, take=None):
     return c
 
 
+PAIR_GUTTER = 8       # px between the two halves of a pair
+
+
+def _halves(spec):
+    """The two specs of a pair (v21): the left thing with its own kind and details, the right one with its own. Nothing
+    of one half leaks into the other (the second bench: a photographed prosthetic hand got the drawn half's "red muscle
+    tissue" and came out skinned, a galaxy got the neuron's "branching threads"): no shared state, no colours from the
+    mood, and the inside of a body named in a half is drawn whatever kind the director gave that half."""
+    import broll_ideas
+    base = {k: v for k, v in spec.items() if k not in ("alt", "subject_b", "kind_a", "kind_b", "details_b", "state")}
+    mood = dict(base.get("mood") or {})
+    mood.update(colours_said="", true_colours="")
+    base["mood"] = mood
+    left = {**base, "kind": spec.get("kind_a") or "thing", "subject": spec.get("subject"), "count": "1"}
+    right = {**base, "kind": spec.get("kind_b") or "thing", "subject": spec.get("subject_b") or spec.get("subject"),
+             "details": spec.get("details_b") or "", "count": "1"}
+    for half in (left, right):
+        if half["kind"] in ("thing", "scene", "vision", "instrument") and broll_ideas._BODY_RE.search(
+                f'{half.get("subject") or ""} {half.get("details") or ""}'):
+            half["kind"], half["instrument"] = "body_inside", ""
+        if half["kind"] in ("instrument", "body_inside"):
+            half["setting"] = "plain"
+        half["people"], half["person"] = ("none", "none") if half["kind"] != "scene" else (half.get("people"), half.get("person"))
+    return left, right
+
+
+def _compose_pair(paths, layout, out):
+    """Two square halves side by side (a card) or one above the other (a hero), each centre-cropped, a thin gutter."""
+    import broll
+    from PIL import Image
+    W, H = broll._gen_size(layout)
+    if layout == "hero":
+        hw, hh = W, (H - PAIR_GUTTER) // 2
+    else:
+        hw, hh = (W - PAIR_GUTTER) // 2, H
+    canvas = Image.new("RGB", (W, H), (8, 8, 8))
+    for i, p in enumerate(paths):
+        im = Image.open(p).convert("RGB")
+        scale = max(hw / im.width, hh / im.height)
+        im = im.resize((max(hw, round(im.width * scale)), max(hh, round(im.height * scale))), Image.LANCZOS)
+        x0, y0 = (im.width - hw) // 2, (im.height - hh) // 2
+        im = im.crop((x0, y0, x0 + hw, y0 + hh))
+        canvas.paste(im, (0, i * (hh + PAIR_GUTTER)) if layout == "hero" else (i * (hw + PAIR_GUTTER), 0))
+    canvas.save(out, quality=92)
+    return out
+
+
+def _make(spec, layout, raw, render):
+    """One picture of a spec -> (path or None, seed): a pair is two halves made one by one (layout "half", a square
+    each) and composed by the code — Z-Image paints the same thing twice when asked for two in one frame."""
+    if spec.get("kind") != "pair":
+        return render(_text(spec, layout), raw, layout)
+    paths, seed = [], None
+    for i, half in enumerate(_halves(spec)):
+        got, s = render(_text(half, "half"), raw.replace(".jpg", f"_h{i}.jpg"), "half")
+        if not got:
+            return None, None
+        paths.append(got)
+        seed = seed if seed is not None else s
+    return _compose_pair(paths, layout, raw), seed
+
+
 def _render_moment(k, m, render, tmp, tag=""):
     """The first render(s) of a moment: the hero gets broll.HERO_TAKES takes of its prompt."""
     import broll
     layout = _layout(m)
     spec = m["spec"]
     text = _text(spec, layout)
+    if spec.get("kind") == "pair":
+        a, b = _halves(spec)
+        text = f"PAIR — left: {_text(a, 'half')} — right: {_text(b, 'half')}"
     m = _moment_for(m, spec, text)
     takes = broll.HERO_TAKES if layout == "hero" else 1
     out = []
     for j in range(1, takes + 1):
         raw = os.path.join(tmp, f"broll_{k}{tag}" + (f"_t{j}" if j > 1 else "") + ".jpg")
-        got, seed = render(text, raw, layout)
+        got, seed = _make(spec, layout, raw, render)
         if got:
             out.append(_new_cand(k, m, layout, got, seed, take=j if takes > 1 else None))
     return out
@@ -95,7 +160,7 @@ def _settle(cands, words, render, tmp):
                 kept.append(c)
             elif verdict == "rerender":
                 raw = os.path.join(tmp, f"broll_{k}_v{c['tries'] + 1}.jpg")
-                got, seed = render(c["m"]["prompt"], raw, c["layout"])
+                got, seed = _make(spec, c["layout"], raw, render)
                 if got:
                     pending.append({**c, "file": got, "seed": seed, "tries": c["tries"] + 1, "take": None})
             elif verdict == "alt":
@@ -104,7 +169,7 @@ def _settle(cands, words, render, tmp):
                 text = _text(alt, c["layout"])
                 m2 = _moment_for(c["m"], alt, text)
                 raw = os.path.join(tmp, f"broll_{k}_alt.jpg")
-                got, seed = render(text, raw, c["layout"])
+                got, seed = _make(alt, c["layout"], raw, render)
                 if got:
                     pending.append({**c, "m": m2, "file": got, "seed": seed, "tries": c["tries"] + 1,
                                     "alt_used": True, "take": None})
@@ -120,10 +185,13 @@ def _too_close(m, kept):
     return any(abs(float(m["t"]) - float(c["m"]["t"])) < broll.MIN_GAP for c in kept)
 
 
-def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, gap_min, block, dur_range, tmp, render):
+def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, gap_min, block, dur_range, tmp, render,
+        ideas=False):
     """The whole v20 chain for one clip. ``render(text, out_path, layout) -> (path or None, seed)`` makes one picture
-    (add_broll's ComfyUI call). Under broll_check.MIN_PER_CLIP kept: the reserves, then the alternatives not yet
-    rendered. Returns (cands, moments) — cands in the old chain's shape, the kept ones only."""
+    (add_broll's ComfyUI call). ``ideas`` (v21): the round of ideas in text between the editor and the rendering
+    (broll_ideas: art director, verifier, viewer; the face alone as the level zero). Under broll_check.MIN_PER_CLIP
+    kept: the reserves, then the alternatives not yet rendered. Returns (cands, moments) — cands in the old chain's
+    shape, the kept ones only."""
     import ai_brain
     import broll
     import broll_check
@@ -136,9 +204,18 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
         sheets = []
     moments, reserves = broll_spec.plan_specs(clip, words, n, avoid, transcript=transcript, start=start, end=end,
                                               sheets=sheets, head=head, tail=tail, gap_min=gap_min, block=block,
-                                              dur_range=dur_range)
+                                              dur_range=dur_range, ideas=ideas)
     if not moments:
         return [], []
+    if ideas:
+        import broll_ideas
+        gravity = moments[0].get("clip_gravity") or "none"
+        moments, reserves = broll_ideas.idea_round(moments, reserves, clip, words, gravity,
+                                                   " ".join(w["text"] for w in words), avoid=avoid, head=head,
+                                                   block=block)
+        if not moments:
+            print("   ℹ️ B-roll v21: no idea above the face alone — no picture for this clip.")
+            return [], []
     base = visual_mood.base([visual_mood.clean(m.get("mood")) for m in moments],
                             visual_mood.episode_levels(ai_brain.EPISODE_BIBLE))
     for m in moments + reserves:

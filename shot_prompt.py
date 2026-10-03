@@ -135,6 +135,12 @@ def _bare(subject):
     return re.sub(r"^(?:a|an|the|one|some|many|two|three|four)\s+", "", subject, flags=re.I)
 
 
+def _compound(subject):
+    """A subject that lists several things ("eye mask, earbuds, blood pressure cuff"): no count word, no plural, no
+    counting question — the count the editor gave was the length of the list."""
+    return bool(re.search(r",|\band\b", str(subject or ""), re.I))
+
+
 def _plural(phrase):
     """The head noun of a noun phrase made plural ("glass of water" -> "glasses of water"); a plural stays."""
     words = phrase.split()
@@ -212,14 +218,15 @@ def _phrase(spec, caps):
         return f"on the left, {_with_article(_subject(spec))}; on the right, {_with_article(_pair_b(spec))}"
     subject = _bare(_subject(spec))
     count = _count(spec)
-    if count != "1":
+    listed = _compound(subject)
+    if count != "1" and not listed:
         subject = _plural(subject)
     setting = _clean(spec.get("setting"), caps["setting"])
     if not setting or setting.lower() == "plain":
         setting = "on a plain dark background"
     elif setting.split()[0].lower() not in _PREPS:
         setting = "in " + setting
-    parts = (f"{_COUNT_WORDS[count]} {subject}", _clean(spec.get("state"), caps["state"]), setting)
+    parts = (subject if listed else f"{_COUNT_WORDS[count]} {subject}", _clean(spec.get("state"), caps["state"]), setting)
     return ", ".join(p for p in parts if p)
 
 
@@ -229,7 +236,8 @@ def _medium(spec, era_words):
     if kind == "pair":
         return "Two images side by side, the same scale."
     if kind == "vision":
-        return "A photograph seen through the eyes of someone looking at"
+        # never "someone": the engine draws the person who sees (a man in a kitchen for the voices in his head)
+        return "What is perceived from inside the experience, the whole frame filled edge to edge by"
     if kind == "instrument":
         name = re.sub(r"^(?:a|an|the)\s+", "", _clean(spec.get("instrument"), 5), flags=re.I) or "scientific instrument"
         if not re.search(r"(?:image|micrograph|scan|view)$", name, re.I):
@@ -260,13 +268,18 @@ def _look(spec, cap):
     key = visual_mood.key_of(m)
     pal = _palette(m, kind)
     pal = f"Colours: {pal}." if pal else ""
-    if kind == "instrument":
-        lead, direction = _KEY_INSTRUMENT[key], ""
+    given = _EMOTION.sub("", _clean(spec.get("light"), 12)).strip(" ,")
+    if given:
+        light = given                                     # v21: the art director's concrete light words
     else:
-        intensity = "charged" if m["gravity"] == "real" and m["intensity"] == "extreme" else m["intensity"]
-        lead = _KEY[key]
-        direction = "soft natural daylight" if m["gravity"] == "grave" else visual_mood.LIGHT_BY_INTENSITY[intensity]
-    light = f"{lead}; {direction}" if direction and _wc(lead) + _wc(direction) <= cap - _wc(pal) else lead
+        if kind == "instrument":
+            lead, direction = _KEY_INSTRUMENT[key], ""
+        else:
+            intensity = "charged" if m["gravity"] == "real" and m["intensity"] == "extreme" else m["intensity"]
+            lead = _KEY[key]
+            direction = ("soft natural daylight" if m["gravity"] == "grave"
+                         else visual_mood.LIGHT_BY_INTENSITY[intensity])
+        light = f"{lead}; {direction}" if direction and _wc(lead) + _wc(direction) <= cap - _wc(pal) else lead
     return " ".join(p for p in (_cap(light) + ".", pal) if p)
 
 
@@ -358,15 +371,19 @@ def questions(spec):
     kind = _kind(spec)
     subject = _subject(spec)
     count = _count(spec)
+    listed = _compound(subject)
     qs = [{"id": "q_subject",
-           "q": (f"Is one of the two main subjects {subject}?" if kind == "pair" else f"Is the main subject {subject}?"),
+           "q": (f"Is one of the two main subjects {subject}?" if kind == "pair"
+                 else f"Does the picture show {subject}?" if listed else f"Is the main subject {subject}?"),
            "expect": "yes"}]
-    # No count for a pair (two images: the model counts the halves and the subjects, and the split picture was dropped).
-    if count in ("1", "2", "3", "4") and kind != "pair":
+    # No count for a pair (two images: the model counts the halves and the subjects, and the split picture was dropped),
+    # nor for a subject that lists several things (the count was the list's length).
+    if count in ("1", "2", "3", "4") and kind != "pair" and not listed:
         qs.append({"id": "q_count", "q": f"How many {_plural(_bare(subject))} are visible?", "expect": int(count)})
-    # No people question where the body IS the subject (an anatomical arm or a drawn brain is "1 body part").
+    # No people question where the body IS the subject (an anatomical arm or a drawn brain is "1 body part"), nor for
+    # a pair (each half has its own: a drawn synapse beside a clenched fist).
     people = _people(spec)
-    if kind in ("body_inside", "instrument"):
+    if kind in ("body_inside", "instrument", "pair"):
         pass
     elif people == "hands":
         qs.append({"id": "q_people", "q": "Apart from hands and arms, is any part of a person visible?", "expect": "no"})
@@ -374,11 +391,17 @@ def questions(spec):
         qs.append({"id": "q_people", "q": "How many people or body parts are visible?",
                    "expect": {"none": 0, "one": 1, "group": 2}[people]})
     qs.append({"id": "q_text", "q": "Is there any writing, letters or numbers?", "expect": "no"})
-    qs.append({"id": "q_medium", "q": "Is it a photograph, a drawing or painting, or a scientific image?",
-               "expect": {"body_inside": "drawing", "instrument": "scientific image"}.get(kind, "photograph")})
+    # No medium question for a pair (each half has its own: a drawn neuron beside a telescope's frame) nor for a
+    # vision (what a person perceives reads as "digital art" to a checker, and was dropped as the wrong medium).
+    if kind not in ("pair", "vision"):
+        qs.append({"id": "q_medium", "q": "Is it a photograph, a drawing or painting, or a scientific image?",
+                   "expect": {"body_inside": "drawing", "instrument": "scientific image"}.get(kind, "photograph")})
     # A medicine shown is fine; a drug being taken, and near a death any pill, is not (the house rule: nothing that
     # evokes an overdose, a means of suicide or a symbol of death).
-    near = "pills or a medicine bottle, " if spec.get("death_near") else ""
+    grave = spec.get("death_near") or _mood(spec).get("gravity") == "grave"
+    near = ("pills or a medicine bottle, a garment or an object hanging from a rope, a cord or a thread (a garment on a "
+            "wall hook, a hanger or a peg is NOT that), a belt, a strap, a tie, a scarf, a cord or a tube hanging, "
+            "draped or looped, " if grave else "")
     qs.append({"id": "q_unsafe", "expect": "no",
                "q": f"Does it show blood, a wound, a weapon, a drug being taken or prepared (a syringe, powder, a pipe), "
                     f"{near}a grave, a coffin, a hospital bed, a flat heart line, a noose or a lifeless body?"})
