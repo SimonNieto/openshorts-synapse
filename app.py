@@ -3674,45 +3674,12 @@ async def get_source_video(job_id: str, request: Request,
     return FileResponse(source_path, media_type="video/mp4")
 
 
-def _pad_title_with_hashtags(title: str, hashtags: Optional[List[str]], max_len: int = 100) -> str:
-    """Append as many niche hashtags as fit in YouTube's 100-char title
-    budget — one at a time, stopping before the next one would overflow it,
-    so the title is never truncated mid-hashtag."""
-    title = (title or '').strip()
-    if not title:
-        return '(none)'
-    if not hashtags:
-        return title
-    # Only the niche generator's hashtags: drop any the AI put in the title.
-    title = _strip_hashtags(title) or title
-    out = title
-    for tag in hashtags:
-        candidate = f"{out} {tag}" if out else tag
-        if len(candidate) > max_len:
-            break
-        out = candidate
-    return out
-
-
 _HASHTAG_TOKEN_RE = re.compile(r'(?<!\w)#\w+', re.UNICODE)
 
 
 def _strip_hashtags(text: Optional[str]) -> str:
     """The text without its hashtags (and without the gaps they leave)."""
     return re.sub(r'\s{2,}', ' ', _HASHTAG_TOKEN_RE.sub('', text or '')).strip()
-
-
-def _with_niche_hashtags(text: Optional[str], hashtags: Optional[List[str]]) -> str:
-    """Description = the AI-written sentence(s) + the NICHE GENERATOR's
-    hashtags, and only those: the 3-5 hashtags Gemini invents while writing a
-    description are dropped, so every hashtag that goes out is one the niche
-    research (Settings → Content Niche & Hashtags) actually produced. With no
-    pool (no niche / nothing researched) the text is left as Gemini wrote it."""
-    if not hashtags:
-        return (text or '').strip()
-    body = _strip_hashtags(text)
-    tags = " ".join(hashtags)
-    return f"{body} {tags}".strip() if body else tags
 
 
 async def _niche_hashtag_pool(niche: Optional[str]) -> Optional[List[str]]:
@@ -3770,9 +3737,9 @@ def _publish_settings() -> dict:
     for key, tags in (data.get("niche_tags") or {}).items():
         if isinstance(tags, list):
             niche_tags[str(key).strip().lower()] = [str(t).strip() for t in tags if str(t).strip()][:40]
-    return {"clean_hashtags": bool(data.get("clean_hashtags", True)),
-            "youtube_tags": bool(data.get("youtube_tags", True)),
-            "niche_tags": niche_tags}
+    # Clean hashtags and YouTube tags are always on (no longer options):
+    # still reported so an older dashboard reads them as on.
+    return {"clean_hashtags": True, "youtube_tags": True, "niche_tags": niche_tags}
 
 
 # --- YouTube tags (the hidden keywords field) -------------------------------
@@ -3925,52 +3892,33 @@ def _with_clip_hashtags(text: Optional[str], tags: List[str]) -> str:
 
 
 def _captions_from_pool(clip: dict, title: Optional[str], description: Optional[str],
-                        pool: Optional[List[str]], niche: Optional[str] = None,
-                        clean: Optional[bool] = None) -> dict:
+                        pool: Optional[List[str]], niche: Optional[str] = None) -> dict:
     """The exact text each platform receives, given the niche generator's
     hashtag pool. ONE place for it: the real send, the preview, the ZIP's
     .txt files and the single-clip download all come through here, so they
     can never disagree.
 
-    - YouTube title: the title + as many generator hashtags as fit in 100.
-    - Every description: the AI sentence(s) + the generator's hashtags only.
+    - YouTube title: the title, no hashtags (phones cut it before they show).
+    - Every description: the AI sentence(s) + 3-5 hashtags about this clip.
+    - YouTube tags: always sent (the clip's topics + the niche's base tags).
     A user-typed title/description (single-clip modal) is sent as typed.
     """
     tiktok_text = clip.get('video_description_for_tiktok') or clip.get('video_description_for_instagram')
     instagram_text = clip.get('video_description_for_instagram') or clip.get('video_description_for_tiktok')
     base_title = title or clip.get('video_title_for_youtube_short') or 'Viral Short'
-    settings = _publish_settings()
-    if clean is None:
-        clean = settings["clean_hashtags"]
     # B-roll photos under CC BY must be credited where the video is posted.
     credits = clip.get('broll_credits') or []
     credit_line = ("\n\nImages: " + " · ".join(credits)) if credits and not description else ""
-    yt_tags = _youtube_tags(clip, pool, niche) if settings["youtube_tags"] else []
-    if clean:
-        # 3-5 hashtags about this clip in every description, none in the
-        # YouTube title (phones cut it before they show). Typed text wins.
-        tags = _pick_clip_hashtags(clip, pool, niche)
-        if description:
-            tiktok = instagram = youtube_description = description
-        else:
-            tiktok = _with_clip_hashtags(tiktok_text, tags) or "Check this out!"
-            instagram = youtube_description = _with_clip_hashtags(instagram_text, tags) or "Check this out!"
-        return {
-            "youtube_title": base_title if title else (_strip_hashtags(base_title) or base_title),
-            "youtube_description": youtube_description + credit_line,
-            "youtube_tags": yt_tags,
-            "tiktok": tiktok,
-            "instagram": instagram + credit_line,
-        }
+    tags = _pick_clip_hashtags(clip, pool, niche)
     if description:
         tiktok = instagram = youtube_description = description
     else:
-        tiktok = _with_niche_hashtags(tiktok_text, pool) or "Check this out!"
-        instagram = youtube_description = _with_niche_hashtags(instagram_text, pool) or "Check this out!"
+        tiktok = _with_clip_hashtags(tiktok_text, tags) or "Check this out!"
+        instagram = youtube_description = _with_clip_hashtags(instagram_text, tags) or "Check this out!"
     return {
-        "youtube_title": base_title if title else _pad_title_with_hashtags(base_title, pool),
+        "youtube_title": base_title if title else (_strip_hashtags(base_title) or base_title),
         "youtube_description": youtube_description + credit_line,
-        "youtube_tags": yt_tags,
+        "youtube_tags": _youtube_tags(clip, pool, niche),
         "tiktok": tiktok,
         "instagram": instagram + credit_line,
     }
@@ -7361,8 +7309,6 @@ async def preview_post_captions(req: SocialPreviewRequest, request: Request):
 
 
 class PublishSettingsRequest(BaseModel):
-    clean_hashtags: Optional[bool] = None
-    youtube_tags: Optional[bool] = None
     # Base YouTube tags for one niche: "a, b, c" or a list. Empty clears it.
     niche: Optional[str] = None
     niche_tags: Optional[Union[str, List[str]]] = None
@@ -7377,10 +7323,6 @@ async def get_publish_settings():
 async def put_publish_settings(req: PublishSettingsRequest):
     """Partial update: only the fields sent change."""
     data = _publish_settings()
-    if req.clean_hashtags is not None:
-        data["clean_hashtags"] = bool(req.clean_hashtags)
-    if req.youtube_tags is not None:
-        data["youtube_tags"] = bool(req.youtube_tags)
     if req.niche is not None and req.niche.strip() and req.niche_tags is not None:
         raw = req.niche_tags if isinstance(req.niche_tags, list) else str(req.niche_tags).split(",")
         tags = [t.strip() for t in raw if t and t.strip()][:40]

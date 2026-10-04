@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Square, Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket, Library, Images } from 'lucide-react';
 import KeyInput from './components/KeyInput';
 import MediaInput from './components/MediaInput';
-import McpConnectCard from './components/McpConnectCard';
 import ResultCard from './components/ResultCard';
 import { loadSubtitleProfileStore, activeSubtitleProfileSettings } from './components/SubtitleModal';
 import ProcessingAnimation from './components/ProcessingAnimation';
@@ -252,21 +251,14 @@ function App() {
   useEffect(() => { localStorage.setItem('openshorts_niche', niche); }, [niche]);
   const [nicheResearching, setNicheResearching] = useState(false);
   const [nicheHashtags, setNicheHashtags] = useState(null);
-  const [nicheTitleHashtags, setNicheTitleHashtags] = useState(null);
   const [nicheError, setNicheError] = useState('');
   const [nicheHistory, setNicheHistory] = useState(() => loadNicheHistory());
-  // Server-side publish setting (publish_settings.json): 3-5 hashtags about
-  // each clip + none in the YouTube title, instead of the niche's whole pool.
-  const [cleanHashtags, setCleanHashtags] = useState(true);
-  // YouTube's hidden tags field: the clip's topics + these base tags of the
-  // niche, sent with every YouTube upload (Upload-Post tags[]).
-  const [ytTags, setYtTags] = useState(true);
+  // Server-side (publish_settings.json): the niche's base YouTube tags.
+  // Clean hashtags + YouTube tags themselves are always on, no toggle.
   const [nicheTagsTable, setNicheTagsTable] = useState({});
   const [nicheTagsDraft, setNicheTagsDraft] = useState('');
   const [nicheTagsSaved, setNicheTagsSaved] = useState(false);
   const applyPublishSettings = (d) => {
-    setCleanHashtags(d.clean_hashtags !== false);
-    setYtTags(d.youtube_tags !== false);
     setNicheTagsTable(d.niche_tags || {});
   };
   useEffect(() => {
@@ -286,7 +278,6 @@ function App() {
       return true;
     } catch (_) { return false; }
   };
-  const saveCleanHashtags = (value) => { setCleanHashtags(value); savePublishSettings({ clean_hashtags: value }); };
   // Asked before every download — the hashtag bundling needs a niche and
   // should never silently reuse whatever was used for a different clip/job.
   const [showNichePrompt, setShowNichePrompt] = useState(false);
@@ -1613,33 +1604,27 @@ function App() {
         {/* Main Workspace */}
         <div id="main-content" tabIndex={-1} className="flex-1 overflow-hidden relative z-[1] focus:outline-none">
 
-          {/* View: Settings */}
+          {/* View: Settings — only what a self-hosted Synapse AI needs: the
+              niche, the keys, the Upload-Post connection. Clean hashtags and
+              YouTube tags are always on (forced server-side), no toggles. */}
           {activeTab === 'settings' && (
             <div className="h-full overflow-y-auto p-4 sm:p-8 max-w-2xl mx-auto animate-fade">
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-8">
-                <div>
-                  <p className="eyebrow mb-1.5">07 · SETTINGS</p>
-                  <h1 className="font-display lowercase text-2xl text-ink">Settings</h1>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted mt-1">
-                  <Shield size={12} className="text-ok shrink-0" /> Privacy: keys only live in your browser (sent to backend just to process)
-                </div>
-              </div>
+              <p className="flex items-center gap-2 text-xs text-muted mb-6">
+                <Shield size={12} className="text-ok shrink-0" aria-hidden="true" />
+                Keys only live in your browser — sent to the backend just to process a request, never stored there.
+              </p>
 
-              <div className="card p-4 sm:p-6 mb-6">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0">
-                      <Hash size={16} className="text-brass" />
-                    </div>
-                    <h2 className="text-base font-medium text-ink lowercase">Content Niche &amp; Hashtags</h2>
+              <section className="card p-4 sm:p-6 mb-6" aria-labelledby="settings-niche">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0" aria-hidden="true">
+                    <Hash size={16} className="text-brass" />
                   </div>
-                  <span className="readout">optional</span>
+                  <h2 id="settings-niche" className="text-base font-medium text-ink">Niche &amp; hashtags</h2>
                 </div>
                 <p className="text-xs text-muted mb-4 leading-relaxed">
-                  Tell it what your channel reposts (e.g. "Joe Rogan podcast clips") and "refresh" in a
-                  clip's descriptions will research real hashtags from top-performing Shorts in that niche
-                  (YouTube Data API) instead of guessing generic ones.
+                  What your channel posts (e.g. "Joe Rogan podcast clips"). Hashtags are researched from the top
+                  Shorts of that niche: every post gets the 3-5 about its clip, none in the YouTube title, and
+                  YouTube's hidden tags are filled on every upload.
                 </p>
                 {results?.niche_guess && niche.trim() === results.niche_guess.trim() && (
                   <p className="text-xs text-brass mb-3 -mt-1">
@@ -1647,7 +1632,9 @@ function App() {
                   </p>
                 )}
                 <div className="flex flex-col sm:flex-row gap-2">
+                  <label htmlFor="settings-niche-input" className="sr-only">Niche</label>
                   <input
+                    id="settings-niche-input"
                     type="text"
                     value={niche}
                     onChange={(e) => setNiche(e.target.value)}
@@ -1659,7 +1646,6 @@ function App() {
                       if (!niche.trim() || nicheResearching) return;
                       setNicheResearching(true);
                       setNicheHashtags(null);
-                      setNicheTitleHashtags(null);
                       setNicheError('');
                       try {
                         const data = await apiJson('/api/hashtags/research', {
@@ -1678,42 +1664,7 @@ function App() {
                     disabled={!niche.trim() || nicheResearching}
                     className="btn-quiet py-2 px-4 text-sm shrink-0"
                   >
-                    {nicheResearching ? 'researching…' : 'research now'}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!niche.trim() || nicheResearching) return;
-                      // The pool is already ranked by real frequency (most
-                      // common in top Shorts first) — same source data as
-                      // "research now", just re-fetched if it's not cached
-                      // yet and narrowed to the 3 worth spending a YouTube
-                      // title's tight character budget on.
-                      setNicheResearching(true);
-                      setNicheError('');
-                      try {
-                        let pool = nicheHashtags;
-                        if (!pool) {
-                          const data = await apiJson('/api/hashtags/research', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ niche }),
-                          });
-                          pool = data.hashtags || [];
-                          setNicheHashtags(pool);
-                        }
-                        setNicheTitleHashtags(pool.slice(0, 3));
-                        setNicheHistory(pushNicheHistory(niche));
-                      } catch (e) {
-                        setNicheError(e.detail || e.message || 'Research failed');
-                      } finally {
-                        setNicheResearching(false);
-                      }
-                    }}
-                    disabled={!niche.trim() || nicheResearching}
-                    className="btn-quiet py-2 px-4 text-sm shrink-0"
-                    title="Show the 3 hashtags worth spending a YouTube title's tight character budget on"
-                  >
-                    title
+                    {nicheResearching ? 'researching…' : 'see hashtags'}
                   </button>
                 </div>
                 {nicheHistory.filter((n) => n.toLowerCase() !== niche.trim().toLowerCase()).length > 0 && (
@@ -1734,42 +1685,12 @@ function App() {
                     </div>
                   </div>
                 )}
-                {nicheError && <p className="text-danger text-xs mt-3">{nicheError}</p>}
-                <label className="flex items-start gap-3 mt-4 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={cleanHashtags}
-                    onChange={(e) => saveCleanHashtags(e.target.checked)}
-                    className="mt-0.5 accent-brass"
-                  />
-                  <span className="text-xs leading-relaxed">
-                    <span className="text-ink">clean hashtags (recommended)</span>
-                    <span className="text-muted block">
-                      Each post gets 3-5 hashtags about that clip — the niche's 1-2 main tags + the ones matching its
-                      topic — and none in the YouTube title. Off: the whole researched pool goes in every description
-                      and fills the title (the old behaviour; unrelated tags read as spam to YouTube).
-                    </span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-3 mt-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={ytTags}
-                    onChange={(e) => { setYtTags(e.target.checked); savePublishSettings({ youtube_tags: e.target.checked }); }}
-                    className="mt-0.5 accent-brass"
-                  />
-                  <span className="text-xs leading-relaxed">
-                    <span className="text-ink">send youtube tags</span>
-                    <span className="text-muted block">
-                      Fills YouTube's hidden tags field on every upload: the clip's own topics first, then the base tags
-                      below, within YouTube's 500 characters. The video's language is set from its transcript too.
-                    </span>
-                  </span>
-                </label>
-                {ytTags && niche.trim() && (
-                  <div className="mt-3 ml-7">
-                    <p className="eyebrow mb-1.5">base youtube tags for “{niche.trim()}”</p>
+                {nicheError && <p className="text-danger text-xs mt-3" role="alert">{nicheError}</p>}
+                {niche.trim() && (
+                  <div className="mt-4">
+                    <label htmlFor="settings-niche-tags" className="eyebrow block mb-1.5">base youtube tags for “{niche.trim()}”</label>
                     <textarea
+                      id="settings-niche-tags"
                       value={nicheTagsDraft}
                       onChange={(e) => { setNicheTagsDraft(e.target.value); setNicheTagsSaved(false); }}
                       rows={3}
@@ -1785,39 +1706,25 @@ function App() {
                       >
                         save tags
                       </button>
-                      <span className="text-xs text-muted">
-                        {nicheTagsSaved ? 'saved' : 'comma-separated · every video of this niche gets them'}
+                      <span className="text-xs text-muted" aria-live="polite">
+                        {nicheTagsSaved ? 'saved' : 'comma-separated · added after each clip\'s own topics'}
                       </span>
                     </div>
                   </div>
                 )}
-                {nicheTitleHashtags && (
-                  <div className="mt-3">
-                    <p className="eyebrow mb-1.5">best for a youtube title</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {nicheTitleHashtags.length === 0 && <p className="text-xs text-muted">No hashtags found for this niche.</p>}
-                      {nicheTitleHashtags.map((h) => (
-                        <span key={h} className="readout bg-paper3 px-2 py-0.5 rounded-full text-brass border border-brass/40">{h}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
                 {nicheHashtags && (
-                  <div className="mt-3">
-                    {nicheTitleHashtags && <p className="eyebrow mb-1.5">full pool</p>}
+                  <div className="mt-4">
+                    <p className="eyebrow mb-1.5">hashtags found for this niche</p>
                     <div className="flex flex-wrap gap-1.5">
-                      {nicheHashtags.length === 0 && !nicheTitleHashtags && <p className="text-xs text-muted">No hashtags found for this niche.</p>}
+                      {nicheHashtags.length === 0 && <p className="text-xs text-muted">No hashtags found for this niche.</p>}
                       {nicheHashtags.map((h) => (
                         <span key={h} className="readout bg-paper3 px-2 py-0.5 rounded-full">{h}</span>
                       ))}
                     </div>
                   </div>
                 )}
-              </div>
+              </section>
 
-              {/* Self-hosted installs have no account page, so the agent
-                  how-to lives here; cloud users get it (with OAuth) in Account. */}
-              {!billingEnabled && <div className="mb-6"><McpConnectCard cloud={false} /></div>}
               {isManaged ? (
                 <div className="card p-6 mb-2">
                   <div className="flex items-center justify-between mb-3">
@@ -1865,194 +1772,126 @@ function App() {
                 <>
               <KeyInput onKeySet={setApiKey} savedKey={apiKey} />
 
-              <div className="card p-4 sm:p-6 mt-8">
+              <section className="card p-4 sm:p-6 mt-8" aria-labelledby="settings-upload-post">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0">
+                    <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0" aria-hidden="true">
                       <Share2 size={16} className="text-brass" />
                     </div>
-                    <h2 className="text-base font-medium text-ink lowercase">Social Integration</h2>
+                    <h2 id="settings-upload-post" className="text-base font-medium text-ink">Publishing · Upload-Post</h2>
                   </div>
-                  <span className="badge-warn">Required</span>
+                  {userProfiles.length > 0
+                    ? <span className="badge-ok">connected</span>
+                    : <span className="badge-warn">needed to publish</span>}
                 </div>
-                <p className="text-xs text-muted mb-6 leading-relaxed">
-                  Required to publish your clips to TikTok, Instagram Reels, and YouTube Shorts via <strong>Upload-Post</strong>.
-                  Includes a <strong>free tier</strong> (no credit card required).
+                <p className="text-xs text-muted mb-5 leading-relaxed">
+                  Sends your clips to TikTok, Instagram Reels and YouTube Shorts. Free tier, no card.
                 </p>
-                <div className="space-y-4">
-                  <label className="block text-sm text-muted">Upload-Post API Key</label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="password"
-                      value={uploadPostKey}
-                      onChange={(e) => setUploadPostKey(e.target.value)}
-                      className="input-field"
-                      placeholder="ey..."
-                    />
-                    <button onClick={fetchUserProfiles} disabled={connectStatus === 'loading'} className="btn-quiet py-2 px-4 text-sm">
-                      {connectStatus === 'loading' ? <Loader2 size={14} className="animate-spin" /> : 'Connect'}
-                    </button>
-                  </div>
-                  {connectStatus && connectStatus !== 'loading' && (
-                    <p className={`text-xs flex items-center gap-1.5 ${connectStatus.ok ? 'text-ok' : 'text-danger'}`}>
-                      {connectStatus.ok ? <Check size={13} /> : <AlertTriangle size={13} />}
-                      {connectStatus.msg}
-                    </p>
-                  )}
-                  {userProfiles.length > 0 && (() => {
-                    const active = userProfiles.find((p) => p.username === uploadUserId) || userProfiles[0];
-                    const connected = active?.connected || [];
-                    return (
-                      <p className="text-xs text-muted">
-                        Posting as <span className="text-ink2">{active?.username}</span>
-                        {' · '}
-                        {connected.length
-                          ? <span className="text-ok">{connected.join(', ')} connected</span>
-                          : <span className="text-warn">no social account connected on this profile</span>}
-                      </p>
-                    );
-                  })()}
-                  <div className="text-xs text-muted leading-relaxed">
-                    Connect your Upload-Post account to enable one-click publishing.
-                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <a href="https://app.upload-post.com/login" target="_blank" rel="noopener noreferrer" className="p-2 border border-rule rounded-input hover:bg-paper3 transition-colors flex flex-col gap-1">
-                        <span className="text-ink2 font-medium">1. Login</span>
-                        <span className="text-xs text-muted">Register account</span>
-                      </a>
-                      <a href="https://app.upload-post.com/manage-users" target="_blank" rel="noopener noreferrer" className="p-2 border border-rule rounded-input hover:bg-paper3 transition-colors flex flex-col gap-1">
-                        <span className="text-ink2 font-medium">2. Profiles</span>
-                        <span className="text-xs text-muted">Create & Connect</span>
-                      </a>
-                      <a href="https://app.upload-post.com/api-keys" target="_blank" rel="noopener noreferrer" className="p-2 border border-rule rounded-input hover:bg-paper3 transition-colors flex flex-col gap-1">
-                        <span className="text-ink2 font-medium">3. API Key</span>
-                        <span className="text-xs text-muted">Generate key</span>
-                      </a>
-                    </div>
-                    <br />
-                    <span className="text-muted">
-                      Keys are only stored in your browser. They are sent to the backend only to process your request, never stored server-side.
-                    </span>
-                  </div>
+                <label htmlFor="settings-upload-post-key" className="block text-sm text-muted mb-2">Upload-Post API key</label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    id="settings-upload-post-key"
+                    type="password"
+                    value={uploadPostKey}
+                    onChange={(e) => setUploadPostKey(e.target.value)}
+                    className="input-field"
+                    placeholder="ey..."
+                  />
+                  <button onClick={fetchUserProfiles} disabled={connectStatus === 'loading'} className="btn-quiet py-2 px-4 text-sm">
+                    {connectStatus === 'loading' ? <Loader2 size={14} className="animate-spin" /> : 'Connect'}
+                  </button>
                 </div>
-              </div>
+                {connectStatus && connectStatus !== 'loading' && (
+                  <p className={`text-xs flex items-center gap-1.5 mt-3 ${connectStatus.ok ? 'text-ok' : 'text-danger'}`} role="status">
+                    {connectStatus.ok ? <Check size={13} /> : <AlertTriangle size={13} />}
+                    {connectStatus.msg}
+                  </p>
+                )}
+                {userProfiles.length > 0 ? (() => {
+                  const active = userProfiles.find((p) => p.username === uploadUserId) || userProfiles[0];
+                  const connected = active?.connected || [];
+                  return (
+                    <p className="text-xs text-muted mt-3">
+                      Posting as <span className="text-ink2">{active?.username}</span>
+                      {' · '}
+                      {connected.length
+                        ? <span className="text-ok">{connected.join(', ')} connected</span>
+                        : <span className="text-warn">no social account connected on this profile</span>}
+                    </p>
+                  );
+                })() : (
+                  // The how-to only matters until the account is connected.
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                    {[
+                      ['1. Sign in', 'Create the account', 'https://app.upload-post.com/login'],
+                      ['2. Profiles', 'Connect your socials', 'https://app.upload-post.com/manage-users'],
+                      ['3. API key', 'Generate it, paste above', 'https://app.upload-post.com/api-keys'],
+                    ].map(([step, what, href]) => (
+                      <a key={step} href={href} target="_blank" rel="noopener noreferrer" className="p-2 border border-rule rounded-input hover:bg-paper3 transition-colors flex flex-col gap-1">
+                        <span className="text-ink2 font-medium">{step}</span>
+                        <span className="text-muted">{what}</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </section>
 
                 </>
               )}
 
-              <div className="card p-4 sm:p-6 mt-8">
+              {/* fal.ai + ElevenLabs: AI Shorts actors and voices, and dubbing. */}
+              <section className="card p-4 sm:p-6 mt-8" aria-labelledby="settings-ai-shorts">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0">
-                      <Globe size={16} className="text-brass" />
-                    </div>
-                    <h2 className="text-base font-medium text-ink lowercase">Video Translation</h2>
-                  </div>
-                  <span className="readout">BYOK</span>
-                </div>
-                <p className="text-xs text-muted mb-6 leading-relaxed">
-                  For <strong>AI Shorts &amp; dubbing</strong> — bring your own key. Translate your clips to different
-                  languages using <strong>ElevenLabs</strong> AI dubbing (billed by ElevenLabs). Not covered by your plan.
-                </p>
-                <div className="space-y-4">
-                  <label className="block text-sm text-muted">ElevenLabs API Key</label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="password"
-                      value={elevenLabsKey}
-                      onChange={(e) => setElevenLabsKey(e.target.value)}
-                      className="input-field"
-                      placeholder="sk_..."
-                    />
-                    <button
-                      onClick={() => {
-                        if (elevenLabsKey) {
-                          localStorage.setItem('elevenLabsKey_v1', encrypt(elevenLabsKey));
-                          setElevenLabsSaved(true);
-                          setTimeout(() => setElevenLabsSaved(false), 2000);
-                        }
-                      }}
-                      className={elevenLabsSaved ? 'badge-ok px-4' : 'btn-quiet py-2 px-4 text-sm'}
-                    >
-                      {elevenLabsSaved ? <><Check size={12} /> saved</> : 'Save'}
-                    </button>
-                  </div>
-                  <div className="text-xs text-muted leading-relaxed">
-                    Get your API key from ElevenLabs to enable video translation.
-                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <a href="https://elevenlabs.io/sign-up" target="_blank" rel="noopener noreferrer" className="p-2 border border-rule rounded-input hover:bg-paper3 transition-colors flex flex-col gap-1">
-                        <span className="text-ink2 font-medium">1. Sign Up</span>
-                        <span className="text-xs text-muted">Create account</span>
-                      </a>
-                      <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener noreferrer" className="p-2 border border-rule rounded-input hover:bg-paper3 transition-colors flex flex-col gap-1">
-                        <span className="text-ink2 font-medium">2. API Key</span>
-                        <span className="text-xs text-muted">Generate key</span>
-                      </a>
-                    </div>
-                    <br />
-                    <span className="text-muted">
-                      Keys are only stored in your browser. They are sent to the backend only to process your request, never stored server-side.
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="card p-4 sm:p-6 mt-8">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0">
+                    <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0" aria-hidden="true">
                       <Sparkles size={16} className="text-brass" />
                     </div>
-                    <h2 className="text-base font-medium text-ink lowercase">AI Shorts (UGC Videos)</h2>
+                    <h2 id="settings-ai-shorts" className="text-base font-medium text-ink">AI Shorts &amp; dubbing</h2>
                   </div>
                   <span className="readout">BYOK</span>
                 </div>
-                <p className="text-xs text-muted mb-6 leading-relaxed">
-                  Generate UGC-style videos with AI actors for any product or business using <strong>fal.ai</strong>.
-                  <strong> Not covered by your plan</strong> — bring your own fal.ai + ElevenLabs keys (billed by those
-                  providers, ~$0.65-2 per video). Your plan still covers the AI script &amp; orchestration.
+                <p className="text-xs text-muted mb-5 leading-relaxed">
+                  <strong>fal.ai</strong> films the AI actors of AI Shorts; <strong>ElevenLabs</strong> gives them a
+                  voice and translates your clips. Billed by those providers (~$0.65-2 per AI Short).
                 </p>
-                <div className="space-y-4">
-                  <label className="block text-sm text-muted">fal.ai API Key</label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="password"
-                      value={falKey}
-                      onChange={(e) => setFalKey(e.target.value)}
-                      className="input-field"
-                      placeholder="fal_..."
-                    />
-                    <button
-                      onClick={() => {
-                        if (falKey) {
-                          localStorage.setItem('falKey_v1', encrypt(falKey));
-                          setFalSaved(true);
-                          setTimeout(() => setFalSaved(false), 2000);
-                        }
-                      }}
-                      className={falSaved ? 'badge-ok px-4' : 'btn-quiet py-2 px-4 text-sm'}
-                    >
-                      {falSaved ? <><Check size={12} /> saved</> : 'Save'}
-                    </button>
-                  </div>
-                  <div className="text-xs text-muted leading-relaxed">
-                    Get your API key from fal.ai to enable AI actor video generation.
-                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <a href="https://fal.ai/dashboard/keys" target="_blank" rel="noopener noreferrer" className="p-2 border border-rule rounded-input hover:bg-paper3 transition-colors flex flex-col gap-1">
-                        <span className="text-ink2 font-medium">1. Sign Up</span>
-                        <span className="text-xs text-muted">Create fal.ai account</span>
-                      </a>
-                      <a href="https://fal.ai/dashboard/keys" target="_blank" rel="noopener noreferrer" className="p-2 border border-rule rounded-input hover:bg-paper3 transition-colors flex flex-col gap-1">
-                        <span className="text-ink2 font-medium">2. API Key</span>
-                        <span className="text-xs text-muted">Generate key</span>
-                      </a>
+                <div className="space-y-5">
+                  {[
+                    { id: 'fal', label: 'fal.ai API key', value: falKey, set: setFalKey, saved: falSaved, setSaved: setFalSaved,
+                      store: 'falKey_v1', placeholder: 'fal_...', href: 'https://fal.ai/dashboard/keys' },
+                    { id: 'elevenlabs', label: 'ElevenLabs API key', value: elevenLabsKey, set: setElevenLabsKey, saved: elevenLabsSaved,
+                      setSaved: setElevenLabsSaved, store: 'elevenLabsKey_v1', placeholder: 'sk_...', href: 'https://elevenlabs.io/app/settings/api-keys' },
+                  ].map((k) => (
+                    <div key={k.id}>
+                      <div className="flex items-baseline justify-between gap-2 mb-2">
+                        <label htmlFor={`settings-key-${k.id}`} className="text-sm text-muted">{k.label}</label>
+                        <a href={k.href} target="_blank" rel="noopener noreferrer" className="text-xs text-brass hover:underline">get a key →</a>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          id={`settings-key-${k.id}`}
+                          type="password"
+                          value={k.value}
+                          onChange={(e) => k.set(e.target.value)}
+                          className="input-field"
+                          placeholder={k.placeholder}
+                        />
+                        <button
+                          onClick={() => {
+                            if (k.value) {
+                              localStorage.setItem(k.store, encrypt(k.value));
+                              k.setSaved(true);
+                              setTimeout(() => k.setSaved(false), 2000);
+                            }
+                          }}
+                          className={k.saved ? 'badge-ok px-4' : 'btn-quiet py-2 px-4 text-sm'}
+                        >
+                          {k.saved ? <><Check size={12} /> saved</> : 'Save'}
+                        </button>
+                      </div>
                     </div>
-                    <br />
-                    <span className="text-muted">
-                      Keys are only stored in your browser. Sent to backend only to process requests.
-                    </span>
-                  </div>
+                  ))}
                 </div>
-              </div>
+              </section>
             </div>
           )}
 
