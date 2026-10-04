@@ -580,6 +580,20 @@ def _strip_burned_hook(output_dir, filename):
         filename = m.group(1)
 
 
+def _clip_watermark(metadata):
+    """The channel name under the captions of a Clip Generator++ job: its
+    profile's watermark (plus.sanitize), or None."""
+    try:
+        pid = ((metadata or {}).get('plus_profile') or {}).get('id')
+        if not pid:
+            return None
+        import plus as _plus
+        profile = _plus.get_profile(pid)
+        return (_plus.sanitize(profile)["watermark"] or None) if profile else None
+    except Exception:
+        return None
+
+
 def _reapply_captions(job_id, clip_index, video_path):
     """Re-burn the default captions onto a freshly derived file.
 
@@ -612,6 +626,15 @@ def _reapply_captions(job_id, clip_index, video_path):
             return _main.auto_caption_clip(
                 video_path, v_transcript, 0.0,
                 recut.total_duration(recipe_segments))
+        if clip.get('edit_style'):
+            # A Clip Generator++ clip: its edit style's captions (the house
+            # Montserrat look) and the channel name under them, as the job
+            # burned them (main.viral_caption_clip) — not the default profile
+            # (4-oct-2026: a hook edit turned them into the Anton default).
+            captioned = _main.viral_caption_clip(video_path, transcript, clip['start'], clip['end'],
+                                                 clip['edit_style'], watermark=_clip_watermark(data), clip=clip)
+            if captioned:
+                return captioned
         return _main.auto_caption_clip(video_path, transcript,
                                        clip['start'], clip['end'])
     except Exception as e:

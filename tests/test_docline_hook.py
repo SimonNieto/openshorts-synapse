@@ -142,23 +142,24 @@ class TestFrames:
         # The veil fades out inside the band: its last row is clear.
         assert _alpha_max(_frame(made, int(0.8 * FPS)), (0, size[1] - 1, W, size[1])) == 0
 
-    def test_the_first_frame_is_empty_and_the_held_frame_is_full(self, tmp_path):
+    def test_the_first_frame_is_already_full(self, tmp_path):
+        # 4-oct-2026: no entrance, the first frame (a Short's usual cover) shows the whole hook
         made = self._make(tmp_path)
         first = _frame(made, 0)
         held = _frame(made, int(0.8 * FPS))
         title_zone = (0, int(H * 0.17), W, held.size[1])
-        assert _alpha_max(first, title_zone) == 0
+        assert _alpha_max(first, title_zone) > 200
         assert _alpha_max(held, title_zone) > 200
         # The veil is on at the top edge of the held frame, and still full
         # behind the first line of the title (the neon sign sits there).
         assert held.getpixel((W // 2, 0))[3] == round(255 * DOCLINE["veil_alpha"])
         assert held.getpixel((W - 5, int(H * 0.17)))[3] == round(255 * DOCLINE["veil_alpha"])
 
-    def test_the_rule_draws_itself_from_the_left(self, tmp_path):
+    def test_the_rule_is_full_from_the_first_frame(self, tmp_path):
         made = self._make(tmp_path)
-        start, length = DOCLINE["rule"]
-        mid = _frame(made, int(round((start + length / 2) * FPS)))
-        done = _frame(made, int(round((start + length) * FPS)) + 2)
+        assert DOCLINE["eyebrow"] == DOCLINE["rule"] == DOCLINE["title"] == (0.0, 0.0)
+        first = _frame(made, 0)
+        done = _frame(made, int(0.8 * FPS))
         left = int(W * DOCLINE["left"])
         full = int(W * DOCLINE["rule_width"])
 
@@ -172,8 +173,7 @@ class TestFrames:
                 best = max(best, len(row))
             return best
 
-        assert 0 < rule_width(mid) < rule_width(done)
-        assert abs(rule_width(done) - full) <= 2
+        assert abs(rule_width(first) - full) <= 2 and abs(rule_width(done) - full) <= 2
 
     def test_the_payoff_word_is_yellow_and_the_rest_white(self, tmp_path):
         made = self._make(tmp_path)

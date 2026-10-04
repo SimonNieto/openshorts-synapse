@@ -647,8 +647,12 @@ DOCLINE = {
     # rest_*: the lighter veil that stays under the eyebrow and the rule.
     "veil_alpha": 0.60, "veil_tail": 0.10, "rest_alpha": 0.30, "rest_tail": 0.05,
     # The timeline in seconds, (start, length) of each movement, and how long
-    # the title takes to go.
-    "eyebrow": (0.0, 0.15), "rule": (0.10, 0.35), "title": (0.25, 0.40), "out": 0.20,
+    # the title takes to go. No entrance since 4-oct-2026 (the user: the
+    # cover must be the hook): eyebrow, rule and title are all there on the
+    # very first frame, the one YouTube most often takes as a Short's cover
+    # (an API cannot set it). The entrance was (0.0, 0.15), (0.10, 0.35),
+    # (0.25, 0.40): the first frame had no title.
+    "eyebrow": (0.0, 0.0), "rule": (0.0, 0.0), "title": (0.0, 0.0), "out": 0.20,
     # A B-roll card above the head (broll.TOP_BAND, 9-30 % of the height)
     # would land on the eyebrow: it fades out quiet_lead s before the card,
     # over quiet_out s, and comes back over quiet_in s once the card is gone.
