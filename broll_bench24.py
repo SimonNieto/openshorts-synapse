@@ -226,7 +226,8 @@ def cmd_run(args):
     if not args.dry and not broll.comfy_available():
         raise SystemExit(f"ComfyUI not reachable at {broll._comfy_url()} (start it in Pinokio)")
     run_dir = os.path.join(SHORT_DIR, args.tag)
-    out = {"tag": args.tag, "version": "v24", "dry": bool(args.dry), "made": time.strftime("%Y-%m-%d %H:%M"),
+    out = {"tag": args.tag, "version": args.version, "votes": args.votes, "dry": bool(args.dry),
+           "made": time.strftime("%Y-%m-%d %H:%M"),
            "mech_model": args.mech or broll_v24._model("broll_mech", "sonnet"), "clips": {}, "moments": []}
     by_clip = {}
     for f in chosen:
@@ -247,7 +248,8 @@ def cmd_run(args):
             print(f"\n▶ {key} ({ctx['gravity']}): " + " | ".join(f"#{f['id']} {f['type']}" for f in fs), flush=True)
             res = broll_v24.run_moments(moments, clip, ctx["words"], ctx["gravity"], render, img_dir,
                                         avoid=ctx["avoid"], head=ctx["head"], block=[tuple(b) for b in ctx["block"]],
-                                        dry=args.dry, mech_model=args.mech or None)
+                                        dry=args.dry, mech_model=args.mech or None, version=args.version,
+                                        votes=args.votes)
             res["render_log"] = log
             res["made_now"] = sum(1 for x in log if x["made"])
             res["from_store"] = sum(1 for x in log if x["cached"])
@@ -349,14 +351,16 @@ def _boards(out, run_dir, per=4):
                 else:
                     d.rectangle([x, ty, x + TW, ty + TH], outline=bb._C_DIM, width=2)
                     d.text((x + 10, ty + 10), "non rendue", fill=bb._C_DIM, font=f_b)
-                lines = [f"[{c.get('i', 'H')}] {c.get('title') or ''}"]
+                lines = [f"[{c.get('i', 'H')}] " + (f"{c['nature']} : " if c.get("nature") else "")
+                         + f"{c.get('title') or ''}"]
                 if c.get("refused"):
                     lines.append(f"x texte : {c['refused']}")
                 elif c.get("hero"):
                     lines.append("+ contrôle" if not c.get("mech") else f"x contrôle : {c['mech']}")
                 else:
                     mech = (c.get("mech") or {}).get("why")
-                    lines.append("+ contrôle" if c.get("mech") and not mech else f"x contrôle : {mech or '-'}")
+                    if c.get("mech") is not None or out.get("version") != "v25":
+                        lines.append("+ contrôle" if c.get("mech") and not mech else f"x contrôle : {mech or '-'}")
                     flags = ((c.get("view") or {}).get("flags") or {})
                     yes = [k for k, v in flags.items() if v == "yes"]
                     if flags:
@@ -365,6 +369,8 @@ def _boards(out, run_dir, per=4):
                 post = (r.get("post") or {}).get(os.path.basename(f or "").lower())
                 if post:
                     lines.append(("+ vérif. image" if post["verdict"] == "pass" else f"x vérif. image : {post['reason']}"))
+                    if post.get("signals"):
+                        lines.append("signaux : " + ", ".join(post["signals"]))
                 ly = ty + TH + 6
                 for line in lines:
                     for part in bb._wrap(line, f_s, TW)[:2]:
@@ -553,6 +559,75 @@ def cmd_score(args):
         print(f"   {r['num']:>2} {'✓' if r['same'] else '✗'} vous {r['hers']} / spectateur {r['viewer']} — {r['said']}")
 
 
+def _key_groups():
+    """The 20 moments of the user's sheets as the viewer gets them: [(clip key, [groups])], each group with exactly the
+    pictures of her sheet (agree_key.json), its sentence and what was heard before."""
+    key = _load(AGREE)["moments"]
+    want = {str(m["id"]): m for m in key}
+    out = {}
+    for tag in sorted({m["source"] for m in key if m["source"] != "v23"}):
+        for ck, _job, gs in _short_groups(tag):
+            for g in gs:
+                m = want.get(str(g["id"]))
+                if m and m["source"] == tag:
+                    files = [f for f in g["files"] if os.path.basename(f) in m["letters"].values()]
+                    out.setdefault(f"{tag}:{ck}", []).append({**g, "num": m["num"], "files": files})
+    if any(m["source"] == "v23" for m in key):
+        for tag, _job, gs in _v23_groups():
+            for g in gs:
+                m = want.get(str(g["id"]))
+                if m and m["source"] == "v23":
+                    files = [f for f in g["files"] if os.path.basename(f) in m["letters"].values()]
+                    out.setdefault(f"v23:{tag}", []).append({**g, "num": m["num"], "files": files})
+    return list(out.items())
+
+
+def _hers(answers, key):
+    import re
+    got = dict((int(n), a.upper()) for n, a in re.findall(r"(\d+)\s*[-:=. ]?\s*([A-Ha-h0])\b", answers))
+    return {m["num"]: ("face" if got.get(m["num"]) == "0" else (m["letters"].get(got.get(m["num"])) or "").lower())
+            for m in key if m["num"] in got}
+
+
+def cmd_agree_judge(args):
+    """The viewer of ``--version`` asked ``--runs`` times on the user's 20 moments: its agreement with her choices, one
+    answer at a time and by the Borda vote of the runs; exact, and picture-or-face. Saved to agree_<version>.json."""
+    import broll_v24
+    _env()
+    key = _load(AGREE)["moments"]
+    hers = _hers(args.answers, key)
+    rows = []
+    for ck, groups in _key_groups():
+        print(f"▶ {ck}: {len(groups)} moment(s)", flush=True)
+        gs = [{**g, "k": j} for j, g in enumerate(groups)]
+        runs = [broll_v24.choose(gs, reuse=(i == 0), version=args.version) for i in range(args.runs)]
+        voted = broll_v24.vote(runs, args.version)
+        for j, g in enumerate(groups):
+            singles = [broll_v24.verdict_of(r.get(j) or {}, None, args.version)[0] for r in runs]
+            rows.append({"num": g["num"], "said": g["said"][:90], "hers": hers.get(g["num"]), "singles": singles,
+                         "vote": broll_v24.verdict_of(voted.get(j) or {}, None, args.version)[0]})
+    rows.sort(key=lambda r: r["num"])
+
+    def go(x):
+        return "face" if x in (None, "face") else "picture"
+
+    n = len(rows)
+    rep = {"version": args.version, "runs": args.runs, "moments": n,
+           "single_exact": round(sum(sum(s == r["hers"] for s in r["singles"]) / len(r["singles"]) for r in rows), 1),
+           "single_picture_or_face": round(sum(sum(go(s) == go(r["hers"]) for s in r["singles"]) / len(r["singles"])
+                                               for r in rows), 1),
+           "vote_exact": sum(r["vote"] == r["hers"] for r in rows),
+           "vote_picture_or_face": sum(go(r["vote"]) == go(r["hers"]) for r in rows),
+           "same_single_answer": sum(len(set(r["singles"])) == 1 for r in rows), "rows": rows}
+    _save(rep, os.path.join(SHORT_DIR, f"agree_{args.version}.json"))
+    print(f"\n✅ {args.version}: one answer agrees with you on {rep['single_exact']}/{n} moments on average "
+          f"({rep['single_picture_or_face']}/{n} picture-or-face); the vote of {args.runs} on {rep['vote_exact']}/{n} "
+          f"({rep['vote_picture_or_face']}/{n} picture-or-face); the same answer in all {args.runs} runs on "
+          f"{rep['same_single_answer']}/{n}")
+    for r in rows:
+        print(f"   {r['num']:>2} vous {r['hers']} | vote {r['vote']} | {r['singles']} — {r['said'][:60]}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -562,6 +637,8 @@ def main():
     p.add_argument("--only", default="")
     p.add_argument("--dry", action="store_true")
     p.add_argument("--mech", default="", help="the mechanical check's model (default BRAIN_BROLL_MECH or sonnet)")
+    p.add_argument("--version", default="v24", help="v24, or v25 (the user's three corrections)")
+    p.add_argument("--votes", type=int, default=1, help="the viewer asked this many times, Borda vote")
     p.add_argument("--shadow", default="", help="the mechanical check again with this model, to compare (haiku)")
     p.set_defaults(fn=cmd_run)
     p = sub.add_parser("board")
@@ -576,6 +653,11 @@ def main():
     p.add_argument("--tags", default="v24")
     p.add_argument("--v23", type=int, default=0, help="also that many moments of the v23 pictures")
     p.set_defaults(fn=cmd_agree)
+    p = sub.add_parser("agree_judge")
+    p.add_argument("--version", default="v25")
+    p.add_argument("--runs", type=int, default=3)
+    p.add_argument("--answers", required=True)
+    p.set_defaults(fn=cmd_agree_judge)
     p = sub.add_parser("score")
     p.add_argument("--answers", required=True)
     p.set_defaults(fn=cmd_score)

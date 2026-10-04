@@ -158,7 +158,7 @@ class Fake:
     def __init__(self, ideas, refuse_text=(), mech_bad=(), views=None, post_refuse=(), full_screen="no"):
         self.ideas, self.refuse_text, self.mech_bad = ideas, set(refuse_text), set(mech_bad)
         self.views, self.post_refuse, self.full_screen = views or {}, set(post_refuse), full_screen
-        self.calls = []
+        self.calls, self.prompts = [], []
 
     def direct(self, moments, words, clip, gravity, shown=(), prompt=None):
         self.calls.append(("da", prompt))
@@ -187,9 +187,12 @@ class Fake:
                                                                   for f in broll_v24.FLAWS4}}
                                       for n in names if n.startswith(f"c{k}_")]})
             return {"moments": out}
-        if schema is broll_v24.POST_VERIFY_SCHEMA:
+        if schema is broll_v24.POST_VERIFY_SCHEMA or schema is broll_v24.POST_VERIFY_SCHEMA_V25:
+            self.prompts.append(prompt)
             return {"checks": [{"file": n, "sees": "x", "verdict": "refuse" if n in self.post_refuse else "pass",
-                                "reason": "a strap" if n in self.post_refuse else ""} for n in names]}
+                                "reason": "a strap" if n in self.post_refuse else "",
+                                "answers": [{"id": "q_subject", "a": "no" if n in self.mech_bad else "yes"}]}
+                               for n in names]}
         raise AssertionError("unexpected call")
 
 
@@ -199,7 +202,7 @@ def _questions(spec):
 
 @pytest.fixture
 def chain(monkeypatch, store):
-    def setup(fake, moments, gpu_cap=None):
+    def setup(fake, moments, gpu_cap=None, **kw):
         monkeypatch.setattr(broll_ideas, "_direct", fake.direct)
         monkeypatch.setattr(broll_ideas, "_verify", fake.verify)
         monkeypatch.setattr(broll_check, "check", fake.check)
@@ -214,7 +217,7 @@ def chain(monkeypatch, store):
         render = _renderer(calls, gpu_cap=gpu_cap)
         tmp = store / "img"
         tmp.mkdir(exist_ok=True)
-        res = broll_v24.run_moments(moments, CLIP, WORDS, "none", render, str(tmp), avoid=(), head=0.0, block=())
+        res = broll_v24.run_moments(moments, CLIP, WORDS, "none", render, str(tmp), avoid=(), head=0.0, block=(), **kw)
         return res, calls
     return setup
 
@@ -301,3 +304,70 @@ class TestTheChain:
         json.dumps(res)
         assert broll_v20.PROSE is False                                    # put back after the clip
         assert "moment(s) with a picture" in broll_v24.summary_line(res)
+
+
+# --- v25: the user's three corrections ---------------------------------------------------------------------------------
+class TestV25:
+    def test_the_director_gives_three_natures_in_their_own_fields(self):
+        flat = " ".join(broll_v24.DA_PROMPT_V25.split())
+        assert "THREE IDEAS OF THREE NATURES, each in its own field, never two of one nature" in flat
+        for n in ('"literal": the thing named, WHOLE', '"inside": when the sentence names an experience or a state',
+                  '"meaning": what the sentence MEANS'):
+            assert n in flat
+        assert "up to {per} ideas of DIFFERENT natures" not in flat and '"ideas": [...]' not in flat
+        props = broll_v24.DA_SCHEMA_V25["properties"]["moments"]["items"]
+        assert set(broll_v24.NATURES) <= set(props["required"])
+
+    def test_the_viewers_questions_compare_and_never_rule_out(self):
+        flat = " ".join(broll_v24.CHOOSE_PROMPT_V25.split())
+        assert "none of them rules a picture out on its own" in flat
+        assert "beats the face even when it is imperfect" in flat
+        assert "A picture with one \"yes\" is never ranked" not in flat
+        view = {"views": {"c0_0.jpg": {"flags": {"repeats": "yes", "stock": "yes", "setting": "no", "contradicts": "no"}},
+                          "c0_1.jpg": {"flags": {f: "no" for f in broll_v24.FLAWS4}}},
+                "order": ["c0_0.jpg", "face", "c0_1.jpg"]}
+        assert broll_v24.verdict_of(view, None, "v25") == ("c0_0.jpg", ["c0_0.jpg"])
+        assert broll_v24.verdict_of(view, None, "v24") == ("face", [])
+
+    def test_the_vote_is_borda_with_the_face_counted(self):
+        runs = [{0: {"order": ["c0_0.jpg", "face", "c0_1.jpg"], "full_screen": "yes"}},
+                {0: {"order": ["face", "c0_0.jpg", "c0_1.jpg"], "full_screen": "no"}},
+                {0: {"order": ["c0_0.jpg", "c0_1.jpg", "face"], "full_screen": "yes"}}]
+        got = broll_v24.vote(runs)[0]
+        assert got["order"][0] == "c0_0.jpg" and got["full_screen"] == "yes"
+        assert got["runs"] == ["c0_0.jpg", "face", "c0_0.jpg"]
+        runs = [{0: {"order": ["face", "c0_0.jpg"]}}, {0: {"order": ["face", "c0_0.jpg"]}}, {0: {"order": ["c0_0.jpg", "face"]}}]
+        assert broll_v24.vote(runs)[0]["order"][0] == "face"
+        # a picture a run left out takes that run's last place + 1
+        runs = [{0: {"order": ["c0_1.jpg", "face"]}}, {0: {"order": ["c0_0.jpg", "c0_1.jpg", "face"]}}]
+        assert broll_v24.vote(runs)[0]["order"][:2] == ["c0_1.jpg", "c0_0.jpg"]
+
+    def test_the_verifier_judges_the_checklist_only_and_gets_the_codes_questions(self):
+        flat = " ".join(broll_v24.POST_VERIFY_PROMPT_V25.split())
+        assert "you do NOT judge whether it is relevant, beautiful or the best" in flat
+        assert "a SIGNAL for you to weigh, never a refusal by itself" in flat
+        assert "a garment on a hook or a hanger with nothing hanging from it is fine" in flat
+
+
+class TestTheChainV25:
+    def test_no_mechanical_call_every_picture_reaches_the_viewer_and_the_signals_reach_the_verifier(self, chain, monkeypatch):
+        fake = Fake({0: [_idea("Lit"), None, _idea("Meaning")]}, mech_bad={"c0_0.jpg"},
+                    views={0: {"order": ["c0_0.jpg", "face"], "flags": {"c0_0.jpg": ("stock",)}}})
+        monkeypatch.setattr(broll_v24, "_direct_v25", lambda m, w, c, g: fake.direct(m, w, c, g))
+        res, calls = chain(fake, [_moment(5.0)], version="v25")
+        r = res["moments"][0]
+        assert not any(c[0] == "mech" for c in fake.calls)
+        choose_call = next(c for c in fake.calls if c[0] == "broll_choose")
+        assert choose_call[1] == ["c0_0.jpg", "c0_2.jpg"]
+        assert [c["nature"] for c in r["cands"]] == ["literal", "meaning"] and [c["i"] for c in r["cands"]] == [0, 2]
+        assert os.path.basename(r["final"]) == "c0_0.jpg"                 # a "stock" yes no longer rules it out
+        assert "the code's questions: [q_subject] Does the picture show it?" in fake.prompts[0]
+        assert r["post"]["c0_0.jpg"]["signals"] == ["wrong subject"] and r["post"]["c0_0.jpg"]["verdict"] == "pass"
+
+    def test_the_vote_asks_the_viewer_again_without_the_cache(self, chain, monkeypatch):
+        fake = Fake({0: [_idea("Lit")]}, views={0: {"order": ["c0_0.jpg", "face"]}})
+        monkeypatch.setattr(broll_v24, "_direct_v25", lambda m, w, c, g: fake.direct(m, w, c, g))
+        res, _calls = chain(fake, [_moment(5.0)], version="v25", votes=3)
+        chooses = [c for c in fake.calls if c[0] == "broll_choose"]
+        assert [c[2] for c in chooses] == [True, False, False]
+        assert res["moments"][0]["vote_runs"] == ["c0_0.jpg"] * 3
