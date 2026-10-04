@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Square, Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Smartphone, ExternalLink, Copy, CheckCircle2, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket, Images } from 'lucide-react';
+import { Square, Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Smartphone, ExternalLink, Copy, CheckCircle2, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket, Images, Compass } from 'lucide-react';
 import KeyInput from './components/KeyInput';
 import MediaInput from './components/MediaInput';
 import ResultCard from './components/ResultCard';
@@ -27,6 +27,7 @@ import HistoryTab from './components/HistoryTab';
 import ReworkerTab from './components/ReworkerTab';
 import PublishPlanTab from './components/PublishPlanTab';
 import ViralFinderTab from './components/ViralFinderTab';
+import NichesTab from './components/NichesTab';
 import StoryTab from './components/StoryTab';
 import PlusPanel from './components/PlusPanel';
 import BrollGallery from './components/BrollGallery';
@@ -1214,6 +1215,8 @@ function App() {
       desc: 'Every drawn picture, kept or refused: thumbs up or down, why, what to change.' }] : []),
     { id: 'thumbnails', group: 'grow', icon: Image, label: 'YouTube Studio', short: 'Studio', primary: true,
       desc: 'Thumbnails, titles and descriptions for YouTube.' },
+    ...(!billingEnabled ? [{ id: 'niches', group: 'grow', icon: Compass, label: 'Niches', short: 'Niches',
+      desc: 'Shows to clip in your niche and the ones around it, rated for clipping rights and fit.' }] : []),
     ...(!billingEnabled ? [{ id: 'viral-finder', group: 'grow', icon: Flame, label: 'Viral finder', short: 'Finder',
       desc: 'Find the videos that are taking off in your niche.' }] : []),
     { id: 'reworker', group: 'grow', icon: Eraser, label: 'Viral clip reworker', short: 'Reworker', byok: true,
@@ -2054,6 +2057,14 @@ function App() {
           )}
 
           {/* View: Viral finder */}
+          {activeTab === 'niches' && !billingEnabled && (
+            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
+              <div className="max-w-7xl mx-auto px-4 py-6 sm:p-8">
+                <NichesTab />
+              </div>
+            </div>
+          )}
+
           {activeTab === 'viral-finder' && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
               <div className="max-w-7xl mx-auto px-4 py-6 sm:p-8">

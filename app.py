@@ -4621,6 +4621,49 @@ async def find_viral_shorts(req: ViralShortsRequest):
     return {"niche": req.niche, "shorts": shorts}
 
 
+class NicheExploreRequest(BaseModel):
+    mine: str = ""        # the owner's channel (link, @handle or name)
+    link: str = ""        # a show / channel / video whose parallel niches to explore
+    refresh: bool = False
+
+
+@app.post("/api/niches/explore")
+async def niches_explore(req: NicheExploreRequest):
+    """The « Niches » tab (niche_explorer): her niche, the niches parallel to a
+    link, and their long-form shows rated green / orange / red for clipping
+    rights and fit. Self-host only; a run is kept, so asking again is free."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import ai_brain
+    import niche_explorer
+    if not (req.mine.strip() or req.link.strip()):
+        raise HTTPException(status_code=400, detail="Give your channel, a link, or both.")
+    kept = None if req.refresh else niche_explorer.kept(req.mine, req.link)
+    if kept:
+        return kept
+    youtube_key = os.environ.get("YOUTUBE_DATA_API_KEY")
+    if not youtube_key:
+        raise HTTPException(status_code=400, detail="YOUTUBE_DATA_API_KEY is not configured on the server: "
+                                                    "create a free YouTube Data API key and add it to .env.")
+    if not ai_brain.claude_ready():
+        raise HTTPException(status_code=400, detail="Claude is not set up on the server (CLAUDE_CODE_OAUTH_TOKEN).")
+    try:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, niche_explorer.explore, req.mine, req.link, youtube_key, req.refresh)
+    except (ValueError, LookupError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Niche search failed: {str(e)[:300]}")
+
+
+@app.get("/api/niches/history")
+async def niches_history():
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import niche_explorer
+    return {"runs": niche_explorer.history()}
+
+
 class HashtagResearchRequest(BaseModel):
     niche: str
 
