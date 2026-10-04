@@ -26,6 +26,10 @@ const FORMAT_LABEL = { short: 'Short', standard: 'Standard', long: 'Long' };
 const chip = (active) => `px-3 py-1.5 [@media(pointer:coarse)]:min-h-[44px] rounded-input border text-xs transition-colors ${active
     ? 'border-ink bg-ink text-paper2'
     : 'border-rule2 bg-paper2 text-ink2 hover:border-ink hover:text-ink'}`;
+// A topic outside the channel's brain and mind niche (playbook.NICHE_CORE): ochre, with the word, ticked or not.
+const offChip = (active) => `px-3 py-1.5 [@media(pointer:coarse)]:min-h-[44px] rounded-input border text-xs transition-colors inline-flex items-center gap-1.5 ${active
+    ? 'border-warn bg-warn/20 text-warn'
+    : 'border-warn/50 bg-paper2 text-warn/90 hover:border-warn hover:text-warn'}`;
 
 function Toggle({ checked, onChange, label, hint, beta }) {
     const id = useId();
@@ -164,7 +168,11 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
                         {topics.map((t) => {
                             const on = picked.includes(t.id);
                             return (
-                                <button key={t.id} type="button" aria-pressed={on} onClick={() => toggleTopic(t.id)} className={chip(on)}>{t.label}</button>
+                                <button key={t.id} type="button" aria-pressed={on} onClick={() => toggleTopic(t.id)}
+                                    className={t.off ? offChip(on) : chip(on)} title={t.off ? 'Outside the brain and mind niche' : undefined}>
+                                    {t.label}
+                                    {t.off && <span className="text-[10px] uppercase tracking-wide opacity-80">off niche</span>}
+                                </button>
                             );
                         })}
                     </div>
@@ -178,6 +186,11 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
                         </div>
                     ) : (
                         <p className="text-xs text-muted mt-2">None picked: every topic counts the same.</p>
+                    )}
+                    {topics.some((t) => t.off && picked.includes(t.id)) && (
+                        <p className="text-xs text-warn mt-2">
+                            Off-niche topics ticked: clips about them pass too, outside the brain and mind niche.
+                        </p>
                     )}
                 </Section>
 

@@ -6775,7 +6775,8 @@ async def plus_list_profiles():
             "defaults": _plus.sanitize(_plus.DEFAULT_PROFILE),
             # The profile screen's choices: the clip formats and the topic categories.
             "formats": _plus.CLIP_FORMATS,
-            "topics": [{"id": t, "label": _playbook.HOOK_CATEGORY[t]} for t in _playbook.TOPIC_BUCKETS
+            "topics": [{"id": t, "label": _playbook.HOOK_CATEGORY[t], "off": t not in _playbook.NICHE_CORE}
+                       for t in _playbook.TOPIC_BUCKETS
                        if t in _playbook.HOOK_CATEGORY]}
 
 

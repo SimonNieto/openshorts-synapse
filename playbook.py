@@ -24,6 +24,10 @@ TOPIC_BUCKETS = ("brain_danger", "substances", "psychosis_mental_illness", "crim
                  # with a niche filter (NICHE_DETAIL_ADDENDUM): without a place to put
                  # a fight recap it filed it under science_other or self_improvement.
                  "sports_combat", "entertainment", "business_money", "other")
+# The Synapse Cut's own niche, the brain and the mind (the profile's topics of 1-oct-2026): the profile screen
+# shows the other buckets as off niche (4-oct-2026).
+NICHE_CORE = ("brain_danger", "substances", "psychosis_mental_illness", "crime_dark", "medical_mystery",
+              "mind_psychology", "self_improvement")
 
 # The eyebrow of the documentary line (hooks "docline"): the bucket's name as
 # a topic label, in the channel's caption language (English clips). "other"
