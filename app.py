@@ -2185,6 +2185,14 @@ async def health_ready():
         return JSONResponse({"status": "stopping"}, status_code=503)
     return {"status": "ready"}
 
+def _claude_brain_ready():
+    try:
+        import ai_brain
+        return bool(ai_brain.claude_usable())
+    except Exception:
+        return False
+
+
 @app.get("/api/config")
 async def get_config():
     return {
@@ -2195,6 +2203,9 @@ async def get_config():
         # Self-host only: tells the dashboard the Gemini key is optional
         # because the moment picker runs on an OpenAI-compatible server.
         "localLlm": None if BILLING_ENABLED else llm_backend.describe(),
+        # Self-host only: Claude is set up, the house brain (plus.BRAIN) — no
+        # Gemini key needed to make clips either (4-oct-2026).
+        "claudeBrain": False if BILLING_ENABLED else _claude_brain_ready(),
         # Lets the dashboard only warn about "TikTok arrives as a draft" when
         # it actually does (MEDIA_UPLOAD), not under DIRECT_POST.
         "tiktokPostMode": TIKTOK_POST_MODE,

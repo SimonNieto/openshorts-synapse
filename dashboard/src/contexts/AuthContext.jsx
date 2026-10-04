@@ -139,6 +139,7 @@ export function AuthProvider({ children }) {
   const value = {
     billingEnabled: config.billingEnabled,
     localLlm: config.localLlm || null,
+    claudeBrain: !!config.claudeBrain,
     googleAuthEnabled: config.googleAuthEnabled,
     jobRetentionSeconds: config.jobRetentionSeconds || null,
     // 'MEDIA_UPLOAD' (TikTok draft) unless the server says otherwise.

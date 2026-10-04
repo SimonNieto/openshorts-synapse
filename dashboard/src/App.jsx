@@ -221,7 +221,7 @@ const pollJob = async (jobId) => {
 
 function App() {
   // Cloud auth/billing session (inert when billing is disabled).
-  const { billingEnabled, isManaged, isSignedIn, me, plan, refreshMe, jobRetentionSeconds, localLlm } = useAuth();
+  const { billingEnabled, isManaged, isSignedIn, me, plan, refreshMe, jobRetentionSeconds, localLlm, claudeBrain } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
   const [showPlanChoice, setShowPlanChoice] = useState(false);
@@ -917,9 +917,11 @@ function App() {
   // Hosted is paid-only (no BYOK core). Self-host uses BYOK keys.
   // `keysMissing` now means "self-host BYOK keys missing" — it never fires on hosted.
   // A self-hosted server running the moment picker on a local LLM
-  // (LLM_BASE_URL) does not need a Gemini key for the core pipeline.
-  const geminiOk = !!apiKey || !!localLlm;
-  const keysMissing = !billingEnabled && (!geminiOk || !uploadPostKey);
+  // (LLM_BASE_URL), or with Claude set up (the house brain, 4-oct-2026), does
+  // not need a Gemini key for the core pipeline. The Upload-Post key only
+  // publishes: its absence never stops a clip (the publish controls ask for it).
+  const geminiOk = !!apiKey || !!localLlm || !!claudeBrain;
+  const keysMissing = !billingEnabled && !geminiOk;
   const needsPlan = billingEnabled && !isManaged;   // hosted, signed-out or no active plan/trial
 
   // Fresh sign-up: Clip Generator tutorial (AuthContext set os_show_clip_tutorial
@@ -1549,11 +1551,7 @@ function App() {
               >
                 <AlertTriangle size={13} aria-hidden="true" />
                 <span className="hidden md:inline">
-                  {!geminiOk && !uploadPostKey
-                    ? 'Gemini and Upload-Post keys missing'
-                    : !geminiOk
-                      ? 'Gemini key missing'
-                      : 'Upload-Post key missing'}
+                  Gemini key missing
                 </span>
                 <span className="md:hidden">Keys missing</span>
               </button>
@@ -1573,11 +1571,7 @@ function App() {
               <p className="text-sm text-ink2 min-w-0 leading-relaxed">
                 <span className="font-medium text-ink">API keys missing.</span>{' '}
                 <span className="text-muted">
-                  {!geminiOk && !uploadPostKey
-                    ? 'Add your Gemini and Upload-Post keys to start making clips.'
-                    : !geminiOk
-                      ? 'Add your Gemini key to start making clips.'
-                      : 'Add your Upload-Post key to start making clips.'}
+                  Add your Gemini key to start making clips.
                 </span>
               </p>
             </div>
