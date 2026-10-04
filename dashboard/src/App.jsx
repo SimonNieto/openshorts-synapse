@@ -1195,32 +1195,47 @@ function App() {
 
   // --- UI Components ---
 
-  // One nav definition drives all three surfaces: the desktop rail, the mobile
-  // drawer, and the bottom tab bar. `short` is the tab-bar label — the full one
-  // wraps to two lines in a 5-up bar on a 360px phone.
+  // Synapse AI shell (4-oct-2026): one nav definition, grouped by what you do — create, library, grow — drives the
+  // desktop rail, the mobile drawer and the bottom tab bar. `short` is the tab-bar label, `desc` the line under the
+  // page title in the top bar (and the rail's tooltip).
   const navItems = [
-    ...(hideClassic ? [] : [{ id: 'dashboard', ord: '01', icon: LayoutDashboard, label: 'Clip Generator', short: 'clips', primary: true }]),
-    // Clip Generator++: the same generator driven by saved channel profiles
-    // (plus.py). Self-host only; the classic tab above is untouched.
-    ...(!billingEnabled ? [{ id: 'plus', ord: '01+', icon: Rocket, label: 'Clip Generator++', short: 'clips++', primary: hideClassic }] : []),
-    { id: 'saasshorts', ord: '02', icon: Sparkles, label: 'AI Shorts', short: 'ai shorts', byok: true, primary: true },
-    { id: 'ai-agent', ord: '03', icon: Bot, label: 'AI Agent', short: 'agent', byok: true },
-    { id: 'ugc-gallery', ord: '04', icon: LayoutGrid, label: 'UGC Gallery', short: 'gallery', primary: true },
-    { id: 'thumbnails', ord: '05', icon: Image, label: 'YouTube Studio', short: 'studio', primary: true },
-    // Cloud: gated on being signed in (it's a per-user R2 archive). Self-host:
-    // always on — it lists whatever job directories are still on local disk.
-    ...(!billingEnabled || isSignedIn ? [{ id: 'history', ord: '06', icon: History, label: 'History', short: 'history' }] : []),
-    { id: 'reworker', ord: '07', icon: Eraser, label: 'Viral Clip Reworker', short: 'reworker', byok: true },
-    ...(!billingEnabled ? [{ id: 'publish-plan', ord: '08', icon: Calendar, label: 'Publish Plan', short: 'plan' }] : []),
-    ...(!billingEnabled ? [{ id: 'viral-finder', ord: '09', icon: Flame, label: 'Viral Finder', short: 'finder' }] : []),
-    // Clip Generator++: the kept pictures of glossary notions (broll.py notion memory).
-    ...(!billingEnabled ? [{ id: 'notions', ord: '10', icon: Library, label: 'Notion pictures', short: 'notions' }] : []),
-    // Clip Generator++: every drawn B-roll picture (jobs' traces and the drawn bench), with the owner's 👍 / 👎.
-    ...(!billingEnabled ? [{ id: 'broll-gallery', ord: '13', icon: Images, label: 'Images B-roll', short: 'images' }] : []),
-    ...(!billingEnabled ? [{ id: 'story', ord: '11', icon: Clapperboard, label: 'Story Channel', short: 'story' }] : []),
-    { id: 'settings', ord: billingEnabled ? '08' : '12', icon: Settings, label: 'Settings', short: 'settings' },
+    ...(hideClassic ? [] : [{ id: 'dashboard', group: 'create', icon: LayoutDashboard, label: 'Clip Generator', short: 'clips', primary: true,
+      desc: 'Paste a link or drop a video: the best moments, cut into vertical shorts.' }]),
+    ...(!billingEnabled ? [{ id: 'plus', group: 'create', icon: Rocket, label: 'Clip Generator++', short: 'clips++', primary: hideClassic,
+      desc: 'Your channel profiles: moments, hooks, captions and drawn B-roll, in your house style.' }] : []),
+    { id: 'saasshorts', group: 'create', icon: Sparkles, label: 'AI Shorts', short: 'ai shorts', byok: true, primary: true,
+      desc: 'Generate a short from a script or a product, voiced and edited by AI.' },
+    { id: 'ai-agent', group: 'create', icon: Bot, label: 'AI Agent', short: 'agent', byok: true,
+      desc: 'Talk to the studio: ask an agent to clip, write or publish for you.' },
+    ...(!billingEnabled ? [{ id: 'story', group: 'create', icon: Clapperboard, label: 'Story Channel', short: 'story',
+      desc: 'Long stories told as a series of shorts.' }] : []),
+    ...(!billingEnabled || isSignedIn ? [{ id: 'history', group: 'library', icon: History, label: 'History', short: 'history',
+      desc: 'Every project you made, ready to reopen.' }] : []),
+    { id: 'ugc-gallery', group: 'library', icon: LayoutGrid, label: 'UGC Gallery', short: 'gallery', primary: true,
+      desc: 'The videos generated with AI actors.' },
+    ...(!billingEnabled ? [{ id: 'broll-gallery', group: 'library', icon: Images, label: 'B-roll images', short: 'images',
+      desc: 'Every drawn picture, kept or refused: thumbs up or down, why, what to change.' }] : []),
+    ...(!billingEnabled ? [{ id: 'notions', group: 'library', icon: Library, label: 'Notion pictures', short: 'notions',
+      desc: 'The pictures kept for the notions of your episodes.' }] : []),
+    { id: 'thumbnails', group: 'grow', icon: Image, label: 'YouTube Studio', short: 'studio', primary: true,
+      desc: 'Thumbnails, titles and descriptions for YouTube.' },
+    ...(!billingEnabled ? [{ id: 'viral-finder', group: 'grow', icon: Flame, label: 'Viral Finder', short: 'finder',
+      desc: 'Find the videos that are taking off in your niche.' }] : []),
+    { id: 'reworker', group: 'grow', icon: Eraser, label: 'Viral Clip Reworker', short: 'reworker', byok: true,
+      desc: 'Take a viral clip and make it yours.' },
+    ...(!billingEnabled ? [{ id: 'publish-plan', group: 'grow', icon: Calendar, label: 'Publish Plan', short: 'plan',
+      desc: 'Plan and schedule your posts across platforms.' }] : []),
+    { id: 'settings', group: 'system', icon: Settings, label: 'Settings', short: 'settings',
+      desc: 'API keys, connected accounts and preferences.' },
+  ];
+  const NAV_GROUPS = [
+    { id: 'create', label: 'Create' },
+    { id: 'library', label: 'Library' },
+    { id: 'grow', label: 'Grow' },
   ];
   const activeNav = navItems.find((n) => n.id === activeTab);
+  const activeGroup = NAV_GROUPS.find((g) => g.id === activeNav?.group);
+  const newClipTab = hideClassic ? 'plus' : 'dashboard';
 
   // Escape closes the mobile drawer. The shell itself is overflow-hidden, so
   // there is no body scroll to lock behind it.
@@ -1238,145 +1253,140 @@ function App() {
   };
   const tabLocked = (id) => tutorialLock && id !== 'dashboard';
 
-  // Shared footer links (landing, repo, pricing, contact) — same list in the
-  // desktop rail and the mobile drawer, so they can never drift apart.
+  // One nav button, the same in the rail (``compact`` from md to lg: icon only) and the drawer.
+  const NavButton = ({ item, compact = false, drawer = false }) => {
+    const NavIcon = item.icon;
+    const isActive = activeTab === item.id;
+    const locked = tabLocked(item.id);
+    return (
+      <button
+        type="button"
+        data-tutorial={item.id === 'dashboard' ? 'nav-clips' : undefined}
+        onClick={() => goToTab(item.id)}
+        disabled={locked}
+        aria-current={isActive ? 'page' : undefined}
+        title={locked ? 'Finish your first clips to unlock' : `${item.label} — ${item.desc}`}
+        className={`group relative w-full flex items-center gap-3 rounded-input transition-all min-h-[44px] ${drawer ? 'px-3 py-2' : 'px-2.5 py-1.5'}
+          ${isActive ? 'bg-paper3/80 text-ink nav-glow' : 'text-ink2/75 hover:text-ink hover:bg-paper3/50'}
+          ${locked ? 'opacity-40 cursor-not-allowed hover:bg-transparent' : ''}`}
+      >
+        <span className={`flex items-center justify-center w-8 h-8 rounded-lg shrink-0 transition-all
+          ${isActive ? 'nav-tile-active' : 'bg-paper3/70 border border-rule group-hover:border-rule2'}`}>
+          <NavIcon size={16} className={isActive ? 'text-brassink' : 'text-ink2'} aria-hidden="true" />
+        </span>
+        <span className={`text-[0.92rem] flex-1 text-left truncate ${compact ? 'hidden lg:block' : ''}`}>{item.label}</span>
+        {locked
+          ? <Lock size={12} className={`shrink-0 ${compact ? 'hidden lg:block' : ''}`} aria-label="locked" />
+          : item.byok ? <span className={`chip-byok ${compact ? 'hidden lg:inline-flex' : ''}`} title="Bring your own keys (fal.ai, ElevenLabs)">BYOK</span> : null}
+      </button>
+    );
+  };
+
+  // The rail's and the drawer's sections: Create, Library, Grow; Settings pinned below.
+  const NavSections = ({ compact = false, drawer = false }) => (
+    <>
+      {NAV_GROUPS.map((g) => {
+        const items = navItems.filter((n) => n.group === g.id);
+        if (!items.length) return null;
+        return (
+          <div key={g.id} className="space-y-0.5" role="group" aria-labelledby={`nav-group-${g.id}${drawer ? '-d' : ''}`}>
+            <p id={`nav-group-${g.id}${drawer ? '-d' : ''}`}
+              className={`nav-group-label px-3 pt-4 pb-1.5 ${compact ? 'hidden lg:block' : ''}`}>{g.label}</p>
+            {compact && <div className="lg:hidden h-px mx-3 my-3 bg-rule" aria-hidden="true" />}
+            {items.map((item) => <NavButton key={item.id} item={item} compact={compact} drawer={drawer} />)}
+          </div>
+        );
+      })}
+    </>
+  );
+
+  // Shared footer links — same list in the desktop rail and the mobile drawer, so they can never drift apart.
   const NavFooterLinks = ({ collapsed = false }) => (
     <>
-      <a
-        href="#landing"
-        className="flex items-center gap-2 px-3 py-2 text-xs lowercase text-muted hover:text-ink2 transition-colors"
-      >
-        <Globe size={14} className="shrink-0" />
-        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>landing page</span>
+      <a href="#landing" className="flex items-center gap-2 px-3 py-2 min-h-[36px] text-xs text-muted hover:text-ink2 transition-colors rounded-input">
+        <Globe size={14} className="shrink-0" aria-hidden="true" />
+        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>Synapse AI home</span>
       </a>
       <a
         href="https://github.com/mutonby/openshorts"
         target="_blank"
         rel="noopener noreferrer"
-        className="flex items-center gap-2 px-3 py-2 text-xs lowercase text-muted hover:text-ink2 transition-colors"
+        className="flex items-center gap-2 px-3 py-2 min-h-[36px] text-xs text-muted hover:text-ink2 transition-colors rounded-input"
+        title="Synapse AI is built on OpenShorts, open source under the MIT license"
       >
         <svg height="14" viewBox="0 0 16 16" version="1.1" width="14" aria-hidden="true" fill="currentColor" className="shrink-0"><path fillRule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>open source</span>
+        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>built on OpenShorts (MIT)</span>
       </a>
       {billingEnabled && (
-        <a
-          href="#/pricing"
-          className="flex items-center gap-2 px-3 py-2 text-xs lowercase text-muted hover:text-ink2 transition-colors"
-        >
-          <Sparkles size={14} className="shrink-0" />
+        <a href="#/pricing" className="flex items-center gap-2 px-3 py-2 min-h-[36px] text-xs text-muted hover:text-ink2 transition-colors rounded-input">
+          <Sparkles size={14} className="shrink-0" aria-hidden="true" />
           <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>plans &amp; pricing</span>
         </a>
       )}
-      <a
-        href="mailto:info@openshorts.app"
-        className="flex items-center gap-2 px-3 py-2 text-xs lowercase text-muted hover:text-ink2 transition-colors"
-      >
-        <Mail size={14} className="shrink-0" />
-        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>info@openshorts.app</span>
-      </a>
     </>
   );
 
-  // Desktop rail: icon-only from md, labelled from lg. Below md it is gone
-  // entirely — an unlabelled 80px rail ate a fifth of a phone screen.
+  // The brand block, the same in the rail and the drawer.
+  const Brand = ({ compact = false, onClick }) => (
+    <a href="#landing" onClick={onClick} className="flex items-center gap-3 min-w-0" title="Synapse AI home">
+      <img src="/logo-synapse.svg" alt="" className="w-9 h-9 shrink-0 rounded-[10px] logo-glow" />
+      <span className={`flex flex-col leading-none ${compact ? 'hidden lg:flex' : ''}`}>
+        <span className="brand-word text-[1.15rem]">synapse <span className="brand-ai">ai</span></span>
+        <span className="readout mt-1">clip studio</span>
+      </span>
+    </a>
+  );
+
+  const NewClipButton = ({ compact = false }) => (
+    <button
+      type="button"
+      onClick={() => goToTab(newClipTab)}
+      className={`btn-primary w-full ${compact ? 'px-0 lg:px-4' : 'px-4'} py-2.5 text-sm`}
+      aria-label="New clip"
+    >
+      <Plus size={16} aria-hidden="true" />
+      <span className={compact ? 'hidden lg:inline' : ''}>new clip</span>
+    </button>
+  );
+
+  // Desktop rail: icon-only from md, labelled from lg. Below md it is gone — a phone gets the drawer and the tab bar.
   const Sidebar = () => (
-    <div className="hidden md:flex w-20 lg:w-64 bg-paper2 border-r border-rule flex-col h-full shrink-0 transition-all duration-300">
-      <a href="#landing" className="p-6 flex items-center gap-3" title="go to landing page">
-        <div className="w-8 h-8 bg-paper3 rounded-input flex items-center justify-center shrink-0 overflow-hidden border border-rule">
-          <img src="/logo-openshorts.png" alt="Logo" className="w-full h-full object-cover" />
-        </div>
-        <span className="font-display lowercase text-lg text-ink hidden lg:block">openshorts</span>
-      </a>
-
-      <nav className="flex-1 px-4 py-4 space-y-1">
-        {navItems.map((item) => {
-          const NavIcon = item.icon;
-          const isActive = activeTab === item.id;
-          return (
-            <button
-              key={item.id}
-              data-tutorial={item.id === 'dashboard' ? 'nav-clips' : undefined}
-              onClick={() => goToTab(item.id)}
-              title={tabLocked(item.id) ? 'Finish your first clips to unlock' : item.label}
-              disabled={tabLocked(item.id)}
-              className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-input transition-colors ${isActive ? 'bg-paper3 text-ink' : 'text-muted hover:text-ink2 hover:bg-paper3/50'} ${tabLocked(item.id) ? 'opacity-40 cursor-not-allowed hover:bg-transparent hover:text-muted' : ''}`}
-            >
-              {isActive && (
-                <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-brass rounded-full" aria-hidden="true" />
-              )}
-              <NavIcon size={18} className={`shrink-0 ${isActive ? 'text-brass' : ''}`} />
-              <span className="text-sm lowercase hidden lg:block flex-1 text-left truncate">{item.label}</span>
-              {tabLocked(item.id)
-                ? <Lock size={12} className="shrink-0 hidden lg:block" />
-                : item.byok ? <span className="readout hidden lg:block">BYOK</span> : null}
-              <span className="readout hidden lg:block">{item.ord}</span>
-            </button>
-          );
-        })}
+    <aside className="hidden md:flex w-[76px] lg:w-[272px] shell-rail flex-col h-full shrink-0 transition-all duration-300" aria-label="Main">
+      <div className="px-4 lg:px-5 pt-5 pb-4 flex items-center justify-center lg:justify-start">
+        <Brand compact />
+      </div>
+      <div className="px-3 lg:px-4 pb-2">
+        <NewClipButton compact />
+      </div>
+      <nav className="flex-1 overflow-y-auto custom-scrollbar px-2.5 lg:px-3 pb-3" aria-label="Sections">
+        <NavSections compact />
       </nav>
-
-      <div className="p-4 border-t border-rule space-y-1">
+      <div className="px-2.5 lg:px-3 pt-2 pb-3 border-t border-rule space-y-0.5">
+        {navItems.filter((n) => n.group === 'system').map((item) => <NavButton key={item.id} item={item} compact />)}
         <NavFooterLinks collapsed />
       </div>
-    </div>
+    </aside>
   );
 
   // Mobile drawer: the complete nav, reachable from the header's menu button.
   const MobileNavDrawer = () => (
-    <div
-      className="md:hidden fixed inset-0 z-[90] flex"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Navigation"
-    >
-      <div
-        className="absolute inset-0 bg-black/60 animate-fade"
-        onClick={() => setNavOpen(false)}
-        aria-hidden="true"
-      />
-      <div className="relative w-[17rem] max-w-[82vw] h-full bg-paper2 border-r border-rule flex flex-col animate-slide-in-left">
-        <div className="flex items-center justify-between px-5 h-14 border-b border-rule shrink-0">
-          <a href="#landing" className="flex items-center gap-2.5" onClick={() => setNavOpen(false)}>
-            <div className="w-7 h-7 bg-paper3 rounded-input overflow-hidden border border-rule shrink-0">
-              <img src="/logo-openshorts.png" alt="" className="w-full h-full object-cover" />
-            </div>
-            <span className="font-display lowercase text-lg text-ink">openshorts</span>
-          </a>
-          <button
-            onClick={() => setNavOpen(false)}
-            aria-label="close navigation"
-            className="p-2 -mr-2 text-muted hover:text-ink transition-colors"
-          >
-            <X size={18} />
+    <div className="md:hidden fixed inset-0 z-[90] flex" role="dialog" aria-modal="true" aria-label="Navigation">
+      <div className="absolute inset-0 bg-black/70 animate-fade" onClick={() => setNavOpen(false)} aria-hidden="true" />
+      <div className="relative w-[18rem] max-w-[86vw] h-full shell-rail flex flex-col animate-slide-in-left">
+        <div className="flex items-center justify-between px-5 h-16 border-b border-rule shrink-0">
+          <Brand onClick={() => setNavOpen(false)} />
+          <button onClick={() => setNavOpen(false)} aria-label="Close navigation"
+            className="p-2.5 -mr-2 rounded-input text-muted hover:text-ink transition-colors">
+            <X size={20} />
           </button>
         </div>
-
-        <nav className="flex-1 overflow-y-auto custom-scrollbar px-3 py-3 space-y-1">
-          {navItems.map((item) => {
-            const NavIcon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => goToTab(item.id)}
-                disabled={tabLocked(item.id)}
-                aria-current={isActive ? 'page' : undefined}
-                title={tabLocked(item.id) ? 'Finish your first clips to unlock' : undefined}
-                className={`relative w-full flex items-center gap-3 px-3 py-3 rounded-input transition-colors ${isActive ? 'bg-paper3 text-ink' : 'text-muted active:bg-paper3/60'} ${tabLocked(item.id) ? 'opacity-40 cursor-not-allowed' : ''}`}
-              >
-                {isActive && (
-                  <span className="absolute left-0 top-2 bottom-2 w-0.5 bg-brass rounded-full" aria-hidden="true" />
-                )}
-                <NavIcon size={18} className={`shrink-0 ${isActive ? 'text-brass' : ''}`} />
-                <span className="text-[0.95rem] lowercase flex-1 text-left truncate">{item.label}</span>
-                {tabLocked(item.id)
-                  ? <Lock size={12} className="shrink-0" />
-                  : item.byok ? <span className="readout shrink-0">BYOK</span> : null}
-              </button>
-            );
-          })}
+        <div className="px-4 pt-4"><NewClipButton /></div>
+        <nav className="flex-1 overflow-y-auto custom-scrollbar px-3 pb-3" aria-label="Sections">
+          <NavSections drawer />
+          <div className="pt-3 mt-3 border-t border-rule space-y-0.5">
+            {navItems.filter((n) => n.group === 'system').map((item) => <NavButton key={item.id} item={item} drawer />)}
+          </div>
         </nav>
-
         <div className="px-3 py-3 border-t border-rule space-y-0.5 safe-bottom shrink-0">
           <NavFooterLinks />
         </div>
@@ -1384,14 +1394,13 @@ function App() {
     </div>
   );
 
-  // Bottom tab bar: the four everyday destinations plus "more" for the rest.
-  // It is a flex sibling of the scrolling pane rather than `fixed`, so nothing
-  // ever hides behind it and no pane needs compensating padding.
+  // Bottom tab bar: the everyday destinations plus "more" for the rest. A flex sibling of the scrolling pane rather
+  // than `fixed`, so nothing ever hides behind it and no pane needs compensating padding.
   const MobileTabBar = () => {
     const tabs = navItems.filter((n) => n.primary);
     const moreActive = !tabs.some((t) => t.id === activeTab);
     return (
-      <nav className="md:hidden shrink-0 border-t border-rule bg-paper2/95 backdrop-blur-sm safe-bottom">
+      <nav className="md:hidden shrink-0 border-t border-rule bg-paper2/90 backdrop-blur-md safe-bottom" aria-label="Quick sections">
         <div className="flex items-stretch">
           {tabs.map((item) => {
             const NavIcon = item.icon;
@@ -1399,26 +1408,32 @@ function App() {
             return (
               <button
                 key={item.id}
+                type="button"
                 data-tutorial={item.id === 'dashboard' ? 'nav-clips' : undefined}
                 onClick={() => goToTab(item.id)}
                 disabled={tabLocked(item.id)}
                 aria-current={isActive ? 'page' : undefined}
-                title={tabLocked(item.id) ? 'Finish your first clips to unlock' : undefined}
-                className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-1 py-2 min-h-[56px] transition-colors ${isActive ? 'text-ink' : 'text-muted active:text-ink2'} ${tabLocked(item.id) ? 'opacity-40 cursor-not-allowed' : ''}`}
+                title={tabLocked(item.id) ? 'Finish your first clips to unlock' : item.label}
+                className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-1 py-2 min-h-[58px] transition-colors ${isActive ? 'text-ink' : 'text-muted active:text-ink2'} ${tabLocked(item.id) ? 'opacity-40 cursor-not-allowed' : ''}`}
               >
-                <NavIcon size={19} className={isActive ? 'text-brass' : ''} />
-                <span className="text-[10.5px] lowercase leading-none truncate max-w-full px-0.5">{item.short}</span>
+                <span className={`flex items-center justify-center w-9 h-7 rounded-full ${isActive ? 'nav-tile-active' : ''}`}>
+                  <NavIcon size={18} className={isActive ? 'text-brassink' : ''} aria-hidden="true" />
+                </span>
+                <span className="text-[11px] leading-none truncate max-w-full px-0.5">{item.short}</span>
               </button>
             );
           })}
           <button
+            type="button"
             onClick={() => setNavOpen(true)}
-            aria-label="more sections"
+            aria-label="More sections"
             aria-expanded={navOpen}
-            className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-1 py-2 min-h-[56px] transition-colors ${moreActive ? 'text-ink' : 'text-muted active:text-ink2'}`}
+            className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-1 py-2 min-h-[58px] transition-colors ${moreActive ? 'text-ink' : 'text-muted active:text-ink2'}`}
           >
-            <Menu size={19} className={moreActive ? 'text-brass' : ''} />
-            <span className="text-[10.5px] lowercase leading-none">more</span>
+            <span className={`flex items-center justify-center w-9 h-7 rounded-full ${moreActive ? 'nav-tile-active' : ''}`}>
+              <Menu size={18} className={moreActive ? 'text-brassink' : ''} aria-hidden="true" />
+            </span>
+            <span className="text-[11px] leading-none">more</span>
           </button>
         </div>
       </nav>
@@ -1429,39 +1444,69 @@ function App() {
     /* h-dvh where supported: on mobile Safari/Chrome `100vh` is the tallest the
        viewport ever gets, so a h-screen shell hides its own bottom bar behind
        the browser chrome until the user scrolls. */
-    <div className="flex h-screen supports-[height:100dvh]:h-[100dvh] bg-paper overflow-hidden">
+    <div className="flex h-screen supports-[height:100dvh]:h-[100dvh] overflow-hidden synapse-shell">
+      <a href="#main-content" className="skip-link">Skip to content</a>
       <Sidebar />
       {navOpen && <MobileNavDrawer />}
 
-      <main className="flex-1 min-w-0 flex flex-col h-full overflow-hidden relative">
-        {/* Top Header */}
-        <header className="h-14 border-b border-rule bg-paper flex items-center justify-between gap-2 px-3 sm:px-6 shrink-0 z-10">
-          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-            {/* Mobile: the drawer handle, and the section name the icon rail
-                used to carry. Without it a phone has no "where am I". */}
+      <main className="flex-1 min-w-0 flex flex-col h-full overflow-hidden relative" aria-labelledby="page-title">
+        <svg className="neural-field" aria-hidden="true" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+          <defs>
+            <linearGradient id="nf" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="oklch(81% 0.14 212)" />
+              <stop offset="1" stopColor="oklch(68% 0.22 300)" />
+            </linearGradient>
+          </defs>
+          <g stroke="url(#nf)" fill="none" strokeWidth="1.2" strokeLinecap="round">
+            <path d="M980 90 C 900 160, 860 240, 780 260 S 640 300, 600 380" />
+            <path d="M980 90 C 1040 170, 1100 200, 1180 210" />
+            <path d="M980 90 C 960 30, 1010 0, 1060 -20" />
+            <path d="M600 380 C 560 460, 640 540, 700 600 S 760 720, 900 760" />
+            <path d="M600 380 C 520 400, 430 380, 360 430" />
+            <path d="M780 260 C 820 330, 900 360, 1000 380" />
+          </g>
+          <g fill="url(#nf)">
+            <circle cx="980" cy="90" r="5" className="neural-node" />
+            <circle cx="600" cy="380" r="4" className="neural-node neural-node-2" />
+            <circle cx="780" cy="260" r="3" />
+            <circle cx="1000" cy="380" r="2.5" />
+            <circle cx="360" cy="430" r="2.5" />
+            <circle cx="900" cy="760" r="3" />
+          </g>
+        </svg>
+
+        {/* Top bar: where you are (section · page), what the page does, and the studio's status. */}
+        <header className="shell-topbar h-16 flex items-center justify-between gap-3 px-3 sm:px-6 shrink-0 z-10">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
+              type="button"
               onClick={() => setNavOpen(true)}
-              aria-label="open navigation"
-              className="md:hidden -ml-1 p-2 rounded-input text-muted active:bg-paper3 transition-colors shrink-0"
+              aria-label="Open navigation"
+              className="md:hidden -ml-1 p-2.5 rounded-input text-ink2 active:bg-paper3 transition-colors shrink-0"
             >
               <Menu size={20} />
             </button>
-            <span data-tutorial="nav-clips" className="md:hidden font-display lowercase text-base text-ink truncate">
-              {activeNav?.label || 'openshorts'}
-            </span>
+            {activeNav && (
+              <span className="hidden sm:flex items-center justify-center w-9 h-9 rounded-[10px] nav-tile-active shrink-0" aria-hidden="true">
+                <activeNav.icon size={17} className="text-brassink" />
+              </span>
+            )}
+            <div className="min-w-0">
+              <p className="readout leading-none mb-1 hidden sm:block">{activeGroup ? activeGroup.label : 'Synapse AI'}</p>
+              <h1 id="page-title" data-tutorial="nav-clips" className="text-ink font-semibold text-[1.02rem] sm:text-lg leading-tight truncate tracking-tight">
+                {activeNav?.label || 'Synapse AI'}
+              </h1>
+              {activeNav?.desc && <p className="hidden lg:block text-xs text-muted truncate max-w-[52ch]">{activeNav.desc}</p>}
+            </div>
             {status !== 'idle' && (
-              <button
-                onClick={handleReset}
-                className="btn-quiet px-3 py-1.5 text-xs shrink-0"
-                aria-label="New Project"
-              >
+              <button onClick={handleReset} className="btn-quiet px-3 py-1.5 text-xs shrink-0 ml-1" aria-label="New project">
                 <Plus size={14} />
-                <span className="hidden sm:inline">New Project</span>
+                <span className="hidden sm:inline">new project</span>
               </button>
             )}
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {userProfiles.length > 0 && (
               <UserProfileSelector
                 profiles={userProfiles}
@@ -1481,37 +1526,37 @@ function App() {
               }} />
             )}
             {billingEnabled && isSignedIn && !isManaged && (
-              <button onClick={() => setShowPlanChoice(true)}
-                className="btn-primary px-4 py-2 text-xs">
+              <button onClick={() => setShowPlanChoice(true)} className="btn-primary px-4 py-2 text-xs">
                 Choose a plan
               </button>
             )}
             {billingEnabled && !isSignedIn && (
-              <button onClick={() => setShowLogin(true)}
-                className="btn-ghost px-4 py-2 text-xs">
+              <button onClick={() => setShowLogin(true)} className="btn-ghost px-4 py-2 text-xs">
                 Sign in
               </button>
             )}
             {billingEnabled && isSignedIn && <ProfileMenu />}
 
-            {/* Hidden below sm: the standing banner underneath already says the
-                same thing, and two warnings in a 360px header is just noise. */}
-            {keysMissing && (
+            {keysMissing ? (
               <button
                 onClick={() => (billingEnabled && !isSignedIn ? setShowLogin(true) : goToTab('settings'))}
-                className="badge-warn hover:brightness-125 transition-all hidden sm:inline-flex"
+                className="status-pill status-pill-warn hidden sm:inline-flex"
                 title="Configure API keys or choose a plan"
               >
-                <AlertTriangle size={12} />
+                <AlertTriangle size={13} aria-hidden="true" />
                 <span className="hidden md:inline">
                   {!geminiOk && !uploadPostKey
                     ? 'Gemini & Upload-Post keys missing'
                     : !geminiOk
-                      ? 'Gemini API Key Missing'
-                      : 'Upload-Post API Key Missing'}
+                      ? 'Gemini key missing'
+                      : 'Upload-Post key missing'}
                 </span>
                 <span className="md:hidden">keys missing</span>
               </button>
+            ) : (
+              <span className="status-pill status-pill-ok hidden sm:inline-flex" title="Your API keys are set">
+                <span className="status-dot" aria-hidden="true" /> ready
+              </span>
             )}
           </div>
         </header>
@@ -1525,10 +1570,10 @@ function App() {
                 <span className="font-medium text-ink">Required API keys missing.</span>{' '}
                 <span className="text-muted">
                   {!geminiOk && !uploadPostKey
-                    ? 'Set your Gemini and Upload-Post API keys to use OpenShorts.'
+                    ? 'Set your Gemini and Upload-Post API keys to use Synapse AI.'
                     : !geminiOk
-                      ? 'Set your Gemini API key to use OpenShorts.'
-                      : 'Set your Upload-Post API key to use OpenShorts.'}
+                      ? 'Set your Gemini API key to use Synapse AI.'
+                      : 'Set your Upload-Post API key to use Synapse AI.'}
                 </span>
               </div>
             </div>
@@ -1566,7 +1611,7 @@ function App() {
         {advancedThisTab && <AdvancedBanner needsPlan={needsPlan} onKeys={() => goToTab('settings')} />}
 
         {/* Main Workspace */}
-        <div className="flex-1 overflow-hidden relative">
+        <div id="main-content" tabIndex={-1} className="flex-1 overflow-hidden relative z-[1] focus:outline-none">
 
           {/* View: Settings */}
           {activeTab === 'settings' && (
@@ -2639,7 +2684,7 @@ function App() {
       >
         <div className="space-y-4">
           <p className="text-sm text-muted">
-            OpenShorts needs both a <strong className="text-ink2">Gemini</strong> API key and an <strong className="text-ink2">Upload-Post</strong> API key. Both have free tiers.
+            Synapse AI needs both a <strong className="text-ink2">Gemini</strong> API key and an <strong className="text-ink2">Upload-Post</strong> API key. Both have free tiers.
           </p>
 
           {/* Gemini block */}

@@ -975,7 +975,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     {Number.isFinite(clip.predicted_score) && (
                         <span
                             className="bg-black/70 font-mono text-micro uppercase px-2 py-1 rounded-full flex items-center gap-1"
-                            title="openshorts' prediction of how well this clip will perform, from 0 to 100"
+                            title="synapse ai's prediction of how well this clip will perform, from 0 to 100"
                         >
                             <TrendingUp size={11} className="shrink-0 text-muted" />
                             <span className="text-muted">viral</span>

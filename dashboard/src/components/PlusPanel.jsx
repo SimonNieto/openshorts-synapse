@@ -77,7 +77,7 @@ function PlusStats({ uploadPostKey, accounts }) {
             {error && <p className="text-xs text-danger">{error}</p>}
             {data && data.total_posts === 0 && (
                 <p className="text-xs text-muted">
-                    No published short of yours found yet ({data.rows} posts read from Upload-Post, {data.unmatched} not made with OpenShorts).
+                    No published short of yours found yet ({data.rows} posts read from Upload-Post, {data.unmatched} not made with Synapse AI).
                     Views appear a day or two after posting.
                 </p>
             )}

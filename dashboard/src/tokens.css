@@ -1,49 +1,50 @@
-/* Hallmark · genre: atmospheric · theme: lumen (night foundry) · design-system: design.md · designed-as-app
- * macrostructure: Marquee Hero (marketing) / Workbench (app) / Long Document (content)
- * nav: N9 edge-aligned · footer: Ft5 statement · enrichment: filament apparatus (landing only)
- * pre-emit critique: P5 H4 E4 S5 R5 V4
+/* Synapse AI · theme: nuit synapse (4-oct-2026) · design-system: design.md · designed-as-app
+ * A night of neurons: deep blue-violet canvas, electric cyan and neon violet accents that glow like a firing
+ * synapse, hairlines lit faintly blue. Built on OpenShorts (MIT); the token names are kept so every page re-themes.
  */
 
 :root {
-  /* paper */
-  --color-paper: oklch(13% 0.014 265);
-  --color-paper-2: oklch(16.5% 0.015 265);
-  --color-paper-3: oklch(20% 0.016 265);
+  /* paper — the night */
+  --color-paper: oklch(11.5% 0.032 278);
+  --color-paper-2: oklch(15% 0.038 280);
+  --color-paper-3: oklch(19.5% 0.045 282);
 
   /* ink */
-  --color-ink: oklch(96% 0.006 262);
-  --color-ink-2: oklch(86% 0.01 262);
-  --color-muted: oklch(64% 0.012 262);
+  --color-ink: oklch(97% 0.012 250);
+  --color-ink-2: oklch(87% 0.022 255);
+  --color-muted: oklch(67% 0.035 262);
 
-  /* rules */
-  --color-rule: oklch(96% 0.006 262 / 0.08);
-  --color-rule-2: oklch(96% 0.006 262 / 0.14);
-  --rule-blueprint: oklch(96% 0.006 262 / 0.04);
+  /* rules — hairlines lit faintly blue */
+  --color-rule: oklch(82% 0.08 245 / 0.11);
+  --color-rule-2: oklch(82% 0.1 245 / 0.2);
+  --rule-blueprint: oklch(82% 0.08 245 / 0.05);
 
-  /* accents */
-  --color-accent: oklch(76% 0.17 50);
-  --color-accent-ink: oklch(17% 0.03 50);
-  --color-accent-2: oklch(68% 0.16 18);
-  --color-glow: oklch(80% 0.16 50 / 0.42);
-  --color-paper-emit: oklch(76% 0.17 50 / 0.04);
-  --color-focus: oklch(76% 0.17 50);
+  /* accents — the synapse firing */
+  --color-accent: oklch(81% 0.14 212);          /* electric cyan: THE accent */
+  --color-accent-ink: oklch(15% 0.045 255);     /* text on cyan fills */
+  --color-accent-2: oklch(68% 0.22 300);        /* neon violet */
+  --color-glow: oklch(81% 0.14 212 / 0.45);
+  --color-glow-2: oklch(68% 0.22 300 / 0.4);
+  --color-paper-emit: oklch(70% 0.16 265 / 0.07);
+  --color-focus: oklch(81% 0.14 212);
+  --gradient-synapse: linear-gradient(120deg, oklch(81% 0.14 212) 0%, oklch(70% 0.2 285) 55%, oklch(68% 0.22 305) 100%);
 
   /* states */
-  --color-ok: oklch(75% 0.11 150);
-  --color-danger: oklch(66% 0.18 25);
-  --color-warn: oklch(78% 0.14 75);
+  --color-ok: oklch(78% 0.13 160);
+  --color-danger: oklch(66% 0.2 20);
+  --color-warn: oklch(80% 0.14 80);
 
   /* type */
-  --font-display: "Instrument Serif", ui-serif, Georgia, serif;
+  --font-display: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-body: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --text-display: clamp(3rem, 6vw + 1rem, 6rem);
-  --tracking-display: -0.032em;
-  --tracking-micro: 0.10em;
+  --tracking-display: -0.045em;
+  --tracking-micro: 0.12em;
 
   /* geometry */
-  --radius-card: 10px;
-  --radius-input: 8px;
+  --radius-card: 14px;
+  --radius-input: 10px;
 
   /* motion */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);

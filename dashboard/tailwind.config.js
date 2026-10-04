@@ -7,25 +7,29 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Lumen · Night Foundry — values mirror tokens.css (kept literal so
-        // Tailwind alpha modifiers like bg-brass/10 compile)
-        paper: "oklch(13% 0.014 265 / <alpha-value>)",
-        paper2: "oklch(16.5% 0.015 265 / <alpha-value>)",
-        paper3: "oklch(20% 0.016 265 / <alpha-value>)",
-        ink: "oklch(96% 0.006 262 / <alpha-value>)",
-        ink2: "oklch(86% 0.01 262 / <alpha-value>)",
-        muted: "oklch(64% 0.012 262 / <alpha-value>)",
-        brass: "oklch(76% 0.17 50 / <alpha-value>)",
-        brassink: "oklch(17% 0.03 50 / <alpha-value>)",
-        coral: "oklch(68% 0.16 18 / <alpha-value>)",
-        ok: "oklch(75% 0.11 150 / <alpha-value>)",
-        warn: "oklch(78% 0.14 75 / <alpha-value>)",
-        danger: "oklch(66% 0.18 25 / <alpha-value>)",
+        // Synapse AI · Nuit synapse — values mirror tokens.css (kept literal so
+        // Tailwind alpha modifiers like bg-brass/10 compile). The names are the
+        // old theme's (brass = THE accent, now electric cyan; coral = the second,
+        // now neon violet) so every page re-themes without touching its classes.
+        paper: "oklch(11.5% 0.032 278 / <alpha-value>)",
+        paper2: "oklch(15% 0.038 280 / <alpha-value>)",
+        paper3: "oklch(19.5% 0.045 282 / <alpha-value>)",
+        ink: "oklch(97% 0.012 250 / <alpha-value>)",
+        ink2: "oklch(87% 0.022 255 / <alpha-value>)",
+        muted: "oklch(67% 0.035 262 / <alpha-value>)",
+        brass: "oklch(81% 0.14 212 / <alpha-value>)",
+        brassink: "oklch(15% 0.045 255 / <alpha-value>)",
+        coral: "oklch(68% 0.22 300 / <alpha-value>)",
+        cyan: "oklch(81% 0.14 212 / <alpha-value>)",
+        violet: "oklch(68% 0.22 300 / <alpha-value>)",
+        ok: "oklch(78% 0.13 160 / <alpha-value>)",
+        warn: "oklch(80% 0.14 80 / <alpha-value>)",
+        danger: "oklch(66% 0.2 20 / <alpha-value>)",
         // legacy aliases so untouched files degrade gracefully
-        background: "oklch(13% 0.014 265 / <alpha-value>)",
-        surface: "oklch(16.5% 0.015 265 / <alpha-value>)",
-        primary: "oklch(76% 0.17 50 / <alpha-value>)",
-        accent: "oklch(68% 0.16 18 / <alpha-value>)",
+        background: "oklch(11.5% 0.032 278 / <alpha-value>)",
+        surface: "oklch(15% 0.038 280 / <alpha-value>)",
+        primary: "oklch(81% 0.14 212 / <alpha-value>)",
+        accent: "oklch(68% 0.22 300 / <alpha-value>)",
       },
       fontFamily: {
         display: "var(--font-display)",

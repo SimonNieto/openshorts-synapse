@@ -33,7 +33,7 @@ function buildClients({ cloud, url }) {
       steps: [
         'Open claude.ai → Settings → Connectors → Add custom connector.',
         `Paste this URL and save: ${url}`,
-        'Click Connect: you will land on OpenShorts to approve the access, then the 8 tools appear in every chat.',
+        'Click Connect: you will land on Synapse AI to approve the access, then the 8 tools appear in every chat.',
       ],
       snippet: url,
     },
@@ -41,8 +41,8 @@ function buildClients({ cloud, url }) {
       id: 'chatgpt', label: 'ChatGPT', kind: 'steps',
       steps: [
         'Open ChatGPT → Settings → Connectors → Create (developer mode).',
-        `Name it OpenShorts, paste this MCP server URL, choose OAuth: ${url}`,
-        'Approve the access on OpenShorts when asked. Done: ask ChatGPT to clip a video.',
+        `Name it Synapse AI, paste this MCP server URL, choose OAuth: ${url}`,
+        'Approve the access on Synapse AI when asked. Done: ask ChatGPT to clip a video.',
       ],
       snippet: url,
     },

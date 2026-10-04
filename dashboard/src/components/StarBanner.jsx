@@ -7,7 +7,7 @@ export const REPO_URL = 'https://github.com/mutonby/openshorts';
 // asks for the same job, and the old "free while it renders" wording put the
 // word free next to the product name for anyone who missed the pun — the one
 // thing our copy must never do. No incentive attached.
-export default function StarBanner({ message = 'Enjoying OpenShorts?' }) {
+export default function StarBanner({ message = 'Synapse AI is built on OpenShorts, open source — give them a star?' }) {
   return (
     <a
       href={REPO_URL}

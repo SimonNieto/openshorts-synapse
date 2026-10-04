@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import seo from './vite-plugin-seo'
+// import seo from './vite-plugin-seo'   (off: see plugins below)
 
 // Backend target for the dev proxy. Defaults to the docker-compose service
 // name; set VITE_PROXY_TARGET=http://localhost:8000 to run the dev server on
@@ -13,7 +13,9 @@ export default defineConfig({
   // seo() runs on build only. It injects the crawler-visible homepage content
   // into #root and emits the static /alternatives pages, sitemap.xml and
   // llms.txt. See vite-plugin-seo.js.
-  plugins: [react(), seo()],
+  // Synapse AI: the build-time SEO pages were OpenShorts' marketing (its cloud prices, its comparisons); they come
+  // back when Synapse AI writes its own (seo/, vite-plugin-seo.js).
+  plugins: [react()],
   server: {
     // Docker Desktop on Windows (and some Mac setups) doesn't propagate
     // inotify events across a bind mount, so Vite never notices a file saved

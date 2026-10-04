@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Synapse AI">
+  <defs>
+    <linearGradient id="syn" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5fe3ff"/>
+      <stop offset="0.55" stop-color="#8b7bff"/>
+      <stop offset="1" stop-color="#c25cff"/>
+    </linearGradient>
+    <radialGradient id="core" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.35" stop-color="#9ff0ff"/>
+      <stop offset="1" stop-color="#8b7bff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="#0b0a1c"/>
+  <g filter="url(#glow)" stroke="url(#syn)" stroke-width="3.2" stroke-linecap="round" fill="none">
+    <path d="M32 32 L17 18 M17 18 L9 19 M17 18 L15 9"/>
+    <path d="M32 32 L48 16 M48 16 L56 15 M48 16 L49 8"/>
+    <path d="M32 32 L50 47 M50 47 L57 52"/>
+    <path d="M32 32 L16 46 M16 46 L8 48 M16 46 L18 55"/>
+  </g>
+  <g fill="url(#syn)" filter="url(#glow)">
+    <circle cx="9" cy="19" r="2.2"/><circle cx="15" cy="9" r="2.2"/><circle cx="56" cy="15" r="2.2"/>
+    <circle cx="49" cy="8" r="2.2"/><circle cx="57" cy="52" r="2.4"/><circle cx="8" cy="48" r="2.2"/>
+    <circle cx="18" cy="55" r="2.2"/>
+  </g>
+  <circle cx="32" cy="32" r="9" fill="url(#syn)" filter="url(#glow)"/>
+  <circle cx="32" cy="32" r="7" fill="url(#core)"/>
+</svg>
