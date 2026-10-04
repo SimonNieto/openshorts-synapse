@@ -24,3 +24,11 @@ Les gens sont toujours dessinés. Aucune image n'est photoréaliste, ni une pers
 Une négation se dessine : la chose niée, dessinée, barrée de deux traits rouges en diagonale, comme un panneau
 d'interdiction. Jamais « une croix » : le modèle d'image en fait un crucifix, et dans un clip sur une mort c'est une croix
 de tombe.
+
+## Le corps ouvert : le dessin simplifié
+
+Décidé par l'utilisatrice le 4 octobre : quand une image montrerait du gore (un corps ouvert, une plaie, une coupe
+dans la chair, un tissu sorti du corps, un os qu'on soulève), elle n'est pas refusée : elle est dessinée plus simple,
+pour que le gore disparaisse. Le suffixe de ces images-là, à la place de celui de la charte :
+
+> Simplified flat illustration: clean bold outlines, flat soft colours, simple clean shapes, dry and calm, no texture, readable at a glance.
