@@ -64,7 +64,7 @@ function DeletedView() {
           You're welcome back any time — signing up again with the same address
           starts a brand-new, empty account.
         </p>
-        <a href="#landing" className="btn-ghost px-4 py-2 inline-flex">Back to openshorts.app</a>
+        <a href="#landing" className="btn-ghost px-4 py-2 inline-flex">Back to Synapse AI</a>
       </div>
     </div>
   );

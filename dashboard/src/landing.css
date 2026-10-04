@@ -1,234 +1,125 @@
-/* Hallmark · genre: atmospheric · macrostructure: Marquee Hero · theme: lumen (night) · design-system: design.md · designed-as-app · nav: N9 · footer: Ft5 · enrichment: filament apparatus */
+/* Synapse AI — landing page · theme « Nuit synapse » (4-oct-2026). Tokens from tokens.css. */
 
-/* ---- hero: blueprint grid + paper emission (top-right) ---- */
-.hero-blueprint {
-  background-image:
-    radial-gradient(55% 45% at 82% 0%, var(--color-paper-emit) 0%, transparent 70%),
-    linear-gradient(to right, var(--rule-blueprint) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--rule-blueprint) 1px, transparent 1px);
-  background-size: 100% 100%, 48px 48px, 48px 48px;
+.lp { background: transparent; }
+.lp-wrap { width: 100%; max-width: 72rem; margin: 0 auto; padding-left: 1.25rem; padding-right: 1.25rem; }
+@media (min-width: 640px) { .lp-wrap { padding-left: 1.75rem; padding-right: 1.75rem; } }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 
-/* ---- hero headline + coral verb landmark ---- */
-.hero-h1 {
+/* nav */
+.lp-nav {
+  position: sticky; top: 0; z-index: 50;
+  background: oklch(11.5% 0.032 278 / 0.7);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(90deg, transparent, oklch(81% 0.14 212 / 0.3), oklch(68% 0.22 300 / 0.3), transparent) 1;
+}
+
+/* hero */
+.lp-hero { padding: 4.5rem 0 3rem; position: relative; }
+@media (min-width: 1024px) { .lp-hero { padding: 6rem 0 4rem; } }
+.lp-title {
   font-family: var(--font-display);
-  font-size: clamp(2.75rem, 5vw + 1rem, 5rem);
-  letter-spacing: -0.032em;
-  line-height: 1.05;
-  text-transform: lowercase;
+  font-weight: 650;
+  font-size: clamp(2.6rem, 5.2vw + 0.5rem, 4.8rem);
+  line-height: 1.02;
+  letter-spacing: -0.045em;
   color: var(--color-ink);
 }
-.hero-h1 em {
-  font-style: normal;
-  color: var(--color-accent-2);
-  position: relative;
-}
-.hero-h1 em::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0.04em;
-  height: 1px;
-  background: var(--color-accent-2);
-  transform: scaleX(0);
-  transform-origin: left center;
-  animation: verb-underline 320ms var(--ease-out) 900ms forwards;
-}
-@keyframes verb-underline {
-  to { transform: scaleX(1); }
-}
-
-/* ---- apparatus: instrument bezel holding a real 9:16 clip ---- */
-.apparatus {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2rem;
-  margin: 0;
-}
-.apparatus-shell {
-  position: relative;
-  flex: none;
-}
-.apparatus-glow {
-  position: absolute;
-  inset: 0;
-  border-radius: 18px;
-  box-shadow: 0 0 28px 2px var(--color-glow);
-  opacity: 0.4;
-  animation: filament-pulse var(--dur-pulse) var(--ease-out) infinite;
-  pointer-events: none;
-}
-.apparatus-chamber {
-  position: relative;
-  z-index: 1;
-  width: clamp(200px, 20vw, 260px);
-  aspect-ratio: 9 / 16;
-  border: 1px solid var(--color-rule-2);
-  border-radius: 18px;
-  background: color-mix(in oklab, var(--color-paper-2) 72%, var(--color-paper-3));
-  overflow: hidden;
-}
-.apparatus-chamber video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.apparatus-stencil {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: var(--tracking-micro);
-  text-transform: uppercase;
-  color: var(--color-ink-2);
-  background: rgb(0 0 0 / 0.7);
-  padding: 2px 8px;
+.lp-lead { margin-top: 1.5rem; max-width: 36rem; font-size: 1.12rem; line-height: 1.65; color: color-mix(in oklab, var(--color-ink-2) 92%, transparent); }
+.lp-url {
+  margin-top: 2rem; max-width: 34rem;
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.45rem 0.45rem 0.45rem 1rem;
   border-radius: 999px;
+  background: oklch(16% 0.04 280 / 0.85);
+  border: 1px solid var(--color-rule-2);
+  box-shadow: 0 10px 40px -20px var(--color-glow-2);
 }
-.apparatus-callouts {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2.5rem;
-}
-.apparatus-callouts li {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: var(--tracking-micro);
-  text-transform: uppercase;
-  color: var(--color-muted);
-  white-space: nowrap;
-}
-.apparatus-leader {
-  flex: none;
-  width: 40px;
-  height: 1px;
-  background: var(--color-rule-2);
-}
+.lp-url:focus-within { border-color: var(--color-accent); box-shadow: 0 0 0 3px oklch(81% 0.14 212 / 0.18), 0 10px 40px -20px var(--color-glow); }
+.lp-url input { font-size: 1rem; min-height: 40px; }
 
-/* ---- smart crop: 16:9 source → 9:16 result, real product output ---- */
-.crop-frame {
-  position: relative;
-  margin: 0;
-  border: 1px solid var(--color-rule);
-  border-radius: var(--radius-card);
-  overflow: hidden;
-  background: var(--color-paper-2);
-}
-.crop-frame-16-9 {
-  aspect-ratio: 16 / 9;
-}
-.crop-frame-9-16 {
-  aspect-ratio: 9 / 16;
-}
-.crop-frame video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.crop-window {
-  position: absolute;
-  top: 5%;
-  bottom: 5%;
-  left: 50%;
-  transform: translateX(-50%);
-  aspect-ratio: 9 / 16;
-  border: 1px solid var(--color-accent);
-  border-radius: 6px;
-  box-shadow: 0 0 0 200vmax rgb(0 0 0 / 0.22);
-  pointer-events: none;
-}
-.crop-leader {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.625rem;
-  flex: none;
-}
-.crop-leader-line {
-  position: relative;
-  width: 56px;
-  height: 1px;
-  background: var(--color-rule-2);
-}
-.crop-leader-line::after {
-  content: "";
-  position: absolute;
-  right: -1px;
-  top: -3px;
-  border-left: 5px solid var(--color-rule-2);
-  border-top: 3.5px solid transparent;
-  border-bottom: 3.5px solid transparent;
-}
+/* hero visual: a neuron firing behind a phone playing a short */
+.lp-stage { position: relative; display: flex; justify-content: center; align-items: center; min-height: 30rem; }
+.lp-neural { position: absolute; inset: -6% -4%; width: 108%; height: 112%; opacity: 0.85; filter: drop-shadow(0 0 18px oklch(70% 0.2 280 / 0.45)); }
+.lp-filaments path { stroke-dasharray: 6 10; animation: lp-flow 9s linear infinite; }
+.lp-node { animation: synapse-fire 4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.lp-node-2 { animation-delay: 1.3s; }
+.lp-node-3 { animation-delay: 2.6s; }
+.lp-soma { animation: synapse-fire 5s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes lp-flow { to { stroke-dashoffset: -160; } }
 
-/* ---- meter strip (below the fold) ---- */
-.meter-strip {
-  height: 40px;
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
+.lp-phone {
+  position: relative; z-index: 1;
+  width: min(17.5rem, 70vw); aspect-ratio: 9 / 16;
+  border-radius: 2rem; overflow: hidden;
+  background: #05040d;
+  border: 1px solid oklch(85% 0.1 240 / 0.3);
+  box-shadow: 0 0 0 6px oklch(16% 0.04 280), 0 0 0 7px oklch(80% 0.1 240 / 0.18), 0 40px 90px -30px var(--color-glow-2), 0 20px 60px -30px var(--color-glow);
 }
-.meter-ticks {
-  flex: 1 1 0%;
-  min-width: 0;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  overflow: hidden;
-}
-.meter-tick {
-  flex: none;
-  width: 1px;
-  background: var(--color-accent);
-  opacity: 0.65;
-}
+.lp-phone img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 30% 50%; }
+.lp-phone figcaption { position: absolute; inset: auto 0 0 0; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; align-items: center;
+  background: linear-gradient(transparent, oklch(8% 0.03 280 / 0.85) 45%); padding-top: 4rem; }
+.lp-hook { position: absolute; z-index: 2; top: 1.4rem; left: 50%; transform: translateX(-50%); width: 86%; text-align: center;
+  font-weight: 800; font-size: 0.95rem; color: #fff; background: oklch(12% 0.04 280 / 0.75); border-radius: 0.6rem; padding: 0.45rem 0.6rem; }
+.lp-caption { font-weight: 800; font-size: 1.05rem; text-transform: uppercase; text-align: center; color: #fff; letter-spacing: 0.01em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6); }
+.lp-caption b { color: oklch(85% 0.15 205); }
+.lp-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: oklch(100% 0 0 / 0.15); }
+.lp-progress i { display: block; height: 100%; width: 35%; background: var(--gradient-synapse); animation: lp-play 8s linear infinite; }
+@keyframes lp-play { from { width: 0; } to { width: 100%; } }
 
-@media (max-width: 767px) {
-  .apparatus { gap: 1.25rem; }
-  .apparatus-chamber { width: 180px; }
-  .apparatus-leader { width: 20px; }
-  .apparatus-callouts { gap: 1.5rem; }
-  .crop-leader-line {
-    width: 1px;
-    height: 32px;
-  }
-  .crop-leader-line::after {
-    right: -3px;
-    top: auto;
-    bottom: -1px;
-    border-left: 3.5px solid transparent;
-    border-right: 3.5px solid transparent;
-    border-top: 5px solid var(--color-rule-2);
-    border-bottom: none;
-  }
-}
+/* readouts */
+.lp-readouts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; border-radius: var(--radius-card); overflow: hidden;
+  border: 1px solid var(--color-rule); background: var(--color-rule); }
+@media (min-width: 768px) { .lp-readouts { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.lp-readouts li { background: oklch(13.5% 0.036 280 / 0.92); padding: 1.1rem 1.25rem; font-size: 0.85rem; color: var(--color-muted); }
+.lp-readouts span { display: block; font-family: var(--font-mono); font-size: 0.95rem; letter-spacing: 0.04em; color: var(--color-ink); margin-bottom: 0.25rem; }
 
-/* narrow phones: stack callouts under the chamber so nothing overflows */
-@media (max-width: 519px) {
-  .apparatus { flex-direction: column; gap: 1.25rem; }
-  .apparatus-callouts {
-    flex-direction: row;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 0.625rem 1.25rem;
-    max-width: 100%;
-  }
-  .apparatus-callouts li { gap: 0.5rem; }
-  .apparatus-leader { width: 12px; }
-}
+/* sections */
+.lp-section { padding: 5rem 0; }
+.lp-h2 { font-family: var(--font-display); font-weight: 650; font-size: clamp(1.9rem, 2.6vw + 0.8rem, 2.9rem); line-height: 1.08;
+  letter-spacing: -0.035em; color: var(--color-ink); max-width: 40rem; }
+.lp-sub { margin-top: 1rem; max-width: 40rem; color: var(--color-ink-2); opacity: 0.85; line-height: 1.65; }
+.lp-icon { display: inline-flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; border-radius: 0.75rem;
+  background: var(--gradient-synapse); color: var(--color-accent-ink); box-shadow: 0 8px 24px -10px var(--color-glow-2); }
+
+/* showcase */
+.lp-showcase { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+@media (min-width: 640px) { .lp-showcase { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1024px) { .lp-showcase { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.lp-shot { border-radius: var(--radius-card); overflow: hidden; border: 1px solid var(--color-rule); background: var(--color-paper-2);
+  transition: transform var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out); }
+.lp-shot:hover { transform: translateY(-4px); border-color: oklch(81% 0.14 212 / 0.45); box-shadow: 0 24px 50px -28px var(--color-glow); }
+.lp-shot img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; }
+.lp-shot figcaption { padding: 0.85rem 1rem; font-size: 0.88rem; color: var(--color-ink-2); font-style: italic; }
+
+/* steps */
+.lp-step { display: flex; gap: 1.25rem; }
+.lp-step-n { flex: none; width: 2.75rem; height: 2.75rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 0.85rem; color: var(--color-accent); border: 1px solid oklch(81% 0.14 212 / 0.4);
+  box-shadow: 0 0 22px -8px var(--color-glow); }
+.lp-mode { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.5rem 0.85rem; border-radius: 999px; font-size: 0.85rem;
+  color: var(--color-ink-2); background: var(--color-paper-3); border: 1px solid var(--color-rule); }
+.lp-mode svg { color: var(--color-accent); }
+.lp-trust { display: grid; gap: 0.75rem; font-size: 0.9rem; color: var(--color-ink-2); }
+.lp-trust p { display: flex; align-items: center; gap: 0.6rem; }
+.lp-trust svg { color: var(--color-accent); flex: none; }
+
+/* final call */
+.lp-cta { display: flex; flex-direction: column; align-items: flex-start; gap: 1.75rem; padding: 2.5rem; border-radius: 1.5rem;
+  background:
+    radial-gradient(60% 120% at 0% 0%, oklch(55% 0.2 295 / 0.35), transparent 60%),
+    radial-gradient(60% 120% at 100% 100%, oklch(65% 0.14 215 / 0.3), transparent 60%),
+    var(--color-paper-2);
+  border: 1px solid var(--color-rule-2); }
+@media (min-width: 768px) { .lp-cta { flex-direction: row; align-items: center; justify-content: space-between; padding: 3rem 3.5rem; } }
+
+.lp-footer { border-top: 1px solid var(--color-rule); background: oklch(10% 0.03 278 / 0.8); }
 
 @media (prefers-reduced-motion: reduce) {
-  .apparatus-glow { animation: none; }
-  .hero-h1 em::after { animation: none; transform: scaleX(1); }
+  .lp-filaments path, .lp-node, .lp-soma, .lp-progress i { animation: none !important; }
 }
