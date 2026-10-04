@@ -14,7 +14,8 @@ symbole le plus simple de la phrase, en grand.**
 3. Une notion abstraite se montre par un objet du quotidien qui déborde, se vide ou s'allume, pas par un schéma
    scientifique.
 4. Une phrase qui nie un lien avec une chose nommée se dessine avec la chose barrée de deux traits rouges en diagonale.
-   Même dans un clip sur une mort, la négation passe avant l'absence.
+   Même dans un clip sur une mort, la négation passe avant l'absence. Les traits ne barrent jamais un visage ni un
+   corps (on dirait une blessure) : on barre un objet qui représente la chose niée, posé à part.
 5. Une question posée met un point d'interrogation visible dans l'image, à côté de la chose dont on doute.
 6. Une comparaison montre les deux choses côte à côte, chacune reconnaissable.
 7. Un seul exemplaire de chaque chose nommée. Le modèle d'image double les objets : le prompt d'image le dit
