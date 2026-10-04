@@ -1149,10 +1149,11 @@ def viral_caption_clip(clip_path, transcript, clip_start, clip_end, style, water
                            f"subtitled_{int(time.time())}_{os.path.basename(clip_path)}")
         topic = viral_fx.topic_words((clip or {}).get('video_title_for_youtube_short'),
                                      (clip or {}).get('viral_hook_text'))
-        # The captions wait for the burned hook to be gone (no hook: from 0).
-        from hooks import hook_gone_at
+        # From the first word, unless the recipe makes them wait for the hook
+        # (hooks.CAPTIONS_WAIT_FOR_HOOK).
+        from hooks import captions_start_at
         hooked = os.path.basename(clip_path).startswith("hooked_")
-        after = hook_gone_at((clip or {}).get('auto_hook')) if hooked else 0.0
+        after = captions_start_at((clip or {}).get('auto_hook')) if hooked else 0.0
         viral_fx.apply_captions(clip_path, words, style, out, watermark=watermark, topic=topic, after=after)
         print(f"   💬 {style} captions burned: {os.path.basename(out)}")
         return out

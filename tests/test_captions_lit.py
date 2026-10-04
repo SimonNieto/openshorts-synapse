@@ -120,3 +120,22 @@ class TestCaptionsWaitForTheHook:
     def test_without_a_hook_nothing_changes(self):
         assert viral_fx.build_ass(WORDS, "premium", topic=TOPIC, after=0.0) == \
             viral_fx.build_ass(WORDS, "premium", topic=TOPIC)
+
+
+class TestCaptionsFromTheFirstWord:
+    """Since 4-oct-2026 the captions run from 0 s, under the hook (the recipe's
+    hooks.CAPTIONS_WAIT_FOR_HOOK switch brings the 2-oct wait back)."""
+
+    def test_captions_start_at_zero_with_the_house_hook(self):
+        import hooks
+        assert hooks.CAPTIONS_WAIT_FOR_HOOK is False
+        hook = {"text": "The universe and a brain cell look identical", "style": "docline",
+                "duration_seconds": 3.3}
+        assert hooks.captions_start_at(hook) == 0.0
+        assert hooks.captions_start_at(None) == 0.0
+
+    def test_the_switch_brings_the_wait_back(self, monkeypatch):
+        import hooks
+        monkeypatch.setattr(hooks, "CAPTIONS_WAIT_FOR_HOOK", True)
+        hook = {"text": "x", "style": "docline", "duration_seconds": 3.3}
+        assert abs(hooks.captions_start_at(hook) - 3.85) < 1e-9

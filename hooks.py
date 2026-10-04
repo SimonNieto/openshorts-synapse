@@ -1037,6 +1037,18 @@ def _docline_exit(c=DOCLINE):
     return max(c["out"], *(a + b for a, b in (c["rule_out"], c["eyebrow_out"])))
 
 
+# The captions run from the first word (4-oct-2026, « mets les sous-titres dès
+# le début »): every competitor captions from 0 s, ours left the first ~13 words
+# unwritten for 3.85 s. The hook (top band) and the captions (66 % of the
+# height) don't overlap. True brings back the 2-oct wait (captions after the hook).
+CAPTIONS_WAIT_FOR_HOOK = False
+
+
+def captions_start_at(hook):
+    """Where the captions start, in clip seconds (0 = from the first word)."""
+    return hook_gone_at(hook) if CAPTIONS_WAIT_FOR_HOOK else 0.0
+
+
 def hook_gone_at(hook):
     """When the burned hook (its config, as stored in ``clip["auto_hook"]``)
     has fully left the frame, in clip seconds: the captions start there, so
