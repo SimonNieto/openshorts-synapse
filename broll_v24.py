@@ -325,10 +325,14 @@ def text_round(moments, clip, words, gravity, clip_text, version="v24"):
             else:
                 refused[(k, i)] = f"code: {why}"
                 broll.filter_hit(f"v24: {why} (code)")
-    live = {k: [idea if (k, i) in specs else None for i, idea in enumerate(ideas[k])] for k in ideas}
+    # the verifier reads the ideas numbered 0, 1, 2... with no gap (v25 bench: with an empty slot it numbered them
+    # again from 0 and a verdict landed on the wrong idea); its answers are mapped back to the slots
+    slots = {k: [i for i, idea in enumerate(ideas[k]) if (k, i) in specs] for k in ideas}
+    live = {k: [ideas[k][i] for i in slots[k]] for k in ideas}
     verdicts = {}
     if any(any(v) for v in live.values()):
-        verdicts = broll_ideas._verify(moments, words, clip, gravity, live, prompt=VERIFIER_PROMPT_V24)
+        got = broll_ideas._verify(moments, words, clip, gravity, live, prompt=VERIFIER_PROMPT_V24)
+        verdicts = {(k, slots[k][j]): v for (k, j), v in got.items() if k in slots and 0 <= j < len(slots[k])}
     for (k, i), v in verdicts.items():
         if (k, i) not in specs:
             continue

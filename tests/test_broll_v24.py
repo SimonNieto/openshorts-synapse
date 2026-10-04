@@ -371,3 +371,21 @@ class TestTheChainV25:
         chooses = [c for c in fake.calls if c[0] == "broll_choose"]
         assert [c[2] for c in chooses] == [True, False, False]
         assert res["moments"][0]["vote_runs"] == ["c0_0.jpg"] * 3
+
+
+class TestTheVerifiersNumbers:
+    def test_an_empty_slot_never_shifts_a_verdict(self, chain, monkeypatch):
+        seen = {}
+
+        def verify(moments, words, clip, gravity, ideas, prompt=None):
+            seen["ideas"] = {k: [x["title"] for x in v] for k, v in ideas.items()}
+            # numbered without a gap: the second idea shown (the "meaning" slot) is refused
+            return {(0, 1): {"verdict": "refuse", "reason": "a figure", "details": "", "flaw": "figure"}}
+
+        fake = Fake({0: [None, _idea("Inside"), _idea("Plane in the sky")]}, views={0: {"order": ["c0_1.jpg", "face"]}})
+        monkeypatch.setattr(broll_v24, "_direct_v25", lambda m, w, c, g: fake.direct(m, w, c, g))
+        fake.verify = verify
+        res, _calls = chain(fake, [_moment(5.0)], version="v25")
+        r = res["moments"][0]
+        assert seen["ideas"] == {0: ["Inside", "Plane in the sky"]}
+        assert [(c["i"], c["refused"]) for c in r["cands"]] == [(1, None), (2, "verifier: a figure")]
