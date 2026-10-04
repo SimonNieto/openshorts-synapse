@@ -155,29 +155,63 @@ export default function PublishPlanTab({ uploadPostKey, uploadUserId, profiles =
         && e.time === post.original_scheduled_str.slice(11, 16))
   ));
 
+  // The queued posts a set of calendar lines stands for (the inverse of entriesForJob).
+  const queuedFor = (lines) => (queue || []).filter((q) => entriesForJob(q).some((e) => lines.some((l) => l.id === e.id)));
+
+  // Cancel one queued post for real: Upload-Post first, then our calendar
+  // lines, then the clip goes back in its project, ready to be scheduled
+  // again. The clip is found from the calendar lines OR the post's own
+  // external id ("openshorts:<job>:<clip>"), so a post whose calendar line was
+  // already removed still gets its clip back (4-oct-2026: 12 rows deleted from
+  // the calendar left 12 posts queued and their clips hidden).
+  const cancelOnUploadPost = async (post) => {
+    const owner = post.profile_username || uploadUserId;
+    const res = await apiFetch(`/api/social/scheduled/${post.job_id}?user=${encodeURIComponent(owner)}`, { method: 'DELETE', headers: upHeaders });
+    if (!res.ok) throw new Error(await res.text());
+    const lines = entriesForJob(post);
+    await Promise.all(lines.map((e) => apiFetch(`/api/schedule/${e.id}`, { method: 'DELETE' }).catch(() => {})));
+    const clips = new Map(lines.map((e) => [`${e.job_id}:${e.clip_index}`, { job_id: e.job_id, clip_index: e.clip_index }]));
+    const ext = /^openshorts:([^:]+):(\d+)$/.exec(post.external_id || '');
+    if (ext) clips.set(`${ext[1]}:${ext[2]}`, { job_id: ext[1], clip_index: Number(ext[2]) });
+    await Promise.all([...clips.values()].map((c) => apiFetch(`/api/clip/${c.job_id}/${c.clip_index}/restore`, { method: 'POST' }).catch(() => {})));
+    setEntries((prev) => (prev || []).filter((e) => !lines.some((l) => l.id === e.id)));
+  };
+
   const handleCancelQueued = async (post) => {
     if (cancelingId) return;
     if (!window.confirm(`Cancel "${(post.title || '').slice(0, 60)}" on Upload-Post? It won't be published.`)) return;
     setCancelingId(post.job_id);
     setQueueError('');
     try {
-      const owner = post.profile_username || uploadUserId;
-      const res = await apiFetch(`/api/social/scheduled/${post.job_id}?user=${encodeURIComponent(owner)}`, { method: 'DELETE', headers: upHeaders });
-      if (!res.ok) throw new Error(await res.text());
-      // Cancelled for real → drop our calendar lines and put the clip back
-      // in its project, ready to be scheduled again.
-      const lines = entriesForJob(post);
-      await Promise.all(lines.map((e) => apiFetch(`/api/schedule/${e.id}`, { method: 'DELETE' }).catch(() => {})));
-      const clips = [...new Map(lines.map((e) => [`${e.job_id}:${e.clip_index}`, e])).values()];
-      await Promise.all(clips.map((e) => apiFetch(`/api/clip/${e.job_id}/${e.clip_index}/restore`, { method: 'POST' }).catch(() => {})));
-      setEntries((prev) => (prev || []).filter((e) => !lines.some((l) => l.id === e.id)));
-      loadProjects(true);
-      loadQueue();
+      await cancelOnUploadPost(post);
     } catch (e) {
       setQueueError(`Cancel failed: ${String(e.message || e).slice(0, 160)}`);
     } finally {
       setCancelingId(null);
+      loadProjects(true);
+      loadQueue();
     }
+  };
+
+  // Every queued post at once, one confirmation.
+  const handleCancelAll = async () => {
+    const posts = queue || [];
+    if (cancelingId || !posts.length) return;
+    if (!window.confirm(`Cancel all ${posts.length} posts waiting on Upload-Post? None of them will be published.`)) return;
+    setCancelingId('all');
+    setQueueError('');
+    const failed = [];
+    for (const post of posts) {
+      try {
+        await cancelOnUploadPost(post);
+      } catch (e) {
+        failed.push(`${(post.title || '').slice(0, 40)} (${String(e.message || e).slice(0, 60)})`);
+      }
+    }
+    if (failed.length) setQueueError(`${failed.length} could not be cancelled: ${failed.join(' · ')}`);
+    setCancelingId(null);
+    loadProjects(true);
+    loadQueue();
   };
 
   const handleTogglePosted = async (entry) => {
@@ -201,14 +235,20 @@ export default function PublishPlanTab({ uploadPostKey, uploadUserId, profiles =
   };
 
   // A calendar row is a whole post: removing it removes all its platforms.
+  // A row still waiting on Upload-Post is cancelled THERE too — removing only
+  // our line used to leave the post going out (4-oct-2026).
   const handleDeletePost = async (list) => {
     if (busyId || !list.length) return;
+    const queued = queuedFor(list);
+    if (queued.length && !window.confirm(`"${displayTitle(list[0].title).slice(0, 60)}" is waiting on Upload-Post. Cancel it there too? It won't be published.`)) return;
     setBusyId(list[0].id);
     try {
-      await Promise.all(list.map((e) => apiJson(`/api/schedule/${e.id}`, { method: 'DELETE' })));
+      for (const post of queued) await cancelOnUploadPost(post);
+      await Promise.all(list.map((e) => apiJson(`/api/schedule/${e.id}`, { method: 'DELETE' }).catch(() => {})));
       setEntries((prev) => (prev || []).filter((e) => !list.some((l) => l.id === e.id)));
-    } catch {
-      setError('Could not remove this post.');
+      if (queued.length) { loadProjects(true); loadQueue(); }
+    } catch (e) {
+      setError(`Could not remove this post: ${String(e.message || e).slice(0, 160)}`);
     } finally {
       setBusyId(null);
     }
@@ -313,7 +353,7 @@ export default function PublishPlanTab({ uploadPostKey, uploadUserId, profiles =
                     disabled={!!busyId}
                     aria-label={`Remove “${displayTitle(first.title)}” from the plan`}
                     className="-m-1 p-1.5 rounded-input text-muted hover:text-danger transition-colors shrink-0 inline-flex items-center justify-center [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
-                    title={isAuto ? 'Remove from this calendar (to cancel it on Upload-Post, use "Cancel post" in "Waiting on Upload-Post" above)' : 'Remove from plan'}
+                    title={isAuto ? 'Remove from the plan and cancel it on Upload-Post' : 'Remove from plan'}
                   >
                     <Trash2 size={14} aria-hidden="true" />
                   </button>
@@ -432,9 +472,18 @@ export default function PublishPlanTab({ uploadPostKey, uploadUserId, profiles =
               <Zap size={16} className="text-muted" aria-hidden="true" /> Waiting on Upload-Post
               {queue && <span className="readout">{queue.length}</span>}
             </h3>
-            <button type="button" onClick={loadQueue} className="btn-quiet px-3 py-1.5 text-xs">
-              <RefreshCw size={13} aria-hidden="true" /> Refresh
-            </button>
+            <div className="flex gap-2">
+              {(queue || []).length > 1 && (
+                <button type="button" onClick={handleCancelAll} disabled={!!cancelingId} className="btn-danger px-3 py-1.5 text-xs">
+                  {cancelingId === 'all'
+                    ? <><Loader2 size={13} className="animate-spin" aria-hidden="true" /> Cancelling…</>
+                    : `Cancel all (${queue.length})`}
+                </button>
+              )}
+              <button type="button" onClick={loadQueue} className="btn-quiet px-3 py-1.5 text-xs">
+                <RefreshCw size={13} aria-hidden="true" /> Refresh
+              </button>
+            </div>
           </div>
           <p className="text-xs text-muted">Read live from Upload-Post: what will really go out. Cancelling here stops the post for real.</p>
           {queueError && (
