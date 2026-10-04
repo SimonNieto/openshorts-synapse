@@ -92,7 +92,9 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          # verifier, viewer on the channel's own text), the hero chosen among the ideas kept.
          # v26 « dessin » (4-oct-2026, validated by the user as the final version): every picture drawn in the
          # episode's style charter by the art director, a safety verifier, one render per moment (broll_draw).
-         "chain": "dessin", "ideas": True}
+         "chain": "dessin", "ideas": True,
+         # The owner's kept lessons (broll_teach, 4-oct-2026) in the art director's call: OFF until she validates it.
+         "lessons": False}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set

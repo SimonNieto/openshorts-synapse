@@ -6746,6 +6746,50 @@ async def broll_gallery_feedback(req: BrollGalleryFeedback):
     return {"ok": True, "feedback": fb}
 
 
+# What the art director learns from her verdicts (broll_teach): a lesson per explained verdict, kept with one click.
+class BrollLessonRequest(BaseModel):
+    id: str
+
+
+class BrollLessonUpdate(BaseModel):
+    status: Optional[str] = None
+    text: Optional[str] = None
+
+
+@app.get("/api/broll/gallery/lessons")
+async def broll_lessons_list():
+    _notion_guard()
+    import broll_teach
+    import plus as _plus
+    return {"lessons": broll_teach.lessons(OUTPUT_DIR), "active": bool(_plus.BROLL.get("lessons"))}
+
+
+@app.post("/api/broll/gallery/lesson")
+async def broll_lesson_propose(req: BrollLessonRequest):
+    _notion_guard()
+    import ai_brain
+    import broll_teach
+    if not ai_brain.claude_ready():
+        raise HTTPException(status_code=400, detail="Claude n'est pas configuré sur le serveur.")
+    try:
+        loop = asyncio.get_event_loop()
+        return {"lesson": await loop.run_in_executor(None, broll_teach.propose, OUTPUT_DIR, req.id)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"L'IA n'a pas répondu : {str(e)[:200]}")
+
+
+@app.post("/api/broll/gallery/lessons/{lid}")
+async def broll_lesson_update(lid: str, req: BrollLessonUpdate):
+    _notion_guard()
+    import broll_teach
+    try:
+        return {"lesson": broll_teach.update(OUTPUT_DIR, lid, req.status, req.text)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/api/plus/profiles")
 async def plus_list_profiles():
     if BILLING_ENABLED:
