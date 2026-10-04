@@ -3075,7 +3075,13 @@ def _mark_clip_published(job_id: str, clip_index: int, via: Optional[str],
                 st = os.stat(json_files[0])
                 with open(json_files[0], 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
-                os.utime(json_files[0], (st.st_atime, st.st_mtime))
+                try:
+                    os.utime(json_files[0], (st.st_atime, st.st_mtime))
+                except OSError:
+                    # Best effort: a bind mount can refuse it (EPERM). It used
+                    # to abort here, before the in-memory update below — the
+                    # clip came back on disk but stayed hidden (4-oct-2026).
+                    pass
         mem_clips = ((jobs.get(job_id) or {}).get('result') or {}).get('clips') or []
         if 0 <= clip_index < len(mem_clips):
             if stamp:
