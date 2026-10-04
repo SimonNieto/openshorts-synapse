@@ -25,3 +25,8 @@ symbole le plus simple de la phrase, en grand.**
 10. Une voix ou un bruit entendu de l'intérieur : la personne au centre de l'image, ce qu'elle entend tout autour.
 11. Nommer ce qu'on voit, jamais « une carte », « une image », « une photo » ou « un schéma » de la chose : le modèle
     d'image dessine le mot. C'est la règle de la v24 : jamais l'instrument ni la catégorie.
+12. Quand la phrase compare deux images (« une image de ceci avec une image de cela »), les deux images s'accrochent
+    côte à côte comme deux tableaux qu'on regarde : le cadre dans le cadre est alors le propos, et la ressemblance se
+    voit d'un tableau à l'autre. (Retenu par l'utilisatrice le 4 octobre : c'est la logique qu'elle veut garder.)
+13. Aucune comparaison dans la description de l'image (« fin comme une feuille » donne une feuille) : le modèle dessine
+    chaque mot. Une ressemblance se montre en mettant les deux choses côte à côte, jamais en l'écrivant.
