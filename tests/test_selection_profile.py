@@ -49,7 +49,7 @@ def test_the_format_reaches_the_job():
         assert [int(env["CLIP_TARGET_MIN_SECONDS"]), int(env["CLIP_TARGET_MAX_SECONDS"])] == f["clip_target"]
         assert f["clip_min"] <= f["clip_target"][0] < f["clip_target"][1] <= f["clip_max"], name
     std = plus.CLIP_FORMATS["standard"]
-    assert (std["clip_min"], std["clip_max"], std["clip_target"], std["min_clips"]) == (15, 60, [25, 40], 2), \
+    assert (std["clip_min"], std["clip_max"], std["clip_target"]) == (15, 60, [25, 40]), \
         "the Joe Rogan profile's own numbers"
 
 
@@ -77,12 +77,12 @@ def test_niche_reaches_the_job():
         assert "NICHE_TOPICS" not in _env({"niche_topics": off, "niche_only": True}), off
 
 
-def test_the_format_s_floor_is_the_prompt_floor_only():
-    env = _env()
-    assert env["CLIP_COUNT_FLOOR"] == "2" and "CLIP_TARGET_MIN" not in env and "CLIP_TARGET_MAX" not in env
-    # target_clips fixes the count and wins
-    env = _env(target_clips=5)
-    assert "CLIP_COUNT_FLOOR" not in env and env["CLIP_TARGET_MIN"] == env["CLIP_TARGET_MAX"] == "5"
+def test_no_count_the_ai_keeps_what_is_good():
+    # 4-oct-2026: an old profile's target_clips no longer fixes the count; the floor is 1, no ceiling of its own
+    for env in (_env(), _env(target_clips=2), _env(target_clips=5)):
+        assert env["CLIP_COUNT_FLOOR"] == "1"
+        assert "CLIP_TARGET_MIN" not in env and "CLIP_TARGET_MAX" not in env
+    assert "target_clips" not in plus.sanitize({"target_clips": 2})
 
 
 def test_audio_signals_and_title_variety_are_always_on():

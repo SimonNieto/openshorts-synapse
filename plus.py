@@ -38,7 +38,6 @@ DEFAULT_PROFILE = {
     "show": "",
     # The clip length, one of CLIP_FORMATS (4-oct-2026, instead of six numbers).
     "format": "standard",
-    "target_clips": None,
     # The channel's name under the captions (blank = none).
     "watermark": "",
     # Images when something concrete is named (broll.py, the recipe in BROLL).
@@ -103,14 +102,18 @@ SELECTION = {"dedupe_overlap": 0.2, "dedupe_seconds": 8.0, "hook_check": True, "
 
 # A channel's clip length (4-oct-2026: three formats instead of six numbers). clip_min / clip_max = the hard limits;
 # clip_target = the length to AIM for, asked for in the prompt (a clip over it is cut back to the sentence of its
-# payoff); min_clips = the fewest clips the clip-choice prompt asks for (otherwise 6 for a long source: a source
-# mostly off niche must be allowed to give 2, not be padded). "standard" = the Joe Rogan profile's own numbers (the
-# clip-selection audit of 30-sep); "short" and "long" are not yet tried on a job.
+# payoff). "standard" = the Joe Rogan profile's own numbers (the clip-selection audit of 30-sep); "short" and "long"
+# are not yet tried on a job.
 CLIP_FORMATS = {
-    "short": {"clip_min": 10, "clip_max": 40, "clip_target": [15, 30], "min_clips": 2},
-    "standard": {"clip_min": 15, "clip_max": 60, "clip_target": [25, 40], "min_clips": 2},
-    "long": {"clip_min": 30, "clip_max": 90, "clip_target": [40, 60], "min_clips": 2},
+    "short": {"clip_min": 10, "clip_max": 40, "clip_target": [15, 30]},
+    "standard": {"clip_min": 15, "clip_max": 60, "clip_target": [25, 40]},
+    "long": {"clip_min": 30, "clip_max": 90, "clip_target": [40, 60]},
 }
+# How many clips (4-oct-2026, validated by the user: « s'il y en a plus que deux de bons, on est bloqué à deux »): no
+# number in the profile, the AI keeps every clip good enough to publish. The fewest the clip-choice prompt asks for
+# (CLIP_COUNT_FLOOR) is 1, never padding; the ceiling stays clip_count_targets' (grows with the video, at most 12).
+# Before: the profile's target_clips fixed the count (min = max) and the floor was 2.
+CLIP_FLOOR = 1
 
 # The AI brain, part of the house recipe since 4-oct-2026 (the user: « ça fonctionne très très bien », the
 # Joe Rogan profile's own setting, no longer a profile choice): Claude at every step (ai_brain.STAGES), the light
@@ -178,7 +181,6 @@ def sanitize(raw):
     raw = raw or {}
     ap = raw.get("auto_publish") or {}
     br = raw.get("broll") or {}
-    target = raw.get("target_clips")
     # Before 4-oct-2026: the show's name (playbook_show, once in the "beta"
     # block) and the hashtag niche were two fields; the show's name wins.
     show = raw.get("show")
@@ -189,7 +191,6 @@ def sanitize(raw):
         "upload_profile": str(raw.get("upload_profile") or "").strip()[:80],
         "show": re.sub(r"[\r\n#]", "", str(show or "")).strip()[:60],
         "format": _format(raw),
-        "target_clips": _int(target, 1, 15, None) if target not in (None, "", 0, "0") else None,
         "watermark": re.sub(r"[^\w .@&'-]", "", str(raw.get("watermark") or ""))[:30],
         "broll": {"enabled": _bool(br.get("enabled"))},
         "auto_publish": {"enabled": _bool(ap.get("enabled")),
@@ -307,8 +308,6 @@ def job_env(profile):
     env["CLAUDE_EFFORT_BROLL_ART"] = BRAIN_EFFORT["broll_art"]
     if p["fresh"]:
         env["AI_CACHE_REFRESH"] = "1"
-    if p["target_clips"]:
-        env["CLIP_TARGET_MIN"] = env["CLIP_TARGET_MAX"] = str(p["target_clips"])
     if p["broll"]["enabled"]:
         # The B-roll planner is the brain's "broll" step.
         env["PLUS_BROLL_JSON"] = json.dumps({**BROLL, "enabled": True,
@@ -323,8 +322,6 @@ def job_env(profile):
             env["NICHE_ONLY"] = "1"
         if sel["niche_context"]:
             env["NICHE_CONTEXT"] = sel["niche_context"]
-    if not p["target_clips"]:
-        # The floor of the clip-choice prompt only; target_clips (above)
-        # fixes the count and wins.
-        env["CLIP_COUNT_FLOOR"] = str(fmt["min_clips"])
+    # The floor of the clip-choice prompt only (CLIP_FLOOR): no count, no ceiling of the profile's own.
+    env["CLIP_COUNT_FLOOR"] = str(CLIP_FLOOR)
     return env

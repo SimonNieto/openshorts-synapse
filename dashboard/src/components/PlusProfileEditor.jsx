@@ -21,7 +21,6 @@ const brollVerdict = (r) => {
 
 // The clip formats (plus.py CLIP_FORMATS, sent by the server with the topics): their names on screen.
 const FORMAT_LABEL = { short: 'Short', standard: 'Standard', long: 'Long' };
-const COUNTS = [2, 3, 5];
 
 // Quick-fill suggestions (recent niches): small rectangles, white fill when they match.
 const chip = (active) => `px-3 py-1.5 [@media(pointer:coarse)]:min-h-[44px] rounded-input border text-xs transition-colors ${active
@@ -90,7 +89,6 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
     const picked = p.selection?.niche_topics || [];
     const toggleTopic = (id) => setIn('selection', { niche_topics: picked.includes(id) ? picked.filter((t) => t !== id) : [...picked, id] });
     const fmt = formats[p.format || 'standard'];
-    const counts = p.target_clips && !COUNTS.includes(Number(p.target_clips)) ? [...COUNTS, Number(p.target_clips)].sort((a, b) => a - b) : COUNTS;
     return (
         <Modal
             isOpen={isOpen}
@@ -197,17 +195,11 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
                             </p>
                         )}
                     </div>
-                    <div role="group" aria-labelledby="pp-count" className="mt-5">
-                        <p id="pp-count" className="readout mb-2">Number of clips per video</p>
-                        <SegmentedControl size="sm" columns={counts.length + 1} value={p.target_clips ? String(p.target_clips) : 'ai'}
-                            onChange={(v) => set({ target_clips: v === 'ai' ? null : Number(v) })}
-                            options={[{ value: 'ai', label: 'AI decides' }, ...counts.map((n) => ({ value: String(n), label: `Exactly ${n}` }))]} />
-                        {/* plus.job_env: a number fixes the count (CLIP_TARGET_MIN = MAX); "AI decides" keeps the format's floor. */}
-                        <p className="text-xs text-muted leading-relaxed mt-2" aria-live="polite">
-                            {p.target_clips
-                                ? `The AI picks exactly ${p.target_clips} clip${Number(p.target_clips) === 1 ? '' : 's'}, the best ones of the video.`
-                                : `At least ${fmt?.min_clips ?? 2}, more when the video has more good moments.`}
-                            {picked.length > 0 && p.selection?.niche_only && ' Fewer when some fall outside the channel’s topics.'}
+                    {/* No count (plus.CLIP_FLOOR): the AI keeps every clip good enough to publish. */}
+                    <div className="mt-5">
+                        <p className="readout mb-1.5">Number of clips</p>
+                        <p className="text-xs text-muted leading-relaxed">
+                            No set number: the AI keeps every clip good enough to publish, at least one, more when the video has more good moments.
                         </p>
                     </div>
                     <div className="mt-3">

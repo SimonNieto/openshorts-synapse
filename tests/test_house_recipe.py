@@ -31,10 +31,10 @@ OLD_PROFILE = {
 class TestSanitize:
     def test_keeps_the_channel_s_facts_and_drops_the_rest(self):
         p = plus.sanitize(OLD_PROFILE)
-        assert set(p) == {"name", "upload_profile", "show", "format", "target_clips", "watermark",
+        assert set(p) == {"name", "upload_profile", "show", "format", "watermark",
                           "broll", "auto_publish", "selection", "fresh"}
         assert p["broll"] == {"enabled": True}
-        assert p["watermark"] == "@TheSynapseCut" and p["format"] == "standard" and p["target_clips"] == 2
+        assert p["watermark"] == "@TheSynapseCut" and p["format"] == "standard"
         assert p["show"] == "The Show", "read from the old beta block, over the old niche"
         assert set(p["selection"]) == {"niche_topics", "niche_weight", "niche_only", "niche_context"}
 
@@ -78,7 +78,7 @@ class TestJobEnv:
     def test_the_channel_s_own_choices_still_reach_the_job(self):
         env = plus.job_env(OLD_PROFILE)
         assert (env["CLIP_MIN_SECONDS"], env["CLIP_MAX_SECONDS"]) == ("15", "60")
-        assert env["CLIP_TARGET_MIN"] == env["CLIP_TARGET_MAX"] == "2"
+        assert "CLIP_TARGET_MIN" not in env and env["CLIP_COUNT_FLOOR"] == "1", "no count: the AI keeps what is good"
         assert (env["CLIP_TARGET_MIN_SECONDS"], env["CLIP_TARGET_MAX_SECONDS"]) == ("25", "40")
         assert env["NICHE_TOPICS"] == "substances" and env["NICHE_ONLY"] == "1"
         assert env["PLAYBOOK_SHOW"] == "The Show"
