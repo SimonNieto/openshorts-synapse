@@ -1099,18 +1099,19 @@ def claude_ready():
     return ai_brain.claude_usable()
 
 
-def claude_json(prompt, schema, timeout=240, attach=None, stage=None, effort=None, model=None, system=None):
+def claude_json(prompt, schema, timeout=240, attach=None, stage=None, effort=None, model=None, system=None, reuse=True):
     """One Claude call through ai_brain (the job-wide Claude-first switch): a
     quota / session limit switches Claude off for the rest of the job.
     ``model``: the profile's model for the B-roll by default; ``system``: the
-    editor's voice by default (the art director has its own)."""
+    editor's voice by default (the art director has its own). ``reuse=False``:
+    never the remembered answer (the bench asks a judge the same question again)."""
     import ai_brain
     model = model or ai_brain.stage_model("broll")
     if stage:
         ai_brain.say(f"Claude · {model}", stage)
     try:
         return ai_brain.claude_json(prompt, schema, timeout=timeout, attach=attach, effort=effort, model=model,
-                                    system=system or (CLAUDE_SYSTEM_VISION if attach else CLAUDE_SYSTEM))
+                                    system=system or (CLAUDE_SYSTEM_VISION if attach else CLAUDE_SYSTEM), reuse=reuse)
     except Exception as e:
         ai_brain._switch_off_if_limit(e)
         raise

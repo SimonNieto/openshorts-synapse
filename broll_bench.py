@@ -463,6 +463,8 @@ VERSIONS = {
     "v20c": {"chain": "spec"},                # v20 + the fixes of its first two runs (questions per kind, empty scenes
                                               # said in the positive, more candidates and real reserves)
     "v23": {"chain": "spec", "ideas": True, "prose": True, "judge": "rank", "reserves": "above_face", "shown": True},
+    "v23s": {"chain": "spec", "ideas": True, "prose": True, "judge": "rank", "reserves": "above_face", "shown": True,
+             "env": {"BRAIN_BROLL_IDEAS": "sonnet", "CLAUDE_EFFORT_BROLL_IDEAS": "high"}},   # v23, the director on Sonnet (A/B)
                                               # v21 + the director's prose leads the prompt (shot_prompt prose mode), the
                                               # viewer answers the calibration's flaws then ranks (no score), the engine's
                                               # risks refused before the render, the ideas already shown in the episode
