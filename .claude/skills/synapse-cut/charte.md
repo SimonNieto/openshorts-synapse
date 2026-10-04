@@ -27,11 +27,6 @@ Une négation se dessine : la chose niée, dessinée, barrée de deux traits rou
 d'interdiction. Jamais « une croix » : le modèle d'image en fait un crucifix, et dans un clip sur une mort c'est une croix
 de tombe.
 
-Les traits rouges ne passent jamais sur un visage ni sur un corps : en travers d'une personne, ils ressemblent à une
-blessure (validé par l'utilisatrice le 4 octobre 2026). Quand la chose niée est une personne, un sentiment ou une partie
-du corps, on barre un objet qui la représente, posé à part (un panneau, un symbole, un objet du quotidien), jamais la
-personne.
-
 ## Le corps opéré
 
 Une opération se dessine dans la charte, comme le reste : l'organe lui-même, propre et entier (le cerveau, la colonne,
