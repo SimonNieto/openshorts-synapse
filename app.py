@@ -6716,6 +6716,45 @@ async def plus_delete_notion(nid: str):
         raise HTTPException(status_code=404, detail=str(e))
     return {"ok": True}
 
+# --- The B-roll gallery (4-oct-2026): every drawn picture of the jobs' traces and of the drawn bench, kept or refused,
+# with the owner's 👍 / 👎, why and what to change (broll_gallery). Self-host only, like the notion pictures.
+class BrollGalleryFeedback(BaseModel):
+    id: str
+    verdict: str = ""
+    why: str = ""
+    change: str = ""
+
+
+@app.get("/api/broll/gallery")
+async def broll_gallery_list():
+    _notion_guard()
+    import broll_gallery
+    loop = asyncio.get_event_loop()
+    pictures = await loop.run_in_executor(None, broll_gallery.pictures, OUTPUT_DIR)
+    return {"pictures": pictures}
+
+
+@app.get("/api/broll/gallery/image")
+async def broll_gallery_image(id: str):
+    _notion_guard()
+    import broll_gallery
+    path = broll_gallery.path_of(OUTPUT_DIR, id)
+    if not path:
+        raise HTTPException(status_code=404, detail="Picture not found")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
+
+
+@app.post("/api/broll/gallery/feedback")
+async def broll_gallery_feedback(req: BrollGalleryFeedback):
+    _notion_guard()
+    import broll_gallery
+    try:
+        fb = broll_gallery.record(OUTPUT_DIR, req.id, req.verdict, req.why, req.change)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "feedback": fb}
+
+
 @app.get("/api/plus/profiles")
 async def plus_list_profiles():
     if BILLING_ENABLED:

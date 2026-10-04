@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Square, Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket, Library } from 'lucide-react';
+import { Square, Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket, Library, Images } from 'lucide-react';
 import KeyInput from './components/KeyInput';
 import MediaInput from './components/MediaInput';
 import McpConnectCard from './components/McpConnectCard';
@@ -31,6 +31,7 @@ import ViralFinderTab from './components/ViralFinderTab';
 import StoryTab from './components/StoryTab';
 import PlusPanel from './components/PlusPanel';
 import NotionLibrary from './components/NotionLibrary';
+import BrollGallery from './components/BrollGallery';
 import ProfileMenu from './components/ProfileMenu';
 import Modal from './components/ui/Modal';
 import NichePromptModal from './components/NichePromptModal';
@@ -1214,6 +1215,8 @@ function App() {
     ...(!billingEnabled ? [{ id: 'viral-finder', ord: '09', icon: Flame, label: 'Viral Finder', short: 'finder' }] : []),
     // Clip Generator++: the kept pictures of glossary notions (broll.py notion memory).
     ...(!billingEnabled ? [{ id: 'notions', ord: '10', icon: Library, label: 'Notion pictures', short: 'notions' }] : []),
+    // Clip Generator++: every drawn B-roll picture (jobs' traces and the drawn bench), with the owner's 👍 / 👎.
+    ...(!billingEnabled ? [{ id: 'broll-gallery', ord: '13', icon: Images, label: 'Images B-roll', short: 'images' }] : []),
     ...(!billingEnabled ? [{ id: 'story', ord: '11', icon: Clapperboard, label: 'Story Channel', short: 'story' }] : []),
     { id: 'settings', ord: billingEnabled ? '08' : '12', icon: Settings, label: 'Settings', short: 'settings' },
   ];
@@ -2157,6 +2160,12 @@ function App() {
           {activeTab === 'notions' && !billingEnabled && (
             <div className="h-full overflow-y-auto custom-scrollbar">
               <NotionLibrary />
+            </div>
+          )}
+
+          {activeTab === 'broll-gallery' && !billingEnabled && (
+            <div className="h-full overflow-y-auto custom-scrollbar">
+              <BrollGallery />
             </div>
           )}
 
