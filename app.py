@@ -2439,11 +2439,15 @@ async def process_endpoint(
     plus_profile_id: Optional[str] = Form(None),
 ):
     api_key = await resolve_gemini(request)
-    if not api_key and not (llm_backend.active() and not BILLING_ENABLED):
+    import ai_brain as _ai_brain
+    if not api_key and not ((llm_backend.active() or _ai_brain.claude_usable()) and not BILLING_ENABLED):
         # Self-host with an OpenAI-compatible server configured needs no
         # Google key for the core pipeline: the moment picker runs there and
         # the frame-based stages degrade on their own (layout_picker returns
-        # "none", silent videos fail with a message that says why).
+        # "none", silent videos fail with a message that says why). Nor does
+        # self-host with Claude set up (4-oct-2026: the house brain, plus.BRAIN,
+        # is Claude at every step; Gemini is only its fallback and the eyes of
+        # a silent video).
         raise gemini_missing_error()
 
     ack_flag = str(acknowledged).lower() in ("1", "true", "yes")
