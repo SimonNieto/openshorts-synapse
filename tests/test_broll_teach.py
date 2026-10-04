@@ -194,3 +194,13 @@ def test_the_director_reads_them_only_when_switched_on(monkeypatch):
     assert "BANC\n\nTHE OWNER'S LESSONS (...):\n- Tout dessiné.\n\nFor each sentence below" in seen[1]
     assert "- Autre." in seen[2] and "Tout dessiné" not in seen[2], "a check compares the sets it is given"
     assert broll_draw.picture_text("STYLE.", "A man.") == "STYLE. A man."
+
+
+def test_references_are_rebuilt_when_too_few(tmp_path, pictures):
+    out = str(tmp_path)
+    path = os.path.join(out, broll_teach.REFS_FILE)
+    os.makedirs(os.path.dirname(path))
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump([{"id": "pic1", "said": "come to a class", "clip": "Jiu-jitsu", "layout": "hero", "seed": 7}], f)
+    refs = broll_teach.references(out, "pic1")
+    assert len(refs) == 3 and "pic1" not in [r["id"] for r in refs], "one clip only (the critiqued one): rebuilt"

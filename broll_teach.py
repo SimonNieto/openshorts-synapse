@@ -16,6 +16,7 @@ Kept in output/_lessons/ (director_lessons.json, reference_moments.json, checks/
 import hashlib
 import json
 import os
+import textwrap
 import threading
 import time
 import uuid
@@ -235,16 +236,18 @@ def _seed(text):
 
 
 def references(output_dir, exclude=None):
-    """The fixed moments every check draws besides the critiqued one: chosen once among the jobs' kept pictures (other
-    clips, a full screen first), so that the checks compare alike."""
+    """The fixed moments every check draws besides the critiqued one: chosen once among the kept pictures of the jobs
+    and of the drawn bench (one per clip, a full screen first), so that the checks compare alike."""
     path = os.path.join(output_dir, REFS_FILE)
     try:
         with open(path, encoding="utf-8") as f:
             refs = [r for r in json.load(f) if isinstance(r, dict) and r.get("said")]
     except (OSError, ValueError, TypeError):
         refs = []
-    if not refs:
-        pics = [p for p in broll_gallery._from_traces(output_dir) if p["kept"] and p["said"] and p["seed"] is not None]
+    if len([r for r in refs if r.get("id") != exclude]) < N_REFS:
+        refs = []
+        pics = [p for p in broll_gallery._from_traces(output_dir) + broll_gallery._from_bench(output_dir)
+                if p["kept"] and p["said"] and p["seed"] is not None]
         pics.sort(key=lambda p: p["layout"] != "hero")
         clips = set()
         for p in pics:
@@ -374,7 +377,8 @@ def _board(folder, rows):
     from PIL import Image, ImageDraw, ImageFont
 
     def font(n):
-        for f in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "C:/Windows/Fonts/arialbd.ttf"):
+        for f in ("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                  "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "C:/Windows/Fonts/arialbd.ttf"):
             if os.path.exists(f):
                 return ImageFont.truetype(f, n)
         return ImageFont.load_default()
@@ -401,9 +405,11 @@ def _board(folder, rows):
     d.text((PAD, HEAD + 2 * PAD + H + H // 2 - 14), "APRÈS", fill=(235, 235, 235), font=font(26))
     x = LABEL + PAD
     for r, (a, b), w in zip(rows, cells, widths):
-        said = r["said"] if len(r["said"]) <= 70 else r["said"][:67] + "…"
-        d.text((x, PAD), ("TON IMAGE · " if r["own"] else "") + said[:35], fill=(235, 235, 235), font=font(17))
-        d.text((x, PAD + 24), said[35:70], fill=(170, 175, 185), font=font(17))
+        lines = textwrap.wrap(("TON IMAGE · " if r["own"] else "") + r["said"], max(12, w // 9))
+        if len(lines) > 2:
+            lines = [lines[0], lines[1][:-1] + "…"]
+        for i, line in enumerate(lines):
+            d.text((x, PAD + 24 * i), line, fill=(235, 235, 235) if i == 0 else (170, 175, 185), font=font(17))
         board.paste(a, (x, HEAD + PAD))
         board.paste(b, (x, HEAD + 2 * PAD + H))
         x += w + PAD
