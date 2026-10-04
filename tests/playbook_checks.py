@@ -58,6 +58,8 @@ assert c == "Clip from Joe Rogan Experience, Ep. 2553 - Andrew Huberman. All rig
 assert "#" not in c, "a '#2553' would be taken for a hashtag by the publisher"
 c2 = playbook.credit_line(SRC, BRIEF, show="The Joe Rogan Experience")
 assert c2.startswith("Clip from The Joe Rogan Experience, Ep. 2553 - Andrew Huberman."), c2
+c4 = playbook.credit_line(SRC, BRIEF, show="Joe Rogan podcast")
+assert c4 == c, "the profile's show field also picks the hashtags: the episode's own show wins (" + c4 + ")"
 c3 = playbook.credit_line("x_Some Talk-001.mkv", {"speakers": [{"name": "Jane Doe"}]})
 assert c3 == "Clip from x Some Talk, with Jane Doe. All rights to the original creators.", c3
 body = playbook.with_credit("Tease. Would you notice? #brain", c)
@@ -139,6 +141,11 @@ env = plus.job_env({"name": "t", "playbook_show": "The Joe Rogan #1 Experience"}
 assert env["SYNAPSE_PLAYBOOK"] == "1" and env["PLAYBOOK_SHOW"] == "The Joe Rogan 1 Experience"
 env = plus.job_env({"name": "t", "beta": {"playbook_show": "Old Block"}})
 assert env["PLAYBOOK_SHOW"] == "Old Block", "the show's name of an old profile (beta block) still counts"
+# 4-oct-2026: one "show" field for the credit line and the hashtags (the old niche)
+env = plus.job_env({"name": "t", "show": "New", "niche": "Old niche"})
+assert env["PLAYBOOK_SHOW"] == "New" and json.loads(env["PLUS_PROFILE_JSON"])["niche"] == "New"
+env = plus.job_env({"name": "t", "niche": "Joe Rogan podcast", "playbook_show": ""})
+assert env["PLAYBOOK_SHOW"] == "Joe Rogan podcast" and json.loads(env["PLUS_PROFILE_JSON"])["niche"] == "Joe Rogan podcast"
 env = plus.job_env({"name": "t"})
 assert env["SYNAPSE_PLAYBOOK"] == "1" and "PLAYBOOK_SHOW" not in env, "the playbook is the house recipe"
 

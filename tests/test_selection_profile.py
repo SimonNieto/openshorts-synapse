@@ -12,9 +12,8 @@ def _env(selection=None, **profile):
     return plus.job_env(raw)
 
 
-# The channel's own choices: nothing of these without the block.
-CHANNEL_VARS = ("CLIP_TARGET_MIN_SECONDS", "CLIP_TARGET_MAX_SECONDS", "NICHE_TOPICS", "NICHE_WEIGHT",
-                "NICHE_ONLY", "NICHE_CONTEXT", "CLIP_COUNT_FLOOR")
+# The channel's topics: nothing of these without the block.
+CHANNEL_VARS = ("NICHE_TOPICS", "NICHE_WEIGHT", "NICHE_ONLY", "NICHE_CONTEXT")
 # The house recipe (plus.SELECTION, 1-oct-2026): on for every job, whatever the profile says.
 RECIPE_VARS = {"CLIP_DEDUPE_OVERLAP": "0.2", "CLIP_DEDUPE_SECONDS": "8", "HOOK_CHECK": "1",
                "AUDIO_SIGNALS": "1", "TITLE_VARIETY": "1", "SYNAPSE_PLAYBOOK": "1"}
@@ -24,6 +23,7 @@ def test_a_profile_without_the_block_sets_nothing_of_its_own():
     env = _env()
     assert not [k for k in CHANNEL_VARS if k in env]
     assert {k: env[k] for k in RECIPE_VARS} == RECIPE_VARS
+    assert (env["CLIP_TARGET_MIN_SECONDS"], env["CLIP_TARGET_MAX_SECONDS"]) == ("25", "40"), "the standard format"
     assert plus.sanitize({})["selection"] == plus.DEFAULT_PROFILE["selection"]
 
 
@@ -31,6 +31,7 @@ def test_garbage_falls_back_to_the_defaults():
     assert plus.sanitize({"selection": "x"})["selection"] == plus.DEFAULT_PROFILE["selection"]
     assert plus.sanitize({"selection": {"clip_target": "x", "min_clips": None}})["selection"] \
         == plus.DEFAULT_PROFILE["selection"]
+    assert plus.sanitize({"format": "huge"})["format"] == "standard"
 
 
 def test_the_recipe_cannot_be_switched_off_by_a_profile():
@@ -40,14 +41,24 @@ def test_the_recipe_cannot_be_switched_off_by_a_profile():
     assert "dedupe_overlap" not in plus.sanitize({"selection": {"dedupe_overlap": 0}})["selection"]
 
 
-def test_clip_target_reaches_the_job():
-    env = _env({"clip_target": [25, 40]}, clip_min=15, clip_max=60)
-    assert env["CLIP_TARGET_MIN_SECONDS"] == "25" and env["CLIP_TARGET_MAX_SECONDS"] == "40"
-    assert env["CLIP_MIN_SECONDS"] == "15" and env["CLIP_MAX_SECONDS"] == "60", "the band stays the hard limit"
-    assert _env({"clip_target": [40, 25]})["CLIP_TARGET_MIN_SECONDS"] == "25", "given backwards: reordered"
-    for bad in (None, "x", [25], [25, 40, 60], {"a": 1}):
-        env = _env({"clip_target": bad})
-        assert "CLIP_TARGET_MAX_SECONDS" not in env and "CLIP_TARGET_MIN_SECONDS" not in env, bad
+def test_the_format_reaches_the_job():
+    # 4-oct-2026: three formats instead of the six numbers
+    for name, f in plus.CLIP_FORMATS.items():
+        env = _env(format=name)
+        assert (env["CLIP_MIN_SECONDS"], env["CLIP_MAX_SECONDS"]) == (str(f["clip_min"]), str(f["clip_max"]))
+        assert [int(env["CLIP_TARGET_MIN_SECONDS"]), int(env["CLIP_TARGET_MAX_SECONDS"])] == f["clip_target"]
+        assert f["clip_min"] <= f["clip_target"][0] < f["clip_target"][1] <= f["clip_max"], name
+    std = plus.CLIP_FORMATS["standard"]
+    assert (std["clip_min"], std["clip_max"], std["clip_target"], std["min_clips"]) == (15, 60, [25, 40], 2), \
+        "the Joe Rogan profile's own numbers"
+
+
+def test_an_old_profile_s_numbers_become_the_nearest_format():
+    assert plus.sanitize({"clip_min": 15, "clip_max": 60, "selection": {"clip_target": [25, 40]}})["format"] == "standard"
+    assert plus.sanitize({"selection": {"clip_target": [45, 60]}})["format"] == "long"
+    assert plus.sanitize({"clip_min": 15, "clip_max": 35})["format"] == "short"
+    assert plus.sanitize({"format": "long", "clip_min": 10, "clip_max": 20})["format"] == "long", "the format wins"
+    assert plus.sanitize({"selection": {"clip_target": "x"}, "clip_min": "y"})["format"] == "standard"
 
 
 SYNAPSE_TOPICS = ["brain_danger", "substances", "psychosis_mental_illness", "mind_psychology",
@@ -66,14 +77,12 @@ def test_niche_reaches_the_job():
         assert "NICHE_TOPICS" not in _env({"niche_topics": off, "niche_only": True}), off
 
 
-def test_min_clips_is_the_prompt_floor_only():
-    env = _env({"min_clips": 2})
+def test_the_format_s_floor_is_the_prompt_floor_only():
+    env = _env()
     assert env["CLIP_COUNT_FLOOR"] == "2" and "CLIP_TARGET_MIN" not in env and "CLIP_TARGET_MAX" not in env
     # target_clips fixes the count and wins
-    env = _env({"min_clips": 2}, target_clips=5)
+    env = _env(target_clips=5)
     assert "CLIP_COUNT_FLOOR" not in env and env["CLIP_TARGET_MIN"] == env["CLIP_TARGET_MAX"] == "5"
-    for off in (None, 0, "", "x"):
-        assert "CLIP_COUNT_FLOOR" not in _env({"min_clips": off}), off
 
 
 def test_audio_signals_and_title_variety_are_always_on():

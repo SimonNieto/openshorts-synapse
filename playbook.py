@@ -136,16 +136,21 @@ def _no_hash(text: str) -> str:
 
 
 def split_show(title: str, show: str = "") -> tuple:
-    """(show, rest of the episode title). ``show`` (the profile's) wins over
-    the guess: the part of the title before '#123', ' - ', ' | ' or ': '."""
+    """(show, rest of the episode title). ``show`` (the profile's) when the
+    title starts with it; else the title's own show, the part before '#123',
+    ' - ', ' | ' or ': '; else ``show``. Since 4-oct-2026 the profile's one
+    show field also picks the hashtags ("Joe Rogan podcast"): the episode's
+    own wording of its show wins over it."""
     title = (title or "").strip()
+    show = (show or "").strip()
     if show:
-        bare = re.sub(r"^the\s+", "", show.strip(), flags=re.I)
+        bare = re.sub(r"^the\s+", "", show, flags=re.I)
         m = re.match(r"^(?:the\s+)?" + re.escape(bare) + r"\s*[,:|–-]?\s*", title, re.I)
-        return show.strip(), (title[m.end():] if m else title).strip()
+        if m:
+            return show, title[m.end():].strip()
     m = _SHOW_SPLIT.search(title)
     if not m or m.start() == 0:
-        return "", title
+        return show, title
     return title[:m.start()].strip(), title[m.start():].strip(" -–|:")
 
 

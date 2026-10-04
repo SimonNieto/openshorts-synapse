@@ -8,8 +8,9 @@ const SELECTED_KEY = 'os_plus_profile';
 
 // One-line recap of what a profile will do, under its name.
 const recap = (p) => [
-    `${p.clip_min}-${p.clip_max}s`,
-    p.selection?.clip_target && `aim ${p.selection.clip_target[0]}-${p.selection.clip_target[1]}s`,
+    p.show,
+    `${p.format || 'standard'} clips`,
+    p.selection?.niche_topics?.length && `${p.selection.niche_topics.length} topic${p.selection.niche_topics.length === 1 ? '' : 's'}`,
     p.broll?.enabled && 'B-roll',
     p.watermark && `“${p.watermark}”`,
     p.auto_publish?.enabled && 'auto-publish',
@@ -124,6 +125,7 @@ function PlusStats({ uploadPostKey, accounts }) {
 export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [], defaultProfile = '', canAutoPublish, uploadPostKey, onProfileChange }) {
     const [profiles, setProfiles] = useState(null);
     const [defaults, setDefaults] = useState(null);
+    const [choices, setChoices] = useState({ formats: {}, topics: [] });
     const [selectedId, setSelectedId] = useState(() => { try { return localStorage.getItem(SELECTED_KEY) || ''; } catch { return ''; } });
     const [editing, setEditing] = useState(null);
     const [error, setError] = useState('');
@@ -138,6 +140,7 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
             const d = await apiJson('/api/plus/profiles');
             setProfiles(d.profiles || []);
             setDefaults(d.defaults);
+            setChoices({ formats: d.formats || {}, topics: d.topics || [] });
         } catch {
             setError('Could not load the profiles.');
         }
@@ -183,7 +186,7 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
                 <p className="eyebrow">Synapse Cut</p>
                 <h2 className="page-title mt-2">Pick a profile, drop a video</h2>
                 <p className="page-lede mt-2">
-                    Each profile is a channel's full recipe: account, niche, lengths, B-roll, publishing; the look and the AI brain are the house recipe. The classic Clip Generator stays untouched.
+                    Each profile is a channel's full recipe: account, show, topics, clip length, B-roll, publishing; the look and the AI brain are the house recipe. The classic Clip Generator stays untouched.
                 </p>
             </header>
 
@@ -262,6 +265,8 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
                 isOpen={!!editing}
                 profile={editing}
                 accounts={accounts}
+                formats={choices.formats}
+                topics={choices.topics}
                 onClose={() => setEditing(null)}
                 onSave={save}
                 onDelete={remove}

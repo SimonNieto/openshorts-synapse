@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useState } from 'react';
-import { Clock, User, Zap, Trash2, Copy, Image as ImageIcon, Loader2, RefreshCw, Video, Instagram, Youtube } from 'lucide-react';
+import { Clock, User, Zap, Trash2, Copy, Image as ImageIcon, Loader2, RefreshCw, Video, Instagram, Youtube, Tags } from 'lucide-react';
 import Modal from './ui/Modal';
 import SegmentedControl from './ui/SegmentedControl';
 import { loadNicheHistory } from '../lib/nicheHistory';
@@ -19,8 +19,9 @@ const brollVerdict = (r) => {
     return [claude, local].filter(Boolean).join(' · ');
 };
 
-// What the clip-selection audit (30 sep 2026) recommends for the "aim for" band and the clip floor.
-const REC = { clip_target: [25, 40], min_clips: 2 };
+// The clip formats (plus.py CLIP_FORMATS, sent by the server with the topics): their names on screen.
+const FORMAT_LABEL = { short: 'Short', standard: 'Standard', long: 'Long' };
+const COUNTS = [2, 3, 5];
 
 // Quick-fill suggestions (recent niches): small rectangles, white fill when they match.
 const chip = (active) => `px-3 py-1.5 [@media(pointer:coarse)]:min-h-[44px] rounded-input border text-xs transition-colors ${active
@@ -67,7 +68,7 @@ function Section({ id, icon, title, lede, children }) {
  * Edit one Synapse Cut profile: everything a run of that channel needs.
  * Beta switches change what the AI does and are clearly marked as such.
  */
-export default function PlusProfileEditor({ isOpen, onClose, profile, accounts = [], onSave, onDelete, onDuplicate }) {
+export default function PlusProfileEditor({ isOpen, onClose, profile, accounts = [], formats = {}, topics = [], onSave, onDelete, onDuplicate }) {
     const [p, setP] = useState(profile);
     const [history] = useState(loadNicheHistory);
     const [brollTest, setBrollTest] = useState(null); // null | 'running' | result
@@ -86,12 +87,10 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
 
     const set = (patch) => setP((cur) => ({ ...cur, ...patch }));
     const setIn = (key, patch) => setP((cur) => ({ ...cur, [key]: { ...(cur[key] || {}), ...patch } }));
-    // Length to AIM for (plus.py selection.clip_target): both bounds or nothing.
-    const setTarget = (i, v) => setP((cur) => {
-        const t = [...(cur.selection?.clip_target || ['', ''])];
-        t[i] = v;
-        return { ...cur, selection: { ...(cur.selection || {}), clip_target: t[0] !== '' && t[1] !== '' ? t : (t[0] === '' && t[1] === '' ? null : t) } };
-    });
+    const picked = p.selection?.niche_topics || [];
+    const toggleTopic = (id) => setIn('selection', { niche_topics: picked.includes(id) ? picked.filter((t) => t !== id) : [...picked, id] });
+    const fmt = formats[p.format || 'standard'];
+    const counts = p.target_clips && !COUNTS.includes(Number(p.target_clips)) ? [...COUNTS, Number(p.target_clips)].sort((a, b) => a - b) : COUNTS;
     return (
         <Modal
             isOpen={isOpen}
@@ -123,7 +122,7 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
                         placeholder="e.g. Joe Rogan · podcast" className="input-field" />
                 </div>
 
-                <Section id="pp-account" icon={<User size={15} />} title="Account & niche">
+                <Section id="pp-account" icon={<User size={15} />} title="Channel">
                     <div className="space-y-4">
                         {accounts.length > 0 && (
                             <div role="group" aria-labelledby="pp-account-label">
@@ -134,17 +133,18 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
                             </div>
                         )}
                         <div>
-                            <label htmlFor="pp-niche" className="readout block mb-1.5">Niche, for hashtags</label>
-                            <input id="pp-niche" value={p.niche || ''} onChange={(e) => set({ niche: e.target.value })}
-                                placeholder="e.g. Joe Rogan podcast clips" className="input-field" />
+                            <label htmlFor="pp-show" className="readout block mb-1.5">Show</label>
+                            <input id="pp-show" value={p.show || ''} onChange={(e) => set({ show: e.target.value })}
+                                aria-describedby="pp-show-hint" placeholder="e.g. Joe Rogan Experience" className="input-field" />
+                            <p id="pp-show-hint" className="text-xs text-muted mt-1">Picks the hashtags, and names the show at the top of each description when the episode's title doesn't.</p>
                             {history.length > 0 && (
                                 <div className="mt-2.5">
-                                    <p id="pp-niche-recent" className="text-xs text-muted mb-1.5">Recent niches</p>
-                                    <div className="flex flex-wrap gap-1.5" role="group" aria-labelledby="pp-niche-recent">
+                                    <p id="pp-show-recent" className="text-xs text-muted mb-1.5">Recent</p>
+                                    <div className="flex flex-wrap gap-1.5" role="group" aria-labelledby="pp-show-recent">
                                         {history.map((n) => {
-                                            const on = (p.niche || '').toLowerCase() === n.toLowerCase();
+                                            const on = (p.show || '').toLowerCase() === n.toLowerCase();
                                             return (
-                                                <button key={n} type="button" aria-pressed={on} onClick={() => set({ niche: n })} className={chip(on)}>{n}</button>
+                                                <button key={n} type="button" aria-pressed={on} onClick={() => set({ show: n })} className={chip(on)}>{n}</button>
                                             );
                                         })}
                                     </div>
@@ -161,54 +161,48 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
                     </div>
                 </Section>
 
-                <Section id="pp-clips" icon={<Clock size={15} />} title="Clips" lede="The reference channels' best shorts run 16-33 s.">
-                    <div className="grid grid-cols-3 gap-3">
-                        <div className="flex flex-col justify-end">
-                            <label htmlFor="pp-min" className="text-xs text-muted">Shortest (s)</label>
-                            <input id="pp-min" type="number" min="5" max="170" value={p.clip_min ?? 15} onChange={(e) => set({ clip_min: e.target.value })} className="input-field text-sm mt-1" />
-                        </div>
-                        <div className="flex flex-col justify-end">
-                            <label htmlFor="pp-max" className="text-xs text-muted">Longest (s)</label>
-                            <input id="pp-max" type="number" min="10" max="180" value={p.clip_max ?? 35} onChange={(e) => set({ clip_max: e.target.value })} className="input-field text-sm mt-1" />
-                        </div>
-                        <div className="flex flex-col justify-end">
-                            <label htmlFor="pp-count" className="text-xs text-muted">Clips</label>
-                            <input id="pp-count" type="number" min="1" max="15" value={p.target_clips ?? ''} onChange={(e) => set({ target_clips: e.target.value || null })}
-                                aria-describedby="pp-count-hint" placeholder="AI" className="input-field text-sm mt-1" />
-                        </div>
+                <Section id="pp-topics" icon={<Tags size={15} />} title="Topics" lede="What the channel is about. The AI looks for these first.">
+                    <div className="flex flex-wrap gap-1.5" role="group" aria-labelledby="pp-topics">
+                        {topics.map((t) => {
+                            const on = picked.includes(t.id);
+                            return (
+                                <button key={t.id} type="button" aria-pressed={on} onClick={() => toggleTopic(t.id)} className={chip(on)}>{t.label}</button>
+                            );
+                        })}
                     </div>
-                    <p id="pp-count-hint" className="text-xs text-muted mt-1.5">Clips left blank: the AI decides how many.</p>
+                    {picked.length > 0 ? (
+                        <div role="group" aria-labelledby="pp-offtopic" className="mt-4">
+                            <p id="pp-offtopic" className="readout mb-2">A clip outside these topics</p>
+                            <SegmentedControl size="sm" columns={2} value={p.selection?.niche_only ? 'drop' : 'lower'}
+                                onChange={(v) => setIn('selection', { niche_only: v === 'drop' })}
+                                options={[{ value: 'drop', label: 'Dropped', hint: "Only the channel's topics" },
+                                    { value: 'lower', label: 'Kept, ranked lower', hint: "When it's really strong" }]} />
+                        </div>
+                    ) : (
+                        <p className="text-xs text-muted mt-2">None picked: every topic counts the same.</p>
+                    )}
+                </Section>
 
-                    <fieldset className="mt-5">
-                        <legend className="readout mb-2">Length to aim for</legend>
-                        <div className="grid grid-cols-3 gap-3">
-                            <div className="flex flex-col justify-end">
-                                <label htmlFor="pp-aim-from" className="text-xs text-muted">From (s)</label>
-                                <input id="pp-aim-from" type="number" min="5" max="180" value={p.selection?.clip_target?.[0] ?? ''}
-                                    onChange={(e) => setTarget(0, e.target.value)} className="input-field text-sm mt-1" placeholder="25" />
-                            </div>
-                            <div className="flex flex-col justify-end">
-                                <label htmlFor="pp-aim-to" className="text-xs text-muted">To (s)</label>
-                                <input id="pp-aim-to" type="number" min="5" max="180" value={p.selection?.clip_target?.[1] ?? ''}
-                                    onChange={(e) => setTarget(1, e.target.value)} className="input-field text-sm mt-1" placeholder="40" />
-                            </div>
-                            <div className="flex flex-col justify-end">
-                                <label htmlFor="pp-min-clips" className="text-xs text-muted">At least (clips)</label>
-                                <input id="pp-min-clips" type="number" min="1" max="15" value={p.selection?.min_clips ?? ''}
-                                    onChange={(e) => setIn('selection', { min_clips: e.target.value || null })} className="input-field text-sm mt-1" placeholder="2" />
-                            </div>
-                        </div>
-                        <div className="mt-2.5 flex flex-wrap items-start gap-x-4 gap-y-2">
-                            <p className="text-xs text-muted leading-relaxed flex-1 min-w-[14rem]">
-                                Recommended: aim for {REC.clip_target[0]}-{REC.clip_target[1]} s inside the min/max above (a longer clip is cut back to its payoff), at least {REC.min_clips} clips so an off-niche source is not padded.
+                <Section id="pp-clips" icon={<Clock size={15} />} title="Clips" lede="The reference channels' best shorts run 16-33 s.">
+                    <div role="group" aria-labelledby="pp-length">
+                        <p id="pp-length" className="readout mb-2">Length</p>
+                        <SegmentedControl columns={3} value={p.format || 'standard'} onChange={(v) => set({ format: v })}
+                            options={Object.entries(formats).map(([k, f]) => ({
+                                value: k, label: FORMAT_LABEL[k] || k,
+                                hint: `${f.clip_target[0]}–${f.clip_target[1]} s${k === 'standard' ? ' · recommended' : ''}`,
+                            }))} />
+                        {fmt && (
+                            <p className="text-xs text-muted leading-relaxed mt-2">
+                                Aims for {fmt.clip_target[0]}–{fmt.clip_target[1]} s, never under {fmt.clip_min} s or over {fmt.clip_max} s. Every clip ends on a full sentence.
                             </p>
-                            {(p.selection?.clip_target?.[0] != REC.clip_target[0] || p.selection?.clip_target?.[1] != REC.clip_target[1] || p.selection?.min_clips != REC.min_clips) && (
-                                <button type="button" onClick={() => setIn('selection', { clip_target: [...REC.clip_target], min_clips: REC.min_clips })}
-                                    className="btn-quiet px-3 py-1.5 text-xs shrink-0">Use recommended</button>
-                            )}
-                        </div>
-                    </fieldset>
-                    <p className="text-xs text-muted leading-relaxed mt-4">Every clip ends on a full sentence: cut back to the last full stop (drops a dangling “cause…” after the punchline) or run on to the next one, a few seconds at most.</p>
+                        )}
+                    </div>
+                    <div role="group" aria-labelledby="pp-count" className="mt-5">
+                        <p id="pp-count" className="readout mb-2">How many</p>
+                        <SegmentedControl size="sm" columns={counts.length + 1} value={p.target_clips ? String(p.target_clips) : 'ai'}
+                            onChange={(v) => set({ target_clips: v === 'ai' ? null : Number(v) })}
+                            options={[{ value: 'ai', label: 'AI decides' }, ...counts.map((n) => ({ value: String(n), label: String(n) }))]} />
+                    </div>
                     <div className="mt-3">
                         <Toggle checked={p.fresh} onChange={(v) => set({ fresh: v })}
                             label={<span className="inline-flex items-center gap-1.5"><RefreshCw size={13} className="text-muted" aria-hidden="true" /> Fresh picks on the next run</span>}

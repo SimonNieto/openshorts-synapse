@@ -6708,10 +6708,17 @@ async def plus_list_profiles():
     if BILLING_ENABLED:
         raise HTTPException(status_code=404, detail="Not found")
     import plus as _plus
-    # Sanitized, so a profile saved before a field existed (e.g. the selection
-    # block) arrives with its effective values filled in.
-    return {"profiles": [{**p, **_plus.sanitize(p)} for p in _plus.load_profiles()],
-            "defaults": _plus.sanitize(_plus.DEFAULT_PROFILE)}
+    import playbook as _playbook
+    # Sanitized, so a profile saved before a field existed (e.g. the format)
+    # arrives with its effective values filled in, and without the keys the
+    # recipe replaced.
+    return {"profiles": [{**{k: p[k] for k in ("id", "created_at", "updated_at") if k in p}, **_plus.sanitize(p)}
+                         for p in _plus.load_profiles()],
+            "defaults": _plus.sanitize(_plus.DEFAULT_PROFILE),
+            # The profile screen's choices: the clip formats and the topic categories.
+            "formats": _plus.CLIP_FORMATS,
+            "topics": [{"id": t, "label": _playbook.HOOK_CATEGORY[t]} for t in _playbook.TOPIC_BUCKETS
+                       if t in _playbook.HOOK_CATEGORY]}
 
 
 @app.post("/api/plus/profiles")

@@ -1,6 +1,6 @@
 """The house recipe (plus.py, 1-oct-2026): how a clip is made is no longer a profile choice.
 
-A profile keeps a channel's own facts (account, niche, lengths, B-roll on/off, watermark,
+A profile keeps a channel's own facts (account, show, topics, clip format, B-roll on/off, watermark,
 publishing). Everything else the profile editor used to offer is fixed in plus.EDIT_STYLE / HOOK_* /
 FX / BROLL / SELECTION / BRAIN (4-oct-2026), reaches every job through job_env, and an old saved profile loses those keys
 without breaking."""
@@ -31,21 +31,21 @@ OLD_PROFILE = {
 class TestSanitize:
     def test_keeps_the_channel_s_facts_and_drops_the_rest(self):
         p = plus.sanitize(OLD_PROFILE)
-        assert set(p) == {"name", "upload_profile", "niche", "clip_min", "clip_max", "target_clips", "watermark",
-                          "broll", "auto_publish", "playbook_show", "selection", "fresh"}
+        assert set(p) == {"name", "upload_profile", "show", "format", "target_clips", "watermark",
+                          "broll", "auto_publish", "selection", "fresh"}
         assert p["broll"] == {"enabled": True}
-        assert p["watermark"] == "@TheSynapseCut" and p["clip_max"] == 60 and p["target_clips"] == 2
-        assert p["playbook_show"] == "The Show", "read from the old beta block"
-        assert set(p["selection"]) == {"clip_target", "niche_topics", "niche_weight", "niche_only", "niche_context",
-                                       "min_clips"}
+        assert p["watermark"] == "@TheSynapseCut" and p["format"] == "standard" and p["target_clips"] == 2
+        assert p["show"] == "The Show", "read from the old beta block, over the old niche"
+        assert set(p["selection"]) == {"niche_topics", "niche_weight", "niche_only", "niche_context"}
 
     def test_the_defaults_are_the_same_shape(self):
         assert set(plus.sanitize({})) == set(plus.sanitize(OLD_PROFILE))
         assert plus.sanitize({})["broll"] == {"enabled": False}
 
-    def test_the_new_show_field_wins_over_the_old_block(self):
-        assert plus.sanitize({"playbook_show": "New", "beta": {"playbook_show": "Old"}})["playbook_show"] == "New"
-        assert plus.sanitize({"playbook_show": "", "beta": {"playbook_show": "Old"}})["playbook_show"] == ""
+    def test_the_show_field_wins_over_the_old_ones(self):
+        assert plus.sanitize({"playbook_show": "New", "beta": {"playbook_show": "Old"}})["show"] == "New"
+        assert plus.sanitize({"playbook_show": "", "niche": "Joe Rogan podcast"})["show"] == "Joe Rogan podcast"
+        assert plus.sanitize({"show": "", "niche": "Old", "playbook_show": "Old"})["show"] == ""
 
 
 class TestJobEnv:

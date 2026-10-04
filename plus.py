@@ -32,9 +32,12 @@ PROFILE_FILE = "clip_profiles.json"
 DEFAULT_PROFILE = {
     "name": "Podcast · premium",
     "upload_profile": "",
-    "niche": "",
-    "clip_min": 15,
-    "clip_max": 35,
+    # The show the channel clips (4-oct-2026, one field for the old niche and
+    # playbook_show): picks the hashtag pool, and names the show in the credit
+    # line when the episode's title does not (playbook.split_show).
+    "show": "",
+    # The clip length, one of CLIP_FORMATS (4-oct-2026, instead of six numbers).
+    "format": "standard",
     "target_clips": None,
     # The channel's name under the captions (blank = none).
     "watermark": "",
@@ -43,24 +46,13 @@ DEFAULT_PROFILE = {
     # it stops when the images cannot be made.
     "broll": {"enabled": False},
     "auto_publish": {"enabled": False, "platforms": ["tiktok", "instagram", "youtube"]},
-    # The show's name for the playbook's credit line (empty = read from the
-    # source's file name). JSON only, no screen.
-    "playbook_show": "",
-    # What the channel is about and how long its clips should AIM to be.
+    # What the channel is about.
     "selection": {
-        # [low, high] seconds to AIM for inside clip_min..clip_max (the hard
-        # limits): asked for in the prompt, and a clip over it is cut back to
-        # the sentence of its payoff. None = off.
-        "clip_target": None,
         # The playbook.TOPIC_BUCKETS the channel covers, said in the scoring
         # and clip-choice prompts; a clip outside them loses niche_weight
         # points of score, or is dropped with niche_only. niche_context: one
-        # sentence on the channel, optional. [] = off.
+        # sentence on the channel, optional (JSON only). [] = off.
         "niche_topics": [], "niche_weight": 15, "niche_only": False, "niche_context": "",
-        # The fewest clips the clip-choice prompt asks for (None = the usual
-        # floor, 6 for a long source). With a niche, a source that is mostly
-        # off niche should be allowed to give 2 clips, not be padded to 6.
-        "min_clips": None,
     },
     # The next run ignores the AI memory (new picks), then switches itself off.
     "fresh": False,
@@ -109,6 +101,17 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
 SELECTION = {"dedupe_overlap": 0.2, "dedupe_seconds": 8.0, "hook_check": True, "audio_signals": True,
              "title_variety": True, "playbook": True}
 
+# A channel's clip length (4-oct-2026: three formats instead of six numbers). clip_min / clip_max = the hard limits;
+# clip_target = the length to AIM for, asked for in the prompt (a clip over it is cut back to the sentence of its
+# payoff); min_clips = the fewest clips the clip-choice prompt asks for (otherwise 6 for a long source: a source
+# mostly off niche must be allowed to give 2, not be padded). "standard" = the Joe Rogan profile's own numbers (the
+# clip-selection audit of 30-sep); "short" and "long" are not yet tried on a job.
+CLIP_FORMATS = {
+    "short": {"clip_min": 10, "clip_max": 40, "clip_target": [15, 30], "min_clips": 2},
+    "standard": {"clip_min": 15, "clip_max": 60, "clip_target": [25, 40], "min_clips": 2},
+    "long": {"clip_min": 30, "clip_max": 90, "clip_target": [40, 60], "min_clips": 2},
+}
+
 # The AI brain, part of the house recipe since 4-oct-2026 (the user: « ça fonctionne très très bien », the
 # Joe Rogan profile's own setting, no longer a profile choice): Claude at every step (ai_brain.STAGES), the light
 # ones on Haiku. The « dessin » B-roll chain sets its art director and verifier itself (broll_draw: Opus, Sonnet).
@@ -129,25 +132,32 @@ def _selection(raw):
     """Sanitized selection block (DEFAULT_PROFILE["selection"])."""
     raw = raw if isinstance(raw, dict) else {}
     d = DEFAULT_PROFILE["selection"]
-    target = raw.get("clip_target")
-    try:
-        lo, hi = sorted(max(5, min(180, int(float(v)))) for v in target)
-        target = [lo, hi]
-    except (TypeError, ValueError):
-        target = None
     import playbook
     topics = raw.get("niche_topics")
     topics = [t for t in (topics if isinstance(topics, (list, tuple)) else [])
               if t in playbook.TOPIC_BUCKETS and t != "other"]
-    min_clips = raw.get("min_clips")
     return {
-        "clip_target": target,
         "niche_topics": list(dict.fromkeys(topics)),
         "niche_weight": round(_float(raw.get("niche_weight"), 0.0, 100.0, d["niche_weight"]), 1),
         "niche_only": _bool(raw.get("niche_only")),
         "niche_context": re.sub(r"\s+", " ", str(raw.get("niche_context") or "")).strip()[:200],
-        "min_clips": _int(min_clips, 1, 15, None) if min_clips not in (None, "", 0, "0") else None,
     }
+
+
+def _format(raw):
+    """The profile's CLIP_FORMATS key. A profile saved before 4-oct-2026 had
+    numbers: the format whose aim is nearest to its own (its min/max else)."""
+    if raw.get("format") in CLIP_FORMATS:
+        return raw["format"]
+    sel = raw.get("selection") if isinstance(raw.get("selection"), dict) else {}
+    try:
+        mid = sum(float(v) for v in sel.get("clip_target")) / 2
+    except (TypeError, ValueError):
+        try:
+            mid = (float(raw["clip_min"]) + float(raw["clip_max"])) / 2
+        except (KeyError, TypeError, ValueError):
+            return DEFAULT_PROFILE["format"]
+    return min(CLIP_FORMATS, key=lambda k: abs(sum(CLIP_FORMATS[k]["clip_target"]) / 2 - mid))
 
 
 def _bool(v):
@@ -166,31 +176,25 @@ def sanitize(raw):
     Keys of older profiles (fx, music, edit_style, hook_style, beta, the
     B-roll drawing...) are dropped: the house recipe replaced them."""
     raw = raw or {}
-    d = DEFAULT_PROFILE
     ap = raw.get("auto_publish") or {}
     br = raw.get("broll") or {}
-    clip_min = _int(raw.get("clip_min"), 5, 170, d["clip_min"])
-    clip_max = _int(raw.get("clip_max"), 10, 180, d["clip_max"])
-    if clip_max < clip_min + 5:
-        clip_max = clip_min + 5
     target = raw.get("target_clips")
-    # The show's name moved out of the old "beta" block.
-    show = raw.get("playbook_show")
+    # Before 4-oct-2026: the show's name (playbook_show, once in the "beta"
+    # block) and the hashtag niche were two fields; the show's name wins.
+    show = raw.get("show")
     if show is None:
-        show = (raw.get("beta") or {}).get("playbook_show")
+        show = raw.get("playbook_show") or (raw.get("beta") or {}).get("playbook_show") or raw.get("niche")
     return {
         "name": (str(raw.get("name") or "").strip() or "Profile")[:60],
         "upload_profile": str(raw.get("upload_profile") or "").strip()[:80],
-        "niche": str(raw.get("niche") or "").strip()[:80],
-        "clip_min": clip_min,
-        "clip_max": clip_max,
+        "show": re.sub(r"[\r\n#]", "", str(show or "")).strip()[:60],
+        "format": _format(raw),
         "target_clips": _int(target, 1, 15, None) if target not in (None, "", 0, "0") else None,
         "watermark": re.sub(r"[^\w .@&'-]", "", str(raw.get("watermark") or ""))[:30],
         "broll": {"enabled": _bool(br.get("enabled"))},
         "auto_publish": {"enabled": _bool(ap.get("enabled")),
                          "platforms": [p for p in (ap.get("platforms") or []) if p in ("tiktok", "instagram", "youtube")]
                          or ["tiktok", "instagram", "youtube"]},
-        "playbook_show": re.sub(r"[\r\n#]", "", str(show or "")).strip()[:60],
         "selection": _selection(raw.get("selection")),
         # Profiles saved before 4-oct-2026 kept it in their brain block.
         "fresh": _bool(raw["fresh"] if "fresh" in raw else (raw.get("brain") or {}).get("fresh")),
@@ -258,6 +262,7 @@ def delete(profile_id):
 def job_env(profile):
     """Env vars main.py reads for a Clip Generator++ job."""
     p = sanitize(profile)
+    fmt = CLIP_FORMATS[p["format"]]
     env = {
         # --- the house recipe (EDIT_STYLE, HOOK_*, FX, SELECTION above) ---
         "EDIT_STYLE": EDIT_STYLE,
@@ -280,13 +285,15 @@ def job_env(profile):
         "AUDIO_SIGNALS": "1",
         "TITLE_VARIETY": "1",
         # --- the channel's own facts ---
-        "CLIP_MIN_SECONDS": str(p["clip_min"]),
-        "CLIP_MAX_SECONDS": str(p["clip_max"]),
-        # The niche and upload profile travel with the project: publishing
-        # picks the niche's hashtag pool from it (otherwise it fell back to
-        # Gemini's guessed niche, which has no researched pool).
+        "CLIP_MIN_SECONDS": str(fmt["clip_min"]),
+        "CLIP_MAX_SECONDS": str(fmt["clip_max"]),
+        "CLIP_TARGET_MIN_SECONDS": str(fmt["clip_target"][0]),
+        "CLIP_TARGET_MAX_SECONDS": str(fmt["clip_target"][1]),
+        # The show (as the niche) and upload profile travel with the project:
+        # publishing picks the niche's hashtag pool from it (otherwise it fell
+        # back to Gemini's guessed niche, which has no researched pool).
         "PLUS_PROFILE_JSON": json.dumps({"id": profile.get("id"), "name": p["name"],
-                                         "niche": p.get("niche") or None,
+                                         "niche": p["show"] or None,
                                          "upload_profile": p.get("upload_profile") or None,
                                          # The editor's later text calls (translate,
                                          # regenerate) follow the profile too.
@@ -306,11 +313,9 @@ def job_env(profile):
         # The B-roll planner is the brain's "broll" step.
         env["PLUS_BROLL_JSON"] = json.dumps({**BROLL, "enabled": True,
                                              "planner": "gemini" if BRAIN["broll"] == "gemini" else "claude"})
-    if p["playbook_show"]:
-        env["PLAYBOOK_SHOW"] = p["playbook_show"]
+    if p["show"]:
+        env["PLAYBOOK_SHOW"] = p["show"]
     sel = p["selection"]
-    if sel["clip_target"]:
-        env["CLIP_TARGET_MIN_SECONDS"], env["CLIP_TARGET_MAX_SECONDS"] = (str(v) for v in sel["clip_target"])
     if sel["niche_topics"]:
         env["NICHE_TOPICS"] = ",".join(sel["niche_topics"])
         env["NICHE_WEIGHT"] = f"{sel['niche_weight']:g}"
@@ -318,8 +323,8 @@ def job_env(profile):
             env["NICHE_ONLY"] = "1"
         if sel["niche_context"]:
             env["NICHE_CONTEXT"] = sel["niche_context"]
-    if sel["min_clips"] and not p["target_clips"]:
+    if not p["target_clips"]:
         # The floor of the clip-choice prompt only; target_clips (above)
         # fixes the count and wins.
-        env["CLIP_COUNT_FLOOR"] = str(sel["min_clips"])
+        env["CLIP_COUNT_FLOOR"] = str(fmt["min_clips"])
     return env
