@@ -1,8 +1,8 @@
 """The house recipe (plus.py, 1-oct-2026): how a clip is made is no longer a profile choice.
 
-A profile keeps a channel's own facts (account, niche, lengths, brain, B-roll on/off, watermark,
+A profile keeps a channel's own facts (account, niche, lengths, B-roll on/off, watermark,
 publishing). Everything else the profile editor used to offer is fixed in plus.EDIT_STYLE / HOOK_* /
-FX / BROLL / SELECTION, reaches every job through job_env, and an old saved profile loses those keys
+FX / BROLL / SELECTION / BRAIN (4-oct-2026), reaches every job through job_env, and an old saved profile loses those keys
 without breaking."""
 import json
 
@@ -32,7 +32,7 @@ class TestSanitize:
     def test_keeps_the_channel_s_facts_and_drops_the_rest(self):
         p = plus.sanitize(OLD_PROFILE)
         assert set(p) == {"name", "upload_profile", "niche", "clip_min", "clip_max", "target_clips", "watermark",
-                          "broll", "auto_publish", "playbook_show", "selection", "brain"}
+                          "broll", "auto_publish", "playbook_show", "selection", "fresh"}
         assert p["broll"] == {"enabled": True}
         assert p["watermark"] == "@TheSynapseCut" and p["clip_max"] == 60 and p["target_clips"] == 2
         assert p["playbook_show"] == "The Show", "read from the old beta block"
@@ -82,7 +82,24 @@ class TestJobEnv:
         assert (env["CLIP_TARGET_MIN_SECONDS"], env["CLIP_TARGET_MAX_SECONDS"]) == ("25", "40")
         assert env["NICHE_TOPICS"] == "substances" and env["NICHE_ONLY"] == "1"
         assert env["PLAYBOOK_SHOW"] == "The Show"
-        assert env["BRAIN_DETAIL"] in plus.BRAIN_CHOICES
+        assert "BRAIN_DETAIL" in env
+
+    def test_the_brain_is_the_recipe_whatever_the_profile_said(self):
+        # 4-oct-2026: the Joe Rogan profile's own setting, fixed for every channel
+        for profile in ({}, OLD_PROFILE, {"brain": {"preset": "gemini", "thinking": "max", "thinking_art": "light"}}):
+            env = plus.job_env(profile)
+            assert {k: env[f"BRAIN_{k.upper()}"] for k in plus.BRAIN} == {
+                "brief_score": "haiku", "detail": "sonnet", "layout": "haiku", "broll": "sonnet",
+                "broll_art": "sonnet", "image_review": "haiku", "hook": "sonnet", "text": "haiku"}
+            assert (env["CLAUDE_EFFORT_DETAIL"], env["CLAUDE_EFFORT_BROLL"], env["CLAUDE_EFFORT_BROLL_ART"]) == (
+                "medium", "medium", "high")
+            assert json.loads(env["PLUS_PROFILE_JSON"])["brain"] == {"text": "haiku"}
+            assert "AI_CACHE_REFRESH" not in env
+
+    def test_fresh_picks_moved_out_of_the_old_brain_block(self):
+        assert plus.sanitize({"brain": {"fresh": True}})["fresh"] is True
+        assert plus.sanitize({"fresh": False, "brain": {"fresh": True}})["fresh"] is False
+        assert plus.job_env({"fresh": True})["AI_CACHE_REFRESH"] == "1"
 
 
 class TestTheRecipeMatchesTheCode:
@@ -106,5 +123,5 @@ class TestTheRecipeMatchesTheCode:
         for name in ("free_photo", "openverse_image", "gemini_image", "REAL_PHOTO_RULE", "FAMILIES", "FAMILY_CHOICE",
                      "STYLE_TONE", "family_text", "_sheet_with_bible"):
             assert not hasattr(broll, name), name
-        for name in ("music_library", "pick_track"):
+        for name in ("music_library", "pick_track", "BRAIN_PRESETS", "BRAIN_CHOICES", "THINKING", "_brain"):
             assert not hasattr(plus, name), name

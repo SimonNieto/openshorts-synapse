@@ -269,15 +269,12 @@ class TestRegenerate:
 class TestTheStage:
     def test_the_step_exists_everywhere(self):
         assert "broll_art" in ai_brain.STAGES and ai_brain.STAGE_DEFAULTS["broll_art"] == "sonnet"
-        assert "broll_art" in plus.BRAIN_STAGES
-        for name, preset in plus.BRAIN_PRESETS.items():
-            assert preset["broll_art"] in plus.BRAIN_CHOICES, name
-        assert plus.BRAIN_PRESETS["gemini"]["broll_art"] == "gemini" and plus.BRAIN_PRESETS["balanced"]["broll_art"] == "sonnet"
-        env = plus.job_env({"name": "x", "broll": {"enabled": True}, "brain": {"preset": "claude"}})
+        assert set(plus.BRAIN) == set(ai_brain.STAGES)
+        env = plus.job_env({"name": "x", "broll": {"enabled": True}})
         assert env["BRAIN_BROLL_ART"] == "sonnet"
         import json
         assert json.loads(env["PLUS_BROLL_JSON"])["art_director"] is True
 
-    def test_an_old_custom_profile_gets_the_preset_value_for_the_new_step(self):
+    def test_an_old_profile_brain_block_no_longer_counts(self):
         p = plus.sanitize({"brain": {"preset": "custom", "stages": {"broll": "opus"}}})
-        assert p["brain"]["stages"]["broll_art"] == "sonnet" and p["brain"]["stages"]["broll"] == "opus"
+        assert "brain" not in p and plus.job_env(p)["BRAIN_BROLL"] == "sonnet"

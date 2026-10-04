@@ -62,10 +62,8 @@ DEFAULT_PROFILE = {
         # off niche should be allowed to give 2 clips, not be padded to 6.
         "min_clips": None,
     },
-    # Which AI runs each step (ai_brain.STAGES): "gemini" or a Claude model.
-    # "thinking" = Claude's effort on the two decision steps (clips, B-roll);
-    # "fresh" = the next run ignores the AI memory (then switches itself off).
-    "brain": {"preset": "balanced", "stages": None, "thinking": "deep", "thinking_broll": "normal", "fresh": False},
+    # The next run ignores the AI memory (new picks), then switches itself off.
+    "fresh": False,
 }
 
 # --- the house recipe: what every Clip Generator++ job does -----------------------------
@@ -111,51 +109,13 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
 SELECTION = {"dedupe_overlap": 0.2, "dedupe_seconds": 8.0, "hook_check": True, "audio_signals": True,
              "title_variety": True, "playbook": True}
 
-BRAIN_STAGES = ("brief_score", "detail", "layout", "broll", "broll_art", "image_review", "hook", "text")
-BRAIN_CHOICES = ("gemini", "haiku", "sonnet", "opus")
-BRAIN_PRESETS = {
-    # No Claude at all: every step on Gemini (billed per token, cheap).
-    "gemini": {k: "gemini" for k in BRAIN_STAGES},
-    # "Gemini reads, Claude decides" — the default.
-    "balanced": {"brief_score": "gemini", "detail": "sonnet", "layout": "gemini", "broll": "sonnet",
-                 "broll_art": "sonnet", "image_review": "gemini", "hook": "sonnet", "text": "gemini"},
-    # Claude everywhere, the light steps on Haiku (a fraction of the plan's usage).
-    "claude": {"brief_score": "haiku", "detail": "sonnet", "layout": "haiku", "broll": "sonnet",
-               "broll_art": "sonnet", "image_review": "haiku", "hook": "sonnet", "text": "haiku"},
-    # Claude everywhere, Opus on the two decisions.
-    "claude_max": {"brief_score": "sonnet", "detail": "opus", "layout": "haiku", "broll": "opus",
-                   "broll_art": "sonnet", "image_review": "sonnet", "hook": "sonnet", "text": "haiku"},
-}
-THINKING = {"light": "low", "normal": "medium", "deep": "high", "max": "max"}
-
-
-def _brain(raw, broll):
-    """Sanitized brain block. Profiles saved before it existed: the balanced
-    preset, with the B-roll step on whatever brain the B-roll section had."""
-    legacy = not isinstance(raw, dict) or not raw
-    raw = {} if legacy else raw
-    preset = raw.get("preset") if raw.get("preset") in (*BRAIN_PRESETS, "custom") else "balanced"
-    if preset == "custom":
-        stages = dict(BRAIN_PRESETS["balanced"])
-        for k, v in (raw.get("stages") or {}).items():
-            if k in stages and v in BRAIN_CHOICES:
-                stages[k] = v
-    else:
-        stages = dict(BRAIN_PRESETS[preset])
-    if legacy:
-        stages["broll"] = "sonnet" if (broll or {}).get("planner") == "claude" else "gemini"
-        preset = "balanced" if stages == BRAIN_PRESETS["balanced"] else "custom"
-    return {"preset": preset, "stages": stages,
-            "thinking": raw.get("thinking") if raw.get("thinking") in THINKING else "deep",
-            # B-roll's own level; profiles saved before it followed "thinking".
-            "thinking_broll": (raw.get("thinking_broll") if raw.get("thinking_broll") in THINKING
-                               else raw.get("thinking") if raw.get("thinking") in THINKING else "normal"),
-            # The art director's own level (2-oct-2026: the user wants Opus at its max there); before, it followed
-            # the B-roll's.
-            "thinking_art": (raw.get("thinking_art") if raw.get("thinking_art") in THINKING
-                             else raw.get("thinking_broll") if raw.get("thinking_broll") in THINKING
-                             else raw.get("thinking") if raw.get("thinking") in THINKING else "normal"),
-            "fresh": _bool(raw.get("fresh"))}
+# The AI brain, part of the house recipe since 4-oct-2026 (the user: « ça fonctionne très très bien », the
+# Joe Rogan profile's own setting, no longer a profile choice): Claude at every step (ai_brain.STAGES), the light
+# ones on Haiku. The « dessin » B-roll chain sets its art director and verifier itself (broll_draw: Opus, Sonnet).
+BRAIN = {"brief_score": "haiku", "detail": "sonnet", "layout": "haiku", "broll": "sonnet", "broll_art": "sonnet",
+         "image_review": "haiku", "hook": "sonnet", "text": "haiku"}
+# Claude's effort: choosing the clips, the B-roll plan, the old chain's art direction.
+BRAIN_EFFORT = {"detail": "medium", "broll": "medium", "broll_art": "high"}
 
 
 def _float(v, lo, hi, default):
@@ -232,7 +192,8 @@ def sanitize(raw):
                          or ["tiktok", "instagram", "youtube"]},
         "playbook_show": re.sub(r"[\r\n#]", "", str(show or "")).strip()[:60],
         "selection": _selection(raw.get("selection")),
-        "brain": _brain(raw.get("brain"), br),
+        # Profiles saved before 4-oct-2026 kept it in their brain block.
+        "fresh": _bool(raw["fresh"] if "fresh" in raw else (raw.get("brain") or {}).get("fresh")),
     }
 
 
@@ -275,8 +236,9 @@ def consume_fresh(profile_id):
     taken it."""
     profiles = load_profiles()
     for p in profiles:
-        if p.get("id") == profile_id and (p.get("brain") or {}).get("fresh"):
-            p["brain"]["fresh"] = False
+        if p.get("id") == profile_id and (p.get("fresh") or (p.get("brain") or {}).get("fresh")):
+            p["fresh"] = False
+            p.pop("brain", None)
             save_profiles(profiles)
             return True
     return False
@@ -328,23 +290,22 @@ def job_env(profile):
                                          "upload_profile": p.get("upload_profile") or None,
                                          # The editor's later text calls (translate,
                                          # regenerate) follow the profile too.
-                                         "brain": {"text": p["brain"]["stages"]["text"]}}),
+                                         "brain": {"text": BRAIN["text"]}}),
     }
     # Who thinks at each step (ai_brain.choice reads BRAIN_<STAGE>).
-    for k, v in p["brain"]["stages"].items():
+    for k, v in BRAIN.items():
         env[f"BRAIN_{k.upper()}"] = v
-    env["CLAUDE_EFFORT_DETAIL"] = THINKING[p["brain"]["thinking"]]
-    env["CLAUDE_EFFORT_BROLL"] = THINKING[p["brain"]["thinking_broll"]]
-    env["CLAUDE_EFFORT_BROLL_ART"] = THINKING[p["brain"]["thinking_art"]]
-    if p["brain"]["fresh"]:
+    env["CLAUDE_EFFORT_DETAIL"] = BRAIN_EFFORT["detail"]
+    env["CLAUDE_EFFORT_BROLL"] = BRAIN_EFFORT["broll"]
+    env["CLAUDE_EFFORT_BROLL_ART"] = BRAIN_EFFORT["broll_art"]
+    if p["fresh"]:
         env["AI_CACHE_REFRESH"] = "1"
     if p["target_clips"]:
         env["CLIP_TARGET_MIN"] = env["CLIP_TARGET_MAX"] = str(p["target_clips"])
     if p["broll"]["enabled"]:
         # The B-roll planner is the brain's "broll" step.
         env["PLUS_BROLL_JSON"] = json.dumps({**BROLL, "enabled": True,
-                                             "planner": "gemini" if p["brain"]["stages"]["broll"] == "gemini"
-                                             else "claude"})
+                                             "planner": "gemini" if BRAIN["broll"] == "gemini" else "claude"})
     if p["playbook_show"]:
         env["PLAYBOOK_SHOW"] = p["playbook_show"]
     sel = p["selection"]

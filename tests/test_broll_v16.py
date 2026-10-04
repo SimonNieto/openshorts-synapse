@@ -278,14 +278,13 @@ class TestV16b:
 
 
 class TestTheArtDirectorsThinking:
-    def test_its_own_level_up_to_max(self, monkeypatch):
+    def test_its_own_level_in_the_recipe(self, monkeypatch):
         p = plus.sanitize({"name": "x", "brain": {"preset": "custom", "stages": {"broll_art": "opus"},
                                                   "thinking_broll": "normal", "thinking_art": "max"}})
         env = plus.job_env(p)
-        assert env["BRAIN_BROLL_ART"] == "opus" and env["CLAUDE_EFFORT_BROLL_ART"] == "max"
+        # 4-oct-2026: fixed in plus.BRAIN / BRAIN_EFFORT, the old profile choice is ignored
+        assert env["BRAIN_BROLL_ART"] == "sonnet" and env["CLAUDE_EFFORT_BROLL_ART"] == "high"
         assert env["CLAUDE_EFFORT_BROLL"] == "medium"
-        old = plus.sanitize({"name": "y", "brain": {"thinking_broll": "deep"}})
-        assert old["brain"]["thinking_art"] == "deep"                     # before: the B-roll's level
         monkeypatch.setenv("CLAUDE_EFFORT_BROLL_ART", "max")
         assert broll.art_effort() == "max"
         monkeypatch.delenv("CLAUDE_EFFORT_BROLL_ART")

@@ -688,7 +688,7 @@ def _plan_clip(job_dir, meta, n, clip, pre_fx, prof, version, over, tag):
     keep = os.path.join(BRAIN_DIR, f"{tag}_images")
     shutil.rmtree(keep, ignore_errors=True)
     os.makedirs(keep)
-    planner = "gemini" if prof["brain"]["stages"]["broll"] == "gemini" else "claude"
+    planner = "gemini" if plus.BRAIN["broll"] == "gemini" else "claude"
     # The bench keeps the minimum as an alarm and lets its older versions fill it ("quota"); production never does
     # (plus.BROLL has no "reserves": a weak picture harms more than no picture).
     cfg = {**plus.BROLL, "enabled": True, "planner": planner, "review": "manual", "chain": "", "ideas": False,

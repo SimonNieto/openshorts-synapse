@@ -6708,11 +6708,10 @@ async def plus_list_profiles():
     if BILLING_ENABLED:
         raise HTTPException(status_code=404, detail="Not found")
     import plus as _plus
-    # Sanitized, so a profile saved before a field existed (e.g. the AI brain
+    # Sanitized, so a profile saved before a field existed (e.g. the selection
     # block) arrives with its effective values filled in.
     return {"profiles": [{**p, **_plus.sanitize(p)} for p in _plus.load_profiles()],
-            "defaults": _plus.sanitize(_plus.DEFAULT_PROFILE),
-            "brain_presets": _plus.BRAIN_PRESETS}
+            "defaults": _plus.sanitize(_plus.DEFAULT_PROFILE)}
 
 
 @app.post("/api/plus/profiles")

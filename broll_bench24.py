@@ -84,7 +84,7 @@ def _capture_editor(job_dir, meta, n, clip, pre_fx, prof):
     import broll
     import broll_spec
     import broll_v20
-    planner = "gemini" if prof["brain"]["stages"]["broll"] == "gemini" else "claude"
+    planner = "gemini" if plus.BRAIN["broll"] == "gemini" else "claude"
     cfg = {**plus.BROLL, "enabled": True, "planner": planner, "review": "manual", "chain": "", "ideas": False,
            "reserves": "quota", **{k: v for k, v in bb.VERSIONS["v23"].items() if k != "env"}}
     c = dict(clip)

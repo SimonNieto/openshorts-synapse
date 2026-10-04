@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useState } from 'react';
-import { Clock, User, Zap, Trash2, Copy, Image as ImageIcon, Loader2, Brain, RefreshCw, ChevronDown, AlertTriangle, Video, Instagram, Youtube } from 'lucide-react';
+import { Clock, User, Zap, Trash2, Copy, Image as ImageIcon, Loader2, RefreshCw, Video, Instagram, Youtube } from 'lucide-react';
 import Modal from './ui/Modal';
 import SegmentedControl from './ui/SegmentedControl';
 import { loadNicheHistory } from '../lib/nicheHistory';
@@ -43,177 +43,11 @@ function Toggle({ checked, onChange, label, hint, beta }) {
     );
 }
 
-// --- AI brain: who thinks at each step (plus.py BRAIN_PRESETS / ai_brain.STAGES) ---
-
-const MODELS = [
-    { v: 'gemini', label: 'Gemini', hint: 'Google Gemini Flash, billed per token on your key — cents per video. Uses none of your Claude plan.' },
-    { v: 'haiku', label: 'Haiku', hint: 'Claude Haiku: fast and light, about a third of Sonnet on your plan.' },
-    { v: 'sonnet', label: 'Sonnet', hint: 'Claude Sonnet: the default judge.' },
-    { v: 'opus', label: 'Opus', hint: 'Claude Opus: the most careful, heaviest on your plan.' },
-];
-const STEPS = [
-    { k: 'brief_score', label: 'Read & sort the video', hint: 'Reads the whole transcript once: who talks, the topic, and a score for every stretch. The biggest read of the job.', w: 30 },
-    { k: 'detail', label: 'Pick & write the clips', hint: 'Chooses the clips from the shortlist and writes hooks, titles and descriptions. Where the quality shows.', w: 25 },
-    { k: 'broll', label: 'B-roll plan', hint: 'Which moments get an image and what it shows (and the hook of a screen clip, in the same call).', w: 25 },
-    { k: 'broll_art', label: 'B-roll art direction', hint: 'Writes the final prompt of every picture of a clip in the channel’s look, for the whole set at once (text only, no image).', w: 6 },
-    { k: 'image_review', label: 'Check B-roll images', hint: 'Scores each image against its idea. On Gemini, the b-roll brain re-checks only the doubtful ones.', w: 8 },
-    { k: 'layout', label: 'Framing', hint: 'A few frames of the source: face crop, screen or split screen.', w: 5 },
-    { k: 'hook', label: 'Screen hook', hint: 'Rewrites the hook from the frames when the clip is a screen and no Claude b-roll did it.', w: 5 },
-    { k: 'text', label: 'Editor text', hint: 'Later, in the clip editor: translate captions, regenerate a clip’s copy.', w: 2 },
-];
-const PRESETS = [
-    { v: 'gemini', label: 'Gemini only', tag: 'No Claude', hint: 'No Claude at all. Nothing from your plan; Gemini bills a few cents per video.', claude: 0, gemini: 3 },
-    { v: 'balanced', label: 'Balanced', tag: 'Default', hint: 'Gemini reads, Claude decides. The default.', claude: 2, gemini: 2 },
-    { v: 'claude', label: 'Claude everywhere', tag: 'Light steps on Haiku', hint: 'Every step on Claude; the light ones on Haiku to spare the plan.', claude: 3, gemini: 0 },
-    { v: 'claude_max', label: 'Claude max', tag: 'Heaviest', hint: 'Opus picks the clips and plans the b-roll. Best judgment, heaviest on the plan.', claude: 4, gemini: 0 },
-];
-// Fallback copy of plus.py's presets (the server sends the real ones).
-const PRESET_STAGES = {
-    gemini: Object.fromEntries(STEPS.map((s) => [s.k, 'gemini'])),
-    balanced: { brief_score: 'gemini', detail: 'sonnet', layout: 'gemini', broll: 'sonnet', broll_art: 'sonnet', image_review: 'gemini', hook: 'sonnet', text: 'gemini' },
-    claude: { brief_score: 'haiku', detail: 'sonnet', layout: 'haiku', broll: 'sonnet', broll_art: 'sonnet', image_review: 'haiku', hook: 'sonnet', text: 'haiku' },
-    claude_max: { brief_score: 'sonnet', detail: 'opus', layout: 'haiku', broll: 'opus', broll_art: 'sonnet', image_review: 'sonnet', hook: 'sonnet', text: 'haiku' },
-};
-// Rough share of a Claude plan per model, Sonnet = 1 (list prices ratio).
-const PLAN_WEIGHT = { gemini: 0, haiku: 1 / 3, sonnet: 1, opus: 5 / 3 };
-const THINKING_OPTS = [
-    { v: 'light', label: 'Light', hint: 'Short thinking: fewest tokens.' },
-    { v: 'normal', label: 'Normal', hint: 'Medium thinking.' },
-    { v: 'deep', label: 'Deep', hint: 'Thinks longest before choosing: best picks, most tokens on these two steps.' },
-    { v: 'max', label: 'Max', hint: 'Claude at its maximum effort: the most tokens of all.' },
-];
 const PLATFORM_OPTIONS = [
     { value: 'tiktok', label: 'TikTok', icon: <Video size={14} /> },
     { value: 'instagram', label: 'Instagram', icon: <Instagram size={14} /> },
     { value: 'youtube', label: 'YouTube', icon: <Youtube size={14} /> },
 ];
-
-function ModelSwitch({ value, onChange, noGemini }) {
-    return (
-        <SegmentedControl size="sm" columns={4} value={value} onChange={onChange}
-            options={MODELS.map((m) => ({ value: m.v, label: m.label, muted: m.v === 'gemini' && noGemini }))} />
-    );
-}
-
-function BrainSection({ brain, presets, onChange, noGemini }) {
-    const b = brain || {};
-    const presetStages = presets || PRESET_STAGES;
-    const stages = { ...presetStages.balanced, ...(b.stages || presetStages[b.preset] || {}) };
-    const preset = b.preset || 'balanced';
-    const [open, setOpen] = useState(preset === 'custom');
-    const pickPreset = (v) => onChange({ preset: v, stages: { ...presetStages[v] } });
-    const setStage = (k, v) => {
-        const next = { ...stages, [k]: v };
-        const match = Object.keys(presetStages).find((p) => STEPS.every((s) => presetStages[p][s.k] === next[s.k]));
-        onChange({ preset: match || 'custom', stages: next });
-    };
-    const total = STEPS.reduce((a, s) => a + s.w, 0);
-    const planUse = Math.round((STEPS.reduce((a, s) => a + s.w * PLAN_WEIGHT[stages[s.k]], 0) / total) * 100);
-    const onClaude = STEPS.filter((s) => stages[s.k] !== 'gemini');
-    const onGemini = STEPS.length - onClaude.length;
-    const activePreset = PRESETS.find((pr) => pr.v === preset);
-
-    return (
-        <div className="space-y-5">
-            <div role="group" aria-labelledby="pp-brain-preset">
-                <p id="pp-brain-preset" className="readout mb-2">Preset</p>
-                <SegmentedControl columns={2} value={preset} onChange={pickPreset}
-                    options={PRESETS.map((pr) => ({ value: pr.v, label: pr.label, hint: pr.tag }))} />
-                <p className="text-xs text-muted leading-relaxed mt-2" aria-live="polite">
-                    {activePreset ? activePreset.hint : 'Custom: each step is set by hand below.'}
-                </p>
-            </div>
-
-            <div className="tray overflow-hidden">
-                <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-controls="pp-brain-steps"
-                    className="w-full min-h-[44px] flex items-center justify-between gap-2 px-4 py-2.5 text-left hover:bg-paper2 transition-colors">
-                    <span className="text-sm text-ink font-medium flex items-center gap-2">
-                        Each step {preset === 'custom' && <span className="readout px-1.5 py-0.5 rounded border border-rule2">Custom</span>}
-                    </span>
-                    <span className="readout inline-flex items-center gap-1">
-                        {open ? 'Hide' : 'Fine-tune'}
-                        <ChevronDown size={13} className={`transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
-                    </span>
-                </button>
-                {open && (
-                    <div id="pp-brain-steps" className="border-t border-rule bg-paper2">
-                        {/* The key: what each model costs, once, instead of a tooltip per button. */}
-                        <dl className="px-4 py-3 grid sm:grid-cols-2 gap-x-6 gap-y-2 border-b border-rule">
-                            {MODELS.map((m) => (
-                                <div key={m.v} className="text-xs leading-snug">
-                                    <dt className="inline text-ink font-medium">{m.label} </dt>
-                                    <dd className="inline text-muted">
-                                        {m.hint}{m.v === 'gemini' && noGemini ? ' (No Gemini key in Settings: Claude runs it instead.)' : ''}
-                                    </dd>
-                                </div>
-                            ))}
-                        </dl>
-                        <ul className="divide-y divide-rule">
-                            {STEPS.map((s) => (
-                                <li key={s.k} role="group" aria-labelledby={`pp-step-${s.k}`}
-                                    className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 px-4 py-3">
-                                    <div className="min-w-0 flex-1">
-                                        <p id={`pp-step-${s.k}`} className="text-sm text-ink">{s.label}</p>
-                                        <p className="text-xs text-muted leading-snug mt-0.5">{s.hint}</p>
-                                    </div>
-                                    <div className="md:w-64 shrink-0">
-                                        <ModelSwitch value={stages[s.k]} onChange={(v) => setStage(s.k, v)} noGemini={noGemini} />
-                                    </div>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
-            </div>
-
-            <div className="space-y-3">
-                <p className="readout">Claude thinking</p>
-                {[['thinking', 'deep', 'Choosing the clips'],
-                  ['thinking_broll', 'normal', 'B-roll images'],
-                  ['thinking_art', b.thinking_broll || 'normal', 'B-roll art direction']].map(([key, dflt, label]) => (
-                    <div key={key} role="group" aria-labelledby={`pp-${key}`}
-                        className="grid gap-2 md:grid-cols-[minmax(0,1fr)_16rem] md:items-center">
-                        <p id={`pp-${key}`} className="text-sm text-ink2">{label}</p>
-                        <SegmentedControl size="sm" columns={4} value={b[key] || dflt} onChange={(v) => onChange({ [key]: v })}
-                            options={THINKING_OPTS.map((t) => ({ value: t.v, label: t.label }))} />
-                    </div>
-                ))}
-                <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-1">
-                    {THINKING_OPTS.map((t) => (
-                        <div key={t.v} className="text-xs leading-snug">
-                            <dt className="inline text-ink2">{t.label}: </dt>
-                            <dd className="inline text-muted">{t.hint}</dd>
-                        </div>
-                    ))}
-                </dl>
-            </div>
-
-            <div className="tray px-4 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
-                    <span className="text-ink2">
-                        Claude {onClaude.length} step{onClaude.length === 1 ? '' : 's'}
-                        <span className="text-muted"> · </span>
-                        Gemini {onGemini}
-                    </span>
-                    <span className="readout">Claude plan ≈ {planUse}% of an all-Sonnet run</span>
-                </div>
-                <div className="h-1.5 mt-2.5 rounded-full bg-paper overflow-hidden" aria-hidden="true">
-                    <div className="h-full rounded-full bg-ink2 transition-all" style={{ width: `${Math.min(100, Math.max(planUse, 2))}%` }} />
-                </div>
-                {noGemini && onGemini > 0 && (
-                    <p className="text-xs text-warn mt-2.5 flex items-start gap-1.5">
-                        <AlertTriangle size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
-                        No Gemini key in Settings: the Gemini steps will run on Claude instead.
-                    </p>
-                )}
-            </div>
-
-            <Toggle checked={b.fresh} onChange={(v) => onChange({ fresh: v })}
-                label={<span className="inline-flex items-center gap-1.5"><RefreshCw size={13} className="text-muted" aria-hidden="true" /> Fresh picks on the next run</span>}
-                hint="A video run before normally reuses the AI's earlier answers for free (same clips). Tick this to get new picks on your next run; it switches itself off afterwards." />
-        </div>
-    );
-}
 
 function Section({ id, icon, title, lede, children }) {
     return (
@@ -233,7 +67,7 @@ function Section({ id, icon, title, lede, children }) {
  * Edit one Synapse Cut profile: everything a run of that channel needs.
  * Beta switches change what the AI does and are clearly marked as such.
  */
-export default function PlusProfileEditor({ isOpen, onClose, profile, accounts = [], geminiApiKey, brainPresets, onSave, onDelete, onDuplicate }) {
+export default function PlusProfileEditor({ isOpen, onClose, profile, accounts = [], onSave, onDelete, onDuplicate }) {
     const [p, setP] = useState(profile);
     const [history] = useState(loadNicheHistory);
     const [brollTest, setBrollTest] = useState(null); // null | 'running' | result
@@ -375,11 +209,11 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
                         </div>
                     </fieldset>
                     <p className="text-xs text-muted leading-relaxed mt-4">Every clip ends on a full sentence: cut back to the last full stop (drops a dangling “cause…” after the punchline) or run on to the next one, a few seconds at most.</p>
-                </Section>
-
-                <Section id="pp-brain" icon={<Brain size={15} />} title="AI brain" lede="Who thinks at each step of a run.">
-                    <BrainSection brain={p.brain} presets={brainPresets} noGemini={!geminiApiKey}
-                        onChange={(patch) => setIn('brain', patch)} />
+                    <div className="mt-3">
+                        <Toggle checked={p.fresh} onChange={(v) => set({ fresh: v })}
+                            label={<span className="inline-flex items-center gap-1.5"><RefreshCw size={13} className="text-muted" aria-hidden="true" /> Fresh picks on the next run</span>}
+                            hint="A video run before normally reuses the AI's earlier answers for free (same clips). Tick this to get new picks on your next run; it switches itself off afterwards." />
+                    </div>
                 </Section>
 
                 <Section id="pp-broll" icon={<ImageIcon size={15} />} title="B-roll images">

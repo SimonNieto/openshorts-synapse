@@ -13,8 +13,7 @@ const recap = (p) => [
     p.broll?.enabled && 'B-roll',
     p.watermark && `“${p.watermark}”`,
     p.auto_publish?.enabled && 'auto-publish',
-    ({ gemini: 'Gemini only', balanced: 'Gemini + Claude', claude: 'Claude everywhere', claude_max: 'Claude max', custom: 'custom brain' })[p.brain?.preset || 'balanced'],
-    p.brain?.fresh && 'fresh picks',
+    p.fresh && 'fresh picks',
 ].filter(Boolean).join(' · ');
 
 function StatsTable({ title, rows }) {
@@ -122,10 +121,9 @@ function PlusStats({ uploadPostKey, accounts }) {
  * Synapse Cut (ex Clip Generator++): the classic generator, driven by a saved channel profile.
  * Nothing here touches the classic Clip Generator's own settings.
  */
-export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [], defaultProfile = '', canAutoPublish, uploadPostKey, geminiApiKey, onProfileChange }) {
+export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [], defaultProfile = '', canAutoPublish, uploadPostKey, onProfileChange }) {
     const [profiles, setProfiles] = useState(null);
     const [defaults, setDefaults] = useState(null);
-    const [brainPresets, setBrainPresets] = useState(null);
     const [selectedId, setSelectedId] = useState(() => { try { return localStorage.getItem(SELECTED_KEY) || ''; } catch { return ''; } });
     const [editing, setEditing] = useState(null);
     const [error, setError] = useState('');
@@ -140,7 +138,6 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
             const d = await apiJson('/api/plus/profiles');
             setProfiles(d.profiles || []);
             setDefaults(d.defaults);
-            setBrainPresets(d.brain_presets || null);
         } catch {
             setError('Could not load the profiles.');
         }
@@ -186,7 +183,7 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
                 <p className="eyebrow">Synapse Cut</p>
                 <h2 className="page-title mt-2">Pick a profile, drop a video</h2>
                 <p className="page-lede mt-2">
-                    Each profile is a channel's full recipe: account, niche, lengths, AI brain, B-roll, publishing; the look itself is the house recipe. The classic Clip Generator stays untouched.
+                    Each profile is a channel's full recipe: account, niche, lengths, B-roll, publishing; the look and the AI brain are the house recipe. The classic Clip Generator stays untouched.
                 </p>
             </header>
 
@@ -265,8 +262,6 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
                 isOpen={!!editing}
                 profile={editing}
                 accounts={accounts}
-                geminiApiKey={geminiApiKey}
-                brainPresets={brainPresets}
                 onClose={() => setEditing(null)}
                 onSave={save}
                 onDelete={remove}
