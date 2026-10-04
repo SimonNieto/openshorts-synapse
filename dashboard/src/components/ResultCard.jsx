@@ -378,6 +378,9 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     // one). /api/hook REPLACES it; tracked locally so the modal stays honest
     // after edits without refetching the job.
     const [burnedHook, setBurnedHook] = useState(clip.auto_hook?.text || null);
+    // A Clip Generator++ clip is finished by the house recipe (edit style, docline hook, premium captions, drawn
+    // B-roll): the video tools would rebuild it without parts of it (audit of 4-oct-2026), so they are off for it.
+    const editLocked = !!clip.edit_style;
 
     // Fetch clip duration from transcript endpoint
     useEffect(() => {
@@ -1182,6 +1185,11 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         main column on a wide card, full width under the plate
                         on a medium one, last in the stack on a narrow one. */}
                     <div className="min-w-0 px-4 pb-4 border-rule [@container(min-width:32rem)]:col-span-2 [@container(min-width:32rem)]:p-5 [@container(min-width:32rem)]:border-t [@container(min-width:52rem)]:col-span-1 [@container(min-width:52rem)]:col-start-2 [@container(min-width:52rem)]:border-t-0 [@container(min-width:52rem)]:pt-0">
+                        {editLocked ? (
+                            <p className="pt-4 border-t border-rule text-xs text-muted leading-relaxed [@container(min-width:32rem)]:pt-0 [@container(min-width:32rem)]:border-t-0 [@container(min-width:52rem)]:pt-4 [@container(min-width:52rem)]:border-t">
+                                Finished by the house recipe: hook, captions and B-roll stay as made. Copy, download and publish still work.
+                            </p>
+                        ) : (
                         <div role="group" aria-labelledby={toolsId} className="pt-4 border-t border-rule [@container(min-width:32rem)]:pt-0 [@container(min-width:32rem)]:border-t-0 [@container(min-width:52rem)]:pt-4 [@container(min-width:52rem)]:border-t">
                             <p id={toolsId} className="readout mb-2">Edit</p>
                             <div className="grid gap-1.5 grid-cols-[repeat(auto-fill,minmax(8.25rem,1fr))]">
@@ -1313,6 +1321,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                                 )}
                             </div>
                         </div>
+                        )}
 
                         {/* Error Message */}
                         {editError && (
