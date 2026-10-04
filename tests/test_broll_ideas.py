@@ -1691,15 +1691,22 @@ class TestTheEngineRisk:
     "rank" mode an idea with a risk is refused before the judges ("ideas: engine risk <risk>"), a pair resting on the
     same shape excepted (pairs are handled apart); in "score" mode the answer changes nothing."""
 
-    def test_the_director_is_told_in_both_modes_and_only_the_director(self, monkeypatch):
-        for judge in ("score", "rank"):
+    def test_production_never_reads_it(self, monkeypatch):
+        # the v21 text the user validated: the engine's weaknesses are the bench's (v23) until she says otherwise
+        judges, _out = run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST)])), judge="score")
+        flat = " ".join(judges.prompt("da").split())
+        assert "Z-Image" not in flat and "engine_risk" not in flat and "picture_b" not in flat
+        assert "<<" not in broll_ideas.DA_PROMPT and "<<" not in broll_ideas.DA_PROMPT_BENCH
+
+    def test_the_director_is_told_in_rank_mode_and_only_the_director(self, monkeypatch):
+        for judge in ("rank",):
             judges, _out = run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(CAST)])), judge=judge)
             flat = " ".join(judges.prompt("da").split())
             assert "WHAT THE ENGINE (Z-Image) DRAWS BADLY: it falls back to the icon of the strongest word" in flat, judge
             assert 'it does not follow a scale ("macro", "thousands of tiny"), a precise position' in flat, judge
             assert 'nor "the same shape / structure" between two things' in flat, judge
-            assert ('"engine_risk": "none" (the picture holds whatever the engine does), "icon" (it holds only if the '
-                    'engine resists the icon of its strongest word), "scale", "position" or "same_shape"') in flat, judge
+            assert '"engine_risk" — "none" is the normal answer' in flat, judge
+            assert '"icon" ONLY when the idea needs something the icon lacks' in flat and '"same_shape" ONLY when' in flat
             assert "calibration" not in flat.lower(), judge                     # still never the calibration
             for other in ("verifier", "viewer"):
                 assert "engine_risk" not in judges.prompt(other) and "Z-Image" not in judges.prompt(other), judge
@@ -1778,7 +1785,7 @@ class TestThePairsProse:
     read the two halves; the nets of a clip about a death read the right one too."""
 
     def test_the_director_is_told_and_the_schema_has_it(self, monkeypatch):
-        judges, _out = run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(PAIR)])))
+        judges, _out = run_round(monkeypatch, [moment()], da=da_reply(da(0, [dict(PAIR)])), judge="rank")
         flat = " ".join(judges.prompt("da").split())
         assert ('"subject_b" (the right thing, 8 words), "picture_b" (the right half alone in plain words, 45 at most; '
                 '"picture" is then the left half alone);') in flat

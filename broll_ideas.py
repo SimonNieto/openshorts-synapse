@@ -117,8 +117,7 @@ THE MOMENTS. For each one, in order:
      an inner or an empty picture, never the dark of a horror film), "instrument" (instrument only, 5 words);
      for a PAIR the two halves are made separately and put side by side by the code: "kind_a" (the left thing's
      own kind: thing / scene / instrument / body_inside) and "kind_b" (the right one's), "details_b" (the right
-     thing's 2-3 visible details, 20 words), "subject_b" (the right thing, 8 words), "picture_b" (the right half
-     alone in plain words, 45 at most; "picture" is then the left half alone);
+     thing's 2-3 visible details, 20 words), "subject_b" (the right thing, 8 words)<<PICTURE_B>>;
      "hero_ok": true when this picture could fill the whole phone screen for three seconds (a real scene with
      depth, a drawing or a vision that fills the frame edge to edge), false for a small thing, a pair or a flat
      detail. "instrument" is for a KNOWN kind of image (a scan, a telescope frame, a fluorescence micrograph of
@@ -132,13 +131,27 @@ THE RENDER FIELDS ARE DRAWN LITERALLY by the engine: never a comparison in them 
 "ribbon of cortex" a real ribbon, "eyeshades" sunglasses) — name the thing itself; never a screen, a display, a
 label, a page, a sign or a chart (they come out with writing); a scene shows its things, never a number of them
 above four.
-WHAT THE ENGINE (Z-Image) DRAWS BADLY: it falls back to the icon of the strongest word (a brain comes out whole, a
+<<ENGINE>>{moments}
+Return JSON: {{"moments": [{{"k": 0, "idea": "...", "role": "point", "ideas": [...], "no_picture_why": ""}}]}}"""
+
+# What the bench's versions add to the director's call (v23, 3-oct-2026; never production's, which keeps the v21 text
+# the user validated): a pair's right half in its own words, and what the engine draws badly.
+PICTURE_B_ASK = (', "picture_b" (the right half\n     alone in plain words, 45 at most; "picture" is then the left half '
+                 'alone)')
+ENGINE_TEXT = """WHAT THE ENGINE (Z-Image) DRAWS BADLY: it falls back to the icon of the strongest word (a brain comes out whole, a
 galaxy as a spiral); it does not follow a scale ("macro", "thousands of tiny"), a precise position ("in the opening",
 "coiled on a hook", "folded into the pocket") nor "the same shape / structure" between two things. Each idea says
-"engine_risk": "none" (the picture holds whatever the engine does), "icon" (it holds only if the engine resists the
-icon of its strongest word), "scale", "position" or "same_shape" (it holds only if the engine follows that).
-{moments}
-Return JSON: {{"moments": [{{"k": 0, "idea": "...", "role": "point", "ideas": [...], "no_picture_why": ""}}]}}"""
+"engine_risk" — "none" is the normal answer: when the plain icon of the strongest word IS what the sentence wants (a
+neuron, a galaxy, a brain, a coat on a hook), when the scene is ordinary and nothing in it depends on an exact size or
+spot, the picture holds whatever the engine does. "icon" ONLY when the idea needs something the icon lacks (a cut
+instead of the whole, a part, an unusual angle, a state the icon never has); "scale" ONLY when the point of the
+picture is a size relation; "position" ONLY when the point is one thing being exactly there; "same_shape" ONLY when
+the point is two things looking alike. A risk is a reason to drop the idea, so name one only when the picture would
+be wrong without that exactness.
+"""
+_DA_TEXT = DA_PROMPT
+DA_PROMPT = _DA_TEXT.replace("<<PICTURE_B>>", "").replace("<<ENGINE>>", "")                  # production (v21)
+DA_PROMPT_BENCH = _DA_TEXT.replace("<<PICTURE_B>>", PICTURE_B_ASK).replace("<<ENGINE>>", ENGINE_TEXT)   # "rank" (v23)
 
 VERIFIER_PROMPT = """You are the verifier of the channel described below (its text is in French; answer in ENGLISH).
 You are strict and literal: a doubt is flagged, never forgiven. The channel's principles decide; the calibration tells
@@ -478,11 +491,11 @@ def _clip_lines(clip, gravity):
                 gravity=gravity, grave_line=grave_line, speakers=speakers, brief=brief_line)
 
 
-def _direct(moments, words, clip, gravity, shown=()):
+def _direct(moments, words, clip, gravity, shown=(), prompt=None):
     """The art director's call -> {k: {"idea", "role", "ideas": [...], "why": ""}}. ``shown``: the ideas already shown
-    in the episode (shown_ideas), listed for it to avoid."""
+    in the episode (shown_ideas), listed for it to avoid. ``prompt``: another text than DA_PROMPT (the bench's v24)."""
     planned = ", ".join(_q((m.get("spec") or {}).get("subject"), 6) for m in moments) or "-"
-    prompt = DA_PROMPT.format(principes=skill_text("principes"), per=IDEAS_PER_MOMENT, planned=planned,
+    prompt = (prompt or DA_PROMPT).format(principes=skill_text("principes"), per=IDEAS_PER_MOMENT, planned=planned,
                               shown=_shown_block(shown, _clip_name(clip)), lessons=_lessons("director"),
                               moments=_moment_lines(moments, words), **_clip_lines(clip, gravity))
     data = _call(prompt, DA_SCHEMA, "broll_ideas", _model("broll_ideas", "opus"),
@@ -496,9 +509,10 @@ def _direct(moments, words, clip, gravity, shown=()):
     return out
 
 
-def _verify(moments, words, clip, gravity, ideas):
-    """The verifier's call -> {(k, i): {"verdict", "reason", "details", "flaw"}}."""
-    prompt = VERIFIER_PROMPT.format(principes=skill_text("principes"), calibrage=skill_text("calibrage"),
+def _verify(moments, words, clip, gravity, ideas, prompt=None):
+    """The verifier's call -> {(k, i): {"verdict", "reason", "details", "flaw"}}. ``prompt``: another text than
+    VERIFIER_PROMPT (the bench's v24)."""
+    prompt = (prompt or VERIFIER_PROMPT).format(principes=skill_text("principes"), calibrage=skill_text("calibrage"),
                                     lessons=_lessons("judges"), moments=_idea_lines(moments, words, ideas),
                                     **_clip_lines(clip, gravity))
     data = _call(prompt, VERIFIER_SCHEMA, "broll_verify", _model("broll_verify", "sonnet"), effort="medium")
@@ -695,7 +709,8 @@ def idea_round(moments, reserves, clip, words, gravity, clip_text, avoid=(), hea
     if not everything:
         return moments, reserves
     rank = _judge_mode(judge) == "rank"
-    directed = _direct(everything, words, clip, gravity, shown_ideas(shown) if shown else ())
+    directed = _direct(everything, words, clip, gravity, shown_ideas(shown) if shown else (),
+                       **({"prompt": DA_PROMPT_BENCH} if rank else {}))
     ideas = {k: directed.get(k, {}).get("ideas") or [] for k in range(len(everything))}
     # the code's own check first: a refused idea never reaches the judges
     specs, risks = {}, {}
