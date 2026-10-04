@@ -90,17 +90,25 @@ VERIFY_SCHEMA = {"type": "object", "properties": {"moments": {"type": "array", "
     "required": ["k", "verdict", "reason"]}}}, "required": ["moments"]}
 
 
-def direct_and_verify(sentences, title=None, lessons=False):
+def picture_text(suffix, picture):
+    """The text the image model gets: the charter's style first (4-oct-2026, the user: a drawn man in a photographed
+    room, sometimes all photographed — the model reads the medium before the scene), then the director's picture.
+    The production and the lessons' check (broll_teach) both go through here."""
+    return f"{suffix} {picture}"
+
+
+def direct_and_verify(sentences, title=None, lessons=False, taught=None):
     """The art director's call then the verifier's pass for ``sentences`` = [(clip title, heard before, sentence)] ->
     ([{"idea", "picture"} or {}], [{"verdict", "reason"}], style suffix). ``lessons``: the owner's kept lessons
-    (broll_teach) go into the director's call; off, the call is word for word the one before them."""
+    (broll_teach) go into the director's call; off, the call is word for word the one before them. ``taught``: that
+    block given as is (the lessons' check compares two sets)."""
     text, suffix, banc = charter()
     q = broll_ideas._q
     lines = [f'k={k} — clip "{q(t, 20)}"\n  heard just before: "{q(b)}"\n  SENTENCE: "{q(s)}"'
              for k, (t, b, s) in enumerate(sentences)]
     principes = broll_ideas.skill_text("principes")
-    taught = ""
-    if lessons:
+    taught = taught or ""
+    if lessons and not taught:
         import broll_teach
         taught = broll_teach.director_block(os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"))
         if taught:
@@ -166,9 +174,7 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
         if not idea["picture"]:
             broll.filter_hit("v26: no idea from the art director")
             continue
-        # The style first (4-oct-2026, the user: a drawn man in a photographed room, sometimes all photographed): the
-        # image model reads the medium before the scene, so the room is drawn with the person.
-        text = f'{suffix} {idea["picture"]}'
+        text = picture_text(suffix, idea["picture"])
         entry = {"k": k, "anchor": m.get("anchor"), "said": sentences[k][2], "idea": idea["idea"], "prompt": text,
                  "layout": layout}
         if v["verdict"] == "pass":

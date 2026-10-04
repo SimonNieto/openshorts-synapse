@@ -26,8 +26,9 @@ const SOURCE_OPTIONS = toOptions(SOURCES);
 /**
  * B-roll gallery (4-oct-2026): every drawn picture the jobs made (their trace) and the drawn bench made, kept or
  * refused by the safety verifier, with the owner's verdict on each — 👍 / 👎, why, and what to change. A verdict with
- * words becomes a lesson for the next pictures (broll_teach): proposed by the AI, kept / rewritten / dropped by her,
- * and the kept ones are read by the art director once plus.BROLL["lessons"] is on.
+ * words becomes a lesson for the next pictures (broll_teach): proposed by the AI, then checked — the whole set of rules
+ * rewritten with it, drawn before / after on the same moments and seeds — and applied exactly as checked, or dropped.
+ * The kept ones are read by the art director (plus.BROLL["lessons"]).
  */
 export default function BrollGallery() {
     const [pictures, setPictures] = useState(null);
@@ -65,7 +66,7 @@ export default function BrollGallery() {
 
     useEffect(() => { load(); loadLessons(); }, [load, loadLessons]);
 
-    // The lesson drawn from a picture: the one still open (proposed or kept) first, else the last one.
+    // The lesson drawn from a picture: the one still open (proposed or applied) first, else the last one.
     const lessonOf = (pid) => {
         const mine = lessons.filter((l) => l.from === pid);
         return mine.filter((l) => l.status !== 'refused').pop() || mine.pop() || null;
@@ -86,6 +87,23 @@ export default function BrollGallery() {
             setError(e.detail || e.message);
         } finally {
             setThinking(null);
+        }
+    };
+
+    const running = lessons.some((l) => l.check?.state === 'running');
+    useEffect(() => {
+        if (!running) return undefined;
+        const t = setInterval(loadLessons, 4000);
+        return () => clearInterval(t);
+    }, [running, loadLessons]);
+
+    const lessonAction = async (lid, action) => {
+        setError('');
+        try {
+            await apiJson(`/api/broll/gallery/lessons/${lid}/${action}`, { method: 'POST' });
+            await loadLessons();
+        } catch (e) {
+            setError(e.detail || e.message);
         }
     };
 
@@ -176,7 +194,7 @@ export default function BrollGallery() {
                     <h2 className="page-title mt-2">Images B-roll</h2>
                     <p className="page-lede mt-2">
                         Toutes les images dessinées par les jobs et par le banc, gardées ou refusées par le vérificateur. Dis si tu aimes ou pas,
-                        écris pourquoi et ce que tu veux changer : l’IA en tire une leçon pour les prochaines images, que tu gardes d’un clic.
+                        écris pourquoi et ce que tu veux changer : l’IA en tire une leçon, la vérifie en avant / après, et tu l’appliques.
                     </p>
                 </div>
                 <div className="flex flex-wrap items-end gap-x-6 gap-y-4 shrink-0">
@@ -216,7 +234,7 @@ export default function BrollGallery() {
                     </p>
                 </div>
                 {kept.length === 0 ? (
-                    <p className="text-sm text-muted">Rien encore. Mets un pouce, écris pourquoi, puis garde la leçon que l’IA te propose.</p>
+                    <p className="text-sm text-muted">Rien encore. Mets un pouce, écris pourquoi, vérifie la leçon que l’IA te propose (planche avant / après), puis applique-la.</p>
                 ) : (
                     <ol className="space-y-2">
                         {kept.map((l, i) => (
@@ -368,11 +386,16 @@ export default function BrollGallery() {
                                         ) : null;
                                     }
                                     const draft = editing[l.id];
+                                    const ck = l.check;
+                                    const board = ck?.state === 'done' && getApiUrl(`/api/broll/gallery/lessons/${l.id}/board?t=${ck.finished || ''}`);
+                                    const title = {
+                                        proposed: 'Leçon proposée pour les prochaines images',
+                                        applied: 'Appliquée après vérification',
+                                        refused: 'Leçon refusée',
+                                    }[l.status] || 'Leçon';
                                     return (
-                                        <div className="tray px-3 py-3 space-y-2">
-                                            <p className="readout">
-                                                {l.status === 'kept' ? 'Retenu pour les prochaines images' : l.status === 'refused' ? 'Leçon refusée' : 'Ce que l’IA retient pour les prochaines images'}
-                                            </p>
+                                        <div className="tray px-3 py-3 space-y-3">
+                                            <p className="readout">{title}</p>
                                             {draft !== undefined ? (
                                                 <textarea rows={3} value={draft} aria-label="Réécrire la leçon"
                                                     onChange={(e) => setEditing((m) => ({ ...m, [l.id]: e.target.value }))}
@@ -380,28 +403,63 @@ export default function BrollGallery() {
                                             ) : (
                                                 <p className={`text-sm break-words ${l.status === 'refused' ? 'text-muted line-through' : 'text-ink'}`}>{l.text}</p>
                                             )}
+
+                                            {l.status === 'proposed' && ck?.state === 'running' && (
+                                                <p role="status" className="text-xs text-muted inline-flex items-center gap-2">
+                                                    <Loader2 size={14} className="animate-spin" aria-hidden="true" /> {ck.step || 'Vérification…'} (2 à 5 min)
+                                                </p>
+                                            )}
+                                            {l.status === 'proposed' && ck?.state === 'error' && (
+                                                <p role="alert" className="text-xs text-danger break-words">{ck.error}</p>
+                                            )}
+                                            {board && (
+                                                <div className="space-y-2">
+                                                    {ck.summary && <p className="text-xs text-ink2">{ck.summary}</p>}
+                                                    <a href={board} target="_blank" rel="noopener noreferrer" className="block rounded-input overflow-hidden border border-rule2 hover:border-ink transition-colors">
+                                                        <img src={board} alt="Planche avant / après : ton image et trois images d’autres clips, mêmes graines" className="w-full" loading="lazy" />
+                                                    </a>
+                                                    <details>
+                                                        <summary className="cursor-pointer readout hover:text-ink py-1">Les règles après application ({ck.merged?.length || 0})</summary>
+                                                        <ol className="mt-2 space-y-1.5 text-xs text-ink2 list-decimal pl-5">
+                                                            {(ck.merged || []).map((t) => <li key={t} className="break-words">{t}</li>)}
+                                                        </ol>
+                                                    </details>
+                                                    {l.status === 'proposed' && ck.stale && (
+                                                        <p className="text-xs text-warn">Les règles ou la leçon ont changé depuis : vérifie à nouveau.</p>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             <div className="flex flex-wrap gap-2">
                                                 {draft !== undefined ? (
                                                     <>
-                                                        <button type="button" onClick={() => setLesson(l.id, { text: draft, status: 'kept' })}
-                                                            className="btn-primary px-3 py-1.5 text-xs">Garder ma version</button>
+                                                        <button type="button" onClick={() => setLesson(l.id, { text: draft })}
+                                                            className="btn-primary px-3 py-1.5 text-xs">Enregistrer ma version</button>
                                                         <button type="button" onClick={() => setEditing((m) => { const n = { ...m }; delete n[l.id]; return n; })}
                                                             className="btn-quiet px-3 py-1.5 text-xs">Annuler</button>
                                                     </>
-                                                ) : (
+                                                ) : l.status === 'proposed' ? (
                                                     <>
-                                                        {l.status !== 'kept' && (
-                                                            <button type="button" onClick={() => setLesson(l.id, { status: 'kept' })}
-                                                                className="btn-primary px-3 py-1.5 text-xs"><Check size={13} aria-hidden="true" /> Garder</button>
+                                                        {ck?.state === 'done' && !ck.stale ? (
+                                                            <button type="button" onClick={() => lessonAction(l.id, 'apply')}
+                                                                className="btn-primary px-3 py-1.5 text-xs"><Check size={13} aria-hidden="true" /> Appliquer</button>
+                                                        ) : ck?.state !== 'running' && (
+                                                            <button type="button" onClick={() => lessonAction(l.id, 'check')}
+                                                                className="btn-primary px-3 py-1.5 text-xs">{ck ? 'Vérifier à nouveau' : 'Vérifier avant / après'}</button>
                                                         )}
-                                                        <button type="button" onClick={() => setEditing((m) => ({ ...m, [l.id]: l.text }))}
-                                                            className="btn-quiet px-3 py-1.5 text-xs">Modifier</button>
-                                                        {l.status !== 'refused' && (
-                                                            <button type="button" onClick={() => setLesson(l.id, { status: 'refused' })}
-                                                                className="btn-quiet px-3 py-1.5 text-xs">{l.status === 'kept' ? 'Retirer' : 'Refuser'}</button>
+                                                        {ck?.state !== 'running' && (
+                                                            <>
+                                                                <button type="button" onClick={() => setEditing((m) => ({ ...m, [l.id]: l.text }))}
+                                                                    className="btn-quiet px-3 py-1.5 text-xs">Modifier</button>
+                                                                <button type="button" onClick={() => setLesson(l.id, { status: 'refused' })}
+                                                                    className="btn-quiet px-3 py-1.5 text-xs">Refuser</button>
+                                                            </>
                                                         )}
                                                     </>
-                                                )}
+                                                ) : l.status === 'refused' ? (
+                                                    <button type="button" onClick={() => setLesson(l.id, { status: 'proposed' })}
+                                                        className="btn-quiet px-3 py-1.5 text-xs">Reprendre</button>
+                                                ) : null}
                                             </div>
                                         </div>
                                     );

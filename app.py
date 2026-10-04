@@ -6761,7 +6761,8 @@ async def broll_lessons_list():
     _notion_guard()
     import broll_teach
     import plus as _plus
-    return {"lessons": broll_teach.lessons(OUTPUT_DIR), "active": bool(_plus.BROLL.get("lessons"))}
+    return {"lessons": [{**x, "check": broll_teach.check_state(OUTPUT_DIR, x["id"])} for x in broll_teach.lessons(OUTPUT_DIR)],
+            "active": bool(_plus.BROLL.get("lessons"))}
 
 
 @app.post("/api/broll/gallery/lesson")
@@ -6786,6 +6787,50 @@ async def broll_lesson_update(lid: str, req: BrollLessonUpdate):
     import broll_teach
     try:
         return {"lesson": broll_teach.update(OUTPUT_DIR, lid, req.status, req.text)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# Every lesson is checked before it applies: the whole set rewritten with it, drawn before / after (broll_teach).
+@app.post("/api/broll/gallery/lessons/{lid}/check")
+async def broll_lesson_check_start(lid: str):
+    _notion_guard()
+    import ai_brain
+    import broll
+    import broll_teach
+    if not ai_brain.claude_ready():
+        raise HTTPException(status_code=400, detail="Claude n'est pas configuré sur le serveur.")
+    if not broll.comfy_available():
+        raise HTTPException(status_code=400, detail="ComfyUI ne répond pas : lance-le dans Pinokio pour dessiner la planche.")
+    try:
+        return {"check": broll_teach.start_check(OUTPUT_DIR, lid)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/broll/gallery/lessons/{lid}/check")
+async def broll_lesson_check_state(lid: str):
+    _notion_guard()
+    import broll_teach
+    return {"check": broll_teach.check_state(OUTPUT_DIR, lid)}
+
+
+@app.get("/api/broll/gallery/lessons/{lid}/board")
+async def broll_lesson_board(lid: str):
+    _notion_guard()
+    import broll_teach
+    path = broll_teach.board_path(OUTPUT_DIR, lid) if re.fullmatch(r"[0-9a-f]{8}", lid) else None
+    if not path:
+        raise HTTPException(status_code=404, detail="Pas de planche")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
+
+
+@app.post("/api/broll/gallery/lessons/{lid}/apply")
+async def broll_lesson_apply(lid: str):
+    _notion_guard()
+    import broll_teach
+    try:
+        return {"lesson": broll_teach.apply(OUTPUT_DIR, lid)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
