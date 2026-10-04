@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Loader2, RefreshCw, ThumbsUp, ThumbsDown, Images, X, Check, AlertCircle, Maximize2, GraduationCap } from 'lucide-react';
+import { Loader2, RefreshCw, ThumbsUp, ThumbsDown, Images, X, Check, AlertCircle, Maximize2 } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiJson } from '../lib/api';
 import SegmentedControl from './ui/SegmentedControl';
@@ -25,10 +25,8 @@ const SOURCE_OPTIONS = toOptions(SOURCES);
 
 /**
  * B-roll gallery (4-oct-2026): every drawn picture the jobs made (their trace) and the drawn bench made, kept or
- * refused by the safety verifier, with the owner's verdict on each — 👍 / 👎, why, and what to change. A verdict with
- * words becomes a lesson for the next pictures (broll_teach): proposed by the AI, then checked — the whole set of rules
- * rewritten with it, drawn before / after on the same moments and seeds — and applied exactly as checked, or dropped.
- * The kept ones are read by the art director (plus.BROLL["lessons"]).
+ * refused by the safety verifier, with the owner's verdict on each — 👍 / 👎, why, and what to change. The verdicts
+ * go to output/_lessons/gallery_feedback.jsonl: the work on the images' principles reads them; no call does by itself.
  */
 export default function BrollGallery() {
     const [pictures, setPictures] = useState(null);
@@ -39,11 +37,6 @@ export default function BrollGallery() {
     const [saved, setSaved] = useState(null);
     const [error, setError] = useState('');
     const [zoom, setZoom] = useState(null);
-    const [lessons, setLessons] = useState([]);
-    const [lessonsActive, setLessonsActive] = useState(false);
-    const [thinking, setThinking] = useState(null);   // picture id whose lesson the AI is writing
-    const [editing, setEditing] = useState({});       // lesson id -> text being rewritten
-    const [sameAs, setSameAs] = useState({});         // picture id -> the kept lesson that already says it
 
     const load = useCallback(async () => {
         setError('');
@@ -56,69 +49,7 @@ export default function BrollGallery() {
         }
     }, []);
 
-    const loadLessons = useCallback(async () => {
-        try {
-            const d = await apiJson('/api/broll/gallery/lessons');
-            setLessons(d.lessons || []);
-            setLessonsActive(!!d.active);
-        } catch { /* the lessons are an extra: the gallery works without them */ }
-    }, []);
-
-    useEffect(() => { load(); loadLessons(); }, [load, loadLessons]);
-
-    // The lesson drawn from a picture: the one still open (proposed or applied) first, else the last one.
-    const lessonOf = (pid) => {
-        const mine = lessons.filter((l) => l.from === pid);
-        return mine.filter((l) => l.status !== 'refused').pop() || mine.pop() || null;
-    };
-    const kept = lessons.filter((l) => l.status === 'kept');
-
-    const learn = async (pid) => {
-        setThinking(pid);
-        setError('');
-        try {
-            const r = await apiJson('/api/broll/gallery/lesson', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: pid }),
-            });
-            if (r.lesson?.status === 'same') setSameAs((m) => ({ ...m, [pid]: r.lesson }));
-            else setSameAs((m) => { const n = { ...m }; delete n[pid]; return n; });
-            await loadLessons();
-        } catch (e) {
-            setError(e.detail || e.message);
-        } finally {
-            setThinking(null);
-        }
-    };
-
-    const running = lessons.some((l) => l.check?.state === 'running');
-    useEffect(() => {
-        if (!running) return undefined;
-        const t = setInterval(loadLessons, 4000);
-        return () => clearInterval(t);
-    }, [running, loadLessons]);
-
-    const lessonAction = async (lid, action) => {
-        setError('');
-        try {
-            await apiJson(`/api/broll/gallery/lessons/${lid}/${action}`, { method: 'POST' });
-            await loadLessons();
-        } catch (e) {
-            setError(e.detail || e.message);
-        }
-    };
-
-    const setLesson = async (lid, changes) => {
-        setError('');
-        try {
-            await apiJson(`/api/broll/gallery/lessons/${lid}`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes),
-            });
-            setEditing((m) => { const n = { ...m }; delete n[lid]; return n; });
-            await loadLessons();
-        } catch (e) {
-            setError(e.detail || e.message);
-        }
-    };
+    useEffect(() => { load(); }, [load]);
 
     const draftOf = (p) => ({
         verdict: p.feedback?.verdict || '', why: p.feedback?.why || '', change: p.feedback?.change || '',
@@ -140,7 +71,6 @@ export default function BrollGallery() {
             setDrafts((all) => { const n = { ...all }; delete n[p.id]; return n; });
             setSaved(p.id);
             setTimeout(() => setSaved((s) => (s === p.id ? null : s)), 1500);
-            if (d.verdict && (d.why.trim() || d.change.trim())) learn(p.id);
         } catch (e) {
             setError(e.detail || e.message);
         } finally {
@@ -194,7 +124,7 @@ export default function BrollGallery() {
                     <h2 className="page-title mt-2">Images B-roll</h2>
                     <p className="page-lede mt-2">
                         Toutes les images dessinées par les jobs et par le banc, gardées ou refusées par le vérificateur. Dis si tu aimes ou pas,
-                        écris pourquoi et ce que tu veux changer : l’IA en tire une leçon, la vérifie en avant / après, et tu l’appliques.
+                        écris pourquoi et ce que tu veux changer : c’est ce qui sert à affiner les principes des images.
                     </p>
                 </div>
                 <div className="flex flex-wrap items-end gap-x-6 gap-y-4 shrink-0">
@@ -221,33 +151,6 @@ export default function BrollGallery() {
                     </button>
                 </div>
             </header>
-
-            <section aria-labelledby="bg-learned" className="tray px-4 py-4 sm:px-5 space-y-3">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 id="bg-learned" className="font-display text-base text-ink inline-flex items-center gap-2">
-                        <GraduationCap size={16} className="text-muted" aria-hidden="true" /> Ce que l’IA a appris ({kept.length})
-                    </h3>
-                    <p className={`text-xs ${lessonsActive ? 'text-ok' : 'text-warn'}`}>
-                        {lessonsActive
-                            ? 'Lues par le directeur artistique à chaque nouvelle image.'
-                            : 'Pas encore lues par la prod : elles le seront quand tu valides l’activation.'}
-                    </p>
-                </div>
-                {kept.length === 0 ? (
-                    <p className="text-sm text-muted">Rien encore. Mets un pouce, écris pourquoi, vérifie la leçon que l’IA te propose (planche avant / après), puis applique-la.</p>
-                ) : (
-                    <ol className="space-y-2">
-                        {kept.map((l, i) => (
-                            <li key={l.id} className="flex items-start gap-3 text-sm text-ink2">
-                                <span className="font-mono text-xs text-muted mt-0.5">{i + 1}.</span>
-                                <span className="flex-1 min-w-0 break-words">{l.text}</span>
-                                <button type="button" onClick={() => setLesson(l.id, { status: 'refused' })}
-                                    className="btn-quiet px-2 py-1 text-xs shrink-0">Retirer</button>
-                            </li>
-                        ))}
-                    </ol>
-                )}
-            </section>
 
             {/* Filtres : un seul choix d'affichage (état ou verdict), plus la source. */}
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.3fr)]">
@@ -363,107 +266,6 @@ export default function BrollGallery() {
                                         </button>
                                     </div>
                                 )}
-
-                                {(() => {
-                                    const l = lessonOf(p.id);
-                                    const same = sameAs[p.id];
-                                    const hasWords = p.feedback && (p.feedback.why || p.feedback.change);
-                                    if (thinking === p.id) {
-                                        return (
-                                            <p role="status" className="tray px-3 py-2.5 text-xs text-muted inline-flex items-center gap-2">
-                                                <Loader2 size={14} className="animate-spin" aria-hidden="true" /> L’IA tire une leçon de ta remarque…
-                                            </p>
-                                        );
-                                    }
-                                    if (same) {
-                                        return <p className="tray px-3 py-2.5 text-xs text-ink2">Déjà retenu : {same.text}</p>;
-                                    }
-                                    if (!l) {
-                                        return hasWords ? (
-                                            <button type="button" onClick={() => learn(p.id)} className="btn-quiet px-3 py-1.5 text-xs">
-                                                <GraduationCap size={13} aria-hidden="true" /> En tirer une leçon
-                                            </button>
-                                        ) : null;
-                                    }
-                                    const draft = editing[l.id];
-                                    const ck = l.check;
-                                    const board = ck?.state === 'done' && getApiUrl(`/api/broll/gallery/lessons/${l.id}/board?t=${ck.finished || ''}`);
-                                    const title = {
-                                        proposed: 'Leçon proposée pour les prochaines images',
-                                        applied: 'Appliquée après vérification',
-                                        refused: 'Leçon refusée',
-                                    }[l.status] || 'Leçon';
-                                    return (
-                                        <div className="tray px-3 py-3 space-y-3">
-                                            <p className="readout">{title}</p>
-                                            {draft !== undefined ? (
-                                                <textarea rows={3} value={draft} aria-label="Réécrire la leçon"
-                                                    onChange={(e) => setEditing((m) => ({ ...m, [l.id]: e.target.value }))}
-                                                    className="input-field text-sm w-full py-2 px-2.5 resize-y" />
-                                            ) : (
-                                                <p className={`text-sm break-words ${l.status === 'refused' ? 'text-muted line-through' : 'text-ink'}`}>{l.text}</p>
-                                            )}
-
-                                            {l.status === 'proposed' && ck?.state === 'running' && (
-                                                <p role="status" className="text-xs text-muted inline-flex items-center gap-2">
-                                                    <Loader2 size={14} className="animate-spin" aria-hidden="true" /> {ck.step || 'Vérification…'} (2 à 5 min)
-                                                </p>
-                                            )}
-                                            {l.status === 'proposed' && ck?.state === 'error' && (
-                                                <p role="alert" className="text-xs text-danger break-words">{ck.error}</p>
-                                            )}
-                                            {board && (
-                                                <div className="space-y-2">
-                                                    {ck.summary && <p className="text-xs text-ink2">{ck.summary}</p>}
-                                                    <a href={board} target="_blank" rel="noopener noreferrer" className="block rounded-input overflow-hidden border border-rule2 hover:border-ink transition-colors">
-                                                        <img src={board} alt="Planche avant / après : ton image et trois images d’autres clips, mêmes graines" className="w-full" loading="lazy" />
-                                                    </a>
-                                                    <details>
-                                                        <summary className="cursor-pointer readout hover:text-ink py-1">Les règles après application ({ck.merged?.length || 0})</summary>
-                                                        <ol className="mt-2 space-y-1.5 text-xs text-ink2 list-decimal pl-5">
-                                                            {(ck.merged || []).map((t) => <li key={t} className="break-words">{t}</li>)}
-                                                        </ol>
-                                                    </details>
-                                                    {l.status === 'proposed' && ck.stale && (
-                                                        <p className="text-xs text-warn">Les règles ou la leçon ont changé depuis : vérifie à nouveau.</p>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            <div className="flex flex-wrap gap-2">
-                                                {draft !== undefined ? (
-                                                    <>
-                                                        <button type="button" onClick={() => setLesson(l.id, { text: draft })}
-                                                            className="btn-primary px-3 py-1.5 text-xs">Enregistrer ma version</button>
-                                                        <button type="button" onClick={() => setEditing((m) => { const n = { ...m }; delete n[l.id]; return n; })}
-                                                            className="btn-quiet px-3 py-1.5 text-xs">Annuler</button>
-                                                    </>
-                                                ) : l.status === 'proposed' ? (
-                                                    <>
-                                                        {ck?.state === 'done' && !ck.stale ? (
-                                                            <button type="button" onClick={() => lessonAction(l.id, 'apply')}
-                                                                className="btn-primary px-3 py-1.5 text-xs"><Check size={13} aria-hidden="true" /> Appliquer</button>
-                                                        ) : ck?.state !== 'running' && (
-                                                            <button type="button" onClick={() => lessonAction(l.id, 'check')}
-                                                                className="btn-primary px-3 py-1.5 text-xs">{ck ? 'Vérifier à nouveau' : 'Vérifier avant / après'}</button>
-                                                        )}
-                                                        {ck?.state !== 'running' && (
-                                                            <>
-                                                                <button type="button" onClick={() => setEditing((m) => ({ ...m, [l.id]: l.text }))}
-                                                                    className="btn-quiet px-3 py-1.5 text-xs">Modifier</button>
-                                                                <button type="button" onClick={() => setLesson(l.id, { status: 'refused' })}
-                                                                    className="btn-quiet px-3 py-1.5 text-xs">Refuser</button>
-                                                            </>
-                                                        )}
-                                                    </>
-                                                ) : l.status === 'refused' ? (
-                                                    <button type="button" onClick={() => setLesson(l.id, { status: 'proposed' })}
-                                                        className="btn-quiet px-3 py-1.5 text-xs">Reprendre</button>
-                                                ) : null}
-                                            </div>
-                                        </div>
-                                    );
-                                })()}
 
                                 <details className="border-t border-rule pt-2">
                                     <summary className="cursor-pointer readout hover:text-ink py-1.5 [@media(pointer:coarse)]:py-3">Prompt et graine</summary>

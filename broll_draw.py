@@ -43,7 +43,7 @@ THE EPISODE'S STYLE CHARTER (every picture is drawn in it; the code adds the sty
 YOUR PRINCIPLES (they decide how a sentence becomes a picture):
 {banc}
 
-{lessons}For each sentence below you get the clip it belongs to, what was heard just before, and the sentence itself. For each
+For each sentence below you get the clip it belongs to, what was heard just before, and the sentence itself. For each
 one, ONE picture, drawn in the charter: the IDEA of the sentence, never its word, the simplest symbol of it, big.
 People are always drawn and anonymous; never a speaker, never a real person of the story.
 The whole picture is ONE drawing, nothing in it photographic: the person and the place around them (the room, the floor,
@@ -92,29 +92,19 @@ VERIFY_SCHEMA = {"type": "object", "properties": {"moments": {"type": "array", "
 
 def picture_text(suffix, picture):
     """The text the image model gets: the charter's style first (4-oct-2026, the user: a drawn man in a photographed
-    room, sometimes all photographed — the model reads the medium before the scene), then the director's picture.
-    The production and the lessons' check (broll_teach) both go through here."""
+    room, sometimes all photographed — the model reads the medium before the scene), then the director's picture."""
     return f"{suffix} {picture}"
 
 
-def direct_and_verify(sentences, title=None, lessons=False, taught=None):
+def direct_and_verify(sentences, title=None):
     """The art director's call then the verifier's pass for ``sentences`` = [(clip title, heard before, sentence)] ->
-    ([{"idea", "picture"} or {}], [{"verdict", "reason"}], style suffix). ``lessons``: the owner's kept lessons
-    (broll_teach) go into the director's call; off, the call is word for word the one before them. ``taught``: that
-    block given as is (the lessons' check compares two sets)."""
+    ([{"idea", "picture"} or {}], [{"verdict", "reason"}], style suffix)."""
     text, suffix, banc = charter()
     q = broll_ideas._q
     lines = [f'k={k} — clip "{q(t, 20)}"\n  heard just before: "{q(b)}"\n  SENTENCE: "{q(s)}"'
              for k, (t, b, s) in enumerate(sentences)]
     principes = broll_ideas.skill_text("principes")
-    taught = taught or ""
-    if lessons and not taught:
-        import broll_teach
-        taught = broll_teach.director_block(os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"))
-        if taught:
-            print(f"   🎓 B-roll v26: the art director reads {taught.count(chr(10) + '- ')} lesson(s) of the owner.")
-    data = broll_ideas._call(DA_PROMPT.format(principes=principes, charte=text, banc=banc, lessons=taught,
-                                              moments="\n".join(lines)),
+    data = broll_ideas._call(DA_PROMPT.format(principes=principes, charte=text, banc=banc, moments="\n".join(lines)),
                              DA_SCHEMA, "broll_ideas", broll_ideas._model("broll_ideas", "opus"),
                              effort=os.environ.get("CLAUDE_EFFORT_BROLL_IDEAS") or "high")
     got = {m["k"]: m for m in (data or {}).get("moments") or [] if isinstance(m, dict) and isinstance(m.get("k"), int)}
@@ -138,8 +128,7 @@ def direct_and_verify(sentences, title=None, lessons=False, taught=None):
     return ideas, verdicts, suffix
 
 
-def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, gap_min, block, dur_range, tmp, render,
-        lessons=False):
+def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, gap_min, block, dur_range, tmp, render):
     """The v26 chain for one clip; ``render(text, out_path, layout) -> (path or None, seed)`` is add_broll's. Returns
     (cands, moments) in broll_v20.run's shape — the kept pictures only."""
     import broll
@@ -163,7 +152,7 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
         said, before, _after = broll_ideas._around(words, float(m["t"]))
         sentences.append((title, before, said or m.get("said") or ""))
     try:
-        ideas, verdicts, suffix = direct_and_verify(sentences, lessons=lessons)
+        ideas, verdicts, suffix = direct_and_verify(sentences)
     except OSError as e:
         print(f"   ⚠️ B-roll v26: the style charter is missing ({e}) — no picture for this clip.")
         return [], []

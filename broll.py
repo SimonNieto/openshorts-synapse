@@ -3534,8 +3534,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 # render per moment — no judge, no render loop (broll_draw)
                 import broll_draw
                 cands, moments = broll_draw.run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail,
-                                                gap_min, block, dur_range, tmp, render,
-                                                lessons=bool(cfg.get("lessons")))
+                                                gap_min, block, dur_range, tmp, render)
             else:
                 cands, moments = broll_v20.run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail,
                                                gap_min, block, dur_range, tmp, render, ideas=bool(cfg.get("ideas")),
