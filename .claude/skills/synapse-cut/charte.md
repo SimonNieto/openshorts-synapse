@@ -1,23 +1,24 @@
 # Charte de style de l'épisode
 
 Choisie par l'utilisatrice le 4 octobre 2026 au banc : la deuxième planche du test de style (« illustration éditoriale »),
-le style adulte et contrasté, pas le dessin animé. Elle vaut pour le banc. Elle n'entre en production que sur sa
-validation explicite, qui nomme la version : d'ici là, `SKILL.md`, que les appels de la production relisent, ne la cite
-pas.
+le style adulte et contrasté, pas le dessin animé. Elle est en production depuis le 4 octobre 2026 (chaîne « dessin »,
+broll_draw.py, validée par elle) : le directeur artistique la lit à chaque appel, la modifier change la production.
 
 ## Même patte sur toutes les images
 
-Toutes les images d'un épisode sont dessinées dans le même style. Le prompt de chaque image finit par ce suffixe, mot pour
-mot, sans rien changer :
+Toutes les images d'un épisode sont dessinées dans le même style. Le prompt de chaque image commence par cette phrase
+(placée en tête le 4 octobre 2026 : en fin de prompt, le modèle d'image dessinait la personne et photographiait la pièce),
+mot pour mot, sans rien changer :
 
-> Premium editorial illustration: bold confident ink linework, rich textured shading with subtle paper grain, layered composition with foreground and background depth, dramatic warm-and-cool lighting, sophisticated colour palette, magazine cover quality, readable at a glance.
+> Premium editorial illustration of the entire scene, setting and background included, every surface drawn in the same bold confident ink linework, rich textured shading with subtle paper grain, layered drawn composition, dramatic warm-and-cool lighting, sophisticated colour palette, magazine cover quality, readable at a glance.
 
-Le directeur artistique ne réécrit pas ce suffixe et n'ajoute pas d'autre mot de style : il décrit ce qu'on voit, le code
-ajoute la charte.
+Le directeur artistique ne réécrit pas cette phrase et n'ajoute pas d'autre mot de style : il décrit ce qu'on voit, le
+code ajoute la charte.
 
-## Les gens
+## Les gens et les lieux
 
-Les gens sont toujours dessinés. Aucune image n'est photoréaliste, ni une personne, ni un lieu, ni un objet.
+Les gens sont toujours dessinés. Aucune image n'est photoréaliste, ni une personne, ni un lieu, ni un objet : l'image
+entière est un seul dessin, la pièce autour de la personne aussi.
 
 ## La négation
 

@@ -1,8 +1,8 @@
 # Principes du directeur artistique — banc
 
-Écrits le 4 octobre 2026 avec l'utilisatrice, après la planche « test à la main / directeur ». Ils valent pour le banc
-seulement : ni `SKILL.md` ni les appels de la production ne les lisent. Ce sont des principes, jamais les solutions des
-moments du banc.
+Écrits le 4 octobre 2026 avec l'utilisatrice, après la planche « test à la main / directeur ». Le directeur de la
+production (chaîne « dessin », broll_draw.py) les lit à chaque appel depuis le 4 octobre 2026 : les modifier change la
+production. Ce sont des principes, jamais les solutions des moments du banc.
 
 **La règle qui les résume : le directeur perd quand il met une couche entre le spectateur et l'idée. Il dessine le
 symbole le plus simple de la phrase, en grand.**

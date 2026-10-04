@@ -3,7 +3,7 @@
   1. the editor (broll_spec, as in v20/v21) places the clip's moments and marks the hero;
   2. the art director (Opus, ONE call per clip) writes ONE idea per moment, drawn: the episode's style charter
      (.claude/skills/synapse-cut/charte.md) and its principles (directeur-banc.md) in the call, the charter's style
-     suffix added word for word by the code;
+     sentence added word for word by the code, at the head of the picture's text (4-oct-2026);
   3. the verifier (Sonnet, ONE pass, before any picture) checks safety only: it refuses or lets pass, it gives no score;
   4. one render per moment (the hero full screen, the others as cards). No viewer, no judge, no render loop.
 
@@ -46,6 +46,10 @@ YOUR PRINCIPLES (they decide how a sentence becomes a picture):
 {lessons}For each sentence below you get the clip it belongs to, what was heard just before, and the sentence itself. For each
 one, ONE picture, drawn in the charter: the IDEA of the sentence, never its word, the simplest symbol of it, big.
 People are always drawn and anonymous; never a speaker, never a real person of the story.
+The whole picture is ONE drawing, nothing in it photographic: the person and the place around them (the room, the floor,
+the walls, the light) are drawn alike. So never write "drawn" about one thing alone (it makes the rest a photograph),
+and describe the setting as parts of the drawing, never as a photographer would ("seen from the doorway", "daylight
+through high windows", a blurred background).
 For each sentence: "idea" (what it means, one line) and "picture": the drawing in plain words, 60 at most, what fills
 the frame first, what it does, two or three particular details, the light. Say "a single" or "only one" for every thing
 that appears once. No style word and no camera word (the code adds the charter's style), nothing to read in the
@@ -162,7 +166,9 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
         if not idea["picture"]:
             broll.filter_hit("v26: no idea from the art director")
             continue
-        text = f'{idea["picture"]} {suffix}'
+        # The style first (4-oct-2026, the user: a drawn man in a photographed room, sometimes all photographed): the
+        # image model reads the medium before the scene, so the room is drawn with the person.
+        text = f'{suffix} {idea["picture"]}'
         entry = {"k": k, "anchor": m.get("anchor"), "said": sentences[k][2], "idea": idea["idea"], "prompt": text,
                  "layout": layout}
         if v["verdict"] == "pass":

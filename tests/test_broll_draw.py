@@ -62,13 +62,14 @@ def test_production_runs_the_drawn_chain():
     assert plus.BROLL["chain"] == "dessin"
 
 
-def test_the_charter_suffix_is_added_word_for_word_and_the_hero_is_full_screen(chain):
+def test_the_charter_style_heads_the_prompt_word_for_word_and_the_hero_is_full_screen(chain):
     _text, suffix, _banc = broll_draw.charter()
-    assert suffix.startswith("Premium editorial illustration: bold confident ink linework")
+    # 4-oct-2026: the whole scene drawn (setting included), the style first so the room is not photographed
+    assert suffix.startswith("Premium editorial illustration of the entire scene, setting and background included")
     cands, _m, made, calls = chain([_moment(2.0, hero=True), _moment(9.0)], ["A man under a fridge.", "A dish."],
                                    ["pass", "pass"])
-    assert [(t, layout) for t, _f, layout in made] == [(f"A man under a fridge. {suffix}", "hero"),
-                                                        (f"A dish. {suffix}", "card")]
+    assert [(t, layout) for t, _f, layout in made] == [(f"{suffix} A man under a fridge.", "hero"),
+                                                        (f"{suffix} A dish.", "card")]
     assert [c["verdict"] for c in cands] == ["keep", "keep"] and cands[0]["layout"] == "hero"
     assert cands[0]["m"]["mood"] is None and cands[0]["m"]["inside_body"] is False     # its own palette, no grade
     assert [(s, m) for s, m, _p in calls.prompts] == [("broll_ideas", "opus"), ("broll_verify", "sonnet")]
