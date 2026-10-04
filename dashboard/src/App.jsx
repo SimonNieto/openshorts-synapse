@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Square, Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Smartphone, ExternalLink, Copy, CheckCircle2, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket, Library, Images } from 'lucide-react';
+import { Square, Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Smartphone, ExternalLink, Copy, CheckCircle2, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket, Images } from 'lucide-react';
 import KeyInput from './components/KeyInput';
 import MediaInput from './components/MediaInput';
 import ResultCard from './components/ResultCard';
@@ -29,7 +29,6 @@ import PublishPlanTab from './components/PublishPlanTab';
 import ViralFinderTab from './components/ViralFinderTab';
 import StoryTab from './components/StoryTab';
 import PlusPanel from './components/PlusPanel';
-import NotionLibrary from './components/NotionLibrary';
 import BrollGallery from './components/BrollGallery';
 import ProfileMenu from './components/ProfileMenu';
 import Modal from './components/ui/Modal';
@@ -1213,8 +1212,6 @@ function App() {
       desc: 'The videos generated with AI actors.' },
     ...(!billingEnabled ? [{ id: 'broll-gallery', group: 'library', icon: Images, label: 'B-roll images', short: 'Images',
       desc: 'Every drawn picture, kept or refused: thumbs up or down, why, what to change.' }] : []),
-    ...(!billingEnabled ? [{ id: 'notions', group: 'library', icon: Library, label: 'Notion pictures', short: 'Notions',
-      desc: 'The pictures kept for the notions of your episodes.' }] : []),
     { id: 'thumbnails', group: 'grow', icon: Image, label: 'YouTube Studio', short: 'Studio', primary: true,
       desc: 'Thumbnails, titles and descriptions for YouTube.' },
     ...(!billingEnabled ? [{ id: 'viral-finder', group: 'grow', icon: Flame, label: 'Viral finder', short: 'Finder',
@@ -2019,13 +2016,6 @@ function App() {
           {activeTab === 'reworker' && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
               <ReworkerTab geminiApiKey={apiKey} elevenLabsKey={elevenLabsKey} onDone={restoreProject} />
-            </div>
-          )}
-
-          {/* View: Notion pictures */}
-          {activeTab === 'notions' && !billingEnabled && (
-            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
-              <NotionLibrary />
             </div>
           )}
 
