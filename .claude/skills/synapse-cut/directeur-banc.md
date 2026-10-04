@@ -23,3 +23,5 @@ symbole le plus simple de la phrase, en grand.**
    lieu sobre, ou le visage seul.
 9. Une absence : un lieu ou un passage laissé vide, une porte ouverte sur rien ; jamais celui qui manque.
 10. Une voix ou un bruit entendu de l'intérieur : la personne au centre de l'image, ce qu'elle entend tout autour.
+11. Nommer ce qu'on voit, jamais « une carte », « une image », « une photo » ou « un schéma » de la chose : le modèle
+    d'image dessine le mot. C'est la règle de la v24 : jamais l'instrument ni la catégorie.
