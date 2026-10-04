@@ -65,7 +65,8 @@ def test_production_runs_the_drawn_chain():
 def test_the_charter_style_heads_the_prompt_word_for_word_and_the_hero_is_full_screen(chain):
     _text, suffix, _banc = broll_draw.charter()
     # 4-oct-2026: the whole scene drawn (setting included), the style first so the room is not photographed
-    assert suffix.startswith("Premium editorial illustration of the entire scene, setting and background included")
+    assert suffix.startswith("Editorial ink illustration of the entire scene, setting and background included")
+    assert "Premium" not in suffix and "magazine" not in suffix, "words that call a title get drawn as one"
     cands, _m, made, calls = chain([_moment(2.0, hero=True), _moment(9.0)], ["A man under a fridge.", "A dish."],
                                    ["pass", "pass"])
     assert [(t, layout) for t, _f, layout in made] == [(f"{suffix} A man under a fridge.", "hero"),

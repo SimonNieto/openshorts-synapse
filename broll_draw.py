@@ -25,10 +25,12 @@ def read(name):
 
 
 def charter():
-    """(the charter's text, its style suffix word for word, the director's principles); raises OSError when the skill's
-    files are missing."""
+    """(the charter's text, its style sentence word for word — its first quoted line —, the director's principles);
+    raises OSError when the skill's files or the style sentence are missing (the clip then gets no picture)."""
     text = read(CHARTER_FILE)
-    suffix = next(line[1:].strip() for line in text.splitlines() if line.startswith("> Premium"))
+    suffix = next((line[1:].strip() for line in text.splitlines() if line.startswith("> ")), "")
+    if not suffix:
+        raise OSError(f"no style sentence (a line starting with '> ') in {CHARTER_FILE}")
     return text, suffix, read(PRINCIPLES_FILE)
 
 

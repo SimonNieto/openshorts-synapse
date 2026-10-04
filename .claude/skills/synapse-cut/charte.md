@@ -8,9 +8,10 @@ broll_draw.py, validée par elle) : le directeur artistique la lit à chaque app
 
 Toutes les images d'un épisode sont dessinées dans le même style. Le prompt de chaque image commence par cette phrase
 (placée en tête le 4 octobre 2026 : en fin de prompt, le modèle d'image dessinait la personne et photographiait la pièce),
-mot pour mot, sans rien changer :
+mot pour mot, sans rien changer. Elle ne contient aucun mot qui appelle un titre : en tête, « Premium » et « magazine
+cover » faisaient écrire « Premium » en gros sur l'image (validé par l'utilisatrice le 4 octobre 2026) :
 
-> Premium editorial illustration of the entire scene, setting and background included, every surface drawn in the same bold confident ink linework, rich textured shading with subtle paper grain, layered drawn composition, dramatic warm-and-cool lighting, sophisticated colour palette, magazine cover quality, readable at a glance.
+> Editorial ink illustration of the entire scene, setting and background included, every surface drawn in the same bold confident linework, rich textured shading with subtle paper grain, layered drawn composition, dramatic warm-and-cool lighting, sophisticated colour palette, readable at a glance.
 
 Le directeur artistique ne réécrit pas cette phrase et n'ajoute pas d'autre mot de style : il décrit ce qu'on voit, le
 code ajoute la charte.
