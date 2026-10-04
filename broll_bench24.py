@@ -487,12 +487,18 @@ def cmd_agree(args):
         stab = os.path.join(SHORT_DIR, "stability_v23.json")
         first = {r["id"]: r for r in _load(stab)["rows"]} if os.path.exists(stab) else {}
         v23 = [(key, g) for key, _job, gs in _v23_groups() for g in gs if g["files"]]
-        v23.sort(key=lambda kg: -len(kg[1]["files"]))
+        # the moments with different ideas first (an alternative), then the most pictures: a choice between three
+        # takes of one prompt says less than a choice between two ideas
+        prompts = {}
+        for it in _load(V23_SET):
+            if it["verdict"] != "other take":
+                prompts.setdefault(f'{it["tag"]}#{it["k"]}', set()).add(it.get("prompt") or it["file"])
+        v23.sort(key=lambda kg: (-len(prompts.get(kg[1]["id"], ())), -len(kg[1]["files"])))
         for key, g in v23[:args.v23]:
             w = (first.get(g["id"]) or {}).get("winners") or []
             entries.append({"source": "v23", "id": g["id"], "said": g["said"], "before": g.get("before"),
                             "files": g["files"], "viewer": w[0] if w else None})
-    W, TW, TH, per = 1500, 460, 300, 5
+    W, TW, TH, per = 1560, 350, 220, 5
     f_h, f_b = bb._font(30, True), bb._font(22)
     key_out, sheets = [], []
     for s0 in range(0, len(entries), per):
@@ -510,7 +516,7 @@ def cmd_agree(args):
                 d.text((80, yy + 4), line, fill=bb._C_HEAD, font=f_b)
                 yy += 28
             x = 80
-            for i, f in enumerate(e["files"][:3]):
+            for i, f in enumerate(e["files"][:4]):            # every picture the viewer saw (four at most)
                 im = _thumb(f, TW, TH)
                 sheet.paste(im, (x, y + 70))
                 d.text((x, y + 74 + TH), LETTERS[i], fill=bb._C_LABEL, font=f_h)
