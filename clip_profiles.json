@@ -6,45 +6,10 @@
       "niche": "Joe Rogan podcast",
       "clip_min": 15,
       "clip_max": 60,
-      "target_clips": 1,
-      "edit_style": "natural",
-      "hook_style": "bold",
-      "hook_seconds": 3,
-      "hook_box": true,
-      "clean_ending": true,
+      "target_clips": 2,
       "watermark": "@TheSynapseCut",
-      "fx": {
-        "smart_framing": true,
-        "look": false,
-        "spotlight": false,
-        "streaks": false,
-        "reactions": true,
-        "smooth_camera": true
-      },
-      "music": {
-        "enabled": false,
-        "mood": "",
-        "volume": 0.1
-      },
       "broll": {
-        "enabled": true,
-        "source": "local",
-        "engine": "zimage",
-        "planner": "claude",
-        "style": "auto",
-        "max": 6,
-        "mode": "mixed",
-        "real_photos": true,
-        "density": "more",
-        "review": "auto",
-        "layout": "rise",
-        "position": "below",
-        "y": 73.1,
-        "hold": 3.0,
-        "enter": "rise",
-        "zoom": "off",
-        "border": "soft",
-        "size": 27
+        "enabled": true
       },
       "auto_publish": {
         "enabled": false,
@@ -54,12 +19,25 @@
           "youtube"
         ]
       },
-      "beta": {
-        "selection_v2": false,
-        "series_titles": false,
-        "series_name": "Joe Rogan",
-        "playbook": true,
-        "playbook_show": ""
+      "playbook_show": "",
+      "selection": {
+        "clip_target": [
+          25,
+          40
+        ],
+        "niche_topics": [
+          "brain_danger",
+          "substances",
+          "psychosis_mental_illness",
+          "mind_psychology",
+          "self_improvement",
+          "medical_mystery",
+          "crime_dark"
+        ],
+        "niche_weight": 15.0,
+        "niche_only": true,
+        "niche_context": "the brain and the mind: neuroscience, psychology, substances, mental health, discipline",
+        "min_clips": 2
       },
       "brain": {
         "preset": "custom",
@@ -68,17 +46,19 @@
           "detail": "sonnet",
           "layout": "haiku",
           "broll": "sonnet",
+          "broll_art": "sonnet",
           "image_review": "haiku",
           "hook": "sonnet",
-          "text": "gemini"
+          "text": "haiku"
         },
         "thinking": "normal",
         "thinking_broll": "normal",
+        "thinking_art": "deep",
         "fresh": false
       },
       "id": "2d73847389ae",
       "created_at": 1790343628.8880663,
-      "updated_at": 1790779204.417755
+      "updated_at": 1790847394.7351909
     }
   ]
 }
