@@ -363,7 +363,10 @@ def _boards(out, run_dir, per=4):
                         lines.append("+ contrôle" if c.get("mech") and not mech else f"x contrôle : {mech or '-'}")
                     flags = ((c.get("view") or {}).get("flags") or {})
                     yes = [k for k, v in flags.items() if v == "yes"]
-                    if flags:
+                    if flags and out.get("version") == "v25":      # v25: the answers compare, they rule nothing out
+                        lines.append(f"spectateur : rang {(c.get('view') or {}).get('rank') or 'après le visage'}"
+                                     + (f" ; oui à {', '.join(yes)}" if yes else ""))
+                    elif flags:
                         lines.append(("x spectateur : " + ", ".join(yes)) if yes else
                                      f"+ spectateur, rang {(c.get('view') or {}).get('rank') or 'après le visage'}")
                 post = (r.get("post") or {}).get(os.path.basename(f or "").lower())
