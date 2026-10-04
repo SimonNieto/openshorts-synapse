@@ -11,7 +11,7 @@ export default function NichePicker({ value, onChange, onEnter, autoFocus = fals
     useEffect(() => { setHistory(loadNicheHistory()); }, []);
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
             <input
                 type="text"
                 autoFocus={autoFocus}
@@ -19,10 +19,11 @@ export default function NichePicker({ value, onChange, onEnter, autoFocus = fals
                 onChange={(e) => onChange(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && onEnter) onEnter(); }}
                 className="input-field w-full"
-                placeholder="niche, e.g. Joe Rogan podcast clips"
+                aria-label="Channel niche"
+                placeholder="Niche, e.g. Joe Rogan podcast clips"
             />
             {history.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
+                <div role="group" aria-label="Niches used before" className="flex flex-wrap gap-1.5">
                     {history.map((n) => {
                         const active = n.toLowerCase() === (value || '').trim().toLowerCase();
                         return (
@@ -30,9 +31,10 @@ export default function NichePicker({ value, onChange, onEnter, autoFocus = fals
                                 key={n}
                                 type="button"
                                 onClick={() => onChange(n)}
-                                className={`readout px-2 py-1 rounded-full transition-colors ${active
-                                    ? 'bg-brass/20 text-brass border border-brass/50'
-                                    : 'bg-paper3 hover:bg-paper2 text-ink2 border border-transparent'}`}
+                                aria-pressed={active}
+                                className={`min-h-[32px] [@media(pointer:coarse)]:min-h-[44px] px-2.5 py-1 rounded-input border text-xs transition-colors ${active
+                                    ? 'bg-vermilionsoft text-ink border-vermilion'
+                                    : 'bg-paper3 text-ink2 border-transparent hover:border-rule2 hover:text-ink'}`}
                             >
                                 {n}
                             </button>

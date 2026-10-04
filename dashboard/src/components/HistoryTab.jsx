@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Loader2, Download, Film, FolderOpen, Trash2, Pin, PinOff } from 'lucide-react';
+import { Loader2, Download, FolderOpen, Trash2, Pin, PinOff, AlertCircle } from 'lucide-react';
 import { apiJson } from '../lib/api';
 import { getApiUrl } from '../config';
 
@@ -128,105 +128,185 @@ export default function HistoryTab({ onReopenProject, billingEnabled }) {
   const fmtDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '');
 
   if (loading) {
-    return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-brass" /></div>;
+    return (
+      <div role="status" className="flex items-center justify-center gap-3 py-20 text-muted">
+        <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+        <span className="text-sm">Loading your projects…</span>
+      </div>
+    );
   }
 
+  const totalClips = sections.reduce((n, s) => n + s.clips.length, 0);
+
   return (
-    <div className="h-full overflow-y-auto p-8 max-w-5xl mx-auto animate-fade">
-      <p className="eyebrow mb-1.5">06 · HISTORY</p>
-      <h1 className="font-display lowercase text-2xl text-ink mb-2">Your library</h1>
-      <p className="text-muted text-sm mb-8 lowercase">
-        {billingEnabled
-          ? "All the shorts you've generated, saved while your plan is active. Kept for 7 days after your plan ends. Reopen a project to keep editing its clips."
-          : "Recent projects still on this machine's disk (cleaned up automatically after a while). Pin one to keep it around, or reopen it to keep editing its clips."}
-      </p>
+    <div className="animate-fade space-y-8">
+      {/* Archive header: what this is, and the two numbers that matter. */}
+      <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between border-b border-rule pb-6">
+        <div className="min-w-0">
+          <p className="eyebrow">Library</p>
+          <h2 className="page-title mt-2">Your projects</h2>
+          <p className="page-lede mt-2">
+            {billingEnabled
+              ? "All the shorts you've generated, saved while your plan is active. Kept for 7 days after your plan ends. Reopen a project to keep editing its clips."
+              : "Recent projects still on this machine's disk (cleaned up automatically after a while). Keep one to protect it from cleanup, or reopen it to keep editing its clips."}
+          </p>
+        </div>
+        {sections.length > 0 && (
+          <dl className="flex gap-8 shrink-0">
+            <div>
+              <dt className="readout">Projects</dt>
+              <dd className="font-quote text-4xl text-ink leading-none mt-1.5">{sections.length}</dd>
+            </div>
+            <div>
+              <dt className="readout">Clips</dt>
+              <dd className="font-quote text-4xl text-ink leading-none mt-1.5">{totalClips}</dd>
+            </div>
+          </dl>
+        )}
+      </header>
 
-      {error && <p className="text-danger text-sm">{error}</p>}
-      {reopenError && <p className="text-danger text-sm mb-4">{reopenError}</p>}
-
-      {sections.length === 0 && (
-        <div className="text-center py-20 text-muted">
-          <Film size={40} className="mx-auto mb-4 text-muted" />
-          <p className="lowercase">No videos yet. Generate your first short from the Clip Generator.</p>
+      {(error || reopenError) && (
+        <div role="alert" className="tray px-4 py-3 space-y-1.5">
+          {error && (
+            <p className="flex items-start gap-2 text-sm text-danger">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> {error}
+            </p>
+          )}
+          {reopenError && (
+            <p className="flex items-start gap-2 text-sm text-danger">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> {reopenError}
+            </p>
+          )}
         </div>
       )}
 
-      <div className="space-y-10">
-        {sections.map((section) => (
-          <section key={section.jobId}>
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-2 border-b border-rule">
-              <div className="min-w-0">
-                <p className="text-sm text-ink font-medium truncate" title={section.title}>
-                  {section.title}
-                </p>
-                <p className="readout mt-0.5">
-                  {fmtDate(section.date)} · {section.clips.length} clip{section.clips.length === 1 ? '' : 's'}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {!billingEnabled && (
-                  <button
-                    onClick={() => handleToggleKeep(section.jobId, section.kept)}
-                    disabled={!!keeping}
-                    className={`btn-ghost px-3 py-2 text-xs shrink-0 ${section.kept ? 'text-brass' : ''}`}
-                    title={section.kept
-                      ? "Stop keeping this project — it goes back to ageing out automatically"
-                      : "Keep this project — exempt it from automatic cleanup"}
-                  >
-                    {keeping === section.jobId
-                      ? <><Loader2 size={14} className="animate-spin" /> …</>
-                      : section.kept
-                        ? <><Pin size={14} className="fill-current" /> kept</>
-                        : <><PinOff size={14} /> keep</>}
-                  </button>
-                )}
-                {section.reopenable && onReopenProject && (
-                  <button
-                    onClick={() => handleReopen(section.jobId)}
-                    disabled={!!reopening}
-                    className="btn-ghost px-3 py-2 text-xs shrink-0"
-                    title="Restore this project in the Clip Generator to keep editing subtitles, hooks, effects and dubbing"
-                  >
-                    {reopening === section.jobId
-                      ? <><Loader2 size={14} className="animate-spin" /> reopening…</>
-                      : <><FolderOpen size={14} /> reopen project</>}
-                  </button>
-                )}
-                {!billingEnabled && (
-                  <button
-                    onClick={() => handleDelete(section.jobId)}
-                    disabled={!!deleting}
-                    className="btn-ghost px-3 py-2 text-xs shrink-0 text-danger hover:text-danger"
-                    title="Delete this project and all its clips from disk"
-                  >
-                    {deleting === section.jobId
-                      ? <><Loader2 size={14} className="animate-spin" /> deleting…</>
-                      : <><Trash2 size={14} /> delete</>}
-                  </button>
-                )}
-              </div>
+      {sections.length === 0 && (
+        <div className="tray p-5 sm:p-8 grid gap-6 sm:grid-cols-[minmax(0,15rem)_1fr] sm:items-center">
+          <figure className="w-full max-w-[15rem] mx-auto sm:mx-0">
+            <div className="aspect-[16/10] bg-black border border-rule2 rounded-card overflow-hidden">
+              <img src="/landing/universe.jpg" alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
-              {section.clips.map((c) => (
-                <div key={c.key} className="card card-hover overflow-hidden group">
-                  <div className="aspect-[9/16] bg-black">
-                    <video src={c.videoSrc} controls preload="metadata" className="w-full h-full object-contain" />
-                  </div>
-                  <div className="p-3">
-                    <p className="text-sm text-ink font-medium line-clamp-2 mb-1" title={c.title}>{c.title}</p>
-                    <div className="flex items-center justify-between">
-                      <span className="readout">{fmtDate(c.date)}</span>
-                      <a href={c.downloadHref} className="text-micro font-mono uppercase text-brass hover:text-ink flex items-center gap-1 transition-colors" title="Download">
-                        <Download size={14} /> Download
-                      </a>
+            <figcaption className="readout mt-2">Drawn B-roll · universe</figcaption>
+          </figure>
+          <div>
+            <h3 className="font-display text-xl text-ink">No projects yet</h3>
+            <p className="text-sm text-muted mt-2 max-w-md leading-relaxed">
+              Generate your first short from the Clip Generator. Every project lands here, ready to reopen.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {sections.length > 0 && (
+        <ol className="space-y-5" aria-label="Projects, newest first">
+          {sections.map((section) => {
+            const headingId = `history-${section.jobId}`;
+            return (
+              <li key={section.jobId}>
+                <article aria-labelledby={headingId} className="card p-4 sm:p-6">
+                  <div className="grid gap-4 lg:grid-cols-[10rem_minmax(0,1fr)] lg:gap-8">
+                    {/* The date column of the archive: when, and how much. */}
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 lg:flex-col lg:gap-1.5 lg:border-r lg:border-rule lg:pr-6">
+                      <p className="readout text-ink2">{fmtDate(section.date) || 'Undated'}</p>
+                      <p className="readout">{section.clips.length} clip{section.clips.length === 1 ? '' : 's'}</p>
+                      {!billingEnabled && section.kept && (
+                        <p className="readout inline-flex items-center gap-1 text-ink2">
+                          <Pin size={11} className="fill-current" aria-hidden="true" /> Kept
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="min-w-0 space-y-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <h3 id={headingId} className="font-display text-lg sm:text-xl text-ink leading-snug break-words min-w-0">
+                          {section.title}
+                        </h3>
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {section.reopenable && onReopenProject && (
+                            <button
+                              type="button"
+                              onClick={() => handleReopen(section.jobId)}
+                              disabled={!!reopening}
+                              className="btn-primary px-3.5 py-2 text-xs"
+                              title="Restore this project in the Clip Generator to keep editing subtitles, hooks, effects and dubbing"
+                            >
+                              {reopening === section.jobId
+                                ? <><Loader2 size={14} className="animate-spin" aria-hidden="true" /> Reopening…</>
+                                : <><FolderOpen size={14} aria-hidden="true" /> Reopen project</>}
+                            </button>
+                          )}
+                          {!billingEnabled && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleKeep(section.jobId, section.kept)}
+                              disabled={!!keeping}
+                              aria-pressed={!!section.kept}
+                              className="btn-ghost px-3 py-2 text-xs"
+                              title={section.kept
+                                ? "Stop keeping this project — it goes back to ageing out automatically"
+                                : "Keep this project — exempt it from automatic cleanup"}
+                            >
+                              {keeping === section.jobId
+                                ? <><Loader2 size={14} className="animate-spin" aria-hidden="true" /> Saving…</>
+                                : section.kept
+                                  ? <><Pin size={14} className="fill-current" aria-hidden="true" /> Kept</>
+                                  : <><PinOff size={14} aria-hidden="true" /> Keep</>}
+                            </button>
+                          )}
+                          {!billingEnabled && (
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(section.jobId)}
+                              disabled={!!deleting}
+                              className="btn-danger px-3 py-2 text-xs"
+                              title="Delete this project and all its clips from disk"
+                            >
+                              {deleting === section.jobId
+                                ? <><Loader2 size={14} className="animate-spin" aria-hidden="true" /> Deleting…</>
+                                : <><Trash2 size={14} aria-hidden="true" /> Delete</>}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <ul className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-5" aria-label={`Clips of ${section.title}`}>
+                        {section.clips.map((c) => (
+                          <li key={c.key}>
+                            <figure className="group">
+                              <div className="aspect-[9/16] bg-black border border-rule2 rounded-card overflow-hidden">
+                                <video
+                                  src={c.videoSrc}
+                                  controls
+                                  preload="metadata"
+                                  aria-label={c.title}
+                                  className="w-full h-full object-contain"
+                                />
+                              </div>
+                              <figcaption className="mt-2.5 space-y-1">
+                                <p className="text-sm text-ink leading-snug line-clamp-2 break-words" title={c.title}>{c.title}</p>
+                                <div className="flex flex-wrap items-center justify-between gap-x-2">
+                                  {c.date && <span className="readout">{fmtDate(c.date)}</span>}
+                                  <a
+                                    href={c.downloadHref}
+                                    aria-label={`Download ${c.title}`}
+                                    className="inline-flex items-center gap-1.5 text-xs text-ink2 hover:text-ink transition-colors py-1 [@media(pointer:coarse)]:min-h-[44px]"
+                                  >
+                                    <Download size={14} aria-hidden="true" /> Download
+                                  </a>
+                                </div>
+                              </figcaption>
+                            </figure>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
+                </article>
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Share2, Instagram, Youtube, Video, AlertCircle, Loader2, Copy, Check, Wand2, Type, Languages, FileText, Link2, Scissors, Crosshair, TrendingUp, RefreshCw, Film, Image as ImageIcon } from 'lucide-react';
+import { Download, Share2, Instagram, Youtube, Video, AlertCircle, Loader2, Copy, Check, Wand2, Type, Languages, FileText, Link2, Scissors, Crosshair, Sparkles, RefreshCw, Film, ChevronDown, Image as ImageIcon } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiFetch, apiJson } from '../lib/api';
 import SubtitleModal from './SubtitleModal';
@@ -17,12 +17,19 @@ import TikTokDraftNotice from './TikTokDraftNotice';
 import { useAuth } from '../contexts/AuthContext';
 import { renderInBrowser } from '../lib/renderInBrowser';
 
-const QUIET_BTN = 'group flex flex-col items-center justify-center gap-1 py-2.5 sm:py-2 px-1 rounded-input border border-rule hover:bg-paper3 text-[11px] lowercase text-ink2 whitespace-nowrap transition-colors disabled:opacity-45 disabled:cursor-not-allowed';
+// The card's edit tools: one quiet, monochrome tool row. Colour stays on the
+// single main action (Publish); a tool only lights up in words, never in hue.
+const TOOL_BTN = 'group/tool flex items-center gap-2 min-h-[40px] [@media(pointer:coarse)]:min-h-[44px] px-2.5 py-2 rounded-input border border-rule bg-paper2 text-left text-[13px] leading-tight text-ink2 hover:text-ink hover:border-rule2 hover:bg-paper3 transition-colors disabled:opacity-45 disabled:cursor-not-allowed';
+const TOOL_ICON = 'shrink-0 text-muted group-hover/tool:text-ink transition-colors';
+// Icon-only utility buttons (copy): 32px on a mouse, 44px under a finger.
+const ICON_BTN = 'inline-flex items-center justify-center w-8 h-8 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:h-11 rounded-input text-muted hover:text-ink hover:bg-paper3 transition-colors';
+// Form labels: mono micro labels in ink, not in the signal colour.
+const FIELD_LABEL = 'readout text-ink2 block mb-2';
 
 const PLATFORM_OPTIONS = [
-    { value: 'tiktok', label: 'tiktok', icon: <Video size={16} /> },
-    { value: 'instagram', label: 'instagram', icon: <Instagram size={16} /> },
-    { value: 'youtube', label: 'youtube', icon: <Youtube size={16} /> },
+    { value: 'tiktok', label: 'TikTok', icon: <Video size={16} /> },
+    { value: 'instagram', label: 'Instagram', icon: <Instagram size={16} /> },
+    { value: 'youtube', label: 'YouTube', icon: <Youtube size={16} /> },
 ];
 
 function clipDurationSeconds(clip) {
@@ -42,10 +49,10 @@ function formatDuration(clip) {
 }
 
 const WHEN_OPTIONS = [
-    { value: 'now', label: 'now' },
-    { value: 'tonight', label: 'tonight 19:00' },
-    { value: 'tomorrow', label: 'tomorrow 12:00' },
-    { value: 'custom', label: 'pick…' },
+    { value: 'now', label: 'Now' },
+    { value: 'tonight', label: 'Tonight', hint: '19:00' },
+    { value: 'tomorrow', label: 'Tomorrow', hint: '12:00' },
+    { value: 'custom', label: 'Pick…' },
 ];
 
 // The one-click "when" chips as a local "YYYY-MM-DDTHH:MM:00" string (or null
@@ -388,7 +395,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     const knownConnections = Array.isArray(connectedPlatforms);
     const noAccountsConnected = knownConnections && connectedPlatforms.length === 0;
     const platformOptions = knownConnections
-        ? PLATFORM_OPTIONS.map((o) => (connectedPlatforms.includes(o.value) ? o : { ...o, disabled: true, hint: 'not connected' }))
+        ? PLATFORM_OPTIONS.map((o) => (connectedPlatforms.includes(o.value) ? o : { ...o, disabled: true, hint: 'Not connected' }))
         : PLATFORM_OPTIONS;
 
     const handleConnectAccounts = () => {
@@ -915,258 +922,406 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
 
     const durationReadout = formatDuration(clip);
 
+    // ---- Presentation only: nothing below changes what the card does. ----
+    // Stable ids so labels, groups and the style picker can point at each other.
+    const uid = React.useId();
+    const titleId = `${uid}-title`;
+    const copyId = `${uid}-copy`;
+    const toolsId = `${uid}-tools`;
+    const stylesId = `${uid}-styles`;
+    const descTitleId = `${uid}-desc-title`;
+    const descCaptionId = `${uid}-desc-caption`;
+    const postTitleId = `${uid}-post-title`;
+    const postCaptionId = `${uid}-post-caption`;
+    const postCaptionHintId = `${uid}-post-caption-hint`;
+    const postWhenId = `${uid}-post-when`;
+    const postDateId = `${uid}-post-date`;
+    const postNicheId = `${uid}-post-niche`;
+    const postNicheHintId = `${uid}-post-niche-hint`;
+    const postPlatformsId = `${uid}-post-platforms`;
+
+    // The viral-style picker is a disclosure: Escape closes it and hands focus
+    // back to the button that opened it.
+    const styleTriggerRef = React.useRef(null);
+    const onStylePickerKeyDown = (e) => {
+        if (e.key === 'Escape' && stylePicker) {
+            e.stopPropagation();
+            setStylePicker(false);
+            styleTriggerRef.current?.focus();
+        }
+    };
+
+    const hasScore = Number.isFinite(clip.predicted_score);
+    const scorePct = hasScore ? Math.max(0, Math.min(100, clip.predicted_score)) : 0;
+    const youtubeTitle = displayClip.video_title_for_youtube_short || "Viral Short Video";
+    const socialCaption = displayClip.video_description_for_tiktok || displayClip.video_description_for_instagram;
+
+    // One polite announcement per running job; the buttons say the same thing.
+    const busyStatus = isEditing ? 'Applying viral edits…'
+        : isSubtitling ? 'Updating subtitles…'
+            : isHooking ? 'Updating the hook…'
+                : isTranslating ? 'Dubbing the voice…'
+                    : downloadPct !== null ? 'Downloading the clip…'
+                        : '';
+
     return (
-        <div className="card overflow-hidden flex flex-col md:flex-row group hover:border-rule2 transition-colors animate-fade md:min-h-[420px]" style={{ animationDelay: `${index * 0.1}s` }}>
-            {/* Left: Video Preview — 9:16 column matching the fixed card height */}
-            {/* A full-width 9:16 preview on a phone is ~640px tall on its own,
-                which pushed the title, captions and every action off-screen.
-                Capping the height and centring keeps the whole card scannable
-                without letterboxing the clip. */}
-            <div className="w-full max-w-[calc(64vh*0.5625)] md:max-w-none mx-auto md:mx-0 md:w-[236px] bg-black relative shrink-0 aspect-[9/16] md:aspect-auto group/video">
-                <video
-                    ref={videoRef}
-                    // #t=0.1 makes the browser paint the first real frame
-                    // instead of a black box until the clip is played.
-                    src={playbackUrl && !playbackUrl.includes('#') ? `${playbackUrl}#t=0.1` : playbackUrl}
-                    preload="metadata"
-                    controls
-                    className="w-full h-full object-contain"
-                    playsInline
-                    onLoadedMetadata={(e) => {
-                        if (e.target.videoWidth) setResolution(`${e.target.videoWidth}×${e.target.videoHeight}`);
-                    }}
-                    onError={() => {
-                        // The durable copy is unreachable (signature expired after an
-                        // hour on an idle tab, object purged) → serve from the API for
-                        // the rest of this card's life.
-                        if (playbackUrl === durableSrc) {
-                            setDurableFailed(true);
-                            return;
-                        }
-                        // Local /videos/ file gone (e.g. cleaned up after a reload) →
-                        // fall back to the durable R2 copy for managed users. If the
-                        // durable URL hasn't loaded yet, the effect above retries.
-                        if (durable?.url && currentVideoUrl !== durable.url) setCurrentVideoUrl(durable.url);
-                        else setVideoErrored(true);
-                    }}
-                    onPlay={() => {
-                        setHasPlayed(true);
-                        const currentTime = videoRef.current ? videoRef.current.currentTime : 0;
-                        onPlay && onPlay(clip.start + currentTime);
-                    }}
-                    onPause={() => onPause && onPause()}
-                    onEnded={() => {
-                        if (videoRef.current) {
-                            videoRef.current.currentTime = 0;
-                            videoRef.current.play();
-                        }
-                    }}
-                />
-                <div className="absolute top-3 left-3 flex gap-2">
-                    {/* Stays the clip's own number, not its rank: the cards are
-                        ordered by score, but this is what the downloaded file
-                        is called (clip-N.mp4) and what every api call indexes. */}
-                    <span className="bg-black/70 text-ink font-mono text-micro uppercase px-2 py-1 rounded-full">
-                        Clip {index + 1}
-                    </span>
-                    {/* A bare number on a thumbnail reads as a duration, a
-                        position, anything — it has to name itself and carry
-                        its scale, or it is decoration. */}
-                    {Number.isFinite(clip.predicted_score) && (
-                        <span
-                            className="bg-black/70 font-mono text-micro uppercase px-2 py-1 rounded-full flex items-center gap-1"
-                            title="synapse ai's prediction of how well this clip will perform, from 0 to 100"
-                        >
-                            <TrendingUp size={11} className="shrink-0 text-muted" />
-                            <span className="text-muted">viral</span>
-                            <b className={
-                                clip.predicted_score >= 80 ? 'text-ok'
-                                    : clip.predicted_score >= 65 ? 'text-brass'
-                                        : 'text-ink2'
-                            }>
-                                {clip.predicted_score}
-                            </b>
-                            <span className="text-muted">/100</span>
-                        </span>
-                    )}
-                </div>
+        <article
+            aria-labelledby={titleId}
+            className="card overflow-hidden animate-fade"
+            style={{ animationDelay: `${index * 0.1}s` }}
+        >
+            {/* The card lives in grids of any width (one wide column while a
+                job runs, two or three once it is done), so it reads its OWN
+                width with a container query, not the viewport's:
+                  narrow  (< 32rem)  plate, then text, then tools, stacked;
+                  medium  (32–52rem) plate | text, tools full width below;
+                  wide    (≥ 52rem)  plate | text over tools.
+                The query root wraps the card body only: a size container
+                would trap the position: fixed of the modals further down. */}
+            <div className="[container-type:inline-size]">
+                <div className="grid grid-cols-1 [@container(min-width:32rem)]:grid-cols-[auto_minmax(0,1fr)] [@container(min-width:52rem)]:grid-rows-[auto_1fr]">
 
-                {/* Auto Edit Overlay if Processing */}
-                {isEditing && (
-                    <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-10 p-4 text-center">
-                        <Loader2 size={28} className="text-brass animate-spin mb-3" />
-                        <span className="text-xs text-ink lowercase">ai magic in progress…</span>
-                        <span className="readout mt-1.5">APPLYING VIRAL EDITS · ZOOMS</span>
-                    </div>
-                )}
-            </div>
+                    {/* The plate: the clip on black, a hairline frame, a mono caption. */}
+                    <figure className="min-w-0 p-4 bg-paper border-b border-rule [@container(min-width:32rem)]:w-[13rem] [@container(min-width:32rem)]:border-b-0 [@container(min-width:32rem)]:border-r [@container(min-width:40rem)]:w-[15rem] [@container(min-width:52rem)]:w-[16rem] [@container(min-width:52rem)]:row-span-2 [@container(min-width:72rem)]:w-[18rem]">
+                        {/* Stacked (narrow card), a full-width 9:16 preview is
+                            ~640px tall on its own and pushes the title and every
+                            action off-screen: cap it to the viewport height and
+                            centre it, without letterboxing the clip. */}
+                        <div className="relative mx-auto w-full max-w-[min(calc(64vh*0.5625),18rem)] [@container(min-width:32rem)]:max-w-none aspect-[9/16] bg-black border border-rule2 rounded-input overflow-hidden">
+                            <video
+                                ref={videoRef}
+                                // #t=0.1 makes the browser paint the first real frame
+                                // instead of a black box until the clip is played.
+                                src={playbackUrl && !playbackUrl.includes('#') ? `${playbackUrl}#t=0.1` : playbackUrl}
+                                preload="metadata"
+                                controls
+                                aria-label={`Clip ${index + 1} preview`}
+                                className="absolute inset-0 w-full h-full object-contain"
+                                playsInline
+                                onLoadedMetadata={(e) => {
+                                    if (e.target.videoWidth) setResolution(`${e.target.videoWidth}×${e.target.videoHeight}`);
+                                }}
+                                onError={() => {
+                                    // The durable copy is unreachable (signature expired after an
+                                    // hour on an idle tab, object purged) → serve from the API for
+                                    // the rest of this card's life.
+                                    if (playbackUrl === durableSrc) {
+                                        setDurableFailed(true);
+                                        return;
+                                    }
+                                    // Local /videos/ file gone (e.g. cleaned up after a reload) →
+                                    // fall back to the durable R2 copy for managed users. If the
+                                    // durable URL hasn't loaded yet, the effect above retries.
+                                    if (durable?.url && currentVideoUrl !== durable.url) setCurrentVideoUrl(durable.url);
+                                    else setVideoErrored(true);
+                                }}
+                                onPlay={() => {
+                                    setHasPlayed(true);
+                                    const currentTime = videoRef.current ? videoRef.current.currentTime : 0;
+                                    onPlay && onPlay(clip.start + currentTime);
+                                }}
+                                onPause={() => onPause && onPause()}
+                                onEnded={() => {
+                                    if (videoRef.current) {
+                                        videoRef.current.currentTime = 0;
+                                        videoRef.current.play();
+                                    }
+                                }}
+                            />
 
-            {/* Right: Content & Details */}
-            <div className="flex-1 p-4 md:p-5 flex flex-col overflow-hidden min-w-0">
-                <div className="mb-4">
-                    <h3 className="text-base font-medium text-ink leading-tight line-clamp-2 mb-2 break-words" title={displayClip.video_title_for_youtube_short}>
-                        {displayClip.video_title_for_youtube_short || "Viral Clip Generated"}
-                    </h3>
-                    <div className="flex flex-wrap gap-1.5">
-                        {durationReadout && <span className="readout bg-paper3 px-2 py-0.5 rounded-full shrink-0">{durationReadout}</span>}
-                        {resolution && <span className="readout bg-paper3 px-2 py-0.5 rounded-full shrink-0">{resolution}</span>}
-                    </div>
-                </div>
-
-                {/* Descriptions (compact) — full text lives in the modal */}
-                <div className="flex-1 min-h-0 space-y-2 mb-4">
-                    <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0">
-                        <span className="eyebrow shrink-0">YOUTUBE</span>
-                        <p className="text-xs text-ink2 truncate flex-1 min-w-0">
-                            {displayClip.video_title_for_youtube_short || "Viral Short Video"}
-                        </p>
-                        <button
-                            onClick={() => handleCopy('youtube', displayClip.video_title_for_youtube_short || "Viral Short Video")}
-                            aria-label="copy youtube title"
-                            className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
-                        >
-                            {copied === 'youtube' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
-                        </button>
-                    </div>
-
-                    <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0">
-                        <span className="eyebrow shrink-0">TIKTOK · IG</span>
-                        <p className="text-xs text-ink2 truncate flex-1 min-w-0">
-                            {displayClip.video_description_for_tiktok || displayClip.video_description_for_instagram}
-                        </p>
-                        <button
-                            onClick={() => handleCopy('caption', displayClip.video_description_for_tiktok || displayClip.video_description_for_instagram)}
-                            aria-label="copy caption"
-                            className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
-                        >
-                            {copied === 'caption' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
-                        </button>
-                    </div>
-
-                    <button
-                        onClick={() => setShowDescModal(true)}
-                        className="w-full flex items-center justify-center gap-2 py-2 rounded-input border border-dashed border-rule text-xs lowercase text-muted hover:text-brass hover:border-rule2 transition-colors"
-                    >
-                        <FileText size={14} /> view descriptions
-                    </button>
-                </div>
-
-                {/* Error Message */}
-                {editError && (
-                    <div className="mb-3 px-3 py-2 rounded-input text-xs text-danger bg-[color-mix(in_oklab,var(--color-danger)_10%,transparent)] flex items-center gap-2">
-                        <AlertCircle size={14} className="shrink-0" />
-                        {editError}
-                    </div>
-                )}
-
-                {/* Actions Footer */}
-                <div className="grid grid-cols-2 gap-2 mt-auto pt-4 border-t border-rule">
-                    {onEditClip && (
-                        <button
-                            onClick={() => onEditClip(index)}
-                            className={QUIET_BTN}
-                        >
-                            <Scissors size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
-                            edit clip
-                        </button>
-                    )}
-
-                    {onReframeClip && (
-                        <button
-                            onClick={() => onReframeClip(index)}
-                            className={QUIET_BTN}
-                        >
-                            <Crosshair size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
-                            reframing
-                        </button>
-                    )}
-
-                    <button
-                        onClick={handleAutoEdit}
-                        disabled={isEditing}
-                        className={QUIET_BTN}
-                    >
-                        {isEditing ? <Loader2 size={16} className="animate-spin text-brass shrink-0" /> : <Wand2 size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />}
-                        {isEditing ? 'editing…' : 'auto edit'}
-                    </button>
-
-                    <button
-                        onClick={() => setStylePicker((v) => !v)}
-                        disabled={isEditing}
-                        className={QUIET_BTN}
-                        title="Jump zooms + big captions with coloured key words, like viral podcast shorts"
-                    >
-                        <Film size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
-                        viral style
-                    </button>
-                    {stylePicker && (
-                        <div className="col-span-2 flex flex-wrap items-center gap-2 p-2 rounded-input border border-rule bg-paper">
-                            <button type="button" onClick={() => handleViralStyle('natural')} className="btn-quiet px-3 py-1.5 text-xs" title="2-3 plain white words, calm reframes at sentence ends — like the big podcast channels">natural</button>
-                            <button type="button" onClick={() => handleViralStyle('premium')} className="btn-quiet px-3 py-1.5 text-xs" title="The natural look set in Montserrat ExtraBold">premium</button>
-                            <span className="text-[11px] text-muted">replaces this clip's captions</span>
+                            {/* Auto edit / viral style running on this clip */}
+                            {isEditing && (
+                                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 p-4 text-center bg-paper/85">
+                                    <Loader2 size={24} className="animate-spin text-ink" aria-hidden="true" />
+                                    <span className="text-sm font-medium text-ink">Editing with AI…</span>
+                                    <span className="readout">Viral edits · zooms</span>
+                                </div>
+                            )}
                         </div>
-                    )}
 
-                    <button
-                        onClick={() => setShowSubtitleModal(true)}
-                        disabled={isSubtitling}
-                        className={QUIET_BTN}
-                    >
-                        {isSubtitling ? <Loader2 size={16} className="animate-spin text-brass shrink-0" /> : <Type size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />}
-                        {isSubtitling ? 'adding…' : 'subtitles'}
-                    </button>
+                        <figcaption className="readout mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 [@container(min-width:32rem)]:justify-start">
+                            {/* Stays the clip's own number, not its rank: the cards
+                                are ordered by score, but this is what the downloaded
+                                file is called (clip-N.mp4) and what every api call
+                                indexes. */}
+                            <span className="text-ink2">Clip {index + 1}</span>
+                            {durationReadout && (
+                                <>
+                                    <span aria-hidden="true">·</span>
+                                    <span><span className="sr-only">Duration </span>{durationReadout}</span>
+                                </>
+                            )}
+                            {resolution && (
+                                <>
+                                    <span aria-hidden="true">·</span>
+                                    <span><span className="sr-only">Resolution </span>{resolution}</span>
+                                </>
+                            )}
+                        </figcaption>
+                    </figure>
 
-                    {(clip.broll || []).some((it) => it.image) && (
-                        <button
-                            onClick={() => setShowBrollModal(true)}
-                            className={`${QUIET_BTN} ${brollPending ? 'border-brass text-brass' : ''}`}
-                            title={brollPending ? 'Images prepared: check them, then cut them in' : "Edit this clip's images"}
-                        >
-                            <ImageIcon size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
-                            {brollPending ? 'check images' : 'images'}
-                        </button>
-                    )}
+                    {/* The text side: title + score, the post copy, then the one main action (Publish) and Download. */}
+                    <div className="min-w-0 p-4 [@container(min-width:32rem)]:p-5 flex flex-col gap-5">
+                        <header className="flex items-start gap-4">
+                            <h3
+                                id={titleId}
+                                className="flex-1 min-w-0 text-lg [@container(min-width:52rem)]:text-xl font-semibold tracking-[-0.02em] leading-snug text-ink break-words line-clamp-3"
+                                title={displayClip.video_title_for_youtube_short}
+                            >
+                                {displayClip.video_title_for_youtube_short || 'Untitled clip'}
+                            </h3>
+                            {/* A bare number reads as a duration, a position,
+                                anything: it names itself and carries its scale. */}
+                            {hasScore && (
+                                <div
+                                    className="shrink-0 text-right"
+                                    title="Synapse AI's prediction of how well this clip will perform, from 0 to 100"
+                                >
+                                    <p className="readout whitespace-nowrap">Viral score</p>
+                                    <p className="mt-1.5 whitespace-nowrap text-ink leading-none">
+                                        <span className="font-quote text-[2.75rem]">{clip.predicted_score}</span>
+                                        <span className="font-mono text-xs text-muted" aria-hidden="true">/100</span>
+                                        <span className="sr-only"> out of 100</span>
+                                    </p>
+                                    <div className="mt-2 ml-auto h-px w-16 bg-[color:var(--color-rule-2)]" aria-hidden="true">
+                                        <div className="h-px bg-ink" style={{ width: `${scorePct}%` }} />
+                                    </div>
+                                </div>
+                            )}
+                        </header>
 
-                    <button
-                        onClick={() => setShowHookModal(true)}
-                        disabled={isHooking}
-                        className={QUIET_BTN}
-                    >
-                        {isHooking ? <Loader2 size={16} className="animate-spin text-brass shrink-0" /> : <Wand2 size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />}
-                        {isHooking ? 'adding…' : 'viral hook'}
-                    </button>
+                        {/* Post copy (compact) — the full text lives in the modal */}
+                        <div role="group" aria-labelledby={copyId} className="min-w-0">
+                            <div className="flex items-center justify-between gap-3 mb-1">
+                                <p id={copyId} className="readout">Post copy</p>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowDescModal(true)}
+                                    className="inline-flex items-center gap-1.5 min-h-[32px] [@media(pointer:coarse)]:min-h-[44px] text-xs text-cobalt hover:text-ink transition-colors"
+                                >
+                                    <FileText size={13} aria-hidden="true" /> Full descriptions
+                                </button>
+                            </div>
+                            <dl className="border-y border-rule divide-y divide-rule">
+                                <div className="flex items-center gap-3 py-1 min-w-0">
+                                    <dt className="readout w-[5.75rem] shrink-0">YouTube</dt>
+                                    <dd className="flex-1 min-w-0 text-[13px] text-ink2 truncate">{youtubeTitle}</dd>
+                                    <dd className="shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCopy('youtube', youtubeTitle)}
+                                            aria-label={copied === 'youtube' ? 'YouTube title copied' : 'Copy YouTube title'}
+                                            className={ICON_BTN}
+                                        >
+                                            {copied === 'youtube' ? <Check size={14} className="text-ok" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                                        </button>
+                                    </dd>
+                                </div>
+                                <div className="flex items-center gap-3 py-1 min-w-0">
+                                    <dt className="readout w-[5.75rem] shrink-0">TikTok · IG</dt>
+                                    <dd className="flex-1 min-w-0 text-[13px] text-ink2 truncate">{socialCaption}</dd>
+                                    <dd className="shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCopy('caption', socialCaption)}
+                                            aria-label={copied === 'caption' ? 'Caption copied' : 'Copy TikTok and Instagram caption'}
+                                            className={ICON_BTN}
+                                        >
+                                            {copied === 'caption' ? <Check size={14} className="text-ok" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                                        </button>
+                                    </dd>
+                                </div>
+                            </dl>
+                        </div>
 
-                    <button
-                        onClick={() => setShowTranslateModal(true)}
-                        disabled={isTranslating}
-                        className={QUIET_BTN}
-                    >
-                        {isTranslating ? <Loader2 size={16} className="animate-spin text-brass shrink-0" /> : <Languages size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />}
-                        {isTranslating ? 'translating…' : 'dub voice'}
-                    </button>
+                        {/* The one main action (Publish), then Download. */}
+                        <div className="mt-auto space-y-2.5">
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowModal(true)}
+                                    className="btn-accent flex-1 basis-36"
+                                >
+                                    <Share2 size={16} className="shrink-0" aria-hidden="true" /> Publish
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        // Free clips are watermarked — surface the upsell once
+                                        // before the first download, then get out of the way.
+                                        if (plan === 'free' && !watermarkNoticeDismissed()) {
+                                            setShowWatermarkModal(true);
+                                            return;
+                                        }
+                                        downloadClip();
+                                    }}
+                                    className="btn-ghost flex-1 basis-36"
+                                >
+                                    <Download size={16} className="shrink-0" aria-hidden="true" />
+                                    {downloadPct === null ? 'Download' : `Downloading ${downloadPct}%`}
+                                </button>
+                            </div>
+                            {downloadPct !== null && (
+                                <div
+                                    role="progressbar"
+                                    aria-label="Download progress"
+                                    aria-valuemin={0}
+                                    aria-valuemax={100}
+                                    aria-valuenow={downloadPct}
+                                    className="h-0.5 w-full overflow-hidden rounded-full bg-[color:var(--color-rule-2)]"
+                                >
+                                    <div className="h-full bg-ink transition-[width] duration-200" style={{ width: `${downloadPct}%` }} />
+                                </div>
+                            )}
+                        </div>
+                        <p className="sr-only" aria-live="polite">{busyStatus}</p>
+                    </div>
 
-                    <button
-                        onClick={() => setShowModal(true)}
-                        className="btn-primary flex-col gap-1 py-2.5 sm:py-2 px-1 text-[11px] leading-none rounded-input whitespace-nowrap"
-                    >
-                        <Share2 size={16} className="shrink-0" /> post
-                    </button>
-                    <button
-                        onClick={(e) => {
-                            e.preventDefault();
-                            // Free clips are watermarked — surface the upsell once
-                            // before the first download, then get out of the way.
-                            if (plan === 'free' && !watermarkNoticeDismissed()) {
-                                setShowWatermarkModal(true);
-                                return;
-                            }
-                            downloadClip();
-                        }}
-                        className={`${QUIET_BTN}${onEditClip ? ' col-span-2' : ''}`}
-                    >
-                        <Download size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
-                        {downloadPct === null ? 'download' : `downloading ${downloadPct}%`}
-                    </button>
+                    {/* Edit tools: one labelled group, monochrome. Under the
+                        main column on a wide card, full width under the plate
+                        on a medium one, last in the stack on a narrow one. */}
+                    <div className="min-w-0 px-4 pb-4 border-rule [@container(min-width:32rem)]:col-span-2 [@container(min-width:32rem)]:p-5 [@container(min-width:32rem)]:border-t [@container(min-width:52rem)]:col-span-1 [@container(min-width:52rem)]:col-start-2 [@container(min-width:52rem)]:border-t-0 [@container(min-width:52rem)]:pt-0">
+                        <div role="group" aria-labelledby={toolsId} className="pt-4 border-t border-rule [@container(min-width:32rem)]:pt-0 [@container(min-width:32rem)]:border-t-0 [@container(min-width:52rem)]:pt-4 [@container(min-width:52rem)]:border-t">
+                            <p id={toolsId} className="readout mb-2">Edit</p>
+                            <div className="grid gap-1.5 grid-cols-[repeat(auto-fill,minmax(8.25rem,1fr))]">
+                                {onEditClip && (
+                                    <button type="button" onClick={() => onEditClip(index)} className={TOOL_BTN}>
+                                        <Scissors size={16} className={TOOL_ICON} aria-hidden="true" />
+                                        Edit clip
+                                    </button>
+                                )}
+
+                                {onReframeClip && (
+                                    <button type="button" onClick={() => onReframeClip(index)} className={TOOL_BTN}>
+                                        <Crosshair size={16} className={TOOL_ICON} aria-hidden="true" />
+                                        Reframe
+                                    </button>
+                                )}
+
+                                <button
+                                    type="button"
+                                    onClick={() => setShowSubtitleModal(true)}
+                                    disabled={isSubtitling}
+                                    className={TOOL_BTN}
+                                >
+                                    {isSubtitling
+                                        ? <Loader2 size={16} className="shrink-0 animate-spin text-ink" aria-hidden="true" />
+                                        : <Type size={16} className={TOOL_ICON} aria-hidden="true" />}
+                                    {isSubtitling ? 'Adding…' : 'Subtitles'}
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setShowHookModal(true)}
+                                    disabled={isHooking}
+                                    className={TOOL_BTN}
+                                >
+                                    {isHooking
+                                        ? <Loader2 size={16} className="shrink-0 animate-spin text-ink" aria-hidden="true" />
+                                        : <Wand2 size={16} className={TOOL_ICON} aria-hidden="true" />}
+                                    {isHooking ? 'Adding…' : 'Hook'}
+                                </button>
+
+                                {(clip.broll || []).some((it) => it.image) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowBrollModal(true)}
+                                        className={`${TOOL_BTN} ${brollPending ? '!border-ink !text-ink font-medium' : ''}`}
+                                        title={brollPending ? 'Images prepared: check them, then cut them in' : "Edit this clip's images"}
+                                    >
+                                        <ImageIcon size={16} className={brollPending ? 'shrink-0 text-ink' : TOOL_ICON} aria-hidden="true" />
+                                        <span className="min-w-0">{brollPending ? 'Check images' : 'Images'}</span>
+                                        {brollPending && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-ink" aria-hidden="true" />}
+                                    </button>
+                                )}
+
+                                <button
+                                    type="button"
+                                    onClick={() => setShowTranslateModal(true)}
+                                    disabled={isTranslating}
+                                    className={TOOL_BTN}
+                                >
+                                    {isTranslating
+                                        ? <Loader2 size={16} className="shrink-0 animate-spin text-ink" aria-hidden="true" />
+                                        : <Languages size={16} className={TOOL_ICON} aria-hidden="true" />}
+                                    {isTranslating ? 'Dubbing…' : 'Dub voice'}
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={handleAutoEdit}
+                                    disabled={isEditing}
+                                    className={TOOL_BTN}
+                                >
+                                    {isEditing
+                                        ? <Loader2 size={16} className="shrink-0 animate-spin text-ink" aria-hidden="true" />
+                                        : <Sparkles size={16} className={TOOL_ICON} aria-hidden="true" />}
+                                    {isEditing ? 'Editing…' : 'Auto edit'}
+                                </button>
+
+                                {/* Viral edit styles (viral_fx.py): jump zooms + colour key-word captions. */}
+                                <button
+                                    ref={styleTriggerRef}
+                                    type="button"
+                                    onClick={() => setStylePicker((v) => !v)}
+                                    onKeyDown={onStylePickerKeyDown}
+                                    disabled={isEditing}
+                                    aria-expanded={stylePicker}
+                                    aria-controls={stylePicker ? stylesId : undefined}
+                                    className={`${TOOL_BTN} ${stylePicker ? '!border-rule2 !bg-paper3 !text-ink' : ''}`}
+                                    title="Jump zooms + big captions with coloured key words, like viral podcast shorts"
+                                >
+                                    <Film size={16} className={TOOL_ICON} aria-hidden="true" />
+                                    <span className="min-w-0">Viral style</span>
+                                    <ChevronDown
+                                        size={14}
+                                        className={`ml-auto shrink-0 text-muted transition-transform ${stylePicker ? 'rotate-180' : ''}`}
+                                        aria-hidden="true"
+                                    />
+                                </button>
+                                {stylePicker && (
+                                    <div
+                                        id={stylesId}
+                                        role="group"
+                                        aria-label="Viral styles"
+                                        onKeyDown={onStylePickerKeyDown}
+                                        className="col-span-full tray p-3 animate-fade"
+                                    >
+                                        <p className="text-xs text-muted leading-relaxed mb-2.5">
+                                            Jump zooms and big captions with coloured key words. Replaces this clip's captions.
+                                        </p>
+                                        <div className="grid gap-1.5 grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]">
+                                            <button
+                                                type="button"
+                                                onClick={() => { styleTriggerRef.current?.focus(); handleViralStyle('natural'); }}
+                                                className="flex flex-col items-start gap-1 rounded-input border border-rule bg-paper2 px-3 py-2.5 text-left hover:border-rule2 hover:bg-paper transition-colors"
+                                            >
+                                                <span className="text-sm font-medium text-ink">Natural</span>
+                                                <span className="text-xs text-muted leading-snug">2–3 plain white words, calm reframes at sentence ends — like the big podcast channels.</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => { styleTriggerRef.current?.focus(); handleViralStyle('premium'); }}
+                                                className="flex flex-col items-start gap-1 rounded-input border border-rule bg-paper2 px-3 py-2.5 text-left hover:border-rule2 hover:bg-paper transition-colors"
+                                            >
+                                                <span className="text-sm font-medium text-ink">Premium</span>
+                                                <span className="text-xs text-muted leading-snug">The natural look, set in Montserrat ExtraBold.</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Error Message */}
+                        {editError && (
+                            <div role="alert" className="mt-3 flex items-start gap-2 rounded-input border border-danger/35 bg-danger/10 px-3 py-2 text-[13px] text-ink2">
+                                <AlertCircle size={15} className="mt-0.5 shrink-0 text-danger" aria-hidden="true" />
+                                <span className="min-w-0 break-words">{editError}</span>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -1174,54 +1329,68 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             <Modal
                 isOpen={showDescModal}
                 onClose={() => setShowDescModal(false)}
-                eyebrow="GENERATED COPY"
-                title="descriptions"
+                eyebrow="Generated copy"
+                title="Descriptions"
                 size="md"
-            >
-                <div className="space-y-4">
-                    <button
-                        onClick={handleRegenerateCopy}
-                        disabled={regeneratingCopy}
-                        className="w-full flex items-center justify-center gap-2 py-2 rounded-input border border-dashed border-rule text-xs lowercase text-muted hover:text-brass hover:border-rule2 transition-colors disabled:opacity-50"
-                    >
-                        <RefreshCw size={14} className={regeneratingCopy ? 'animate-spin' : ''} />
-                        {regeneratingCopy ? 'generating new ideas…' : 'refresh: new title & description'}
-                    </button>
-                    {regenerateCopyError && (
-                        <p className="text-xs text-danger flex items-center gap-1.5">
-                            <AlertCircle size={13} className="shrink-0" /> {regenerateCopyError}
+                footer={
+                    <div className="space-y-2.5">
+                        {regenerateCopyError && (
+                            <p role="alert" className="flex items-start gap-1.5 text-[13px] text-danger">
+                                <AlertCircle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+                                <span className="min-w-0 break-words">{regenerateCopyError}</span>
+                            </p>
+                        )}
+                        <button
+                            type="button"
+                            onClick={handleRegenerateCopy}
+                            disabled={regeneratingCopy}
+                            className="btn-ghost w-full"
+                        >
+                            <RefreshCw size={15} className={regeneratingCopy ? 'animate-spin' : ''} aria-hidden="true" />
+                            {regeneratingCopy ? 'Writing new ideas…' : 'New title and description'}
+                        </button>
+                        <p className="sr-only" aria-live="polite">
+                            {regeneratingCopy ? 'Writing a new title and description…' : ''}
                         </p>
-                    )}
-
-                    <div>
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <label className="eyebrow">YOUTUBE TITLE</label>
+                    </div>
+                }
+            >
+                <div className="space-y-5">
+                    <div role="group" aria-labelledby={descTitleId}>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                            <p id={descTitleId} className="readout text-ink2">YouTube title</p>
                             <button
-                                onClick={() => handleCopy('youtube', displayClip.video_title_for_youtube_short || "Viral Short Video")}
-                                aria-label="copy youtube title"
-                                className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
+                                type="button"
+                                onClick={() => handleCopy('youtube', youtubeTitle)}
+                                aria-label={copied === 'youtube' ? 'YouTube title copied' : 'Copy YouTube title'}
+                                className="btn-quiet px-2.5 py-1 text-xs"
                             >
-                                {copied === 'youtube' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                                {copied === 'youtube'
+                                    ? <><Check size={13} className="text-ok" aria-hidden="true" /> Copied</>
+                                    : <><Copy size={13} aria-hidden="true" /> Copy</>}
                             </button>
                         </div>
-                        <p className="text-sm text-ink2 select-all break-words bg-paper rounded-input p-3 border border-rule">
-                            {displayClip.video_title_for_youtube_short || "Viral Short Video"}
+                        <p className="tray p-3 text-sm text-ink select-all break-words">
+                            {youtubeTitle}
                         </p>
                     </div>
 
-                    <div>
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <label className="eyebrow">TIKTOK · IG CAPTION</label>
+                    <div role="group" aria-labelledby={descCaptionId}>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                            <p id={descCaptionId} className="readout text-ink2">TikTok · Instagram caption</p>
                             <button
-                                onClick={() => handleCopy('caption', displayClip.video_description_for_tiktok || displayClip.video_description_for_instagram)}
-                                aria-label="copy caption"
-                                className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
+                                type="button"
+                                onClick={() => handleCopy('caption', socialCaption)}
+                                aria-label={copied === 'caption' ? 'Caption copied' : 'Copy caption'}
+                                className="btn-quiet px-2.5 py-1 text-xs"
                             >
-                                {copied === 'caption' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                                {copied === 'caption'
+                                    ? <><Check size={13} className="text-ok" aria-hidden="true" /> Copied</>
+                                    : <><Copy size={13} aria-hidden="true" /> Copy</>}
                             </button>
                         </div>
-                        <p className="text-sm text-ink2 select-all break-words bg-paper rounded-input p-3 border border-rule whitespace-pre-wrap">
-                            {displayClip.video_description_for_tiktok || displayClip.video_description_for_instagram}
+                        <p className="tray p-3 text-sm text-ink select-all break-words whitespace-pre-wrap">
+                            {socialCaption}
                         </p>
                     </div>
                 </div>
@@ -1231,36 +1400,39 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             <Modal
                 isOpen={showModal}
                 onClose={() => setShowModal(false)}
-                eyebrow="PUBLISH"
-                title="post clip"
+                eyebrow="Publish"
+                title="Post this clip"
                 size="md"
                 footer={
                     noAccountsConnected ? (
-                        <button onClick={handleConnectAccounts} className="btn-primary w-full">
-                            <Link2 size={16} /> connect accounts
+                        <button type="button" onClick={handleConnectAccounts} className="btn-primary w-full">
+                            <Link2 size={16} aria-hidden="true" /> Connect accounts
                         </button>
                     ) : (
                         <button
+                            type="button"
                             onClick={handlePost}
                             disabled={posting || !canPost}
-                            className="btn-primary w-full"
+                            className="btn-accent w-full"
                         >
-                            {posting ? <><Loader2 size={16} className="animate-spin" /> {isScheduling ? 'scheduling…' : 'publishing…'}</> : <><Share2 size={16} /> {isScheduling ? 'schedule post' : 'publish now'}</>}
+                            {posting
+                                ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> {isScheduling ? 'Scheduling…' : 'Publishing…'}</>
+                                : <><Share2 size={16} aria-hidden="true" /> {isScheduling ? 'Schedule post' : 'Publish now'}</>}
                         </button>
                     )
                 }
             >
                 {!canPost && (
-                    <div className="mb-4 px-3 py-2 rounded-input text-xs text-warn bg-[color-mix(in_oklab,var(--color-warn)_10%,transparent)] flex items-start gap-2">
-                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                        <div className="lowercase">configure api key in settings first.</div>
+                    <div className="mb-4 flex items-start gap-2.5 rounded-input border border-warn/30 bg-warn/10 px-3 py-2.5 text-[13px] leading-relaxed text-ink2">
+                        <AlertCircle size={15} className="mt-0.5 shrink-0 text-warn" aria-hidden="true" />
+                        <p>Set your Upload-Post API key in Settings first.</p>
                     </div>
                 )}
 
                 {noAccountsConnected && (
-                    <div className="mb-4 px-3 py-2 rounded-input text-xs text-warn bg-[color-mix(in_oklab,var(--color-warn)_10%,transparent)] flex items-start gap-2">
-                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                        <div className="lowercase">no social accounts connected yet — link tiktok, instagram or youtube to publish this clip.</div>
+                    <div className="mb-4 flex items-start gap-2.5 rounded-input border border-warn/30 bg-warn/10 px-3 py-2.5 text-[13px] leading-relaxed text-ink2">
+                        <AlertCircle size={15} className="mt-0.5 shrink-0 text-warn" aria-hidden="true" />
+                        <p>No social account is connected yet. Link TikTok, Instagram or YouTube to publish this clip.</p>
                     </div>
                 )}
 
@@ -1269,36 +1441,39 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     travels. See TikTokDraftNotice. */}
                 {platforms.tiktok && <TikTokDraftNotice />}
 
-                <div className="space-y-4">
+                <div className="space-y-5">
                     {/* Title & Description */}
                     <div>
-                        <label className="eyebrow block mb-1.5">TITLE</label>
+                        <label htmlFor={postTitleId} className={FIELD_LABEL}>Title</label>
                         <input
+                            id={postTitleId}
                             type="text"
                             value={postTitle}
                             onChange={(e) => setPostTitle(e.target.value)}
                             className="input-field"
-                            placeholder="enter a catchy title…"
+                            placeholder="A catchy title…"
                         />
                     </div>
 
                     <div>
-                        <label className="eyebrow block mb-1.5">CAPTION</label>
+                        <label htmlFor={postCaptionId} className={FIELD_LABEL}>Caption</label>
                         <textarea
+                            id={postCaptionId}
+                            aria-describedby={postCaptionHintId}
                             value={postDescription}
                             onChange={(e) => setPostDescription(e.target.value)}
                             rows={4}
                             className="input-field resize-none"
-                            placeholder="write a caption for your post…"
+                            placeholder="Write a caption for your post…"
                         />
-                        <p className="readout mt-1.5">
-                            leave title & caption untouched to send each platform its own caption + niche hashtags
+                        <p id={postCaptionHintId} className="mt-1.5 text-xs leading-relaxed text-muted">
+                            Leave the title and caption untouched to send each platform its own caption and niche hashtags.
                         </p>
                     </div>
 
-                    {/* When — one click, the date picker only for "pick…". */}
-                    <div>
-                        <label className="eyebrow block mb-2">WHEN</label>
+                    {/* When — one click, the date picker only for "Pick…". */}
+                    <div role="group" aria-labelledby={postWhenId}>
+                        <p id={postWhenId} className={FIELD_LABEL}>When</p>
                         <SegmentedControl
                             options={WHEN_OPTIONS}
                             value={whenChoice}
@@ -1307,24 +1482,31 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                             size="sm"
                         />
                         {whenChoice === 'custom' && (
-                            <input
-                                type="datetime-local"
-                                value={scheduleDate}
-                                onChange={(e) => setScheduleDate(e.target.value)}
-                                className="input-field mt-2 [color-scheme:dark] animate-fade"
-                            />
+                            <div className="mt-2 animate-fade">
+                                <label htmlFor={postDateId} className="sr-only">Date and time</label>
+                                <input
+                                    id={postDateId}
+                                    type="datetime-local"
+                                    value={scheduleDate}
+                                    onChange={(e) => setScheduleDate(e.target.value)}
+                                    className="input-field"
+                                />
+                            </div>
                         )}
                     </div>
 
                     {/* Niche — real hashtags on the YouTube title + TikTok caption. */}
-                    <div>
-                        <label className="eyebrow block mb-2">NICHE</label>
+                    <div role="group" aria-labelledby={postNicheId} aria-describedby={postNicheHintId}>
+                        <p id={postNicheId} className={FIELD_LABEL}>Niche</p>
                         <NichePicker value={postNiche} onChange={setPostNiche} />
+                        <p id={postNicheHintId} className="mt-1.5 text-xs leading-relaxed text-muted">
+                            Adds real hashtags to the YouTube title and the TikTok caption.
+                        </p>
                     </div>
 
                     {/* Platforms */}
-                    <div>
-                        <label className="eyebrow block mb-2">PLATFORMS</label>
+                    <div role="group" aria-labelledby={postPlatformsId}>
+                        <p id={postPlatformsId} className={FIELD_LABEL}>Platforms</p>
                         <SegmentedControl
                             multi
                             columns={3}
@@ -1337,11 +1519,18 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                             })}
                         />
                     </div>
+                </div>
 
+                <div aria-live="polite">
                     {postResult && (
-                        <div className={postResult.success ? 'badge-ok' : 'badge-danger'}>
-                            {postResult.success ? <Check size={12} className="shrink-0" /> : <AlertCircle size={12} className="shrink-0" />}
-                            {postResult.msg}
+                        <div
+                            role={postResult.success ? undefined : 'alert'}
+                            className={`mt-5 flex items-start gap-2 rounded-input border px-3 py-2.5 text-[13px] text-ink2 ${postResult.success ? 'border-ok/30 bg-ok/10' : 'border-danger/35 bg-danger/10'}`}
+                        >
+                            {postResult.success
+                                ? <Check size={15} className="mt-0.5 shrink-0 text-ok" aria-hidden="true" />
+                                : <AlertCircle size={15} className="mt-0.5 shrink-0 text-danger" aria-hidden="true" />}
+                            <span className="min-w-0 break-words">{postResult.msg}</span>
                         </div>
                     )}
                 </div>
@@ -1423,6 +1612,6 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 onConfirm={nichePrompt?.onConfirm}
             />
 
-        </div>
+        </article>
     );
 }

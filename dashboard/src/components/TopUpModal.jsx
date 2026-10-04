@@ -27,9 +27,9 @@ import Modal from './ui/Modal';
 // tier) — so they belong on the landing/pricing surface facing repo visitors,
 // not in a modal shown to someone who is already using them.
 const PLAN_BLURBS = {
-  starter: 'for getting started',
-  creator: 'for daily posting',
-  pro: 'for power users',
+  starter: 'For getting started',
+  creator: 'For daily posting',
+  pro: 'For power users',
 };
 
 // context: 'wall' (default) = user hit the 402 quota wall mid-task.
@@ -105,10 +105,10 @@ export default function TopUpModal({ onClose, required, remaining, context = 'wa
   const blockedByLength = typeof required === 'number' && typeof remaining === 'number';
 
   return (
-    <Modal isOpen onClose={onClose} eyebrow="UPGRADE"
+    <Modal isOpen onClose={onClose} eyebrow="Upgrade"
            title={isUpsell ? 'Keep your clips forever' : 'Your video is ready to clip'} size="xl">
       {/* Goal-gradient framing: they're one step from the thing they came for. */}
-      <p className="text-muted text-sm mb-5">
+      <p className="text-ink2 text-sm mb-6 leading-relaxed max-w-2xl">
         {isUpsell
           ? <>Every clip comes out <b className="text-ink font-medium">ready to post</b> and stays in your
               library for good. On the free plan they carry a watermark and are deleted after 7 days.</>
@@ -119,82 +119,89 @@ export default function TopUpModal({ onClose, required, remaining, context = 'wa
             : <>You've used your free minutes for this month. Pick a plan and keep clipping right away.</>}
       </p>
 
-      <div className="grid sm:grid-cols-3 gap-3">
+      <ul className="grid sm:grid-cols-3 gap-4 pt-2">
         {plans.map((entry) => {
           const highlight = entry.plan === 'creator';
+          const isBusy = busyPrice === entry.price_id;
           return (
-            <div key={entry.price_id}
-                 className={`relative card p-5 flex flex-col ${highlight ? 'border-brass' : ''}`}>
+            <li key={entry.price_id}
+                className={`relative p-5 flex flex-col ${highlight ? 'card-print' : 'card'}`}>
               {highlight && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 badge-float">
+                <span className="absolute -top-2.5 left-5 badge-ink">
                   Most popular
                 </span>
               )}
-              <h3 className="font-display lowercase text-lg text-ink">{entry.plan}</h3>
-              <p className="text-muted text-xs mb-3 lowercase">{PLAN_BLURBS[entry.plan] || ''}</p>
-              <div className="mb-3 flex items-baseline gap-1.5">
-                <span className="font-display text-3xl text-ink tabular-nums">{fmt(entry.amount, entry.currency)}</span>
+              <h3 className="font-display text-lg text-ink capitalize">{entry.plan}</h3>
+              <p className="text-muted text-xs mt-0.5">{PLAN_BLURBS[entry.plan] || ''}</p>
+              <p className="my-4 flex items-baseline gap-1.5">
+                <span className="font-quote text-4xl text-ink tabular-nums leading-none">{fmt(entry.amount, entry.currency)}</span>
                 <span className="readout">/mo</span>
-              </div>
-              <ul className="space-y-1.5 text-sm text-ink2 mb-4 flex-1">
+              </p>
+              <ul className="space-y-2 text-sm text-ink2 mb-5 flex-1 border-t border-rule pt-4">
                 <li className="flex items-start gap-2">
-                  <Check size={15} className="text-ok shrink-0 mt-0.5" />
-                  <span><b>{entry.minutes} min</b> every month ({Math.round(entry.minutes / 20)}× your free quota)</span>
+                  <Check size={15} className="text-muted shrink-0 mt-0.5" aria-hidden="true" />
+                  <span><b className="text-ink font-medium">{entry.minutes} min</b> every month ({Math.round(entry.minutes / 20)}× your free quota)</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <Check size={15} className="text-ok shrink-0 mt-0.5" />
-                  <span>Clips <b>ready to post</b>, with no watermark</span>
+                  <Check size={15} className="text-muted shrink-0 mt-0.5" aria-hidden="true" />
+                  <span>Clips <b className="text-ink font-medium">ready to post</b>, with no watermark</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <Check size={15} className="text-ok shrink-0 mt-0.5" />
-                  <span>Your library <b>stays</b> (free clips delete after 7 days)</span>
+                  <Check size={15} className="text-muted shrink-0 mt-0.5" aria-hidden="true" />
+                  <span>Your library <b className="text-ink font-medium">stays</b> (free clips delete after 7 days)</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <Zap size={15} className="text-brass shrink-0 mt-0.5" />
+                  <Zap size={15} className="text-ink shrink-0 mt-0.5" aria-hidden="true" />
                   <span>Skips the free queue</span>
                 </li>
               </ul>
-              <button onClick={() => buy(entry, 'subscription')} disabled={busyPrice !== null}
-                      className={`w-full ${highlight ? 'btn-primary' : 'btn-ghost'}`}>
-                {busyPrice === entry.price_id
-                  ? <Loader2 size={18} className="animate-spin" />
+              <button type="button" onClick={() => buy(entry, 'subscription')} disabled={busyPrice !== null}
+                      aria-busy={isBusy || undefined}
+                      className={`w-full ${highlight ? 'btn-accent' : 'btn-ghost'}`}>
+                {isBusy
+                  ? <><Loader2 size={18} className="animate-spin" aria-hidden="true" /><span className="sr-only">Opening checkout…</span></>
                   : `Get ${entry.plan}`}
               </button>
-              <p className="text-center text-xs text-muted mt-2 lowercase">cancel anytime.</p>
-            </div>
+              <p className="text-center text-xs text-muted mt-2.5">Cancel anytime.</p>
+            </li>
           );
         })}
         {plans.length === 0 && (
-          <div className="sm:col-span-3 flex justify-center py-8">
-            <Loader2 className="animate-spin text-brass" />
-          </div>
+          <li role="status" className="sm:col-span-3 flex justify-center py-8">
+            <Loader2 className="animate-spin text-muted" aria-hidden="true" />
+            <span className="sr-only">Loading plans…</span>
+          </li>
         )}
-      </div>
+      </ul>
 
       {/* Secondary escape hatch: one-time packs, deliberately de-emphasized. */}
-      <div className="mt-4 text-center">
+      <div className="mt-5 pt-4 border-t border-rule text-center">
         {!showTopups ? (
-          <button onClick={() => setShowTopups(true)}
-                  className="text-xs text-muted underline underline-offset-2 lowercase hover:text-ink2">
-            just need a few extra minutes? one-time packs
+          <button type="button" onClick={() => setShowTopups(true)}
+                  className="min-h-[44px] text-sm text-muted underline decoration-ink/30 underline-offset-2 hover:text-ink hover:decoration-current transition-colors">
+            Just need a few extra minutes? One-time packs
           </button>
         ) : (
-          <div className="grid grid-cols-2 gap-3 mt-2">
+          <ul className="grid grid-cols-2 gap-3 mt-1 text-left">
             {topups.map((t) => (
-              <button key={t.price_id} onClick={() => buy(t, 'topup')} disabled={busyPrice !== null}
-                      className="border border-rule hover:border-brass rounded-card p-3 text-left transition-colors disabled:opacity-50">
-                <div className="text-ink text-sm font-medium flex items-center gap-1.5">
-                  <Clock size={14} className="text-muted" />+{t.minutes} min
-                </div>
-                <div className="readout mt-0.5">{fmt(t.amount, t.currency)} · one-time</div>
-              </button>
+              <li key={t.price_id}>
+                <button type="button" onClick={() => buy(t, 'topup')} disabled={busyPrice !== null}
+                        aria-busy={busyPrice === t.price_id || undefined}
+                        className="w-full tray card-hover p-3 text-left disabled:opacity-50 disabled:pointer-events-none">
+                  <span className="text-ink text-sm font-medium flex items-center gap-1.5">
+                    <Clock size={14} className="text-muted" aria-hidden="true" />+{t.minutes} min
+                  </span>
+                  <span className="block readout mt-1">{fmt(t.amount, t.currency)} · one-time</span>
+                </button>
+              </li>
             ))}
             {topups.length === 0 && (
-              <div className="col-span-2 flex justify-center py-3">
-                <Loader2 className="animate-spin text-brass" size={18} />
-              </div>
+              <li role="status" className="col-span-2 flex justify-center py-3">
+                <Loader2 className="animate-spin text-muted" size={18} aria-hidden="true" />
+                <span className="sr-only">Loading packs…</span>
+              </li>
             )}
-          </div>
+          </ul>
         )}
       </div>
     </Modal>

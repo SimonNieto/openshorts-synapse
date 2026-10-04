@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Scan, Scissors, Activity, Radio, CheckCircle } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiFetch } from '../lib/api';
 
@@ -89,118 +89,97 @@ const ProcessingAnimation = ({ media, isComplete, syncedTime, isSyncedPlaying, s
     return (match && match[2].length === 11) ? match[2] : null;
   };
 
-  const containerClasses = `relative w-full aspect-[2/1] sm:aspect-video rounded-card overflow-hidden bg-black border border-rule2 mb-4 sm:mb-8 group animate-fade transition-all duration-500
-    ${isComplete && !isSyncedPlaying ? 'grayscale brightness-50' : ''}
-    ${isSyncedPlaying ? 'ring-2 ring-brass ring-offset-2 ring-offset-black' : ''}`;
+  // Three honest states, nothing invented on top of the footage: the job is
+  // reading it, it is done with it, or it plays in step with a clip.
+  const working = !isComplete && !isSyncedPlaying;
+  const percent = Math.max(0, Math.min(100, progress?.percent ?? 0));
 
   const getVideoOpacityClass = () => {
-    if (isSyncedPlaying) return 'opacity-100'; // Playing: Full visibility
-    if (isComplete) return 'opacity-30';       // Idle Result: Darker
-    return 'opacity-40 grayscale group-hover:grayscale-0'; // Processing: Dark + Grayscale effect
+    if (isSyncedPlaying) return 'opacity-100';     // Playing: full visibility
+    if (isComplete) return 'opacity-50 grayscale'; // Idle result: stepped back
+    return 'opacity-60 grayscale';                 // Processing: quiet, monochrome
   };
 
+  const caption = isSyncedPlaying
+    ? 'Playing in step with the clip'
+    : isComplete
+      ? 'Source video'
+      : 'Reading the source';
+
   return (
-    <div className={containerClasses}>
-      {/* Video Layer */}
-      <div className={`absolute inset-0 transition-all duration-700 ${getVideoOpacityClass()}`}>
-        {isYouTube && videoSrc ? (
+    <figure className="min-w-0 animate-fade">
+      {/* The plate: real media on true black, framed by a hairline. */}
+      <div
+        className={`relative w-full aspect-video rounded-card overflow-hidden bg-black border transition-colors duration-500
+          ${isSyncedPlaying ? 'border-ink' : 'border-rule2'}`}
+      >
+        <div className={`absolute inset-0 transition-[opacity,filter] duration-700 ease-out ${getVideoOpacityClass()}`}>
+          {isYouTube && videoSrc ? (
             <iframe
-            ref={iframeRef}
-            className={`w-full h-full ${isSyncedPlaying ? '' : 'pointer-events-none scale-110'}`}
-            // Add enablejsapi=1 for postMessage control
-            src={`https://www.youtube.com/embed/${videoSrc}?autoplay=1&mute=1&controls=0&loop=1&playlist=${videoSrc}&modestbranding=1&showinfo=0&rel=0&enablejsapi=1`}
-            title="Processing Video"
-            frameBorder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          />
-        ) : videoSrc ? (
-          <video
-            ref={videoRef}
-            src={videoSrc}
-            className="w-full h-full object-cover"
-            autoPlay
-            muted
-            loop
-            playsInline
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-paper">
-             <div className="w-16 h-16 border-4 border-paper3 border-t-muted rounded-full animate-spin"></div>
+              ref={iframeRef}
+              className={`w-full h-full ${isSyncedPlaying ? '' : 'pointer-events-none scale-110'}`}
+              // Add enablejsapi=1 for postMessage control
+              src={`https://www.youtube.com/embed/${videoSrc}?autoplay=1&mute=1&controls=0&loop=1&playlist=${videoSrc}&modestbranding=1&showinfo=0&rel=0&enablejsapi=1`}
+              title="Source video preview"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            />
+          ) : videoSrc ? (
+            <video
+              ref={videoRef}
+              src={videoSrc}
+              className="w-full h-full object-cover"
+              aria-label="Source video preview"
+              autoPlay
+              muted
+              loop
+              playsInline
+            />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+              <span aria-hidden="true" className={`h-2 w-2 rounded-full bg-muted ${isComplete ? '' : 'neural-node'}`} />
+              <span className="readout">Loading preview</span>
+            </div>
+          )}
+        </div>
+
+        {/* The job's real percent (app.py _job_progress) as a hairline along
+            the plate's lower edge. The number itself lives in the progress
+            header; this only mirrors it, so it is hidden from screen readers. */}
+        {working && (
+          <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 bg-[color:var(--color-rule)]">
+            <div
+              className="h-full bg-ink transition-[width] duration-700 ease-out"
+              style={{ width: `${Math.max(2, percent)}%` }}
+            />
           </div>
         )}
       </div>
 
-      {/* Overlays - Hide when synced playing so user sees clean video */}
-      {!isSyncedPlaying && !isComplete && (
-        <>
-            <div className="hidden sm:block absolute inset-0 bg-[linear-gradient(var(--rule-blueprint)_1px,transparent_1px),linear-gradient(90deg,var(--rule-blueprint)_1px,transparent_1px)] bg-[size:40px_40px] z-10 pointer-events-none"></div>
-            <div className="absolute left-0 w-full h-[2px] bg-brass shadow-[0_0_15px_2px_var(--color-glow)] animate-[scan_2.5s_linear_infinite] z-20 pointer-events-none"></div>
-            <div className="absolute left-0 w-full h-[15%] bg-[var(--color-paper-emit)] animate-[scan-overlay_2.5s_linear_infinite] z-10 pointer-events-none"></div>
-        </>
-      )}
-
-      {/* Top HUD bar. One flex row, not two pills pinned to opposite corners:
-          pinned, they overlapped and interleaved their letters as soon as the
-          box was narrower than their combined ~330px — every phone, and the
-          md tablet width too, where this panel is only 55% of the viewport.
-          justify-between + a truncating left pill degrades instead. */}
-      {!isSyncedPlaying && (
-          <div className="absolute top-2.5 left-2.5 right-2.5 sm:top-4 sm:left-4 sm:right-4 z-30 flex items-start justify-between gap-2 pointer-events-none">
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/70 readout min-w-0 transition-colors duration-500 ${isComplete ? 'text-ok' : 'text-brass animate-pulse'}`}>
-              {isComplete
-                ? <CheckCircle size={14} className="shrink-0" />
-                : <Scan size={14} className="shrink-0" />}
-              <span className="truncate">{isComplete ? 'Analysis Complete' : 'Scanning Content...'}</span>
-            </div>
-            {/* Carries nothing the left pill doesn't; it is the first thing to
-                go when there is no room. */}
-            {!isComplete && (
-              <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-black/70 rounded-full readout shrink-0">
-                VIRAL_DETECTION: ACTIVE
-              </div>
-            )}
-          </div>
-      )}
-
-      {/* Visual Flair */}
-      {!isSyncedPlaying && !isComplete && (
-          <div className="hidden sm:block absolute inset-0 pointer-events-none z-20 overflow-hidden">
-             <div className="absolute top-0 bottom-0 left-[35%] w-px border-r border-dashed border-brass opacity-40"></div>
-             <div className="absolute top-0 bottom-0 right-[35%] w-px border-l border-dashed border-brass opacity-40"></div>
-             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 border border-rule2 rounded-full flex items-center justify-center">
-                <div className="w-1 h-1 bg-brass rounded-full animate-ping"></div>
-             </div>
-             <div className="absolute bottom-1/3 left-1/2 -translate-x-1/2 flex flex-col items-center justify-center gap-2 opacity-60">
-                 <Scissors size={24} className="text-white/20" />
-             </div>
-          </div>
-      )}
-
-       {/* Synced Playing Indicator */}
-       {isSyncedPlaying && (
-           <div className="absolute top-2.5 right-2.5 sm:top-4 sm:right-4 z-30 badge-brass bg-black/70 animate-pulse">
-               <Activity size={12} /> Live Sync
-           </div>
-       )}
-
-       {/* Bottom Info Bar */}
-      {!isSyncedPlaying && !isComplete && (
-          <div className="hidden sm:flex absolute bottom-0 left-0 right-0 p-4 bg-black/70 z-30 justify-between items-end border-t border-rule">
-              <div className="readout text-brass space-y-1">
-                 {/* The job's real stage + percent (app.py _job_progress). */}
-                 <div className="flex items-center gap-2"><Activity size={10} className="animate-pulse" /> {'>'} STAGE: {(progress?.stage || 'starting').toUpperCase()}</div>
-                 <div className="flex items-center gap-2"><Radio size={10} /> {'>'} PROGRESS: {progress?.percent ?? 0}%{progress?.clips_total ? ` · CLIPS ${progress.clips_done}/${progress.clips_total}` : ''}</div>
-              </div>
-              <div className="flex gap-1">
-                 <div className="w-1 h-3 bg-brass opacity-40 animate-[pulse_0.5s_infinite]"></div>
-                 <div className="w-1 h-5 bg-brass opacity-60 animate-[pulse_0.7s_infinite]"></div>
-                 <div className="w-1 h-2 bg-brass opacity-30 animate-[pulse_0.4s_infinite]"></div>
-                 <div className="w-1 h-4 bg-brass opacity-80 animate-[pulse_0.6s_infinite]"></div>
-                 <div className="w-1 h-3 bg-brass opacity-50 animate-[pulse_0.5s_infinite]"></div>
-              </div>
-          </div>
-      )}
-    </div>
+      <figcaption className="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 min-w-0">
+        <span className="flex items-center gap-2 min-w-0">
+          {working && (
+            /* A filament drawing itself while the job reads the footage. */
+            <svg aria-hidden="true" width="34" height="10" viewBox="0 0 34 10" className="shrink-0 text-ink2 overflow-visible">
+              <path
+                d="M1 6 C7 1, 12 9, 18 5 S26 2, 29 5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                style={{ strokeDasharray: 40, '--ink-len': 40, animation: 'ink-draw 2.8s var(--ease-out) infinite alternate' }}
+              />
+              <circle cx="31" cy="5" r="2" fill="currentColor" className="neural-node" />
+            </svg>
+          )}
+          {isSyncedPlaying && <Activity size={13} aria-hidden="true" className="shrink-0 text-ink" />}
+          <span className={`readout truncate ${isSyncedPlaying ? 'text-ink' : ''}`}>{caption}</span>
+        </span>
+        {isComplete && !isSyncedPlaying && (
+          <span className="readout">Play a clip to follow it here</span>
+        )}
+      </figcaption>
+    </figure>
   );
 };
 

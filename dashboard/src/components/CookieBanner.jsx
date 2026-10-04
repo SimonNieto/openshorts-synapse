@@ -56,35 +56,36 @@ export default function CookieBanner() {
       role="dialog"
       aria-modal="false"
       aria-label="Cookie and tracker preferences"
+      aria-describedby="consent-body"
       className="fixed inset-x-0 bottom-0 z-50 p-3 sm:p-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
     >
-      <div className="card mx-auto max-w-3xl p-4 sm:p-5 space-y-4 shadow-2xl">
+      <div className="card-print mx-auto max-w-3xl p-4 sm:p-5 space-y-4 max-h-[85vh] overflow-y-auto overscroll-contain custom-scrollbar">
         <div className="space-y-2">
-          <h2 className="font-display lowercase text-lg text-ink">Before we count anything</h2>
-          <p className="text-sm text-ink2">
+          <h2 className="font-display text-lg text-ink">Before we count anything</h2>
+          <p id="consent-body" className="text-sm text-ink2 leading-relaxed">
             We only store what the app needs to work unless you tell us otherwise.
             Audience measurement stays off until you say yes, and you can change
             this at any time from the “cookies” link in the footer.{' '}
-            <a href="#legal" className="underline hover:text-ink">Privacy policy</a>.
+            <a href="#legal" className="text-ink underline decoration-ink/40 underline-offset-2 hover:decoration-current">Privacy policy</a>.
           </p>
         </div>
 
         {details && (
-          <ul className="space-y-3 border-t border-rule pt-3">
+          <ul className="border-t border-rule divide-y divide-rule">
             {CATEGORY_COPY.map((cat) => (
-              <li key={cat.key} className="flex gap-3">
+              <li key={cat.key} className="flex gap-3 py-3">
                 <input
                   type="checkbox"
                   id={`consent-${cat.key}`}
-                  className="mt-1 h-4 w-4 shrink-0 accent-current"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-current text-ink disabled:opacity-60"
                   checked={cat.locked ? true : !!draft[cat.key]}
                   disabled={cat.locked}
                   onChange={(e) => setDraft({ ...draft, [cat.key]: e.target.checked })}
                 />
                 <label htmlFor={`consent-${cat.key}`} className="text-sm">
-                  <span className="text-ink">{cat.label}</span>
+                  <span className="text-ink font-medium">{cat.label}</span>
                   {cat.locked && <span className="text-muted"> · always on</span>}
-                  <span className="block text-muted">{cat.body}</span>
+                  <span className="block text-muted mt-0.5 leading-relaxed">{cat.body}</span>
                 </label>
               </li>
             ))}

@@ -30,15 +30,15 @@ export default function ScheduleWeekModal({
         <Modal
             isOpen={isOpen}
             onClose={onClose}
-            eyebrow="PUBLISH · UPLOAD-POST"
-            title="schedule clips"
+            eyebrow="Publish · Upload-Post"
+            title="Schedule clips"
             size="xl"
             footer={(
-                <div className="flex gap-3 justify-end">
-                    <button onClick={onClose} className="btn-ghost px-4 py-2 text-sm">close</button>
+                <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:gap-3">
+                    <button type="button" onClick={onClose} className="btn-ghost">Close</button>
                     {onOpenPlan && (
-                        <button onClick={() => { onClose(); onOpenPlan(); }} className="btn-quiet px-4 py-2 text-sm inline-flex items-center gap-2">
-                            <CalendarCheck size={15} /> open publish plan
+                        <button type="button" onClick={() => { onClose(); onOpenPlan(); }} className="btn-ghost">
+                            <CalendarCheck size={15} aria-hidden="true" /> Open publish plan
                         </button>
                     )}
                 </div>

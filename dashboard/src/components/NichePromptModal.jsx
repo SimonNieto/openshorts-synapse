@@ -27,22 +27,23 @@ export default function NichePromptModal({ isOpen, onClose, defaultValue = '', m
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} size="sm" eyebrow="HASHTAGS" title="what's this channel's niche?">
+        <Modal isOpen={isOpen} onClose={onClose} size="sm" eyebrow="Hashtags" title="What's this channel's niche?">
             <div className="space-y-4">
-                <p className="text-sm text-muted leading-relaxed">{message}</p>
+                {message && <p className="text-sm text-ink2 leading-relaxed">{message}</p>}
                 <NichePicker value={value} onChange={setValue} onEnter={confirm} autoFocus />
-                <div className="flex gap-2 justify-end pt-1">
+                <div className="flex flex-wrap gap-2 justify-end pt-1">
                     {onSkip && (
-                        <button onClick={onSkip} className="btn-ghost px-3 py-2 text-xs">
-                            skip
+                        <button type="button" onClick={onSkip} className="btn-ghost px-4 py-2 text-sm">
+                            Skip
                         </button>
                     )}
                     <button
+                        type="button"
                         onClick={confirm}
                         disabled={!value.trim()}
-                        className="btn-primary px-4 py-2 text-xs"
+                        className="btn-accent px-5 py-2 text-sm"
                     >
-                        confirm
+                        Confirm
                     </button>
                 </div>
             </div>

@@ -25,20 +25,21 @@ export default function BrainBadge({ logs }) {
     const name = who.toLowerCase();
     const isClaude = name.startsWith('claude');
     const isGemini = name.startsWith('gemini');
-    const tone = isClaude
-        ? 'border-brass/40 bg-brass/10 text-ink'
-        : isGemini
-            ? 'border-danger/40 bg-danger/5 text-ink'
-            : 'border-rule bg-paper2 text-ink2';
 
     return (
-        <div className={`mb-3 sm:mb-4 rounded-card border px-3 py-2.5 flex items-start gap-2.5 min-w-0 ${tone}`}>
-            <Brain size={16} className={`shrink-0 mt-px animate-pulse ${isClaude ? 'text-brass' : isGemini ? 'text-danger' : 'text-muted'}`} />
-            <div className="min-w-0 text-xs leading-snug">
-                <p className="font-medium break-words">
+        <div className="tray px-3.5 py-3 flex items-start gap-3 min-w-0">
+            <span
+                aria-hidden="true"
+                className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${isClaude || isGemini ? 'border-rule2 text-ink' : 'border-rule text-muted'}`}
+            >
+                <Brain size={15} />
+            </span>
+            <div className="min-w-0">
+                <p className="readout">Thinking now</p>
+                <p className="mt-0.5 text-sm font-medium text-ink break-words">
                     {isClaude ? `${who} is working` : who}
                 </p>
-                {stage && <p className="text-ink2 break-words">{stage}…</p>}
+                {stage && <p className="text-sm text-ink2 leading-snug break-words">{stage}…</p>}
             </div>
         </div>
     );

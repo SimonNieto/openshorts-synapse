@@ -1,4 +1,4 @@
-import { Github } from 'lucide-react';
+import { Github, ArrowUpRight } from 'lucide-react';
 
 export const REPO_URL = 'https://github.com/mutonby/openshorts';
 
@@ -13,10 +13,15 @@ export default function StarBanner({ message = 'Synapse AI is built on OpenShort
       href={REPO_URL}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex items-center gap-2 px-3 py-2 rounded-input bg-paper3 border border-rule text-sm text-muted hover:text-ink transition-colors"
+      className="group flex items-center gap-3 min-h-[44px] px-3.5 py-2.5 rounded-card border border-rule text-sm text-ink2 hover:text-ink hover:border-rule2 hover:bg-paper3 transition-colors"
     >
-      <Github size={14} className="shrink-0" />
-      <span>{message} <span className="text-brass">Star us on GitHub ⭐</span></span>
+      <Github size={16} aria-hidden="true" className="shrink-0 text-muted group-hover:text-ink transition-colors" />
+      <span className="min-w-0 flex-1 leading-snug">
+        {message}{' '}
+        <span className="font-medium text-ink whitespace-nowrap">Star us on GitHub</span>
+        <span className="sr-only"> (opens in a new tab)</span>
+      </span>
+      <ArrowUpRight size={15} aria-hidden="true" className="shrink-0 text-muted group-hover:text-ink transition-colors" />
     </a>
   );
 }

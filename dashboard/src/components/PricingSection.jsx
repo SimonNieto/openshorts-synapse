@@ -63,14 +63,20 @@ export default function PricingSection({ onRequireLogin }) {
   };
 
   if (loading) {
-    return <div className="flex justify-center py-16"><Loader2 className="animate-spin text-brass" /></div>;
+    return (
+      <div role="status" aria-live="polite" className="flex justify-center py-16">
+        <Loader2 className="animate-spin text-muted" aria-hidden="true" />
+        <span className="sr-only">Loading plans…</span>
+      </div>
+    );
   }
 
   const byPlan = (plan) => plans.find((p) => p.plan === plan && p.interval === interval);
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <div className="max-w-xs mx-auto mb-10">
+    <div className="max-w-6xl mx-auto">
+      <fieldset className="max-w-xs mx-auto mb-12">
+        <legend className="sr-only">Billing period</legend>
         <SegmentedControl
           size="sm"
           value={interval}
@@ -80,109 +86,115 @@ export default function PricingSection({ onRequireLogin }) {
             { value: 'year', label: 'Yearly', hint: '2 months free' },
           ]}
         />
-      </div>
+      </fieldset>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <ul className="grid md:grid-cols-2 lg:grid-cols-4 gap-5 items-stretch">
         {/* Free tier — no card, Google sign-in only */}
-        <div className="relative card p-6 flex flex-col">
-          <h3 className="font-display lowercase text-xl text-ink">free</h3>
-          <p className="text-muted text-sm mb-4 lowercase">Try it on your own videos</p>
-          <div className="mb-4 flex items-baseline gap-1.5">
-            <span className="font-display text-4xl text-ink tabular-nums">$0</span>
+        <li className="relative card p-6 flex flex-col">
+          <h3 className="font-display text-lg text-ink">Free</h3>
+          <p className="text-muted text-sm mt-1">Try it on your own videos</p>
+          <p className="my-6 flex items-baseline gap-1.5">
+            <span className="font-quote text-5xl text-ink tabular-nums leading-none">$0</span>
             <span className="readout">/mo</span>
-          </div>
-          <ul className="space-y-2 text-sm text-ink2 mb-6 flex-1">
-            <li className="flex items-start gap-2"><Check size={16} className="text-ok shrink-0 mt-0.5" /> <span><b>{FREE_MINUTES} min</b> of video / month</span></li>
-            <li className="flex items-start gap-2"><Check size={16} className="text-ok shrink-0 mt-0.5" /> <span>YouTube URL or upload</span></li>
-            <li className="flex items-start gap-2"><Cpu size={16} className="text-ok shrink-0 mt-0.5" /> <span>Same <b>GPU rendering</b>, about 50s per 8-min video</span></li>
-            <li className="flex items-start gap-2"><KeyRound size={16} className="text-ok shrink-0 mt-0.5" /> <span>Gemini key included, no setup</span></li>
-            <li className="flex items-start gap-2"><Check size={16} className="text-ok shrink-0 mt-0.5" /> <span>No credit card — Google sign-in</span></li>
-            <li className="flex items-start gap-2"><Check size={16} className="text-muted shrink-0 mt-0.5" /> <span className="text-muted">Watermark · clips kept 7 days</span></li>
+          </p>
+          <ul className="space-y-2.5 text-sm text-ink2 mb-6 flex-1 border-t border-rule pt-5">
+            <li className="flex items-start gap-2.5"><Check size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> <span><b className="text-ink font-medium">{FREE_MINUTES} min</b> of video / month</span></li>
+            <li className="flex items-start gap-2.5"><Check size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> <span>YouTube URL or upload</span></li>
+            <li className="flex items-start gap-2.5"><Cpu size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> <span>Same <b className="text-ink font-medium">GPU rendering</b>, about 50s per 8-min video</span></li>
+            <li className="flex items-start gap-2.5"><KeyRound size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> <span>Gemini key included, no setup</span></li>
+            <li className="flex items-start gap-2.5"><Check size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> <span>No credit card — Google sign-in</span></li>
+            <li className="flex items-start gap-2.5 text-muted"><Check size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> <span>Watermark · clips kept 7 days</span></li>
           </ul>
           <button
+            type="button"
             onClick={() => { if (!isSignedIn) { onRequireLogin?.(null); } else { window.location.hash = ''; } }}
             className="w-full btn-ghost"
           >
             Start free
           </button>
-          <p className="text-center text-xs text-muted mt-2 lowercase">free minutes reset monthly.</p>
-        </div>
+          <p className="text-center text-xs text-muted mt-2.5">Free minutes reset monthly.</p>
+        </li>
 
         {PLAN_ORDER.map((plan) => {
           const entry = byPlan(plan);
           if (!entry) return null;
           const highlight = plan === HIGHLIGHT;
+          const busy = busyPrice === entry.price_id;
           return (
-            <div
+            <li
               key={plan}
-              className={`relative card p-6 flex flex-col ${highlight ? 'border-brass' : ''}`}
+              className={`relative p-6 flex flex-col ${highlight ? 'card-print' : 'card'}`}
             >
               {highlight && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 badge-float">
+                <span className="absolute -top-2.5 left-6 badge-ink">
                   Most popular
                 </span>
               )}
-              <h3 className="font-display lowercase text-xl text-ink">{plan}</h3>
-              <p className="text-muted text-sm mb-4 lowercase">{PLAN_BLURB[plan]}</p>
-              <div className="mb-4 flex items-baseline gap-1.5">
-                <span className="font-display text-4xl text-ink tabular-nums">{fmt(entry.amount, entry.currency)}</span>
+              <h3 className="font-display text-lg text-ink capitalize">{plan}</h3>
+              <p className="text-muted text-sm mt-1">{PLAN_BLURB[plan]}</p>
+              <p className="my-6 flex items-baseline gap-1.5">
+                <span className="font-quote text-5xl text-ink tabular-nums leading-none">{fmt(entry.amount, entry.currency)}</span>
                 <span className="readout">/{interval === 'month' ? 'mo' : 'yr'}</span>
-              </div>
-              <ul className="space-y-2 text-sm text-ink2 mb-6 flex-1">
-                <li className="flex items-start gap-2"><Check size={16} className="text-ok shrink-0 mt-0.5" /> <span><b>{entry.minutes} min</b> of video / month</span></li>
-                <li className="flex items-start gap-2"><Check size={16} className="text-ok shrink-0 mt-0.5" /> <span><b>No watermark</b>, no 7-day clip expiry</span></li>
-                <li className="flex items-start gap-2"><Cpu size={16} className="text-ok shrink-0 mt-0.5" /> <span><b>GPU rendering</b>, about 50s per 8-min video</span></li>
-                <li className="flex items-start gap-2"><KeyRound size={16} className="text-ok shrink-0 mt-0.5" /> <span>Gemini key + auto-posting included</span></li>
-                <li className="flex items-start gap-2"><Bot size={16} className="text-ok shrink-0 mt-0.5" /> <span><b>MCP + API access</b> for AI agents &amp; automations</span></li>
-                {plan === 'pro' && <li className="flex items-start gap-2"><Zap size={16} className="text-brass shrink-0 mt-0.5" /> <span>Priority processing queue</span></li>}
+              </p>
+              <ul className="space-y-2.5 text-sm text-ink2 mb-6 flex-1 border-t border-rule pt-5">
+                <li className="flex items-start gap-2.5"><Check size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> <span><b className="text-ink font-medium">{entry.minutes} min</b> of video / month</span></li>
+                <li className="flex items-start gap-2.5"><Check size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> <span><b className="text-ink font-medium">No watermark</b>, no 7-day clip expiry</span></li>
+                <li className="flex items-start gap-2.5"><Cpu size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> <span><b className="text-ink font-medium">GPU rendering</b>, about 50s per 8-min video</span></li>
+                <li className="flex items-start gap-2.5"><KeyRound size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> <span>Gemini key + auto-posting included</span></li>
+                <li className="flex items-start gap-2.5"><Bot size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> <span><b className="text-ink font-medium">MCP + API access</b> for AI agents &amp; automations</span></li>
+                {plan === 'pro' && <li className="flex items-start gap-2.5"><Zap size={16} className="text-ink shrink-0 mt-0.5" aria-hidden="true" /> <span>Priority processing queue</span></li>}
               </ul>
               <button
+                type="button"
                 onClick={() => checkout(entry)}
-                disabled={busyPrice === entry.price_id}
-                className={`w-full ${highlight ? 'btn-primary' : 'btn-ghost'}`}
+                disabled={busy}
+                aria-busy={busy || undefined}
+                className={`w-full ${highlight ? 'btn-accent' : 'btn-ghost'}`}
               >
-                {busyPrice === entry.price_id ? <Loader2 size={18} className="animate-spin" /> : `Get ${plan}`}
+                {busy
+                  ? <><Loader2 size={18} className="animate-spin" aria-hidden="true" /><span className="sr-only">Opening checkout…</span></>
+                  : `Get ${plan}`}
               </button>
-              <p className="text-center text-xs text-muted mt-2 lowercase">billed {interval === 'month' ? 'monthly' : 'yearly'}. cancel anytime.</p>
-            </div>
+              <p className="text-center text-xs text-muted mt-2.5">Billed {interval === 'month' ? 'monthly' : 'yearly'}. Cancel anytime.</p>
+            </li>
           );
         })}
-      </div>
+      </ul>
 
       {/* What every plan includes vs what's bring-your-own-key */}
-      <div className="mt-10 grid md:grid-cols-2 gap-4">
-        <div className="card p-6">
-          <div className="mb-4">
-            <span className="badge-ok"><Check size={12} /> Included in every plan</span>
-          </div>
-          <ul className="space-y-2 text-sm text-ink2">
-            <li className="flex items-start gap-2"><Cpu size={15} className="text-ok shrink-0 mt-0.5" /> <span><b>Our NVIDIA GPU does the rendering.</b> An 8-minute video is clipped in about 50 seconds, instead of the 5 to 8 minutes it takes on a typical CPU.</span></li>
-            <li className="flex items-start gap-2"><KeyRound size={15} className="text-ok shrink-0 mt-0.5" /> <span><b>The Gemini API key is included.</b> Nothing to sign up for, nothing to paste, no per-request quota of your own to babysit.</span></li>
-            <li className="flex items-start gap-2"><Send size={15} className="text-ok shrink-0 mt-0.5" /> <span><b>Auto-posting is already wired up</b> for TikTok, Instagram Reels and YouTube Shorts.</span></li>
-            <li className="flex items-start gap-2"><HardDrive size={15} className="text-ok shrink-0 mt-0.5" /> <span><b>Clips are stored and served for you</b>, ready to re-open and re-edit from any browser.</span></li>
-            <li className="flex items-start gap-2"><Check size={15} className="text-ok shrink-0 mt-0.5" /> <span>Full <b>YouTube Studio</b>: titles, thumbnails and descriptions.</span></li>
-            <li className="flex items-start gap-2"><Bot size={15} className="text-ok shrink-0 mt-0.5" /> <span><b>MCP server &amp; API for agents.</b> Connect Claude, ChatGPT or n8n to an always-on endpoint and automate clipping end to end. API calls use the same minutes, nothing extra to buy. <a href="/mcp" className="underline underline-offset-2 hover:text-ink" target="_blank" rel="noopener">Guide</a>.</span></li>
+      <div className="mt-12 grid md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5">
+        <section className="card p-6" aria-labelledby="plans-included">
+          <h3 id="plans-included" className="font-display text-base text-ink mb-4 flex items-center gap-2">
+            <Check size={16} className="text-muted" aria-hidden="true" /> Included in every plan
+          </h3>
+          <ul className="space-y-3 text-sm text-ink2 leading-relaxed">
+            <li className="flex items-start gap-2.5"><Cpu size={15} className="text-muted shrink-0 mt-1" aria-hidden="true" /> <span><b className="text-ink font-medium">Our NVIDIA GPU does the rendering.</b> An 8-minute video is clipped in about 50 seconds, instead of the 5 to 8 minutes it takes on a typical CPU.</span></li>
+            <li className="flex items-start gap-2.5"><KeyRound size={15} className="text-muted shrink-0 mt-1" aria-hidden="true" /> <span><b className="text-ink font-medium">The Gemini API key is included.</b> Nothing to sign up for, nothing to paste, no per-request quota of your own to babysit.</span></li>
+            <li className="flex items-start gap-2.5"><Send size={15} className="text-muted shrink-0 mt-1" aria-hidden="true" /> <span><b className="text-ink font-medium">Auto-posting is already wired up</b> for TikTok, Instagram Reels and YouTube Shorts.</span></li>
+            <li className="flex items-start gap-2.5"><HardDrive size={15} className="text-muted shrink-0 mt-1" aria-hidden="true" /> <span><b className="text-ink font-medium">Clips are stored and served for you</b>, ready to re-open and re-edit from any browser.</span></li>
+            <li className="flex items-start gap-2.5"><Check size={15} className="text-muted shrink-0 mt-1" aria-hidden="true" /> <span>Full <b className="text-ink font-medium">YouTube Studio</b>: titles, thumbnails and descriptions.</span></li>
+            <li className="flex items-start gap-2.5"><Bot size={15} className="text-muted shrink-0 mt-1" aria-hidden="true" /> <span><b className="text-ink font-medium">MCP server &amp; API for agents.</b> Connect Claude, ChatGPT or n8n to an always-on endpoint and automate clipping end to end. API calls use the same minutes, nothing extra to buy. <a href="/mcp" className="text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-current" target="_blank" rel="noopener">Guide</a>.</span></li>
           </ul>
-          <p className="text-xs text-muted mt-3 pt-3 border-t border-rule">
+          <p className="text-xs text-muted mt-4 pt-4 border-t border-rule leading-relaxed">
             Your monthly minutes cover video processing. Titles &amp; descriptions are free;
-            AI <b>thumbnail image generation</b> uses ~3 min of your quota per batch.
+            AI <b className="text-ink2 font-medium">thumbnail image generation</b> uses ~3 min of your quota per batch.
           </p>
-        </div>
-        <div className="card p-6">
-          <div className="mb-4">
-            <span className="badge-warn"><Zap size={12} /> Bring your own key</span>
-          </div>
-          <p className="text-sm text-muted mb-3 leading-relaxed">
-            <b className="text-ink2">AI Shorts</b> (AI-actor UGC videos) and <b className="text-ink2">voice dubbing</b> use premium generation from
-            <b className="text-ink2"> fal.ai</b> and <b className="text-ink2">ElevenLabs</b>. Connect your own keys for those — you're billed by those
+        </section>
+        <section className="tray p-6" aria-labelledby="plans-byok">
+          <h3 id="plans-byok" className="font-display text-base text-ink mb-4 flex items-center gap-2">
+            <Zap size={16} className="text-muted" aria-hidden="true" /> Bring your own key
+          </h3>
+          <p className="text-sm text-ink2 mb-3 leading-relaxed">
+            <b className="text-ink font-medium">AI Shorts</b> (AI-actor UGC videos) and <b className="text-ink font-medium">voice dubbing</b> use premium generation from
+            <b className="text-ink font-medium"> fal.ai</b> and <b className="text-ink font-medium">ElevenLabs</b>. Connect your own keys for those — you're billed by those
             providers directly (typically ~$0.65-2 per video). Your plan still covers the script &amp; orchestration.
           </p>
           <p className="text-xs text-muted">Managed credits for these are coming later — no keys needed.</p>
-        </div>
+        </section>
       </div>
 
-      <p className="text-center text-muted text-xs mt-8 lowercase">
-        start free right here, upgrade for more minutes and no watermark, or run it yourself on your own hardware.
+      <p className="text-center text-muted text-sm mt-10">
+        Start free right here, upgrade for more minutes and no watermark, or run it yourself on your own hardware.
       </p>
     </div>
   );

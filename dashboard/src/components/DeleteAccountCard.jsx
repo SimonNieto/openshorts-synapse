@@ -69,34 +69,34 @@ export default function DeleteAccountCard() {
   }, [confirm, reason, logout]);
 
   return (
-    <div className="card p-6">
-      <h3 className="font-display lowercase text-lg text-ink mb-1 flex items-center gap-2">
-        <Trash2 size={16} className="text-danger" /> Delete account
+    <section aria-labelledby="delete-account-title" className="card p-5 sm:p-6">
+      <h3 id="delete-account-title" className="font-display text-lg text-ink mb-1 flex items-center gap-2">
+        <Trash2 size={16} className="text-muted" aria-hidden="true" /> Delete account
       </h3>
-      <p className="text-muted text-sm">
+      <p className="text-muted text-sm leading-relaxed">
         Close your Synapse AI account and erase everything we hold about you. This
         cannot be undone.
       </p>
 
       {!open ? (
-        <button onClick={() => setOpen(true)} className="btn-danger px-4 py-2 mt-4">
-          <Trash2 size={16} /> Delete my account
+        <button type="button" onClick={() => setOpen(true)} className="btn-danger px-4 py-2 mt-5">
+          <Trash2 size={16} aria-hidden="true" /> Delete my account
         </button>
       ) : (
-        <div className="mt-4 space-y-4">
-          <div className="rounded-card border border-danger/40 bg-danger/5 p-3 text-sm text-ink2">
+        <div className="mt-5 space-y-5">
+          <div className="rounded-card border border-danger/40 bg-danger/5 p-4 text-sm text-ink2 leading-relaxed">
             <p className="flex items-start gap-2 text-ink">
-              <AlertTriangle size={16} className="text-danger shrink-0 mt-0.5" />
-              <b>This is permanent. There is no recovery.</b>
+              <AlertTriangle size={16} className="text-danger shrink-0 mt-0.5" aria-hidden="true" />
+              <b className="font-semibold">This is permanent. There is no recovery.</b>
             </p>
-            <p className="mt-2">Deleted immediately:</p>
-            <ul className="list-disc pl-5 mt-1 space-y-0.5">
+            <p className="mt-3">Deleted immediately:</p>
+            <ul className="list-disc marker:text-muted pl-5 mt-1 space-y-0.5">
               <li>your account and sign-in</li>
               <li>every project, clip and transcript, here and in our storage</li>
               <li>your API keys, so anything using them stops working</li>
               <li>the link to any social accounts you connected</li>
             </ul>
-            <p className="mt-2">
+            <p className="mt-3">
               Any active subscription is cancelled as part of this. We keep your
               invoices for six years because Spanish law requires it, plus a
               one-way hash of your email address, instead of the address, as
@@ -104,47 +104,51 @@ export default function DeleteAccountCard() {
             </p>
           </div>
 
-          <label className="block">
-            <span className="text-sm text-muted lowercase">Why are you leaving? (optional)</span>
+          <div>
+            <label htmlFor="delete-reason" className="block text-sm text-ink2 mb-1.5">Why are you leaving? <span className="text-muted">(optional)</span></label>
             <select
+              id="delete-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="input-field w-full text-sm mt-1"
+              className="input-field w-full text-sm"
             >
               <option value="">Prefer not to say</option>
               {REASONS.map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
-          </label>
+          </div>
 
-          <label className="block">
-            <span className="text-sm text-muted">
-              Type <b className="text-ink">{email}</b> to confirm
-            </span>
+          <div>
+            <label htmlFor="delete-confirm" className="block text-sm text-ink2 mb-1.5">
+              Type <b className="text-ink font-semibold break-all">{email}</b> to confirm
+            </label>
             <input
+              id="delete-confirm"
               value={confirm}
               onChange={(e) => { setConfirm(e.target.value); setError(''); }}
               autoComplete="off"
               spellCheck={false}
-              className="input-field w-full text-sm mt-1"
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? 'delete-error' : undefined}
+              className="input-field w-full text-sm"
             />
-          </label>
+          </div>
 
-          {error && <p className="text-sm text-danger">{error}</p>}
+          {error && <p id="delete-error" role="alert" className="text-sm text-danger">{error}</p>}
 
-          <div className="flex items-center gap-2">
-            <button onClick={remove} disabled={!matches || busy} className="btn-danger px-4 py-2">
-              {busy ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={remove} disabled={!matches || busy} aria-busy={busy || undefined} className="btn-danger px-4 py-2">
+              {busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}
               {busy ? 'Deleting…' : 'Permanently delete my account'}
             </button>
-            <button onClick={() => { setOpen(false); setConfirm(''); setError(''); }}
+            <button type="button" onClick={() => { setOpen(false); setConfirm(''); setError(''); }}
                     disabled={busy} className="btn-quiet">
               Cancel
             </button>
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }

@@ -22,39 +22,55 @@ export default function ProfileMenu() {
   return (
     <div className="relative" ref={ref}>
       <button
+        type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label="Account menu"
-        className="w-8 h-8 rounded-full bg-paper3 border border-rule hover:border-rule2 text-brass flex items-center justify-center text-sm font-medium transition-colors"
+        aria-expanded={open}
+        aria-controls="profile-menu-panel"
+        className={`w-9 h-9 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:h-11 rounded-full border flex items-center justify-center text-sm font-semibold transition-colors ${open
+          ? 'bg-ink text-paper border-ink'
+          : 'bg-paper3 text-ink border-rule2 hover:border-ink'}`}
       >
         {initial}
       </button>
 
       {open && (
-        <div className="card absolute right-0 top-full mt-2 w-56 z-30 shadow-none overflow-hidden animate-fade">
+        <div id="profile-menu-panel" className="card-print absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-2rem)] z-30 overflow-hidden animate-fade">
           <div className="px-4 py-3 border-b border-rule">
-            <p className="eyebrow">Signed in as</p>
-            <p className="text-sm text-ink truncate mt-0.5" title={user.email}>{user.email}</p>
+            <p className="readout">Signed in as</p>
+            <p className="text-sm text-ink truncate mt-1" title={user.email}>{user.email}</p>
           </div>
-          {!isManaged && (
-            <button
-              onClick={() => { setOpen(false); window.location.hash = '#/pricing'; }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm lowercase text-brass hover:bg-paper3 transition-colors"
-            >
-              <Sparkles size={16} /> Start free
-            </button>
-          )}
-          <button
-            onClick={() => { setOpen(false); window.location.hash = '#/account'; }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm lowercase text-ink2 hover:bg-paper3 transition-colors"
-          >
-            <CreditCard size={16} className="text-muted" /> Account &amp; billing
-          </button>
-          <button
-            onClick={() => { setOpen(false); logout(); }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm lowercase text-ink2 hover:bg-paper3 transition-colors border-t border-rule"
-          >
-            <LogOut size={16} className="text-muted" /> Sign out
-          </button>
+          <ul className="py-1">
+            {!isManaged && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => { setOpen(false); window.location.hash = '#/pricing'; }}
+                  className="w-full min-h-[44px] flex items-center gap-3 px-4 py-2.5 text-sm text-ink hover:bg-paper3 transition-colors"
+                >
+                  <Sparkles size={16} className="text-vermilion" aria-hidden="true" /> Start free
+                </button>
+              </li>
+            )}
+            <li>
+              <button
+                type="button"
+                onClick={() => { setOpen(false); window.location.hash = '#/account'; }}
+                className="w-full min-h-[44px] flex items-center gap-3 px-4 py-2.5 text-sm text-ink2 hover:text-ink hover:bg-paper3 transition-colors"
+              >
+                <CreditCard size={16} className="text-muted" aria-hidden="true" /> Account &amp; billing
+              </button>
+            </li>
+            <li className="border-t border-rule mt-1 pt-1">
+              <button
+                type="button"
+                onClick={() => { setOpen(false); logout(); }}
+                className="w-full min-h-[44px] flex items-center gap-3 px-4 py-2.5 text-sm text-ink2 hover:text-ink hover:bg-paper3 transition-colors"
+              >
+                <LogOut size={16} className="text-muted" aria-hidden="true" /> Sign out
+              </button>
+            </li>
+          </ul>
         </div>
       )}
     </div>

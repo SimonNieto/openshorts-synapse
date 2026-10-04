@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Loader2, Trash2, Check, CalendarClock, Video, Instagram, Youtube, Zap } from 'lucide-react';
+import { Loader2, Trash2, Check, CalendarClock, Video, Instagram, Youtube, Zap, RefreshCw, AlertCircle } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
 import { getApiUrl } from '../config';
 import ScheduleComposer from './ScheduleComposer';
 import { localDateStr } from '../lib/postSlots';
 
-// Per-platform accent so a glance at the calendar tells the platforms apart
-// without reading the label — mirrors each app's own brand color, kept subtle
-// (used as text/border tints, never a solid fill) so it still reads on dark.
+// Platforms as small monochrome marks (design.md: colour is rare, no
+// per-feature hues) — the label always travels with the mark for readers.
 const PLATFORM_META = {
-  tiktok: { label: 'tiktok', icon: <Video size={14} />, color: '#25F4EE' },
-  instagram: { label: 'instagram', icon: <Instagram size={14} />, color: '#E1306C' },
-  youtube: { label: 'youtube', icon: <Youtube size={14} />, color: '#FF0000' },
+  tiktok: { label: 'TikTok', icon: <Video size={13} aria-hidden="true" /> },
+  instagram: { label: 'Instagram', icon: <Instagram size={13} aria-hidden="true" /> },
+  youtube: { label: 'YouTube', icon: <Youtube size={13} aria-hidden="true" /> },
 };
 const PLATFORM_ORDER = ['tiktok', 'instagram', 'youtube'];
 
@@ -233,236 +232,323 @@ export default function PublishPlanTab({ uploadPostKey, uploadUserId, profiles =
   const fmtDate = (d) => {
     const parsed = new Date(`${d}T00:00:00`);
     const label = parsed.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-    if (d === localDateStr(new Date())) return `today · ${label}`;
-    if (d === dayFromOffset(1)) return `tomorrow · ${label}`;
+    if (d === localDateStr(new Date())) return `Today · ${label}`;
+    if (d === dayFromOffset(1)) return `Tomorrow · ${label}`;
     return label;
   };
 
   if (projects === null || entries === null) {
-    return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-brass" /></div>;
+    return (
+      <div role="status" className="flex items-center justify-center gap-3 py-20 text-muted">
+        <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+        <span className="text-sm">Loading the publish plan…</span>
+      </div>
+    );
   }
 
+  const today = localDateStr(new Date());
+  const upcoming = groups.filter((g) => g.date >= today);
+  const past = groups.filter((g) => g.date < today);
+
+  // One day of the calendar: a column on wide screens, a block of the list on phones.
+  const renderDay = (group, isPast) => {
+    const counts = Object.fromEntries(Object.keys(PLATFORM_META).map((p) => [
+      p, group.entries.filter((e) => e.platform === p && (e.posted || e.auto)).length,
+    ]));
+    const dayId = `plan-day-${group.date}`;
+    return (
+      <section key={group.date} aria-labelledby={dayId} className={`card flex flex-col min-w-0 ${isPast ? 'opacity-75' : ''}`}>
+        <header className="px-4 pt-4 pb-3 border-b border-rule">
+          <h4 id={dayId} className="font-display text-base text-ink">{fmtDate(group.date)}</h4>
+          {/* The daily target (3 per platform): a display goal, nothing enforces it. */}
+          <ul className="mt-3 grid grid-cols-3 gap-3" aria-label={`Daily target: ${DAILY_TARGET_PER_PLATFORM} posts per platform`}>
+            {Object.entries(PLATFORM_META).map(([p, meta]) => {
+              const done = counts[p];
+              const pct = Math.min(100, (done / DAILY_TARGET_PER_PLATFORM) * 100);
+              return (
+                <li key={p} className="min-w-0">
+                  <span className="flex items-center gap-1.5 text-muted">
+                    {meta.icon}
+                    <span className="readout text-ink2">{done}/{DAILY_TARGET_PER_PLATFORM}</span>
+                    <span className="sr-only">{meta.label}</span>
+                  </span>
+                  <span className="mt-1.5 block h-1 rounded-full bg-paper3 overflow-hidden" aria-hidden="true">
+                    <span className="block h-full rounded-full bg-ink2 transition-all" style={{ width: `${pct}%` }} />
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </header>
+        {/* One sheet per POST (clip + slot + account), its platforms as
+            marks — the data keeps one line per platform (each has its
+            own "posted" tick), but three rows per clip read as
+            duplicates. */}
+        <ol className="p-3 space-y-2 grow" aria-label={`Posts on ${fmtDate(group.date)}`}>
+          {groupPosts(group.entries).map((post) => {
+            const first = post.entries[0];
+            const allPosted = post.entries.every((e) => e.posted);
+            const isAuto = post.entries.every((e) => e.auto);
+            return (
+              <li key={post.key} className={`tray p-3 transition-opacity ${allPosted ? 'opacity-60' : ''}`}>
+                <div className="flex items-start gap-3">
+                  <div className="w-10 shrink-0 aspect-[9/16] bg-black border border-rule2 rounded overflow-hidden" aria-hidden="true">
+                    <video src={getApiUrl(first.video_url)} preload="metadata" tabIndex={-1} className="w-full h-full object-cover" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="readout text-ink2">{first.time || '—'}</p>
+                    <p className={`text-sm text-ink leading-snug line-clamp-2 break-words mt-0.5 ${allPosted ? 'line-through' : ''}`} title={displayTitle(first.title)}>
+                      {displayTitle(first.title)}
+                    </p>
+                    <p className="readout mt-1 flex items-center gap-1.5 flex-wrap">
+                      {isAuto
+                        ? <span className="text-ink2 inline-flex items-center gap-1"><Zap size={11} aria-hidden="true" /> {allPosted ? 'Published' : 'Auto · Upload-Post'}</span>
+                        : <span>By hand · tick each platform once live</span>}
+                      {profiles.length > 1 && <span className="normal-case">· {first.profile || uploadUserId}</span>}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDeletePost(post.entries)}
+                    disabled={!!busyId}
+                    aria-label={`Remove “${displayTitle(first.title)}” from the plan`}
+                    className="-m-1 p-1.5 rounded-input text-muted hover:text-danger transition-colors shrink-0 inline-flex items-center justify-center [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
+                    title={isAuto ? 'Remove from this calendar (to cancel it on Upload-Post, use "Cancel post" in "Waiting on Upload-Post" above)' : 'Remove from plan'}
+                  >
+                    <Trash2 size={14} aria-hidden="true" />
+                  </button>
+                </div>
+                {/* Platforms: static for Upload-Post, one tick each by hand. */}
+                <div className="mt-2.5 flex items-center gap-1.5">
+                  {post.entries.map((entry) => {
+                    const meta = PLATFORM_META[entry.platform] || PLATFORM_META.tiktok;
+                    const cls = `w-8 h-8 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:h-11 rounded-input border flex items-center justify-center transition-colors ${entry.posted ? 'bg-ink border-ink text-paper2' : 'border-rule2 text-muted'}`;
+                    return entry.auto ? (
+                      <span key={entry.id} className={cls} title={`${meta.label} · ${entry.posted ? 'published' : 'scheduled on Upload-Post'}`}>
+                        {meta.icon}
+                        <span className="sr-only">{meta.label}: {entry.posted ? 'published' : 'scheduled on Upload-Post'}</span>
+                      </span>
+                    ) : (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        onClick={() => handleTogglePosted(entry)}
+                        disabled={busyId === entry.id}
+                        aria-pressed={!!entry.posted}
+                        aria-label={`Posted on ${meta.label}`}
+                        className={`${cls} hover:border-ink hover:text-ink`}
+                        title={`${meta.label} · ${entry.posted ? 'posted — click to undo' : 'click once posted'}`}
+                      >
+                        {entry.posted ? <Check size={14} strokeWidth={3} aria-hidden="true" /> : meta.icon}
+                      </button>
+                    );
+                  })}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+    );
+  };
+
   return (
-    <div className="max-w-5xl mx-auto animate-fade">
-      <p className="eyebrow mb-1.5">08 · PUBLISH PLAN</p>
-      <h1 className="font-display lowercase text-2xl text-ink mb-2">Posting calendar</h1>
-      <p className="text-muted text-sm mb-8 lowercase">
-        Pick a project, click its clips in posting order, schedule. A posted clip leaves its project — no double posts.
-      </p>
+    <div className="animate-fade space-y-10">
+      <header className="border-b border-rule pb-6">
+        <p className="eyebrow">Publishing</p>
+        <h2 className="page-title mt-2">Posting calendar</h2>
+        <p className="page-lede mt-2">
+          Plan posts across every project: schedule them on Upload-Post, or note them in the calendar to post by hand.
+        </p>
+      </header>
 
-      {error && <p className="text-danger text-sm mb-4">{error}</p>}
+      {error && (
+        <p role="alert" className="flex items-start gap-2 text-sm text-danger">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> {error}
+        </p>
+      )}
 
-      <div className="card p-5 mb-10 space-y-4">
-        {/* Projects as chips — one click switches the form below. */}
+      {/* The desk: pick a project, then the shared scheduling form. */}
+      <section aria-labelledby="plan-compose-title" className="card-print p-4 sm:p-6 space-y-5">
         <div>
-          <label className="eyebrow block mb-2">project</label>
-          {projects.length === 0 && <p className="text-sm text-muted">No clips left to post in History.</p>}
-          <div className="flex flex-wrap gap-1.5">
-            {projects.map((p) => (
-              <button
-                key={p.job_id}
-                type="button"
-                onClick={() => setProjectId(p.job_id)}
-                className={`readout px-2.5 py-1.5 rounded-full max-w-[16rem] truncate transition-colors ${p.job_id === projectId
-                  ? 'bg-brass/20 text-brass border border-brass/50'
-                  : 'bg-paper3 hover:bg-paper2 text-ink2 border border-transparent'}`}
-                title={projectLabel(p)}
-              >
-                {projectLabel(p)} · {(p.clips || []).filter((c) => !c.published).length} clips
-              </button>
-            ))}
-          </div>
+          <h3 id="plan-compose-title" className="font-display text-lg text-ink">Schedule a project</h3>
+          <p className="text-sm text-muted mt-1">
+            Pick a project, click its clips in posting order, schedule. A posted clip leaves its project — no double posts.
+          </p>
         </div>
+        {/* Projects as tiles — one click switches the form below. */}
+        <fieldset>
+          <legend className="readout mb-2">Project</legend>
+          {projects.length === 0 && <p className="text-sm text-muted">No clips left to post in History.</p>}
+          <div className="flex flex-wrap gap-2">
+            {projects.map((p) => {
+              const active = p.job_id === projectId;
+              return (
+                <button
+                  key={p.job_id}
+                  type="button"
+                  onClick={() => setProjectId(p.job_id)}
+                  aria-pressed={active}
+                  className={`max-w-full sm:max-w-[18rem] min-h-[44px] px-3 py-2 rounded-input border text-left transition-colors ${active
+                    ? 'border-ink bg-ink text-paper2'
+                    : 'border-rule2 bg-paper2 text-ink2 hover:border-ink hover:text-ink'}`}
+                  title={projectLabel(p)}
+                >
+                  <span className="block text-xs font-medium truncate">{projectLabel(p)}</span>
+                  <span className={`block readout mt-0.5 ${active ? '!text-paper2/75' : ''}`}>
+                    {(p.clips || []).filter((c) => !c.published).length} clips to post
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
 
         {composerProject && (
-          <ScheduleComposer
-            project={composerProject}
-            entries={entries}
-            uploadPostKey={uploadPostKey}
-            uploadUserId={uploadUserId}
-            profiles={profiles}
-            isManaged={isManaged}
-            lastNiche={lastNiche}
-            onNicheChosen={saveNiche}
-            onScheduled={() => { loadEntries(); loadProjects(true); loadQueue(); }}
-            allowChecklist
-            onEntriesAdded={(created) => setEntries((prev) => [...(prev || []), ...created])}
-          />
+          <div className="pt-5 border-t border-rule">
+            <ScheduleComposer
+              project={composerProject}
+              entries={entries}
+              uploadPostKey={uploadPostKey}
+              uploadUserId={uploadUserId}
+              profiles={profiles}
+              isManaged={isManaged}
+              lastNiche={lastNiche}
+              onNicheChosen={saveNiche}
+              onScheduled={() => { loadEntries(); loadProjects(true); loadQueue(); }}
+              allowChecklist
+              onEntriesAdded={(created) => setEntries((prev) => [...(prev || []), ...created])}
+            />
+          </div>
         )}
-      </div>
+      </section>
 
       {/* Read live from Upload-Post: the only true answer to "what is going
           to be published", and where a post gets cancelled for real. */}
       {(uploadPostKey || isManaged) && (
-        <section className="mb-10">
-          <div className="flex items-center justify-between gap-3 mb-3 pb-3 border-b border-rule">
-            <p className="text-sm text-ink font-medium lowercase flex items-center gap-2">
-              <Zap size={14} className="text-brass" /> waiting on upload-post{queue ? ` · ${queue.length}` : ''}
+        <section aria-labelledby="plan-queue-title" className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-rule">
+            <h3 id="plan-queue-title" className="font-display text-lg text-ink flex items-center gap-2">
+              <Zap size={16} className="text-muted" aria-hidden="true" /> Waiting on Upload-Post
+              {queue && <span className="readout">{queue.length}</span>}
+            </h3>
+            <button type="button" onClick={loadQueue} className="btn-quiet px-3 py-1.5 text-xs">
+              <RefreshCw size={13} aria-hidden="true" /> Refresh
+            </button>
+          </div>
+          <p className="text-xs text-muted">Read live from Upload-Post: what will really go out. Cancelling here stops the post for real.</p>
+          {queueError && (
+            <p role="alert" className="flex items-start gap-2 text-sm text-danger break-words">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> {queueError}
             </p>
-            <button type="button" onClick={loadQueue} className="readout px-2 py-1 rounded-full bg-paper3 hover:bg-paper2">refresh</button>
-          </div>
-          {queueError && <p className="text-danger text-xs mb-2">{queueError}</p>}
-          {queue === null && !queueError && <Loader2 size={16} className="animate-spin text-brass" />}
-          {queue && queue.length === 0 && !queueError && (
-            <p className="text-xs text-muted lowercase">Nothing queued on Upload-Post right now.</p>
           )}
-          <div className="space-y-2">
-            {(queue || []).map((post) => {
-              const local = post.original_scheduled_str
-                ? new Date(post.original_scheduled_str.slice(0, 16))
-                : new Date(post.scheduled_date);
-              const when = `${local.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · ${local.toTimeString().slice(0, 5)}`;
-              return (
-                <div key={post.job_id} className="p-3 rounded-input border border-rule bg-paper">
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-ink truncate" title={post.title}>{displayTitle(post.title)}</p>
-                      <p className="readout mt-0.5 flex items-center gap-1.5 flex-wrap">
-                        <span className="text-brass">{when}</span>
-                        <span className="text-muted">· {(post.platforms || []).join(', ')}</span>
-                        {profiles.length > 1 && <span className="text-muted">· {post.profile_username}</span>}
-                      </p>
+          {queue === null && !queueError && (
+            <p role="status" className="flex items-center gap-2 text-sm text-muted">
+              <Loader2 size={16} className="animate-spin" aria-hidden="true" /> Reading the queue…
+            </p>
+          )}
+          {queue && queue.length === 0 && !queueError && (
+            <p className="text-sm text-muted">Nothing queued on Upload-Post right now.</p>
+          )}
+          {(queue || []).length > 0 && (
+            <ul className="space-y-2">
+              {(queue || []).map((post) => {
+                const local = post.original_scheduled_str
+                  ? new Date(post.original_scheduled_str.slice(0, 16))
+                  : new Date(post.scheduled_date);
+                const when = `${local.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · ${local.toTimeString().slice(0, 5)}`;
+                const detailsId = `plan-queue-${post.job_id}`;
+                return (
+                  <li key={post.job_id} className="card p-3 sm:p-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="readout text-ink2">{when}</p>
+                        <p className="text-sm text-ink truncate mt-0.5" title={post.title}>{displayTitle(post.title)}</p>
+                        <p className="readout mt-1">
+                          {(post.platforms || []).join(' · ')}
+                          {profiles.length > 1 && <span className="normal-case"> · {post.profile_username}</span>}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedJob(expandedJob === post.job_id ? null : post.job_id)}
+                          aria-expanded={expandedJob === post.job_id}
+                          aria-controls={detailsId}
+                          className="btn-quiet px-3 py-1.5 text-xs"
+                        >
+                          {expandedJob === post.job_id ? 'Hide details' : 'Details'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCancelQueued(post)}
+                          disabled={!!cancelingId}
+                          className="btn-danger px-3 py-1.5 text-xs"
+                          title="Cancel on Upload-Post, remove it from this calendar and put the clip back in its project"
+                        >
+                          {cancelingId === post.job_id
+                            ? <><Loader2 size={13} className="animate-spin" aria-hidden="true" /> Cancelling…</>
+                            : 'Cancel post'}
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setExpandedJob(expandedJob === post.job_id ? null : post.job_id)}
-                      className="readout px-2 py-1 rounded-full bg-paper3 hover:bg-paper2 shrink-0"
-                    >
-                      {expandedJob === post.job_id ? 'hide' : 'details'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleCancelQueued(post)}
-                      disabled={!!cancelingId}
-                      className="btn-ghost px-3 py-1.5 text-xs shrink-0"
-                      title="Cancel on Upload-Post, remove it from this calendar and put the clip back in its project"
-                    >
-                      {cancelingId === post.job_id ? <Loader2 size={13} className="animate-spin" /> : 'cancel'}
-                    </button>
-                  </div>
-                  {/* As Upload-Post stored it — i.e. what will be published. */}
-                  {expandedJob === post.job_id && (
-                    <div className="mt-3 pt-3 border-t border-rule space-y-2">
-                      {Object.entries(post.platform_content || {}).map(([platform, content]) => (
-                        <div key={platform} className="text-xs">
-                          <span className="eyebrow">{platform}</span>
-                          {content?.title && <p className="text-ink mt-0.5 break-words"><span className="text-muted">title · </span>{content.title}</p>}
-                          {content?.caption && <p className="text-ink2 mt-0.5 whitespace-pre-wrap break-words"><span className="text-muted">caption · </span>{content.caption}</p>}
-                        </div>
-                      ))}
-                      {!Object.keys(post.platform_content || {}).length && (
-                        <p className="text-xs text-ink2 whitespace-pre-wrap break-words">{post.description || post.caption || post.title}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                    {/* As Upload-Post stored it — i.e. what will be published. */}
+                    {expandedJob === post.job_id && (
+                      <div id={detailsId} className="mt-3 pt-3 border-t border-rule space-y-3">
+                        {Object.entries(post.platform_content || {}).map(([platform, content]) => (
+                          <div key={platform} className="text-xs">
+                            <p className="readout">{platform}</p>
+                            {content?.title && <p className="text-ink mt-1 break-words"><span className="text-muted">Title · </span>{content.title}</p>}
+                            {content?.caption && <p className="text-ink2 mt-1 whitespace-pre-wrap break-words"><span className="text-muted">Caption · </span>{content.caption}</p>}
+                          </div>
+                        ))}
+                        {!Object.keys(post.platform_content || {}).length && (
+                          <p className="text-xs text-ink2 whitespace-pre-wrap break-words">{post.description || post.caption || post.title}</p>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </section>
       )}
 
-      {groups.length === 0 && (
-        <div className="text-center py-20 text-muted">
-          <CalendarClock size={40} className="mx-auto mb-4 text-muted" />
-          <p className="lowercase">Nothing planned yet. Schedule clips above.</p>
+      {/* The calendar: today and upcoming days first (soonest first), then the past. */}
+      <section aria-labelledby="plan-calendar-title" className="space-y-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-3 pb-3 border-b border-rule">
+          <h3 id="plan-calendar-title" className="font-display text-lg text-ink">Coming up</h3>
+          <p className="readout">Target · {DAILY_TARGET_PER_PLATFORM} a day per platform</p>
         </div>
-      )}
 
-      <div className="space-y-10">
-        {groups.map((group) => {
-          const counts = Object.fromEntries(Object.keys(PLATFORM_META).map((p) => [
-            p, group.entries.filter((e) => e.platform === p && (e.posted || e.auto)).length,
-          ]));
-          return (
-            <section key={group.date}>
-              <div className="flex flex-wrap items-center justify-between gap-4 mb-4 pb-3 border-b border-rule">
-                <p className="text-sm text-ink font-medium lowercase">{fmtDate(group.date)}</p>
-                <div className="flex gap-4">
-                  {Object.entries(PLATFORM_META).map(([p, meta]) => {
-                    const done = counts[p];
-                    const pct = Math.min(100, (done / DAILY_TARGET_PER_PLATFORM) * 100);
-                    return (
-                      <div key={p} className="flex items-center gap-2">
-                        <span style={{ color: meta.color }}>{meta.icon}</span>
-                        <div className="w-14 h-1.5 rounded-full bg-paper3 overflow-hidden">
-                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: meta.color }} />
-                        </div>
-                        <span className="readout">{done}/{DAILY_TARGET_PER_PLATFORM}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="space-y-2.5">
-                {/* One row per POST (clip + slot + account), its platforms as
-                    icons — the data keeps one line per platform (each has its
-                    own "posted" tick), but three rows per clip read as
-                    duplicates. */}
-                {groupPosts(group.entries).map((post) => {
-                  const first = post.entries[0];
-                  const allPosted = post.entries.every((e) => e.posted);
-                  const isAuto = post.entries.every((e) => e.auto);
-                  return (
-                    <div
-                      key={post.key}
-                      className={`group flex items-center gap-3 p-3 rounded-input border border-rule bg-paper transition-opacity ${allPosted ? 'opacity-50' : 'hover:border-rule2'}`}
-                    >
-                      <span className="readout w-11 shrink-0 text-ink2 text-center">{first.time || '—'}</span>
-                      <div className="w-16 h-9 bg-black rounded overflow-hidden shrink-0">
-                        <video src={getApiUrl(first.video_url)} preload="metadata" className="w-full h-full object-cover" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm text-ink truncate ${allPosted ? 'line-through' : ''}`} title={displayTitle(first.title)}>
-                          {displayTitle(first.title)}
-                        </p>
-                        <p className="readout mt-0.5 flex items-center gap-1.5 flex-wrap">
-                          {isAuto
-                            ? <span className="text-brass inline-flex items-center gap-1"><Zap size={11} /> {allPosted ? 'published' : 'auto · upload-post'}</span>
-                            : <span className="text-muted">by hand · tick each platform once live</span>}
-                          {profiles.length > 1 && <span className="text-muted">· {first.profile || uploadUserId}</span>}
-                        </p>
-                      </div>
-                      {/* Platforms: static for Upload-Post, one tick each by hand. */}
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {post.entries.map((entry) => {
-                          const meta = PLATFORM_META[entry.platform] || PLATFORM_META.tiktok;
-                          const cls = `w-7 h-7 rounded-full border flex items-center justify-center transition-colors ${entry.posted ? 'bg-ok/20 border-ok' : 'border-rule2'}`;
-                          return entry.auto ? (
-                            <span key={entry.id} className={cls} style={{ color: meta.color }} title={`${meta.label} · ${entry.posted ? 'published' : 'scheduled on Upload-Post'}`}>
-                              {meta.icon}
-                            </span>
-                          ) : (
-                            <button
-                              key={entry.id}
-                              type="button"
-                              onClick={() => handleTogglePosted(entry)}
-                              disabled={busyId === entry.id}
-                              className={`${cls} hover:border-brass`}
-                              style={{ color: meta.color }}
-                              title={`${meta.label} · ${entry.posted ? 'posted — click to undo' : 'click once posted'}`}
-                            >
-                              {entry.posted ? <Check size={13} strokeWidth={3} className="text-ok" /> : meta.icon}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <button
-                        onClick={() => handleDeletePost(post.entries)}
-                        disabled={!!busyId}
-                        className="p-1.5 rounded-full text-muted hover:text-danger transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-                        title={isAuto ? 'Remove from this calendar (to cancel it on Upload-Post, use "cancel" in "waiting on upload-post" above)' : 'Remove from plan'}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })}
-      </div>
+        {groups.length === 0 && (
+          <div className="tray p-8 text-center">
+            <CalendarClock size={28} className="mx-auto mb-3 text-muted" aria-hidden="true" />
+            <p className="text-sm text-ink2">Nothing planned yet.</p>
+            <p className="text-sm text-muted mt-1">Schedule clips above and they appear here, day by day.</p>
+          </div>
+        )}
+        {groups.length > 0 && upcoming.length === 0 && (
+          <p className="text-sm text-muted">Nothing planned from today on.</p>
+        )}
+        {upcoming.length > 0 && (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 items-start">
+            {upcoming.map((group) => renderDay(group, false))}
+          </div>
+        )}
+      </section>
+
+      {past.length > 0 && (
+        <section aria-labelledby="plan-past-title" className="space-y-4">
+          <div className="pb-3 border-b border-rule">
+            <h3 id="plan-past-title" className="font-display text-lg text-ink">Past</h3>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 items-start">
+            {past.map((group) => renderDay(group, true))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

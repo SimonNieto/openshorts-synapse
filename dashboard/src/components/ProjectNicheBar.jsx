@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Video, Instagram, Youtube } from 'lucide-react';
+import { Video, Instagram, Youtube, Check } from 'lucide-react';
 import NichePicker from './NichePicker';
 import { profileForNiche } from '../lib/nicheHistory';
 
@@ -9,12 +9,19 @@ const PLATFORM_ICONS = {
     youtube: <Youtube size={12} />,
 };
 
+const PLATFORM_NAMES = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube' };
+
 function ProfileIcons({ connected = [] }) {
+    const on = Object.keys(PLATFORM_ICONS).filter((p) => connected.includes(p));
     return (
         <span className="inline-flex items-center gap-1">
             {Object.entries(PLATFORM_ICONS).map(([p, icon]) => (
-                <span key={p} className={connected.includes(p) ? 'text-ink2' : 'text-muted/40'}>{icon}</span>
+                <span key={p} aria-hidden="true" className={connected.includes(p) ? 'text-ink2' : 'text-muted opacity-40'}>{icon}</span>
             ))}
+            {/* The dimmed icons say "not connected"; say it in words too. */}
+            <span className="sr-only">
+                {on.length ? `Connected: ${on.map((p) => PLATFORM_NAMES[p]).join(', ')}` : 'No network connected'}
+            </span>
         </span>
     );
 }
@@ -54,27 +61,33 @@ export default function ProjectNicheBar({
     if (choice) {
         const acct = byName(choice.profile);
         return (
-            <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-input bg-paper3 border border-rule">
-                <span className="text-sm text-ink2 min-w-0 truncate flex items-center gap-2 flex-wrap">
-                    <span className="eyebrow">niche</span>
-                    {choice.niche
-                        ? <span className="text-brass">{choice.niche}</span>
-                        : <span className="text-muted">no hashtags</span>}
+            <div className="tray flex items-center justify-between gap-3 pl-3.5 pr-2 py-2">
+                <dl className="min-w-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <dt className="readout">Niche</dt>
+                        <dd className="min-w-0 truncate">
+                            {choice.niche
+                                ? <span className="text-ink font-medium">{choice.niche}</span>
+                                : <span className="text-muted">No hashtags</span>}
+                        </dd>
+                    </div>
                     {multi && choice.profile && (
-                        <>
-                            <span className="eyebrow ml-2">account</span>
-                            <span className="text-ink2">{choice.profile}</span>
-                            <ProfileIcons connected={acct?.connected || []} />
-                        </>
+                        <div className="flex items-center gap-2 min-w-0">
+                            <dt className="readout">Account</dt>
+                            <dd className="min-w-0 flex items-center gap-2">
+                                <span className="text-ink2 truncate">{choice.profile}</span>
+                                <ProfileIcons connected={acct?.connected || []} />
+                            </dd>
+                        </div>
                     )}
-                </span>
+                </dl>
                 <button
                     type="button"
                     disabled={disabled}
                     onClick={() => { setValue(choice.niche || proposed); setProfile(choice.profile || defaultProfile); onChoose(null); }}
-                    className="readout px-2 py-1 rounded-full bg-paper2 hover:text-ink shrink-0"
+                    className="btn-quiet shrink-0 px-3 py-1.5 text-xs bg-paper2"
                 >
-                    change
+                    Change
                 </button>
             </div>
         );
@@ -85,18 +98,18 @@ export default function ProjectNicheBar({
     const noAccounts = multi && selected && !(selected.connected || []).length;
 
     return (
-        <div className="p-3 rounded-input border border-brass/50 bg-brass/5 space-y-3">
+        <div className="rounded-card border border-rule2 bg-paper2 p-4 space-y-3.5">
             <div>
-                <p className="text-sm text-ink">What's this project's niche{multi ? ' and account' : ''}?</p>
-                <p className="text-xs text-muted mt-0.5">
+                <p className="text-sm font-medium text-ink">What's this project's niche{multi ? ' and account' : ''}?</p>
+                <p className="text-xs text-muted mt-1 leading-relaxed">
                     {isAiGuess && value === proposed ? 'Guessed by AI from this video — confirm or pick another. ' : ''}
                     Asked once per project, used for the hashtags{multi ? ' and the account' : ''} of every post.
                 </p>
             </div>
             <NichePicker value={value} onChange={setValue} onEnter={confirm} />
             {multi && (
-                <div>
-                    <p className="eyebrow mb-1.5">post on account</p>
+                <div role="group" aria-label="Post on account">
+                    <p className="readout mb-1.5" aria-hidden="true">Post on account</p>
                     <div className="flex flex-wrap gap-1.5">
                         {profiles.map((p) => {
                             const on = p.username === profile;
@@ -105,9 +118,10 @@ export default function ProjectNicheBar({
                                     key={p.username}
                                     type="button"
                                     onClick={() => setProfile(p.username)}
-                                    className={`readout px-2.5 py-1.5 rounded-full inline-flex items-center gap-2 border transition-colors ${on
-                                        ? 'bg-brass/20 text-brass border-brass/50'
-                                        : 'bg-paper3 hover:bg-paper2 text-ink2 border-transparent'}`}
+                                    aria-pressed={on}
+                                    className={`min-h-[36px] [@media(pointer:coarse)]:min-h-[44px] px-3 py-1.5 rounded-input border text-xs inline-flex items-center gap-2 transition-colors ${on
+                                        ? 'bg-vermilionsoft text-ink border-vermilion'
+                                        : 'bg-paper3 text-ink2 border-transparent hover:border-rule2 hover:text-ink'}`}
                                 >
                                     {p.username}
                                     <ProfileIcons connected={p.connected || []} />
@@ -116,16 +130,17 @@ export default function ProjectNicheBar({
                         })}
                     </div>
                     {noAccounts && (
-                        <p className="text-xs text-warn mt-1.5">No social account is connected on “{profile}” yet — connect them at upload-post.com.</p>
+                        <p className="text-xs text-warn mt-2">No social account is connected on “{profile}” yet — connect them at upload-post.com.</p>
                     )}
                 </div>
             )}
-            <div className="flex gap-2 justify-end">
-                <button type="button" onClick={() => onChoose({ niche: '', profile: profile || defaultProfile })} className="btn-ghost px-3 py-1.5 text-xs">
-                    no hashtags
+            <div className="flex flex-wrap gap-2 justify-end">
+                <button type="button" onClick={() => onChoose({ niche: '', profile: profile || defaultProfile })} className="btn-ghost px-3.5 py-2 text-xs">
+                    No hashtags
                 </button>
-                <button type="button" onClick={confirm} disabled={!value.trim()} className="btn-primary px-4 py-1.5 text-xs">
-                    ✓ use this {multi ? 'niche & account' : 'niche'}
+                <button type="button" onClick={confirm} disabled={!value.trim()} className="btn-primary px-4 py-2 text-xs">
+                    <Check size={14} aria-hidden="true" />
+                    Use this {multi ? 'niche & account' : 'niche'}
                 </button>
             </div>
         </div>

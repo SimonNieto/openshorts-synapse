@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowDown, ArrowRight, Check, ChevronDown, Github, MoveRight, Cpu, KeyRound, Send, Server, HardDrive } from 'lucide-react';
+import { ArrowDown, ArrowRight, Check, Plus, Minus, Github, MoveRight, Cpu, KeyRound, Send, Server, HardDrive } from 'lucide-react';
 import PricingSection from './PricingSection';
 
 // The honest hosted-vs-self-hosted trade-off. The software is identical and open
@@ -75,7 +75,7 @@ const FAQS = [
 
 const TRUST_CARDS = [
   {
-    eyebrow: 'open source',
+    eyebrow: 'Open source',
     body: (
       <>
         The full code is public on{' '}
@@ -83,7 +83,7 @@ const TRUST_CARDS = [
           href="https://github.com/mutonby/openshorts"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-ink underline decoration-1 underline-offset-2 hover:text-brass transition-colors"
+          className="text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-current transition-colors"
         >
           GitHub
         </a>
@@ -93,7 +93,7 @@ const TRUST_CARDS = [
     ),
   },
   {
-    eyebrow: 'no watermarks · no per-clip credits',
+    eyebrow: 'No watermarks · no per-clip credits',
     body: (
       <>
         Clips export clean — no watermarks. Plans meter minutes of input video per billing
@@ -102,7 +102,7 @@ const TRUST_CARDS = [
     ),
   },
   {
-    eyebrow: 'cancel anytime',
+    eyebrow: 'Cancel anytime',
     body: (
       <>
         Start on the free plan — 20 minutes a month, no credit card. Billing for paid
@@ -112,29 +112,32 @@ const TRUST_CARDS = [
   },
 ];
 
-const FAQItem = ({ question, answer, isOpen, onClick }) => (
-  <div>
-    <button
-      onClick={onClick}
-      className="w-full flex items-center justify-between px-1 py-5 text-left"
-    >
-      <span className="text-ink font-medium pr-4">{question}</span>
-      <ChevronDown
-        size={18}
-        className={`text-muted flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-      />
-    </button>
-    {isOpen && (
-      <div className="px-1 pb-6">
-        <p className="text-muted text-sm leading-relaxed">{answer}</p>
-      </div>
-    )}
-  </div>
+const FAQItem = ({ id, question, answer, isOpen, onClick }) => (
+  <li className="border-b border-rule">
+    <h3>
+      <button
+        type="button"
+        id={`${id}-q`}
+        onClick={onClick}
+        aria-expanded={isOpen}
+        aria-controls={id}
+        className="w-full min-h-[56px] flex items-center justify-between gap-4 py-4 text-left text-ink font-medium hover:text-ink2 transition-colors"
+      >
+        <span>{question}</span>
+        {isOpen
+          ? <Minus size={18} className="text-muted shrink-0" aria-hidden="true" />
+          : <Plus size={18} className="text-muted shrink-0" aria-hidden="true" />}
+      </button>
+    </h3>
+    <div id={id} role="region" aria-labelledby={`${id}-q`} hidden={!isOpen} className="pb-6 pr-0 sm:pr-10">
+      <p className="text-ink2 text-sm leading-relaxed">{answer}</p>
+    </div>
+  </li>
 );
 
 const DemoFigure = ({ src, label, className = '', children }) => (
-  <figure className={`border border-rule rounded-card overflow-hidden bg-paper2 ${className}`}>
-    <div className="relative">
+  <figure className={`min-w-0 ${className}`}>
+    <div className="relative bg-black border border-rule2 rounded-card overflow-hidden">
       <video
         src={src}
         autoPlay
@@ -146,7 +149,7 @@ const DemoFigure = ({ src, label, className = '', children }) => (
       />
       {children}
     </div>
-    <figcaption className="readout px-3 py-2 border-t border-rule">{label}</figcaption>
+    <figcaption className="readout mt-2">{label}</figcaption>
   </figure>
 );
 
@@ -159,152 +162,157 @@ export default function PricingPage({ onRequireLogin }) {
   };
 
   return (
-    <div className="min-h-screen bg-paper text-ink2 animate-fade">
-      {/* Header */}
-      <header className="px-6 pt-20 pb-12">
-        <div className="max-w-6xl mx-auto text-center">
-          <p className="eyebrow mb-5">Pricing</p>
-          <h1 className="font-display lowercase text-ink tracking-tight text-4xl md:text-6xl leading-[1.02] mb-5">
-            start clipping in minutes.
+    <div className="max-w-6xl mx-auto text-ink2 animate-fade">
+      {/* Header: the promise on the left, the proof (real input → real output) on the right */}
+      <header className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-10 lg:gap-14 items-center pt-2 sm:pt-8 pb-14 sm:pb-20">
+        <div className="min-w-0">
+          <p className="eyebrow mb-4">Pricing</p>
+          <h1 className="font-display text-ink text-4xl sm:text-5xl lg:text-6xl leading-[1.02]">
+            Start clipping in minutes.
           </h1>
-          <p className="readout">free plan · 20 min/month · no credit card</p>
+          <p className="page-lede mt-5">
+            Twenty free minutes every month, no credit card. Upgrade when you want more minutes and no watermark.
+          </p>
+          <p className="readout mt-5">Free plan · 20 min/month · no credit card</p>
+          <button type="button" onClick={scrollToPlans} className="btn-ghost mt-8">
+            See the plans <ArrowDown size={16} aria-hidden="true" />
+          </button>
         </div>
-      </header>
 
-      {/* Demo proof strip */}
-      <section className="px-6 pb-16">
-        <div className="max-w-4xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-5 md:gap-6">
-            <DemoFigure src="/demo/clip-source.mp4" label="input · 16:9" />
+        <figure className="min-w-0" aria-labelledby="pricing-demo-caption">
+          <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-4 sm:gap-5">
+            <DemoFigure src="/demo/clip-source.mp4" label="Input · 16:9" />
 
-            <MoveRight size={20} className="text-brass hidden md:block" aria-hidden="true" />
-            <ArrowDown size={20} className="text-brass md:hidden justify-self-center" aria-hidden="true" />
+            <MoveRight size={20} className="text-muted hidden sm:block" aria-hidden="true" />
+            <ArrowDown size={20} className="text-muted sm:hidden justify-self-center" aria-hidden="true" />
 
             <DemoFigure
               src="/demo/clip-vertical.mp4"
-              label="output · 9:16 · tracked"
-              className="w-44 sm:w-48 justify-self-center md:justify-self-auto"
+              label="Output · 9:16 · tracked"
+              className="w-40 sm:w-44 justify-self-center sm:justify-self-auto"
             />
           </div>
-          <p className="text-center text-xs text-muted lowercase mt-4">
-            real output from the clip generator — same footage, reframed by AI face tracking.
-          </p>
-        </div>
-      </section>
+          <figcaption id="pricing-demo-caption" className="text-xs text-muted mt-4 leading-relaxed">
+            Real output from the clip generator — same footage, reframed by AI face tracking.
+          </figcaption>
+        </figure>
+      </header>
 
       {/* Pricing grid */}
-      <section id="pricing-plans" className="px-6 py-16 border-t border-rule scroll-mt-8">
-        <div className="max-w-6xl mx-auto">
-          <PricingSection onRequireLogin={onRequireLogin} />
-        </div>
+      <section id="pricing-plans" aria-labelledby="pricing-plans-title" className="py-14 sm:py-20 border-t border-rule scroll-mt-24">
+        <h2 id="pricing-plans-title" className="font-display text-2xl sm:text-3xl text-ink text-center mb-8">
+          Choose a plan
+        </h2>
+        <PricingSection onRequireLogin={onRequireLogin} />
       </section>
 
       {/* Hosted vs self-hosted: same software, different running costs. */}
-      <section className="px-6 py-16 border-t border-rule">
+      <section aria-labelledby="pricing-compare-title" className="py-14 sm:py-20 border-t border-rule">
         <div className="max-w-5xl mx-auto">
-          <div className="mb-8">
-            <p className="eyebrow mb-3">Hosted or self-hosted</p>
-            <h2 className="font-display text-3xl md:text-4xl lowercase text-ink tracking-tight">
-              what you are actually paying for
+          <div className="mb-10">
+            <p className="readout mb-3">Hosted or self-hosted</p>
+            <h2 id="pricing-compare-title" className="font-display text-3xl md:text-4xl text-ink">
+              What you are actually paying for
             </h2>
-            <p className="text-muted text-sm mt-3 max-w-2xl leading-relaxed">
+            <p className="page-lede mt-3 max-w-2xl">
               The software is the same and it is open source either way. What a plan buys you is the
               hardware, the API keys and the setup, so here is exactly what that means.
             </p>
           </div>
 
-          <div className="hidden md:grid grid-cols-[9rem_1fr_1fr] gap-x-6 pb-2 mb-2 border-b border-rule">
+          <div className="hidden md:grid grid-cols-[10rem_1fr_1fr] gap-x-8 pb-3 border-b border-rule2" aria-hidden="true">
             <span />
-            <span className="eyebrow">Hosted on this site</span>
-            <span className="eyebrow">Self-hosted</span>
+            <span className="readout text-ink2">Hosted on this site</span>
+            <span className="readout">Self-hosted</span>
           </div>
 
-          <div className="divide-y divide-rule border-b border-rule">
-            {HOSTED_VS_SELF.map(({ icon: Icon, label, hosted, self }) => (
-              <div key={label} className="py-4 grid gap-2 md:grid-cols-[9rem_1fr_1fr] md:gap-x-6 md:items-start">
-                <div className="flex items-center gap-2 text-ink2">
-                  <Icon size={15} className="text-muted shrink-0" />
-                  <span className="text-sm font-medium">{label}</span>
-                </div>
+          <ul className="divide-y divide-rule border-b border-rule">
+            {HOSTED_VS_SELF.map((row) => (
+              <li key={row.label} className="py-5 grid gap-3 md:grid-cols-[10rem_1fr_1fr] md:gap-x-8 md:items-start">
+                <h3 className="flex items-center gap-2 text-ink text-sm font-semibold">
+                  <row.icon size={16} className="text-muted shrink-0" aria-hidden="true" />
+                  {row.label}
+                </h3>
                 <div>
-                  <span className="eyebrow block mb-1 md:hidden">Hosted on this site</span>
-                  <p className="text-sm text-ink2 leading-relaxed">
-                    <Check size={14} className="text-ok inline-block mr-1.5 -mt-0.5" />
-                    {hosted}
+                  <span className="readout block mb-1 md:hidden">Hosted on this site</span>
+                  <p className="text-sm text-ink2 leading-relaxed flex items-start gap-2">
+                    <Check size={15} className="text-ink shrink-0 mt-0.5" aria-hidden="true" />
+                    <span>{row.hosted}</span>
                   </p>
                 </div>
                 <div>
-                  <span className="eyebrow block mb-1 mt-2 md:hidden">Self-hosted</span>
-                  <p className="text-sm text-muted leading-relaxed">{self}</p>
+                  <span className="readout block mb-1 md:hidden">Self-hosted</span>
+                  <p className="text-sm text-muted leading-relaxed">{row.self}</p>
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
 
           <div className="mt-6 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
-            <p className="text-xs text-muted leading-relaxed max-w-xl">
+            <p className="text-sm text-muted leading-relaxed max-w-xl">
               Self-hosting is genuinely free and always will be. It costs you a machine, your own API
               keys and the time to keep it running.
             </p>
             <a
               href="https://github.com/mutonby/openshorts"
               target="_blank" rel="noopener noreferrer"
-              className="shrink-0 text-sm text-muted hover:text-ink transition-colors inline-flex items-center gap-1.5"
+              className="btn-quiet shrink-0"
             >
-              <Github size={15} /> View the source
+              <Github size={15} aria-hidden="true" /> View the source
             </a>
           </div>
         </div>
       </section>
 
       {/* Trust strip */}
-      <section className="px-6 py-16 border-t border-rule">
-        <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4">
+      <section aria-label="Why it is safe to start" className="py-14 sm:py-20 border-t border-rule">
+        <ul className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4">
           {TRUST_CARDS.map((card) => (
-            <div key={card.eyebrow} className="card p-6">
-              <div className="flex items-center gap-2 mb-3">
-                <Check size={16} className="text-ok shrink-0" />
-                <span className="eyebrow">{card.eyebrow}</span>
-              </div>
-              <p className="text-sm text-muted leading-relaxed">{card.body}</p>
-            </div>
+            <li key={card.eyebrow} className="card p-6">
+              <h3 className="flex items-center gap-2 mb-3 text-sm font-semibold text-ink">
+                <Check size={16} className="text-muted shrink-0" aria-hidden="true" />
+                {card.eyebrow}
+              </h3>
+              <p className="text-sm text-ink2 leading-relaxed">{card.body}</p>
+            </li>
           ))}
-        </div>
+        </ul>
       </section>
 
       {/* Mini FAQ */}
-      <section className="px-6 py-16 border-t border-rule">
-        <div className="max-w-3xl mx-auto">
-          <div className="mb-10">
-            <p className="eyebrow mb-3">Billing · FAQ</p>
-            <h2 className="font-display text-3xl md:text-4xl lowercase text-ink tracking-tight">
-              common questions
+      <section aria-labelledby="pricing-faq-title" className="py-14 sm:py-20 border-t border-rule">
+        <div className="max-w-5xl mx-auto grid lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-8 lg:gap-14">
+          <div>
+            <p className="readout mb-3">Billing · FAQ</p>
+            <h2 id="pricing-faq-title" className="font-display text-3xl md:text-4xl text-ink">
+              Common questions
             </h2>
           </div>
-          <div className="divide-y divide-rule border-y border-rule">
+          <ul className="border-t border-rule2">
             {FAQS.map((faq, i) => (
               <FAQItem
                 key={i}
+                id={`pricing-faq-${i}`}
                 question={faq.question}
                 answer={faq.answer}
                 isOpen={openFaq === i}
                 onClick={() => setOpenFaq(openFaq === i ? null : i)}
               />
             ))}
-          </div>
+          </ul>
         </div>
       </section>
 
       {/* Closing statement */}
-      <section className="px-6 py-24 border-t border-rule">
-        <div className="max-w-3xl mx-auto text-center">
-          <h2 className="font-display text-4xl md:text-5xl lowercase text-ink tracking-tight mb-10">
-            twenty free minutes. every month. no card until you decide.
+      <section aria-labelledby="pricing-close-title" className="py-16 sm:py-24 border-t border-rule">
+        <div className="card-print max-w-4xl mx-auto p-6 sm:p-10 flex flex-col md:flex-row md:items-center md:justify-between gap-8">
+          <h2 id="pricing-close-title" className="font-display text-3xl md:text-4xl text-ink max-w-xl">
+            Twenty free minutes. Every month. No card until you decide.
           </h2>
-          <div className="flex flex-wrap items-center justify-center gap-4">
-            <button onClick={scrollToPlans} className="btn-primary whitespace-nowrap">
-              start free
-              <ArrowRight size={16} />
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            <button type="button" onClick={scrollToPlans} className="btn-primary whitespace-nowrap">
+              Start free
+              <ArrowRight size={16} aria-hidden="true" />
             </button>
             <a
               href="https://github.com/mutonby/openshorts"
@@ -312,8 +320,8 @@ export default function PricingPage({ onRequireLogin }) {
               rel="noopener noreferrer"
               className="btn-ghost whitespace-nowrap"
             >
-              <Github size={16} />
-              view source
+              <Github size={16} aria-hidden="true" />
+              View source
             </a>
           </div>
         </div>

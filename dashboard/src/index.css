@@ -1,6 +1,6 @@
-/* Synapse AI · theme: nuit synapse · design-system: design.md · designed-as-app (built on OpenShorts, MIT) */
-/* Noto Serif (hook-overlay font, burned into videos — not UI) is self-hosted
-   with the rest of the faces in public/fonts.css: no request to Google. */
+/* Synapse AI · art direction « Synapse · Graphite » · design-system: design.md · designed-as-app (built on OpenShorts, MIT) */
+/* Every face is self-hosted in public/fonts.css: no request to Google. (Noto Serif there is the hook-overlay
+   font burned into videos, not UI.) */
 @import './tokens.css';
 @tailwind base;
 @tailwind components;
@@ -8,16 +8,14 @@
 
 @layer base {
   html {
-    /* momentum scrolling inside the app's panes, and no rubber-band on the shell */
     -webkit-text-size-adjust: 100%;
   }
 
   body {
     @apply bg-paper text-ink2 antialiased;
-    /* the night of neurons: a violet glow up-left, a cyan one down-right, fixed behind every page */
+    /* the night: one faint cold light at the top, nothing else */
     background:
-      radial-gradient(70rem 46rem at -8% -12%, oklch(42% 0.17 295 / 0.22), transparent 62%),
-      radial-gradient(60rem 42rem at 108% 112%, oklch(58% 0.14 215 / 0.16), transparent 60%),
+      radial-gradient(80rem 40rem at 50% -18rem, oklch(82% 0.095 212 / 0.045), transparent 70%),
       var(--color-paper);
     background-attachment: fixed;
     font-family: var(--font-body);
@@ -27,9 +25,21 @@
     overflow-x: hidden;
   }
 
+  /* the synapse field: hairline filaments and nodes, white at a whisper, fixed behind every page */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='760' height='760' viewBox='0 0 420 420'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='0.05' stroke-width='0.6'%3E%3Cpath d='M-10 90 C60 70 90 140 160 120 S260 40 330 70 S400 150 430 130'/%3E%3Cpath d='M40 430 C70 350 140 330 150 260 S120 150 200 110'/%3E%3Cpath d='M250 430 C260 360 330 330 340 260 S300 180 360 150 S420 120 430 110'/%3E%3Cpath d='M150 260 C200 250 240 280 300 262'/%3E%3C/g%3E%3Cg fill='%23ffffff' fill-opacity='0.07'%3E%3Ccircle cx='160' cy='120' r='2'/%3E%3Ccircle cx='150' cy='260' r='2.4'/%3E%3Ccircle cx='330' cy='70' r='1.8'/%3E%3Ccircle cx='340' cy='260' r='2'/%3E%3Ccircle cx='200' cy='110' r='1.6'/%3E%3C/g%3E%3C/svg%3E");
+  }
+  #root { position: relative; z-index: 1; }
+
+  h1, h2, h3 { color: var(--color-ink); }
+
   /* Touch: iOS zooms the page whenever a focused field renders below 16px, and
-     it never zooms back out. Lift every text control to 16px on small screens —
-     Tailwind's text-sm/xs on inputs is what triggers it. */
+     it never zooms back out. Lift every text control to 16px on small screens. */
   @media (max-width: 639px) {
     input:not([type='checkbox']):not([type='radio']):not([type='range']),
     select,
@@ -38,7 +48,6 @@
     }
   }
 
-  /* Kill the 300ms tap flash on Android/iOS — it reads as lag on every button. */
   button, a, [role='button'] {
     -webkit-tap-highlight-color: transparent;
   }
@@ -56,30 +65,41 @@
 }
 
 @layer components {
-  /* hairline card, lit from within — replaces every glass/surface card */
+  /* the raised graphite sheet — every card */
   .card,
   .glass-panel {
-    background:
-      radial-gradient(120% 90% at 50% 0%, var(--color-paper-emit) 0%, transparent 70%),
-      color-mix(in oklab, var(--color-paper-2) 88%, transparent);
+    background: var(--color-paper-2);
     border: 1px solid var(--color-rule);
     border-radius: var(--radius-card);
-    box-shadow: inset 0 1px 0 oklch(90% 0.06 230 / 0.05), 0 18px 50px -30px oklch(40% 0.2 290 / 0.6);
-    backdrop-filter: blur(6px);
+    box-shadow: var(--shadow-sheet);
   }
 
+  /* clickable cards: lift + the filament lights up */
   .card-hover {
     transition: transform var(--dur-short) var(--ease-out),
                 border-color var(--dur-short) var(--ease-out),
-                background-color var(--dur-short) var(--ease-out);
+                box-shadow var(--dur-short) var(--ease-out);
   }
   .card-hover:hover {
-    transform: translateY(-4px);
-    border-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
-    box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-accent) 20%, transparent), 0 20px 50px -24px var(--color-glow);
+    transform: translateY(-2px);
+    border-color: color-mix(in oklab, var(--color-accent) 40%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-accent) 14%, transparent), 0 18px 44px -26px oklch(0% 0 0 / 0.9);
+  }
+  /* the ONE feature card of a view: a stronger hairline, depth, and a lit top edge */
+  .card-print {
+    background: var(--color-paper-2);
+    border: 1px solid var(--color-rule-2);
+    border-radius: var(--radius-card);
+    box-shadow: inset 0 1px 0 color-mix(in oklab, var(--color-accent) 35%, transparent), var(--shadow-print);
+  }
+  /* the sunken tray: grouped options, empty states, logs */
+  .tray {
+    background: var(--color-paper-3);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-card);
   }
 
-  /* mono UPPERCASE micro label — the only uppercase surface */
+  /* mono UPPERCASE micro label in the signal — section kickers. Never numbered. */
   .eyebrow {
     font-family: var(--font-mono);
     font-size: 11px;
@@ -87,7 +107,6 @@
     letter-spacing: var(--tracking-micro);
     text-transform: uppercase;
     color: var(--color-accent);
-    opacity: 0.8;
   }
 
   /* mono value chip for machine data: 00:42 · 9:16 · $0.65 */
@@ -100,164 +119,135 @@
   }
 
   .input-field {
-    @apply w-full text-sm text-ink2;
-    background: var(--color-paper);
+    @apply w-full text-sm;
+    color: var(--color-ink);
+    background: var(--color-paper-2);
     border: 1px solid var(--color-rule-2);
     border-radius: var(--radius-input);
-    padding: 0.75rem 1rem;
+    padding: 0.7rem 0.9rem;
     outline: none;
-    transition: border-color var(--dur-short) var(--ease-out);
+    transition: border-color var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out);
   }
-  .input-field::placeholder { color: var(--color-muted); opacity: 0.7; }
+  .input-field::placeholder { color: var(--color-muted); opacity: 0.75; }
+  .input-field:hover { border-color: color-mix(in oklab, var(--color-ink) 40%, transparent); }
   .input-field:focus {
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 18%, transparent);
+    border-color: color-mix(in oklab, var(--color-accent) 70%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-focus) 16%, transparent);
   }
 
-  .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-medium lowercase;
-    background: var(--gradient-synapse);
-    color: var(--color-accent-ink);
-    border-radius: 999px;
-    box-shadow: 0 0 0 1px oklch(90% 0.08 230 / 0.25) inset, 0 8px 28px -10px var(--color-glow-2), 0 4px 18px -8px var(--color-glow);
-    transition: filter var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out),
-                box-shadow var(--dur-short) var(--ease-out);
+  /* Buttons: rectangles with an 8px corner, sentence-case labels.
+     primary = white ink; accent = the cyan signal (THE action of a view, one per screen). */
+  .btn-primary, .btn-accent, .btn-ghost, .btn-quiet, .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 text-sm font-medium;
+    border-radius: var(--radius-input);
+    border: 1.5px solid transparent;
+    transition: transform var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out),
+                background-color var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out),
+                color var(--dur-short) var(--ease-out);
   }
-  .btn-primary:hover {
-    filter: brightness(1.1) saturate(1.1);
-    box-shadow: 0 0 0 1px oklch(90% 0.08 230 / 0.35) inset, 0 10px 34px -8px var(--color-glow-2), 0 6px 24px -6px var(--color-glow);
+  .btn-primary { padding: 0.7rem 1.4rem; background: var(--color-ink); color: var(--color-paper-2); border-color: var(--color-ink); }
+  .btn-primary:hover { background: color-mix(in oklab, var(--color-ink) 88%, var(--color-paper)); }
+  .btn-accent { padding: 0.7rem 1.4rem; background: var(--color-accent); color: var(--color-accent-ink); border-color: var(--color-accent); font-weight: 600; }
+  .btn-accent:hover { box-shadow: var(--shadow-print-accent); filter: brightness(1.05); }
+  .btn-ghost { padding: 0.7rem 1.4rem; background: transparent; color: var(--color-ink); border-color: var(--color-rule-2); }
+  .btn-ghost:hover { border-color: color-mix(in oklab, var(--color-ink) 45%, transparent); background: var(--color-paper-3); }
+  .btn-quiet { padding: 0.5rem 1rem; background: var(--color-paper-3); color: var(--color-ink-2); border-color: transparent; }
+  .btn-quiet:hover { color: var(--color-ink); border-color: var(--color-rule-2); }
+  .btn-danger { padding: 0.5rem 1rem; color: var(--color-danger); border-color: color-mix(in oklab, var(--color-danger) 40%, transparent); background: transparent; }
+  .btn-danger:hover { background: color-mix(in oklab, var(--color-danger) 9%, transparent); border-color: var(--color-danger); }
+  .btn-primary:active, .btn-accent:active, .btn-ghost:active, .btn-quiet:active, .btn-danger:active {
+    transform: translateY(1px);
   }
-  .btn-primary:active { transform: translateY(1px); }
-  .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary:disabled, .btn-accent:disabled, .btn-ghost:disabled, .btn-quiet:disabled, .btn-danger:disabled {
+    opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none;
+  }
 
-  .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-medium lowercase text-ink;
-    background: transparent;
-    border: 1px solid var(--color-rule-2);
-    border-radius: 999px;
-    transition: border-color var(--dur-short) var(--ease-out), background-color var(--dur-short) var(--ease-out);
-  }
-  .btn-ghost:hover {
-    border-color: var(--color-accent);
-    background: color-mix(in oklab, var(--color-accent) 8%, transparent);
-  }
-  .btn-ghost:active { transform: translateY(1px); }
-  .btn-ghost:disabled { opacity: 0.45; cursor: not-allowed; }
-
-  .btn-quiet {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm lowercase text-ink2;
-    background: var(--color-paper-3);
-    border: 1px solid var(--color-rule);
-    border-radius: 999px;
-    transition: filter var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out);
-  }
-  .btn-quiet:hover { border-color: var(--color-rule-2); }
-  .btn-quiet:hover { filter: brightness(1.15); }
-
-  .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm lowercase;
-    color: var(--color-danger);
-    border: 1px solid color-mix(in oklab, var(--color-danger) 40%, transparent);
-    border-radius: 999px;
-    transition: background-color var(--dur-short) var(--ease-out);
-  }
-  .btn-danger:hover { background: color-mix(in oklab, var(--color-danger) 12%, transparent); }
-
-  .badge-ok, .badge-warn, .badge-danger, .badge-brass, .badge-float {
+  .badge-ok, .badge-warn, .badge-danger, .badge-brass, .badge-float, .badge-ink {
     font-family: var(--font-mono);
     font-size: 10.5px;
-    letter-spacing: var(--tracking-micro);
+    font-weight: 500;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    border-radius: 999px;
-    padding: 2px 10px;
+    border-radius: 4px;
+    padding: 2px 8px;
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    border: 1px solid transparent;
   }
-  .badge-ok     { color: var(--color-ok);     background: color-mix(in oklab, var(--color-ok) 12%, transparent); }
-  .badge-warn   { color: var(--color-warn);   background: color-mix(in oklab, var(--color-warn) 12%, transparent); }
-  .badge-danger { color: var(--color-danger); background: color-mix(in oklab, var(--color-danger) 12%, transparent); }
-  .badge-brass  { color: var(--color-accent); background: color-mix(in oklab, var(--color-accent) 12%, transparent); }
-  /* Floating badge overlapping a card border ("most popular"): needs an OPAQUE
-     base or the border line shows straight through the pill. */
-  .badge-float  {
-    color: var(--color-accent);
-    background: color-mix(in oklab, var(--color-accent) 12%, var(--color-paper));
-  }
+  .badge-ok     { color: var(--color-ok);     background: color-mix(in oklab, var(--color-ok) 11%, var(--color-paper-2)); border-color: color-mix(in oklab, var(--color-ok) 25%, transparent); }
+  .badge-warn   { color: var(--color-warn);   background: color-mix(in oklab, var(--color-warn) 12%, var(--color-paper-2)); border-color: color-mix(in oklab, var(--color-warn) 28%, transparent); }
+  .badge-danger { color: var(--color-danger); background: color-mix(in oklab, var(--color-danger) 10%, var(--color-paper-2)); border-color: color-mix(in oklab, var(--color-danger) 25%, transparent); }
+  .badge-brass  { color: var(--color-accent); background: var(--color-accent-soft); border-color: color-mix(in oklab, var(--color-accent) 25%, transparent); }
+  .badge-ink    { color: var(--color-paper-2); background: var(--color-ink); }
+  .badge-float  { color: var(--color-accent-ink); background: var(--color-accent); }
 
-  /* narrow phones: tighter pill padding so CTA labels stay on one line */
   @media (max-width: 379px) {
-    .btn-primary, .btn-ghost { padding-left: 1rem; padding-right: 1rem; }
+    .btn-primary, .btn-accent, .btn-ghost { padding-left: 1rem; padding-right: 1rem; }
   }
 
-  /* Touch: 44px is the Apple/WCAG hit-target floor. The quiet/danger pills sit
-     at ~34px from their padding alone, which is a miss on a phone. Only the
-     shared pills are lifted — blanket-sizing every <button> would stretch the
-     icon rows inside the clip cards. */
+  /* Touch: 44px is the Apple/WCAG hit-target floor. */
   @media (pointer: coarse) {
-    .btn-primary, .btn-ghost, .btn-quiet, .btn-danger { min-height: 44px; }
+    .btn-primary, .btn-accent, .btn-ghost, .btn-quiet, .btn-danger { min-height: 44px; }
   }
 
-  /* Synapse AI ------------------------------------------------------------- */
-  /* page headings: Geist semibold, sentence case (the old theme wrote every heading in lowercase serif) */
-  .font-display { font-weight: 600; letter-spacing: -0.025em; }
+  /* Type ------------------------------------------------------------------- */
+  /* headlines: Geist 600, sentence case. The first-letter rule rescues old JSX still marked `lowercase`. */
+  .font-display { font-family: var(--font-display); font-weight: 600; letter-spacing: var(--tracking-display); }
   h1.font-display::first-letter, h2.font-display::first-letter, h3.font-display::first-letter { text-transform: uppercase; }
-  /* the brand's wordmark: "synapse" in ink, "ai" in the synapse gradient */
+  /* big numbers and pull quotes */
+  .font-quote { font-family: var(--font-quote); font-weight: 300; letter-spacing: -0.04em; }
+  /* the page title of every app view (one h1 per page) */
+  .page-title { font-family: var(--font-display); font-weight: 600; letter-spacing: var(--tracking-display); color: var(--color-ink);
+    font-size: clamp(1.6rem, 1.2rem + 1.4vw, 2.25rem); line-height: 1.1; }
+  .page-lede { color: var(--color-muted); font-size: 0.95rem; line-height: 1.6; max-width: 46rem; }
+  /* the hand-drawn signal stroke under ONE key word */
+  .ink-underline {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 12' preserveAspectRatio='none'%3E%3Cpath d='M2 8.5C40 4 92 3.2 198 6.2' fill='none' stroke='%2380d4e6' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-size: 100% 0.32em;
+    background-position: 0 100%;
+    padding-bottom: 0.08em;
+  }
+  /* the brand: "Synapse" in white ink, "AI" in the signal */
   .brand-word { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.03em; color: var(--color-ink); }
-  .brand-ai {
-    background: var(--gradient-synapse);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-  /* text lit by the synapse gradient (a hero's key word) */
-  .text-synapse {
-    background: var(--gradient-synapse);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-  /* the active nav item: a cyan filament on its edge */
-  .nav-glow { box-shadow: inset 2px 0 0 var(--color-accent), 0 0 24px -12px var(--color-glow); }
+  .brand-ai { color: var(--color-accent); }
+  .text-synapse { color: var(--color-accent); }
 
   /* the shell ------------------------------------------------------------- */
   .synapse-shell { background: transparent; }
   .shell-rail {
-    background:
-      linear-gradient(180deg, oklch(17% 0.05 285 / 0.92) 0%, oklch(13% 0.04 280 / 0.95) 100%);
+    background: color-mix(in oklab, var(--color-paper-2) 92%, transparent);
     border-right: 1px solid var(--color-rule);
-    box-shadow: 1px 0 0 oklch(70% 0.15 260 / 0.06), 12px 0 40px -30px oklch(40% 0.2 290 / 0.8);
-    backdrop-filter: blur(10px);
   }
   .shell-topbar {
-    background: oklch(12% 0.035 280 / 0.72);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid transparent;
-    border-image: linear-gradient(90deg, transparent, oklch(81% 0.14 212 / 0.35), oklch(68% 0.22 300 / 0.35), transparent) 1;
+    background: color-mix(in oklab, var(--color-paper) 94%, transparent);
+    border-bottom: 1px solid var(--color-rule);
+    backdrop-filter: blur(10px);
   }
   .nav-group-label {
     font-family: var(--font-mono);
     font-size: 10.5px;
     font-weight: 500;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: color-mix(in oklab, var(--color-accent) 75%, var(--color-ink));
-    opacity: 0.85;
+    color: var(--color-muted);
   }
-  /* the active page's tile: the synapse firing */
-  .nav-tile-active {
-    background: var(--gradient-synapse);
-    box-shadow: 0 0 0 1px oklch(92% 0.08 230 / 0.3) inset, 0 6px 22px -8px var(--color-glow-2), 0 2px 12px -4px var(--color-glow);
+  /* the active page: a raised tile with the signal on its edge */
+  .nav-glow, .nav-tile-active {
+    background: var(--color-paper-3);
+    color: var(--color-ink);
+    box-shadow: inset 2px 0 0 var(--color-accent);
   }
   .chip-byok {
     font-family: var(--font-mono);
     font-size: 9.5px;
     letter-spacing: 0.1em;
-    padding: 2px 6px;
-    border-radius: 6px;
+    padding: 1px 5px;
+    border-radius: 4px;
     color: var(--color-accent-2);
-    background: color-mix(in oklab, var(--color-accent-2) 14%, transparent);
-    border: 1px solid color-mix(in oklab, var(--color-accent-2) 30%, transparent);
+    background: color-mix(in oklab, var(--color-accent-2) 9%, var(--color-paper-2));
+    border: 1px solid color-mix(in oklab, var(--color-accent-2) 25%, transparent);
   }
   .status-pill {
     display: inline-flex;
@@ -266,27 +256,25 @@
     font-family: var(--font-mono);
     font-size: 11px;
     letter-spacing: 0.06em;
-    padding: 6px 12px;
-    border-radius: 999px;
+    padding: 5px 10px;
+    border-radius: var(--radius-input);
     border: 1px solid var(--color-rule-2);
+    background: var(--color-paper-2);
     min-height: 32px;
   }
   .status-pill-warn {
     color: var(--color-warn);
-    background: color-mix(in oklab, var(--color-warn) 10%, transparent);
+    background: color-mix(in oklab, var(--color-warn) 9%, var(--color-paper-2));
     border-color: color-mix(in oklab, var(--color-warn) 35%, transparent);
   }
-  .status-pill-warn:hover { background: color-mix(in oklab, var(--color-warn) 18%, transparent); }
+  .status-pill-warn:hover { border-color: var(--color-warn); }
   .status-pill-ok {
     color: var(--color-ok);
-    background: color-mix(in oklab, var(--color-ok) 9%, transparent);
+    background: color-mix(in oklab, var(--color-ok) 8%, var(--color-paper-2));
     border-color: color-mix(in oklab, var(--color-ok) 30%, transparent);
   }
-  .status-dot {
-    width: 7px; height: 7px; border-radius: 999px; background: var(--color-ok);
-    box-shadow: 0 0 10px var(--color-ok);
-  }
-  .logo-glow { box-shadow: 0 0 0 1px oklch(85% 0.1 240 / 0.25), 0 6px 26px -6px var(--color-glow-2); }
+  .status-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--color-ok); }
+  .logo-glow { box-shadow: none; }
 
   /* accessibility: the first Tab lands here, straight past the navigation */
   .skip-link {
@@ -295,33 +283,22 @@
     top: -60px;
     z-index: 200;
     padding: 10px 16px;
-    border-radius: 999px;
-    background: var(--gradient-synapse);
-    color: var(--color-accent-ink);
+    border-radius: var(--radius-input);
+    background: var(--color-ink);
+    color: var(--color-paper-2);
     font-weight: 600;
     transition: top var(--dur-short) var(--ease-out);
   }
   .skip-link:focus { top: 12px; }
 
-  /* the neural field behind the workspace: faint filaments, two nodes that fire */
-  .neural-field {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    opacity: 0.16;
-    pointer-events: none;
-    z-index: 0;
-  }
+  /* a local neural drawing (hero, empty states); the body already carries the field */
+  .neural-field { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.12; pointer-events: none; z-index: 0; }
   .neural-node { animation: synapse-fire 4.5s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
   .neural-node-2 { animation-delay: 1.8s; }
 
   /* App shell helpers ------------------------------------------------------ */
 
-  /* Pads past the iOS home indicator (needs viewport-fit=cover in index.html).
-     A spacer rather than `padding-bottom`: Tailwind's utilities layer is emitted
-     after components, so a `py-4` on the same element would win outright and
-     silently drop the inset. This adds to whatever padding is already there. */
+  /* Pads past the iOS home indicator (needs viewport-fit=cover in index.html). */
   .safe-bottom::after {
     content: '';
     display: block;
@@ -329,18 +306,16 @@
     height: env(safe-area-inset-bottom, 0px);
   }
 
-  /* Phone type: the muted grey reads fine at desktop distance but loses too
-     much on a small bright screen, and 10.5px mono labels turn to texture. */
   @media (max-width: 639px) {
     .readout { font-size: 11.5px; letter-spacing: 0.06em; }
-    .eyebrow { font-size: 11.5px; letter-spacing: 0.08em; opacity: 0.7; }
+    .eyebrow { font-size: 11.5px; letter-spacing: 0.08em; }
   }
 }
 
 /* Custom Scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -348,13 +323,15 @@
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: linear-gradient(var(--color-accent), var(--color-accent-2));
-  opacity: 0.5;
+  background: color-mix(in oklab, var(--color-ink) 22%, transparent);
+  border: 2px solid transparent;
+  background-clip: padding-box;
   border-radius: 10px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: var(--color-rule);
+  background: color-mix(in oklab, var(--color-ink) 40%, transparent);
+  background-clip: padding-box;
 }
 
 /* Custom Animations */
@@ -363,39 +340,15 @@
   to { opacity: 1; }
 }
 
-@keyframes scan {
-  0% {
-    top: 0%;
-    opacity: 0;
-  }
-
-  10% {
-    opacity: 1;
-  }
-
-  90% {
-    opacity: 1;
-  }
-
-  100% {
-    top: 100%;
-    opacity: 0;
-  }
-}
-
-@keyframes scan-overlay {
-  0% {
-    top: -20%;
-  }
-
-  100% {
-    top: 100%;
-  }
+/* an ink line being drawn (progress, reveals) */
+@keyframes ink-draw {
+  from { stroke-dashoffset: var(--ink-len, 400); }
+  to { stroke-dashoffset: 0; }
 }
 
 @keyframes synapse-fire {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  45% { opacity: 1; transform: scale(1.8); }
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  45% { opacity: 1; transform: scale(1.35); }
 }
 
 @keyframes filament-pulse {

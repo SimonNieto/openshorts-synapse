@@ -12,7 +12,7 @@ const postViews = (p) => {
   const m = p.post_metrics || p.metrics || p;
   return Number(m.views || m.impressions || m.plays || 0) || 0;
 };
-const postTitle = (p) => p.title || p.caption || p.youtube_title || p.tiktok_title || 'untitled post';
+const postTitle = (p) => p.title || p.caption || p.youtube_title || p.tiktok_title || 'Untitled post';
 const postUrl = (p) => p.post_url || p.url || p.share_url || null;
 
 // Post-publication analytics: what the clips actually did out there.
@@ -49,56 +49,61 @@ export default function SocialAnalyticsCard() {
   const top = data.posts.slice(0, 3);
 
   return (
-    <div className="card p-6">
-      <div className="flex items-baseline justify-between gap-4 mb-1">
-        <h3 className="font-display lowercase text-lg text-ink flex items-center gap-2">
-          <BarChart3 size={16} className="text-brass" /> Your posts
+    <section aria-labelledby="social-analytics-title" className="card p-5 sm:p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-4">
+        <h3 id="social-analytics-title" className="font-display text-lg text-ink flex items-center gap-2">
+          <BarChart3 size={16} className="text-muted" aria-hidden="true" /> Your posts
         </h3>
-        <span className="text-muted text-xs lowercase">last 30 days</span>
+        <span className="readout">Last 30 days</span>
       </div>
 
       {data.posts.length === 0 && !total ? (
-        <p className="text-muted text-sm lowercase">
+        <p className="text-muted text-sm">
           Nothing published yet. Post a clip from your results and its views show up here.
         </p>
       ) : (
         <>
-          <div className="flex items-end gap-3 mb-3">
-            <span className="readout text-2xl text-ink">{fmtNum(total)}</span>
-            <span className="text-muted text-sm lowercase mb-0.5">impressions</span>
-          </div>
+          <p className="flex items-baseline gap-2.5 mb-4">
+            <span className="font-quote text-5xl text-ink leading-none">{fmtNum(total)}</span>
+            <span className="text-muted text-sm">impressions</span>
+          </p>
 
           {perPlatform.length > 0 && (
-            <div className="flex flex-wrap gap-x-4 gap-y-1 mb-4 text-sm">
+            <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 mb-5">
               {perPlatform.map(([platform, v]) => (
-                <span key={platform} className="text-ink2 lowercase">
-                  {platform} <span className="text-brass">{fmtNum(Number(v))}</span>
-                </span>
+                <div key={platform} className="min-w-0">
+                  <dt className="readout truncate">{platform}</dt>
+                  <dd className="text-sm text-ink mt-0.5">{fmtNum(Number(v))}</dd>
+                </div>
               ))}
-            </div>
+            </dl>
           )}
 
           {top.length > 0 && (
-            <div className="space-y-2 border-t border-rule pt-3">
-              {top.map((p, i) => (
-                <div key={p.request_id || p.platform_post_id || i}
-                     className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-ink2 truncate">
-                    {postTitle(p)}
-                    {postUrl(p) && (
-                      <a href={postUrl(p)} target="_blank" rel="noreferrer"
-                         className="inline-flex align-middle ml-1.5 text-muted hover:text-ink">
-                        <ExternalLink size={12} />
-                      </a>
-                    )}
-                  </span>
-                  <span className="text-ink shrink-0">{fmtNum(postViews(p))} views</span>
-                </div>
-              ))}
+            <div className="border-t border-rule pt-4">
+              <p className="readout mb-2">Top posts</p>
+              <ol className="space-y-2.5">
+                {top.map((p, i) => (
+                  <li key={p.request_id || p.platform_post_id || i}
+                      className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-ink2 min-w-0 flex items-center gap-1.5">
+                      <span className="truncate">{postTitle(p)}</span>
+                      {postUrl(p) && (
+                        <a href={postUrl(p)} target="_blank" rel="noreferrer"
+                           aria-label={`Open “${postTitle(p)}” (new tab)`}
+                           className="shrink-0 inline-flex items-center justify-center p-1 -m-1 rounded-input text-muted hover:text-ink transition-colors [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]">
+                          <ExternalLink size={13} aria-hidden="true" />
+                        </a>
+                      )}
+                    </span>
+                    <span className="readout !text-ink2 shrink-0">{fmtNum(postViews(p))} views</span>
+                  </li>
+                ))}
+              </ol>
             </div>
           )}
         </>
       )}
-    </div>
+    </section>
   );
 }

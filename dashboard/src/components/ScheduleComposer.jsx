@@ -9,18 +9,18 @@ import { SLOT_OPTIONS, buildSlots, slotStatusOn, userTimezone, scheduledDateFor,
 import { profileForNiche } from '../lib/nicheHistory';
 
 const PLATFORM_OPTIONS = [
-    { value: 'tiktok', label: 'tiktok', icon: <Video size={16} /> },
-    { value: 'instagram', label: 'instagram', icon: <Instagram size={16} /> },
-    { value: 'youtube', label: 'youtube', icon: <Youtube size={16} /> },
+    { value: 'tiktok', label: 'TikTok', icon: <Video size={14} /> },
+    { value: 'instagram', label: 'Instagram', icon: <Instagram size={14} /> },
+    { value: 'youtube', label: 'YouTube', icon: <Youtube size={14} /> },
 ];
 
 // 'now' = the 1st clip goes out right away, the others take the next free
 // slots from today on. The days are greyed when the account has no free slot.
 const DAY_OPTIONS = [
-    { value: 'now', label: 'now' },
-    { value: '0', label: 'today' },
-    { value: '1', label: 'tomorrow' },
-    { value: '2', label: 'in 2 days' },
+    { value: 'now', label: 'Now' },
+    { value: '0', label: 'Today' },
+    { value: '1', label: 'Tomorrow' },
+    { value: '2', label: 'In 2 days' },
 ];
 const ALL_TIMES = SLOT_OPTIONS.map((s) => s.value);
 
@@ -113,9 +113,9 @@ export default function ScheduleComposer({
         [occupied, now]);
     const freeOn = (d) => Object.values(dayStatus[d]).filter((v) => v === 'free').length;
     const dayOptions = DAY_OPTIONS.map((o) => {
-        if (o.value === 'now') return { ...o, hint: '1st clip' };
+        if (o.value === 'now') return { ...o, hint: 'First clip' };
         const free = freeOn(Number(o.value));
-        return { ...o, disabled: free === 0, hint: free === 0 ? 'full' : `${free} free` };
+        return { ...o, disabled: free === 0, hint: free === 0 ? 'Full' : `${free} free` };
     });
     // Greyed (with the reason) when not free on the start day, but still
     // clickable: the times are the DAILY pattern, and the clips that don't fit
@@ -250,7 +250,7 @@ export default function ScheduleComposer({
     if (!project) return null;
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-6">
             <ProjectNicheBar
                 choice={nicheChoice}
                 proposed={project.niche_guess || lastNiche}
@@ -261,105 +261,123 @@ export default function ScheduleComposer({
                 disabled={scheduling}
             />
 
-            <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="text-sm text-ink2">
+            {/* The clips, picked in posting order. */}
+            <fieldset className="space-y-3 min-w-0">
+                <legend className="readout mb-2">Clips</legend>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm text-ink2" aria-live="polite">
                         {selected.size
-                            ? <><span className="text-brass font-medium">{selected.size}</span> selected · click order = posting order</>
-                            : 'click the clips in the order you want them posted'}
-                    </span>
+                            ? <><span className="text-ink font-semibold">{selected.size}</span> selected · click order = posting order</>
+                            : 'Click the clips in the order you want them posted.'}
+                    </p>
                     <div className="flex gap-1.5 shrink-0">
-                        <button type="button" disabled={scheduling} onClick={() => setSelected(new Set(ranked.map((c) => c.index)))} className="readout px-2 py-1 rounded-full bg-paper3 hover:bg-paper2">all</button>
-                        <button type="button" disabled={scheduling} onClick={() => setSelected(new Set(ranked.slice(0, 3).map((c) => c.index)))} className="readout px-2 py-1 rounded-full bg-paper3 hover:bg-paper2">best 3</button>
+                        <button type="button" disabled={scheduling} onClick={() => setSelected(new Set(ranked.map((c) => c.index)))} className="btn-quiet px-3 py-1.5 text-xs">All</button>
+                        <button type="button" disabled={scheduling} onClick={() => setSelected(new Set(ranked.slice(0, 3).map((c) => c.index)))} className="btn-quiet px-3 py-1.5 text-xs">Best 3</button>
                         {selected.size > 0 && (
-                            <button type="button" disabled={scheduling} onClick={() => setSelected(new Set())} className="readout px-2 py-1 rounded-full bg-paper3 hover:bg-paper2">clear</button>
+                            <button type="button" disabled={scheduling} onClick={() => setSelected(new Set())} className="btn-quiet px-3 py-1.5 text-xs">Clear</button>
                         )}
                     </div>
                 </div>
                 {ranked.length === 0 && (
-                    <p className="text-sm text-muted py-8 text-center lowercase">Every clip of this project is already posted.</p>
+                    <p className="tray text-sm text-muted py-8 px-4 text-center">Every clip of this project is already posted.</p>
                 )}
-                <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-2">
-                    {ranked.map((c) => {
-                        const on = selected.has(c.index);
-                        const order = orderedSelection.findIndex((r) => r.index === c.index);
-                        const res = results[c.index];
-                        return (
-                            <button
-                                key={c.index}
-                                type="button"
-                                onClick={() => toggleClip(c.index)}
-                                title={c.title}
-                                className={`relative aspect-[9/16] rounded-input overflow-hidden bg-black transition-all ${on
-                                    ? 'ring-2 ring-brass'
-                                    : selected.size ? 'opacity-60 hover:opacity-100' : 'hover:ring-1 hover:ring-rule2'}`}
-                            >
-                                {c.video_url && (
-                                    <video src={`${getApiUrl(c.video_url)}#t=1`} preload="metadata" muted playsInline className="absolute inset-0 w-full h-full object-cover pointer-events-none" />
-                                )}
-                                {Number.isFinite(c.predicted_score) && (
-                                    <span className="absolute top-1 right-1 readout px-1.5 rounded bg-black/70 text-brass" title="viral score">{c.predicted_score}</span>
-                                )}
-                                <span className="absolute bottom-0 inset-x-0 px-1 py-0.5 bg-black/70 text-[10px] leading-tight text-white truncate">{c.title}</span>
-                                {on && !res && (
-                                    <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/30 pointer-events-none">
-                                        <span className="w-7 h-7 rounded-full bg-brass text-black text-sm font-semibold flex items-center justify-center">{order + 1}</span>
-                                        {tileTag(order) && <span className="readout px-1.5 rounded bg-black/80 text-brass">{tileTag(order)}</span>}
-                                    </span>
-                                )}
-                                {res && (
-                                    <span className="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none">
-                                        {res.ok ? <CheckCircle size={24} className="text-ok" /> : <AlertCircle size={24} className="text-danger" />}
-                                    </span>
-                                )}
-                            </button>
-                        );
-                    })}
-                </div>
-            </div>
+                {ranked.length > 0 && (
+                    <ul className="grid grid-cols-3 min-[420px]:grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-2">
+                        {ranked.map((c) => {
+                            const on = selected.has(c.index);
+                            const order = orderedSelection.findIndex((r) => r.index === c.index);
+                            const res = results[c.index];
+                            const label = [
+                                c.title,
+                                Number.isFinite(c.predicted_score) && `viral score ${c.predicted_score}`,
+                                on && !res && `posting position ${order + 1}${tileTag(order) ? ` (${tileTag(order)})` : ''}`,
+                                res && (res.ok ? 'scheduled' : 'failed'),
+                            ].filter(Boolean).join(', ');
+                            return (
+                                <li key={c.index}>
+                                    <button
+                                        type="button"
+                                        onClick={() => toggleClip(c.index)}
+                                        aria-pressed={on}
+                                        aria-label={label}
+                                        title={c.title}
+                                        className={`relative block w-full aspect-[9/16] rounded-input overflow-hidden bg-black border transition-all ${on
+                                            ? 'border-vermilion ring-2 ring-vermilion'
+                                            : selected.size ? 'border-rule2 opacity-60 hover:opacity-100' : 'border-rule2 hover:border-ink'}`}
+                                    >
+                                        {c.video_url && (
+                                            <video src={`${getApiUrl(c.video_url)}#t=1`} preload="metadata" muted playsInline aria-hidden="true" tabIndex={-1} className="absolute inset-0 w-full h-full object-cover pointer-events-none" />
+                                        )}
+                                        {Number.isFinite(c.predicted_score) && (
+                                            <span className="absolute top-1 right-1 readout !text-ink px-1.5 rounded bg-paper/85" aria-hidden="true">{c.predicted_score}</span>
+                                        )}
+                                        <span className="absolute bottom-0 inset-x-0 px-1.5 py-1 bg-paper/85 text-xs leading-tight text-ink text-left truncate" aria-hidden="true">{c.title}</span>
+                                        {on && !res && (
+                                            <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-paper/35 pointer-events-none" aria-hidden="true">
+                                                <span className="w-7 h-7 rounded-input bg-vermilion text-brassink text-sm font-semibold flex items-center justify-center">{order + 1}</span>
+                                                {tileTag(order) && <span className="readout !text-ink px-1.5 rounded bg-paper/90">{tileTag(order)}</span>}
+                                            </span>
+                                        )}
+                                        {res && (
+                                            <span className="absolute inset-0 flex items-center justify-center bg-paper/60 pointer-events-none" aria-hidden="true">
+                                                {res.ok ? <CheckCircle size={24} className="text-ok" /> : <AlertCircle size={24} className="text-danger" />}
+                                            </span>
+                                        )}
+                                    </button>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
+            </fieldset>
 
-            <div className="grid sm:grid-cols-3 gap-4 items-end">
-                <div>
-                    <label className="eyebrow block mb-1.5">platforms</label>
+            <div className="grid gap-5 lg:grid-cols-3">
+                <fieldset className="min-w-0">
+                    <legend className="readout mb-2">Platforms</legend>
                     <SegmentedControl multi columns={3} options={PLATFORM_OPTIONS} value={platforms} onChange={setPlatforms} />
-                </div>
-                <div>
-                    <label className="eyebrow block mb-1.5">start</label>
+                </fieldset>
+                <fieldset className="min-w-0">
+                    <legend className="readout mb-2">Start</legend>
                     <SegmentedControl options={dayOptions} value={dayOffset} onChange={setDayOffset} columns={4} size="sm" />
-                </div>
-                <div>
-                    <label className="eyebrow block mb-1.5">time · 1st click → 1st slot</label>
+                </fieldset>
+                <fieldset className="min-w-0">
+                    <legend className="readout mb-2">Times · 1st click → 1st slot</legend>
                     <SegmentedControl multi options={timeOptions} value={slots} onChange={setSlots} columns={3} size="sm" />
-                </div>
+                </fieldset>
             </div>
 
             {platforms.includes('tiktok') && <TikTokDraftNotice />}
 
             {/* Real dates before sending: "12h" on a tile doesn't say which day. */}
             {plan.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                    <span className="eyebrow mr-1">goes out</span>
-                    {plan.map((p, k) => (
-                        <span key={p.index} className={`readout px-2 py-1 rounded-full ${p.slot?.now ? 'bg-ok/15 text-ok' : 'bg-paper3 text-ink2'}`}>
-                            {k + 1} · {p.slot ? slotLabel(p.slot) : '—'}
-                        </span>
-                    ))}
-                    <button
-                        type="button"
-                        onClick={() => (previews ? setPreviews(null) : loadPreviews())}
-                        disabled={previewLoading || !nicheChoice}
-                        title={nicheChoice ? '' : 'Confirm the niche first — the hashtags depend on it'}
-                        className="readout px-2 py-1 rounded-full bg-paper3 hover:bg-paper2 text-brass ml-auto inline-flex items-center gap-1"
-                    >
-                        {previewLoading && <Loader2 size={12} className="animate-spin" />}
-                        {previews ? 'hide texts' : 'preview texts'}
-                    </button>
+                <div className="tray p-3 sm:p-4 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="readout">Goes out</p>
+                        <button
+                            type="button"
+                            onClick={() => (previews ? setPreviews(null) : loadPreviews())}
+                            disabled={previewLoading || !nicheChoice}
+                            aria-expanded={!!previews}
+                            title={nicheChoice ? '' : 'Confirm the niche first — the hashtags depend on it'}
+                            className="btn-quiet px-3 py-1.5 text-xs"
+                        >
+                            {previewLoading && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
+                            {previews ? 'Hide texts' : 'Preview texts'}
+                        </button>
+                    </div>
+                    <ol className="flex flex-wrap gap-1.5" aria-label="Posting dates, in order">
+                        {plan.map((p, k) => (
+                            <li key={p.index} className={`readout px-2 py-1 rounded border bg-paper2 ${p.slot?.now ? 'border-ok/40 !text-ok' : 'border-rule2 !text-ink2'}`}>
+                                {k + 1} · {p.slot ? slotLabel(p.slot) : '—'}
+                            </li>
+                        ))}
+                    </ol>
                 </div>
             )}
 
             {/* Exactly what each platform receives — same server code as the send. */}
             {previews && (
-                <div className="space-y-3 p-3 rounded-input bg-paper border border-rule max-h-[28rem] overflow-y-auto custom-scrollbar">
+                <div className="space-y-4 p-3 sm:p-4 rounded-input bg-paper border border-rule max-h-[28rem] overflow-y-auto custom-scrollbar">
                     {plan.map((p, k) => {
                         const c = previews[p.index];
                         if (!c) return null;
@@ -370,32 +388,37 @@ export default function ScheduleComposer({
                             platforms.includes('instagram') && ['instagram · caption', c.instagram],
                         ].filter(Boolean);
                         return (
-                            <div key={p.index}>
-                                <p className="text-xs text-ink font-medium mb-1.5">{k + 1} · {p.clip.title}</p>
+                            <article key={p.index} className="space-y-2">
+                                <h4 className="text-sm text-ink font-medium break-words">{k + 1} · {p.clip.title}</h4>
                                 {nicheChoice?.niche && !(c.niche_hashtags || []).length && (
-                                    <p className="text-xs text-warn mb-1.5">
-                                        The niche generator found no hashtags for “{nicheChoice.niche}” (YouTube quota used up, or no results) — the AI's own hashtags would go out instead.
+                                    <p className="text-xs text-warn flex items-start gap-1.5">
+                                        <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+                                        <span>The niche generator found no hashtags for “{nicheChoice.niche}” (YouTube quota used up, or no results) — the AI's own hashtags would go out instead.</span>
                                     </p>
                                 )}
-                                <div className="space-y-1.5">
+                                <div className="space-y-2 pl-3 border-l border-rule2">
                                     {rows.map(([label, text]) => (
                                         <div key={label} className="text-xs">
-                                            <span className="eyebrow">{label}</span>
+                                            <span className="readout">{label}</span>
                                             {label === 'youtube · title' && <span className="readout text-muted ml-2">{text.length}/100</span>}
                                             <p className="text-ink2 whitespace-pre-wrap break-words mt-0.5">{text}</p>
                                         </div>
                                     ))}
                                 </div>
-                            </div>
+                            </article>
                         );
                     })}
                 </div>
             )}
 
-            {error && <p className="text-danger text-xs">{error}</p>}
+            {error && (
+                <p role="alert" className="flex items-start gap-2 text-sm text-danger break-words">
+                    <AlertCircle size={15} className="mt-0.5 shrink-0" aria-hidden="true" /> {error}
+                </p>
+            )}
 
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-3 border-t border-rule">
-                <p className="text-xs text-muted flex-1">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-4 border-t border-rule">
+                <p className="text-xs text-muted flex-1" aria-live="polite">
                     {!canPost
                         ? 'Set your Upload-Post key in Settings to schedule automatically.'
                         : !nicheChoice
@@ -403,32 +426,34 @@ export default function ScheduleComposer({
                             : Object.keys(results).length
                                 ? (failed.length
                                     ? <span className="text-danger">{okCount} scheduled, {failed.length} failed: {String(failed[0].error || '').slice(0, 120)}</span>
-                                    : <span className="text-ok inline-flex items-center gap-1"><Check size={13} /> {okCount} scheduled on Upload-Post — you can turn the PC off.</span>)
+                                    : <span className="text-ok inline-flex items-center gap-1"><Check size={13} aria-hidden="true" /> {okCount} scheduled on Upload-Post — you can turn the PC off.</span>)
                                 : 'Posts go out on their own at the chosen time — the PC can be off.'}
                 </p>
-                {allowChecklist && (
+                <div className="flex flex-col-reverse min-[420px]:flex-row gap-2">
+                    {allowChecklist && (
+                        <button
+                            type="button"
+                            onClick={handleChecklist}
+                            disabled={adding || scheduling || !selected.size || !platforms.length}
+                            className="btn-ghost px-3 py-2 text-xs"
+                            title="Just note it in the calendar — you'll post it yourself"
+                        >
+                            {adding ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Plus size={13} aria-hidden="true" />}
+                            Checklist only
+                        </button>
+                    )}
                     <button
                         type="button"
-                        onClick={handleChecklist}
-                        disabled={adding || scheduling || !selected.size || !platforms.length}
-                        className="btn-ghost px-3 py-2 text-xs flex items-center gap-1.5"
-                        title="Just note it in the calendar — you'll post it yourself"
+                        onClick={handleSchedule}
+                        disabled={!ready || scheduling}
+                        className="btn-accent px-4 py-2.5 text-sm"
                     >
-                        {adding ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-                        checklist only
+                        {scheduling ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Calendar size={14} aria-hidden="true" />}
+                        {scheduling
+                            ? `Scheduling ${Object.keys(results).length + 1}/${plan.length}…`
+                            : selected.size ? `Schedule ${selected.size} on Upload-Post` : 'Schedule on Upload-Post'}
                     </button>
-                )}
-                <button
-                    type="button"
-                    onClick={handleSchedule}
-                    disabled={!ready || scheduling}
-                    className="btn-primary px-4 py-2.5 text-sm flex items-center justify-center gap-2"
-                >
-                    {scheduling ? <Loader2 size={14} className="animate-spin" /> : <Calendar size={14} />}
-                    {scheduling
-                        ? `scheduling ${Object.keys(results).length + 1}/${plan.length}…`
-                        : `schedule ${selected.size || ''} on upload-post`}
-                </button>
+                </div>
             </div>
         </div>
     );

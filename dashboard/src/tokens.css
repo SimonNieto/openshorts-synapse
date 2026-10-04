@@ -1,54 +1,66 @@
-/* Synapse AI · theme: nuit synapse (4-oct-2026) · design-system: design.md · designed-as-app
- * A night of neurons: deep blue-violet canvas, electric cyan and neon violet accents that glow like a firing
- * synapse, hairlines lit faintly blue. Built on OpenShorts (MIT); the token names are kept so every page re-themes.
+/* Synapse AI · art direction « Synapse · Graphite » (4-oct-2026) · design-system: design.md · built on OpenShorts (MIT)
+ * The synapse night, made sober: a graphite-black canvas, white ink, hairline filaments, and ONE
+ * desaturated cyan signal — the firing node. No violet, no gradients, no glow soup: colour is rare.
+ * Token names are kept from the older themes (brass / vermilion = THE accent, coral / cobalt = the
+ * quiet second) so every page re-themes without touching its classes.
  */
 
 :root {
+  color-scheme: dark;
+
   /* paper — the night */
-  --color-paper: oklch(11.5% 0.032 278);
-  --color-paper-2: oklch(15% 0.038 280);
-  --color-paper-3: oklch(19.5% 0.045 282);
+  --color-paper: oklch(14.5% 0.006 265);        /* graphite black: the canvas */
+  --color-paper-2: oklch(18% 0.007 265);        /* raised sheet: cards, modals, inputs */
+  --color-paper-3: oklch(22% 0.008 265);        /* sunken / hover: rail, chips, quiet buttons */
 
   /* ink */
-  --color-ink: oklch(97% 0.012 250);
-  --color-ink-2: oklch(87% 0.022 255);
-  --color-muted: oklch(67% 0.035 262);
+  --color-ink: oklch(96.5% 0.003 265);          /* white ink: headlines, primary buttons */
+  --color-ink-2: oklch(85% 0.005 265);          /* body text */
+  --color-muted: oklch(66% 0.008 265);          /* secondary text (≥ 5:1 on paper) */
 
-  /* rules — hairlines lit faintly blue */
-  --color-rule: oklch(82% 0.08 245 / 0.11);
-  --color-rule-2: oklch(82% 0.1 245 / 0.2);
-  --rule-blueprint: oklch(82% 0.08 245 / 0.05);
+  /* rules — hairline filaments */
+  --color-rule: oklch(96% 0.003 265 / 0.09);
+  --color-rule-2: oklch(96% 0.003 265 / 0.17);
+  --rule-blueprint: oklch(96% 0.003 265 / 0.04);
 
-  /* accents — the synapse firing */
-  --color-accent: oklch(81% 0.14 212);          /* electric cyan: THE accent */
-  --color-accent-ink: oklch(15% 0.045 255);     /* text on cyan fills */
-  --color-accent-2: oklch(68% 0.22 300);        /* neon violet */
-  --color-glow: oklch(81% 0.14 212 / 0.45);
-  --color-glow-2: oklch(68% 0.22 300 / 0.4);
-  --color-paper-emit: oklch(70% 0.16 265 / 0.07);
-  --color-focus: oklch(81% 0.14 212);
-  --gradient-synapse: linear-gradient(120deg, oklch(81% 0.14 212) 0%, oklch(70% 0.2 285) 55%, oklch(68% 0.22 305) 100%);
+  /* the signal — one desaturated cyan, used sparingly */
+  --color-accent: oklch(82% 0.095 212);         /* THE accent: the firing node */
+  --color-accent-ink: oklch(16% 0.02 240);      /* text on accent fills */
+  --color-accent-soft: oklch(82% 0.095 212 / 0.1); /* selected rows, highlight wash */
+  --color-accent-2: oklch(78% 0.04 250);        /* quiet steel: links, info */
+  --color-glow: oklch(82% 0.095 212 / 0.28);
+  --color-glow-2: oklch(82% 0.095 212 / 0.14);
+  --color-paper-emit: transparent;
+  --color-focus: oklch(82% 0.095 212);
+  /* gradients are retired: kept as a flat accent so old references still paint */
+  --gradient-synapse: linear-gradient(var(--color-accent), var(--color-accent));
 
-  /* states */
-  --color-ok: oklch(78% 0.13 160);
-  --color-danger: oklch(66% 0.2 20);
-  --color-warn: oklch(80% 0.14 80);
+  /* states — muted, always paired with an icon or a word */
+  --color-ok: oklch(78% 0.1 160);
+  --color-warn: oklch(82% 0.1 82);
+  --color-danger: oklch(70% 0.15 22);
+
+  /* depth: hairline + deep shadow (no offset prints, no neon) */
+  --shadow-print: 0 0 0 1px var(--color-rule-2), 0 18px 44px -26px oklch(0% 0 0 / 0.9);
+  --shadow-print-accent: 0 0 0 3px oklch(82% 0.095 212 / 0.16);
+  --shadow-sheet: 0 1px 0 oklch(100% 0 0 / 0.03) inset, 0 12px 32px -24px oklch(0% 0 0 / 0.8);
 
   /* type */
-  --font-display: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;   /* 600: headlines */
+  --font-quote: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;     /* big numbers */
   --font-body: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  --text-display: clamp(3rem, 6vw + 1rem, 6rem);
-  --tracking-display: -0.045em;
+  --text-display: clamp(2.6rem, 5vw + 1rem, 5.25rem);
+  --tracking-display: -0.035em;
   --tracking-micro: 0.12em;
 
   /* geometry */
-  --radius-card: 14px;
-  --radius-input: 10px;
+  --radius-card: 10px;
+  --radius-input: 8px;
 
   /* motion */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --dur-short: 220ms;
-  --dur-reveal: 600ms;
+  --dur-short: 180ms;
+  --dur-reveal: 500ms;
   --dur-pulse: 4s;
 }

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Loader2, Languages, AlertCircle, Save, Plus, Star, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useId } from 'react';
+import { Loader2, Languages, AlertCircle, Save, Plus, Star, Trash2, ChevronDown } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
 import RemotionPreview from './RemotionPreview';
 import {
@@ -67,11 +67,6 @@ export const CAPTION_PRESETS = [
     { id: 'capcut',  label: 'CapCut',     style: 'karaoke', effect: 'highlight-box', highlightColor: '#FFE500', baseOpacity: 0.85, uppercase: true, fontName: 'Anton', borderWidth: 3 },
     { id: 'classic', label: 'Classic',    style: 'classic', effect: 'none', highlightColor: '#FFD700', baseOpacity: 1.0,  uppercase: false, fontName: 'Verdana', borderWidth: 2 },
 ];
-
-const swatchClass = (selected) =>
-    `w-6 h-6 rounded-full transition-all ${selected
-        ? 'ring-2 ring-[color:var(--color-accent)] ring-offset-2 ring-offset-[color:var(--color-paper-2)]'
-        : 'ring-1 ring-[color:var(--color-rule-2)] hover:ring-[color:var(--color-accent)]'}`;
 
 // Saved caption LOOKS the user built themselves (position/font/colors/effect),
 // distinct from the fixed built-in CAPTION_PRESETS above. The one marked
@@ -352,6 +347,8 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
         }
     };
 
+    const uid = useId();
+
     if (!isOpen) return null;
 
     // Build subtitle config for Remotion
@@ -417,158 +414,209 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
         ),
     };
 
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} size="xl" eyebrow="EDITOR · SUBTITLES" title="subtitles">
-            <div className="flex flex-col md:flex-row gap-6">
-                {/* Left: Preview — sticky so it stays visible while the
-                    (often long) controls column scrolls past it. */}
-                <div className="flex-1 flex flex-col items-center justify-center bg-black rounded-card border border-rule overflow-hidden relative aspect-[9/16] max-h-[600px] sticky top-0 self-start">
-                    {captionsLoading ? (
-                        <div className="flex items-center gap-2 text-muted">
-                            <Loader2 size={16} className="animate-spin" />
-                            <span className="text-sm lowercase">Loading preview...</span>
-                        </div>
-                    ) : useRemotionPreview ? (
-                        <RemotionPreview
-                            videoUrl={videoUrl}
-                            durationInSeconds={durationSec}
-                            subtitles={subtitleConfig}
-                            hook={existingHook || null}
-                        />
-                    ) : (
-                        <>
-                            <video src={videoUrl} className="w-full h-full object-contain opacity-50" muted playsInline />
-                            <div className={`absolute w-full px-8 text-center transition-all duration-300 pointer-events-none flex flex-col items-center justify-center
-                                ${position === 'top' ? 'top-20' : ''}
-                                ${position === 'middle' ? 'top-0 bottom-0' : ''}
-                                ${position === 'bottom' ? 'bottom-20' : ''}
-                            `}>
-                                <span style={fallbackPreviewStyle}>
-                                    This is how your subtitles<br/>will appear on the video
-                                </span>
-                            </div>
-                        </>
-                    )}
-                </div>
+    // Text edits must survive the server render path too
+    // (issue #69): send the edited words whenever the text
+    // differs from what the transcript produced.
+    const textEdited = originalCaptions.length > 0
+        && editableText.trim() !== originalCaptions.map((c) => c.text).join(' ').trim();
+    const styleOptions = {
+        position, positionPercent: position, fontSize, fontName, fontColor, borderColor, borderWidth, bgColor, bgOpacity,
+        maxChars, maxDuration, letterSpacing, maxWords,
+        // Karaoke burn (server-side ASS render)
+        style, effect, baseOpacity, uppercase, highlightColor,
+        // Remotion data
+        remotion: useRemotionPreview ? subtitleConfig : null,
+        captions: textEdited ? captions : null,
+    };
+    const bulkRunning = bulkProgress?.running;
+    const isDefaultProfile = activeSubtitleProfileId === subtitleProfileStore.defaultId;
 
-                {/* Right: Controls */}
-                <div className="w-full md:w-80 flex flex-col">
-                    <div className="space-y-5 flex-1 overflow-y-auto custom-scrollbar pr-1">
-                        {/* Caption presets (server-side karaoke burn) */}
-                        <div>
-                            <p className="eyebrow mb-2">Preset</p>
-                            <div className="grid grid-cols-3 gap-1.5">
-                                {CAPTION_PRESETS.map((p) => (
-                                    <button
-                                        key={p.id}
-                                        onClick={() => applyPreset(p)}
-                                        className={`px-2 py-1.5 rounded-input border text-xs transition-colors flex items-center gap-1.5 justify-center
-                                            ${activePreset === p.id
-                                                ? 'border-[color:var(--color-accent)] text-ink'
-                                                : 'border-rule2 text-muted hover:border-[color:var(--color-accent)]'}`}
-                                        title={p.label}
-                                    >
-                                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: p.highlightColor }} />
-                                        {p.label}
-                                    </button>
-                                ))}
+    const footer = (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+            <p className="sr-only" aria-live="polite">
+                {bulkRunning
+                    ? `Applying to all clips: ${bulkProgress.current} of ${bulkProgress.total}`
+                    : isProcessing ? 'Applying the captions…' : ''}
+            </p>
+            {onApplyAll && bulkCount > 1 && (
+                <button
+                    type="button"
+                    onClick={() => onApplyAll({ ...styleOptions, captions: null })}
+                    disabled={isProcessing}
+                    className="btn-ghost w-full sm:w-auto sm:mr-auto"
+                >
+                    {bulkRunning
+                        ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" />Applying to all… <span className="font-mono tabular-nums">{bulkProgress.current}/{bulkProgress.total}</span></>
+                        : `Apply this style to all ${bulkCount} clips`}
+                </button>
+            )}
+            <button type="button" onClick={onClose} className="btn-ghost flex-1 sm:flex-none">
+                Cancel
+            </button>
+            <button
+                type="button"
+                onClick={() => onGenerate(styleOptions)}
+                disabled={isProcessing}
+                className="btn-accent flex-[2] sm:flex-none sm:min-w-[11rem]"
+            >
+                {(isProcessing && !bulkRunning) && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+                {(isProcessing && !bulkRunning) ? 'Applying…' : 'Apply to this clip'}
+            </button>
+        </div>
+    );
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} size="xl" title="Caption style" footer={footer}>
+            <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_20rem] lg:grid-cols-[minmax(0,1fr)_23rem] md:items-start">
+                {/* Preview — sticky so it stays visible while the (often long)
+                    controls column scrolls past it. */}
+                <figure className="md:sticky md:top-0 flex flex-col items-center gap-2 min-w-0">
+                    <div className="relative flex flex-col items-center justify-center bg-black border border-rule2 rounded-card overflow-hidden aspect-[9/16] h-[50vh] sm:h-[min(600px,62vh)] max-w-full">
+                        {captionsLoading ? (
+                            <div role="status" className="flex items-center gap-2 text-ink2">
+                                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                                <span className="text-sm">Loading preview…</span>
                             </div>
-                            {style === 'karaoke' && (
-                                <div className="mt-3 space-y-3 animate-fade">
-                                    <div className="flex items-center justify-between">
-                                        <span className="readout">UPPERCASE</span>
-                                        <label className="relative inline-flex items-center cursor-pointer">
-                                            <input type="checkbox" checked={uppercase} onChange={(e) => setUppercase(e.target.checked)} className="sr-only peer" />
-                                            <div className="w-8 h-4 rounded-full bg-paper3 peer-checked:bg-brass transition-colors after:content-[''] after:absolute after:top-0 after:left-0 after:h-4 after:w-4 after:rounded-full after:bg-ink after:transition-all peer-checked:after:translate-x-full"></div>
-                                        </label>
-                                    </div>
-                                    <div>
-                                        <div className="flex justify-between mb-1">
-                                            <span className="readout">Dim inactive words</span>
-                                            <span className="readout">{Math.round(baseOpacity * 100)}%</span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="30"
-                                            max="100"
-                                            value={Math.round(baseOpacity * 100)}
-                                            onChange={(e) => setBaseOpacity(parseInt(e.target.value) / 100)}
-                                            className="w-full accent-[var(--color-accent)]"
-                                        />
-                                    </div>
+                        ) : useRemotionPreview ? (
+                            <RemotionPreview
+                                videoUrl={videoUrl}
+                                durationInSeconds={durationSec}
+                                subtitles={subtitleConfig}
+                                hook={existingHook || null}
+                            />
+                        ) : (
+                            <>
+                                <video src={videoUrl} className="w-full h-full object-contain opacity-50" muted playsInline />
+                                <div className={`absolute w-full px-8 text-center transition-all duration-300 pointer-events-none flex flex-col items-center justify-center
+                                    ${position === 'top' ? 'top-20' : ''}
+                                    ${position === 'middle' ? 'top-0 bottom-0' : ''}
+                                    ${position === 'bottom' ? 'bottom-20' : ''}
+                                `}>
+                                    <span style={fallbackPreviewStyle}>
+                                        This is how your subtitles<br/>will appear on the video
+                                    </span>
                                 </div>
+                            </>
+                        )}
+                    </div>
+                    <figcaption className="readout">Preview · 9:16</figcaption>
+                </figure>
+
+                {/* Controls */}
+                <div className="space-y-4 min-w-0">
+                    {/* Caption presets (server-side karaoke burn) */}
+                    <Group title="Style">
+                        <div role="group" aria-labelledby={`${uid}-preset`}>
+                            <p id={`${uid}-preset`} className="text-xs font-medium text-ink2 mb-2">Preset</p>
+                            <div className="grid grid-cols-3 gap-1.5">
+                                {CAPTION_PRESETS.map((p) => {
+                                    const active = activePreset === p.id;
+                                    return (
+                                        <button
+                                            key={p.id}
+                                            type="button"
+                                            onClick={() => applyPreset(p)}
+                                            aria-pressed={active}
+                                            className={`min-h-[36px] [@media(pointer:coarse)]:min-h-[44px] px-2 py-1.5 rounded-input border text-xs flex items-center gap-1.5 justify-center transition-colors duration-200
+                                                ${active
+                                                    ? 'border-ink bg-ink text-paper2 font-semibold'
+                                                    : 'border-rule2 bg-paper2 text-ink2 hover:text-ink hover:border-ink'}`}
+                                        >
+                                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: p.highlightColor }} aria-hidden="true" />
+                                            <span className="truncate">{p.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        {style === 'karaoke' && (
+                            <div className="pt-4 border-t border-rule space-y-4 animate-fade">
+                                <Switch
+                                    label="Uppercase"
+                                    checked={uppercase}
+                                    onChange={(e) => setUppercase(e.target.checked)}
+                                />
+                                <Slider
+                                    label="Dim inactive words"
+                                    valueText={`${Math.round(baseOpacity * 100)}%`}
+                                    min="30"
+                                    max="100"
+                                    value={Math.round(baseOpacity * 100)}
+                                    onChange={(e) => setBaseOpacity(parseInt(e.target.value) / 100)}
+                                />
+                            </div>
+                        )}
+                    </Group>
+
+                    {/* Your own saved caption styles — edit one, mark it
+                        default, and every clip's editor (including a
+                        brand new generation) opens with it pre-loaded. */}
+                    <Group title="Saved styles">
+                        <div>
+                            <label htmlFor={`${uid}-profile`} className="block text-xs font-medium text-ink2 mb-2">Caption style profile</label>
+                            <select
+                                id={`${uid}-profile`}
+                                value={activeSubtitleProfileId}
+                                onChange={(e) => applySubtitleProfile(e.target.value)}
+                                aria-describedby={`${uid}-profile-hint`}
+                                className="input-field"
+                            >
+                                {subtitleProfileStore.profiles.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                        {p.name}{p.id === subtitleProfileStore.defaultId ? ' (default)' : ''}
+                                    </option>
+                                ))}
+                            </select>
+                            <p id={`${uid}-profile-hint`} className="mt-2 text-xs text-muted leading-relaxed">
+                                The default style opens automatically every time you edit captions.
+                            </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                            <button type="button" onClick={handleUpdateSubtitleProfile} className="btn-ghost !px-2.5 !py-2 text-xs" title="Save the style below into this profile">
+                                <Save size={14} aria-hidden="true" /> Update
+                            </button>
+                            <button type="button" onClick={handleSaveNewSubtitleProfile} className="btn-ghost !px-2.5 !py-2 text-xs" title="Save the style below as a new profile">
+                                <Plus size={14} aria-hidden="true" /> Save as new
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSetDefaultSubtitleProfile}
+                                disabled={isDefaultProfile}
+                                className="btn-ghost !px-2.5 !py-2 text-xs"
+                                title="Use this style automatically every time the editor opens"
+                            >
+                                <Star size={14} className={isDefaultProfile ? 'fill-current' : ''} aria-hidden="true" />
+                                {isDefaultProfile ? 'Default' : 'Make default'}
+                            </button>
+                            {subtitleProfileStore.profiles.length > 1 && (
+                                <button type="button" onClick={handleDeleteSubtitleProfile} className="btn-danger !px-2.5 !py-2 text-xs" title="Delete this profile">
+                                    <Trash2 size={14} aria-hidden="true" /> Delete
+                                </button>
                             )}
                         </div>
+                    </Group>
 
-                        {/* Your own saved caption styles — edit one, mark it
-                            default, and every clip's editor (including a
-                            brand new generation) opens with it pre-loaded. */}
-                        <div>
-                            <p className="eyebrow mb-2">My Profiles</p>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <select
-                                    value={activeSubtitleProfileId}
-                                    onChange={(e) => applySubtitleProfile(e.target.value)}
-                                    className="input-field !w-auto text-xs py-1.5 flex-1 min-w-[100px]"
-                                    aria-label="caption style profile"
-                                >
-                                    {subtitleProfileStore.profiles.map((p) => (
-                                        <option key={p.id} value={p.id}>
-                                            {p.name}{p.id === subtitleProfileStore.defaultId ? ' (default)' : ''}
-                                        </option>
-                                    ))}
-                                </select>
-                                <button type="button" onClick={handleUpdateSubtitleProfile} className="btn-ghost px-2 py-1.5 text-xs shrink-0" title="Save the style below into this profile">
-                                    <Save size={13} />
-                                </button>
-                                <button type="button" onClick={handleSaveNewSubtitleProfile} className="btn-ghost px-2 py-1.5 text-xs shrink-0" title="Save the style below as a new profile">
-                                    <Plus size={13} />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleSetDefaultSubtitleProfile}
-                                    disabled={activeSubtitleProfileId === subtitleProfileStore.defaultId}
-                                    className="btn-ghost px-2 py-1.5 text-xs shrink-0 disabled:opacity-40"
-                                    title="Use this style automatically every time the editor opens"
-                                >
-                                    <Star size={13} className={activeSubtitleProfileId === subtitleProfileStore.defaultId ? 'fill-current text-brass' : ''} />
-                                </button>
-                                {subtitleProfileStore.profiles.length > 1 && (
-                                    <button type="button" onClick={handleDeleteSubtitleProfile} className="btn-ghost px-2 py-1.5 text-xs shrink-0 text-danger" title="Delete this profile">
-                                        <Trash2 size={13} />
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
+                    <Group title="Position and motion">
                         {/* Position — a slider instead of top/middle/bottom
                             presets, so it can be pinned exactly where wanted. */}
-                        <div>
-                            <div className="flex justify-between mb-1">
-                                <p className="eyebrow">Position</p>
-                                <span className="readout">{position}% from bottom</span>
-                            </div>
-                            <input
-                                type="range"
-                                min="0"
-                                max="92"
-                                value={position}
-                                onChange={(e) => setPosition(parseInt(e.target.value, 10))}
-                                className="w-full accent-[var(--color-accent)]"
-                            />
-                            <div className="flex justify-between">
-                                <span className="readout">bottom</span>
-                                <span className="readout">top</span>
-                            </div>
-                        </div>
+                        <Slider
+                            label="Height"
+                            valueText={`${position}% from bottom`}
+                            min="0"
+                            max="92"
+                            value={position}
+                            onChange={(e) => setPosition(parseInt(e.target.value, 10))}
+                            minLabel="Bottom"
+                            maxLabel="Top"
+                        />
 
                         {/* Animation Style — this drives BOTH the live preview
                             (`animation`) and the real server-side burn
                             (`style`/`effect`); they used to be unsynced, so
                             picking "Karaoke" here still shipped whatever
                             `effect` a preset had last set (usually "pop"). */}
-                        <div>
-                            <p className="eyebrow mb-2">Animation</p>
+                        <div role="group" aria-labelledby={`${uid}-anim`}>
+                            <p id={`${uid}-anim`} className="text-xs font-medium text-ink2 mb-2">Animation</p>
                             <SegmentedControl
                                 options={ANIMATION_OPTIONS}
                                 value={animation}
@@ -589,75 +637,18 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
                                         );
                                     }
                                 }}
-                                columns={2}
+                                columns={3}
                                 size="sm"
                             />
                         </div>
+                    </Group>
 
-                        {/* Translate captions: text only, voice stays original */}
-                        {useRemotionPreview && (
-                            <div>
-                                <p className="eyebrow mb-2">Translate captions</p>
-                                <div className="flex gap-2">
-                                    <select
-                                        value={translateLang}
-                                        onChange={(e) => setTranslateLang(e.target.value)}
-                                        className="input-field flex-1 appearance-none cursor-pointer"
-                                        disabled={translating}
-                                    >
-                                        <option value="">choose a language...</option>
-                                        {Object.entries(LANGUAGES).sort((a, b) => a[1].localeCompare(b[1])).map(([code, name]) => (
-                                            <option key={code} value={code}>{name}</option>
-                                        ))}
-                                    </select>
-                                    <button
-                                        onClick={handleTranslate}
-                                        disabled={!translateLang || translating}
-                                        className="btn-ghost px-3 shrink-0 disabled:opacity-40"
-                                        title="translate the caption text only — the voice stays as-is"
-                                    >
-                                        {translating ? <Loader2 size={16} className="animate-spin" /> : <Languages size={16} />}
-                                    </button>
-                                </div>
-                                {translateError && (
-                                    <p className="text-danger text-xs mt-1.5 flex items-center gap-1">
-                                        <AlertCircle size={12} /> {translateError}
-                                    </p>
-                                )}
-                                <p className="text-xs text-muted mt-1.5">
-                                    Translates the text only — the spoken voice is unaffected. For dubbing the voice
-                                    itself, use "dub voice" instead.
-                                </p>
-                            </div>
-                        )}
-
-                        {/* Editable Transcript (collapsible) */}
-                        {useRemotionPreview && (
-                            <div>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowTextEditor(!showTextEditor)}
-                                    className="w-full flex items-center justify-between mb-2"
-                                >
-                                    <span className="eyebrow">Edit text ({captions.length} words)</span>
-                                    <span className={`text-muted transition-transform ${showTextEditor ? 'rotate-180' : ''}`}>▾</span>
-                                </button>
-                                {showTextEditor && (
-                                    <textarea
-                                        value={editableText}
-                                        onChange={(e) => handleTextEdit(e.target.value)}
-                                        rows={5}
-                                        className="input-field resize-none leading-relaxed animate-fade"
-                                        placeholder="Edit subtitle text..."
-                                    />
-                                )}
-                            </div>
-                        )}
-
+                    <Group title="Type">
                         {/* Font Family */}
                         <div>
-                            <p className="eyebrow mb-2">Font</p>
+                            <label htmlFor={`${uid}-font`} className="block text-xs font-medium text-ink2 mb-2">Font</label>
                             <select
+                                id={`${uid}-font`}
                                 value={fontName}
                                 onChange={(e) => setFontName(e.target.value)}
                                 className="input-field"
@@ -668,220 +659,321 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
                             </select>
                         </div>
 
-                        {/* Text Size */}
-                        <div>
-                            <div className="flex justify-between mb-1">
-                                <p className="eyebrow">Text Size</p>
-                                <span className="readout">{fontSize}px</span>
-                            </div>
-                            <input
-                                type="range"
-                                min="20"
-                                max="80"
-                                value={fontSize}
-                                onChange={(e) => setFontSize(parseInt(e.target.value, 10))}
-                                className="w-full accent-[var(--color-accent)]"
-                            />
-                        </div>
+                        <Slider
+                            label="Size"
+                            valueText={`${fontSize}px`}
+                            min="20"
+                            max="80"
+                            value={fontSize}
+                            onChange={(e) => setFontSize(parseInt(e.target.value, 10))}
+                        />
 
-                        {/* Letter Spacing */}
-                        <div>
-                            <div className="flex justify-between mb-1">
-                                <p className="eyebrow">Letter Spacing</p>
-                                <span className="readout">{letterSpacing}px</span>
-                            </div>
-                            <input
-                                type="range"
-                                min="-3"
-                                max="15"
-                                value={letterSpacing}
-                                onChange={(e) => setLetterSpacing(parseInt(e.target.value, 10))}
-                                className="w-full accent-[var(--color-accent)]"
-                            />
-                        </div>
+                        <Slider
+                            label="Letter spacing"
+                            valueText={`${letterSpacing}px`}
+                            min="-3"
+                            max="15"
+                            value={letterSpacing}
+                            onChange={(e) => setLetterSpacing(parseInt(e.target.value, 10))}
+                        />
 
                         {/* Max words per caption block — breaks a block early
                             regardless of character count when set. */}
-                        <div>
-                            <div className="flex justify-between mb-1">
-                                <p className="eyebrow">Max Words</p>
-                                <span className="readout">{maxWords ? maxWords : 'unlimited'}</span>
-                            </div>
-                            <input
-                                type="range"
-                                min="0"
-                                max="8"
-                                value={maxWords ?? 0}
-                                onChange={(e) => {
-                                    const v = parseInt(e.target.value, 10);
-                                    setMaxWords(v === 0 ? null : v);
-                                }}
-                                className="w-full accent-[var(--color-accent)]"
-                            />
-                            <div className="flex justify-between">
-                                <span className="readout">unlimited</span>
-                                <span className="readout">8 words</span>
-                            </div>
-                        </div>
+                        <Slider
+                            label="Max words per caption"
+                            valueText={maxWords ? `${maxWords} words` : 'Unlimited'}
+                            min="0"
+                            max="8"
+                            value={maxWords ?? 0}
+                            onChange={(e) => {
+                                const v = parseInt(e.target.value, 10);
+                                setMaxWords(v === 0 ? null : v);
+                            }}
+                            minLabel="Unlimited"
+                            maxLabel="8 words"
+                        />
+                    </Group>
 
+                    <Group title="Color">
                         {/* Text Color */}
-                        <div>
-                            <p className="eyebrow mb-2">Text color</p>
-                            <div className="flex flex-wrap items-center gap-2.5">
+                        <div role="group" aria-labelledby={`${uid}-color`}>
+                            <p id={`${uid}-color`} className="text-xs font-medium text-ink2 mb-1">Text</p>
+                            <div className="flex flex-wrap items-center gap-0.5 -ml-1.5">
                                 {COLOR_PRESETS.map((c) => (
-                                    <button
+                                    <Swatch
                                         key={c.color}
+                                        color={c.color}
+                                        label={c.label}
+                                        selected={fontColor === c.color}
                                         onClick={() => setFontColor(c.color)}
-                                        className={swatchClass(fontColor === c.color)}
-                                        style={{ backgroundColor: c.color }}
-                                        title={c.label}
                                     />
                                 ))}
-                                <label className="w-6 h-6 rounded-full border border-dashed border-rule2 cursor-pointer flex items-center justify-center hover:border-brass transition-colors overflow-hidden relative" title="Custom color">
-                                    <span className="text-xs text-muted leading-none">+</span>
+                                <label
+                                    className="relative grid place-items-center w-9 h-9 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:h-11 rounded-input cursor-pointer hover:bg-paper2 focus-within:outline focus-within:outline-2 focus-within:outline-[color:var(--color-focus)] transition-colors"
+                                    title="Custom color"
+                                >
+                                    <span
+                                        aria-hidden="true"
+                                        className={`grid place-items-center w-6 h-6 rounded-full border border-dashed border-ink2 text-ink2 ${
+                                            COLOR_PRESETS.some((c) => c.color === fontColor) ? '' : 'ring-2 ring-ink ring-offset-2 ring-offset-paper3'}`}
+                                        style={COLOR_PRESETS.some((c) => c.color === fontColor) ? undefined : { backgroundColor: fontColor }}
+                                    >
+                                        {COLOR_PRESETS.some((c) => c.color === fontColor) && <Plus size={12} />}
+                                    </span>
+                                    <span className="sr-only">Custom text color</span>
                                     <input type="color" value={fontColor} onChange={(e) => setFontColor(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
                                 </label>
                             </div>
                         </div>
 
                         {/* Highlight Color (new) */}
-                        <div>
-                            <p className="eyebrow mb-2">Highlight</p>
-                            <div className="flex flex-wrap items-center gap-2.5">
+                        <div role="group" aria-labelledby={`${uid}-highlight`}>
+                            <p id={`${uid}-highlight`} className="text-xs font-medium text-ink2 mb-1">Highlighted word</p>
+                            <div className="flex flex-wrap items-center gap-0.5 -ml-1.5">
                                 {HIGHLIGHT_PRESETS.map((c) => (
-                                    <button
+                                    <Swatch
                                         key={c.color}
+                                        color={c.color}
+                                        label={c.label}
+                                        selected={highlightColor === c.color}
                                         onClick={() => setHighlightColor(c.color)}
-                                        className={swatchClass(highlightColor === c.color)}
-                                        style={{ backgroundColor: c.color }}
-                                        title={c.label}
                                     />
                                 ))}
                             </div>
                         </div>
 
                         {/* Border / Outline */}
-                        <div>
-                            <p className="eyebrow mb-2">Border</p>
-                            <div className="flex items-center gap-3">
-                                <label className="relative w-8 h-8 rounded-input border border-rule2 cursor-pointer overflow-hidden shrink-0" title="Border color">
-                                    <div className="w-full h-full" style={{ backgroundColor: borderColor }} />
-                                    <input type="color" value={borderColor} onChange={(e) => setBorderColor(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
-                                </label>
-                                <div className="flex-1">
-                                    <input
-                                        type="range"
-                                        min="0"
-                                        max="5"
-                                        value={borderWidth}
-                                        onChange={(e) => setBorderWidth(parseInt(e.target.value))}
-                                        className="w-full accent-[var(--color-accent)]"
-                                    />
-                                    <div className="flex justify-between">
-                                        <span className="readout">None</span>
-                                        <span className="readout">Thick</span>
-                                    </div>
-                                </div>
-                            </div>
+                        <div className="pt-4 border-t border-rule space-y-3">
+                            <ColorWell
+                                label="Outline"
+                                value={borderColor}
+                                onChange={(e) => setBorderColor(e.target.value)}
+                            />
+                            <Slider
+                                label="Outline width"
+                                valueText={borderWidth > 0 ? `${borderWidth} of 5` : 'None'}
+                                min="0"
+                                max="5"
+                                value={borderWidth}
+                                onChange={(e) => setBorderWidth(parseInt(e.target.value))}
+                                minLabel="None"
+                                maxLabel="Thick"
+                            />
                         </div>
 
                         {/* Background Box */}
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <p className="eyebrow">Background</p>
-                                <label className="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" checked={bgOpacity > 0} onChange={(e) => setBgOpacity(e.target.checked ? 0.5 : 0)} className="sr-only peer" />
-                                    <div className="w-8 h-4 rounded-full bg-paper3 peer-checked:bg-brass transition-colors after:content-[''] after:absolute after:top-0 after:left-0 after:h-4 after:w-4 after:rounded-full after:bg-ink after:transition-all peer-checked:after:translate-x-full"></div>
-                                </label>
-                            </div>
+                        <div className="pt-4 border-t border-rule space-y-3">
+                            <Switch
+                                label="Background box"
+                                checked={bgOpacity > 0}
+                                onChange={(e) => setBgOpacity(e.target.checked ? 0.5 : 0)}
+                            />
                             {bgOpacity > 0 && (
                                 <div className="space-y-3 animate-fade">
-                                    <div className="flex items-center gap-3">
-                                        <label className="relative w-8 h-8 rounded-input border border-rule2 cursor-pointer overflow-hidden shrink-0" title="Background color">
-                                            <div className="w-full h-full" style={{ backgroundColor: bgColor }} />
-                                            <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
-                                        </label>
-                                        <div className="flex-1">
-                                            <input
-                                                type="range"
-                                                min="10"
-                                                max="100"
-                                                value={Math.round(bgOpacity * 100)}
-                                                onChange={(e) => setBgOpacity(parseInt(e.target.value) / 100)}
-                                                className="w-full accent-[var(--color-accent)]"
-                                            />
-                                            <div className="flex justify-between">
-                                                <span className="readout">Transparent</span>
-                                                <span className="readout">{Math.round(bgOpacity * 100)}%</span>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <ColorWell
+                                        label="Box"
+                                        value={bgColor}
+                                        onChange={(e) => setBgColor(e.target.value)}
+                                    />
+                                    <Slider
+                                        label="Box opacity"
+                                        valueText={`${Math.round(bgOpacity * 100)}%`}
+                                        min="10"
+                                        max="100"
+                                        value={Math.round(bgOpacity * 100)}
+                                        onChange={(e) => setBgOpacity(parseInt(e.target.value) / 100)}
+                                        minLabel="Transparent"
+                                        maxLabel="Solid"
+                                    />
                                 </div>
                             )}
                         </div>
-                    </div>
+                    </Group>
 
-                    <div className="mt-5 shrink-0 space-y-2">
-                        {(() => {
-                            // Text edits must survive the server render path too
-                            // (issue #69): send the edited words whenever the text
-                            // differs from what the transcript produced.
-                            const textEdited = originalCaptions.length > 0
-                                && editableText.trim() !== originalCaptions.map((c) => c.text).join(' ').trim();
-                            const styleOptions = {
-                                position, positionPercent: position, fontSize, fontName, fontColor, borderColor, borderWidth, bgColor, bgOpacity,
-                                maxChars, maxDuration, letterSpacing, maxWords,
-                                // Karaoke burn (server-side ASS render)
-                                style, effect, baseOpacity, uppercase, highlightColor,
-                                // Remotion data
-                                remotion: useRemotionPreview ? subtitleConfig : null,
-                                captions: textEdited ? captions : null,
-                            };
-                            const bulkRunning = bulkProgress?.running;
-                            return (
-                                <>
-                                    <div className="flex gap-2">
-                                        <button onClick={onClose} className="btn-ghost">
-                                            cancel
-                                        </button>
-                                        <button
-                                            onClick={() => onGenerate(styleOptions)}
-                                            disabled={isProcessing}
-                                            className="btn-primary flex-1"
-                                        >
-                                            {(isProcessing && !bulkRunning) && <Loader2 size={16} className="animate-spin text-brassink" />}
-                                            {(isProcessing && !bulkRunning) ? 'generating...' : 'apply to this clip'}
-                                        </button>
-                                    </div>
-                                    {onApplyAll && bulkCount > 1 && (
-                                        <button
-                                            onClick={() => onApplyAll({ ...styleOptions, captions: null })}
-                                            disabled={isProcessing}
-                                            className="btn-ghost w-full flex items-center justify-center gap-2"
-                                        >
-                                            {bulkRunning
-                                                ? <><Loader2 size={16} className="animate-spin" />applying to all… {bulkProgress.current}/{bulkProgress.total}</>
-                                                : `apply this style to all ${bulkCount} clips`}
-                                        </button>
+                    {useRemotionPreview && (
+                        <Group title="Words">
+                            {/* Translate captions: text only, voice stays original */}
+                            <div>
+                                <label htmlFor={`${uid}-lang`} className="block text-xs font-medium text-ink2 mb-2">Translate captions to</label>
+                                <div className="flex gap-2">
+                                    <select
+                                        id={`${uid}-lang`}
+                                        value={translateLang}
+                                        onChange={(e) => setTranslateLang(e.target.value)}
+                                        className="input-field flex-1 min-w-0 cursor-pointer"
+                                        disabled={translating}
+                                        aria-describedby={`${uid}-lang-hint`}
+                                    >
+                                        <option value="">Choose a language…</option>
+                                        {Object.entries(LANGUAGES).sort((a, b) => a[1].localeCompare(b[1])).map(([code, name]) => (
+                                            <option key={code} value={code}>{name}</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={handleTranslate}
+                                        disabled={!translateLang || translating}
+                                        className="btn-ghost shrink-0 !px-3"
+                                        title="Translate the caption text only — the voice stays as-is"
+                                    >
+                                        {translating ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Languages size={16} aria-hidden="true" />}
+                                        {translating ? 'Translating…' : 'Translate'}
+                                    </button>
+                                </div>
+                                <p className="sr-only" aria-live="polite">{translating ? 'Translating the captions…' : ''}</p>
+                                {translateError && (
+                                    <p role="alert" className="text-danger text-xs mt-2 flex items-start gap-1.5">
+                                        <AlertCircle size={14} className="shrink-0 mt-px" aria-hidden="true" /> {translateError}
+                                    </p>
+                                )}
+                                <p id={`${uid}-lang-hint`} className="text-xs text-muted mt-2 leading-relaxed">
+                                    Translates the text only — the spoken voice is unaffected. To dub the voice
+                                    itself, use “Dub voice” instead.
+                                </p>
+                            </div>
+
+                            {/* Editable Transcript (collapsible) */}
+                            <div className="pt-3 border-t border-rule">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowTextEditor(!showTextEditor)}
+                                    aria-expanded={showTextEditor}
+                                    aria-controls={`${uid}-words`}
+                                    className="w-full flex items-center justify-between gap-3 min-h-[36px] [@media(pointer:coarse)]:min-h-[44px] text-left rounded-input"
+                                >
+                                    <span className="text-xs font-medium text-ink">Edit the words</span>
+                                    <span className="flex items-center gap-2">
+                                        <span className="font-mono text-[11px] text-muted tabular-nums">{captions.length} words</span>
+                                        <ChevronDown size={16} className={`text-muted transition-transform duration-200 ${showTextEditor ? 'rotate-180' : ''}`} aria-hidden="true" />
+                                    </span>
+                                </button>
+                                <div id={`${uid}-words`}>
+                                    {showTextEditor && (
+                                        <>
+                                            <label htmlFor={`${uid}-words-text`} className="sr-only">Caption text</label>
+                                            <textarea
+                                                id={`${uid}-words-text`}
+                                                value={editableText}
+                                                onChange={(e) => handleTextEdit(e.target.value)}
+                                                rows={5}
+                                                className="input-field mt-2 resize-none leading-relaxed animate-fade"
+                                                placeholder="Edit subtitle text..."
+                                            />
+                                        </>
                                     )}
-                                    {/* Clips ship captioned by default, so the way
-                                        out has to be here — otherwise a user who
-                                        doesn't want captions is stuck with them. */}
-                                    {onRemove && (
-                                        <button
-                                            onClick={onRemove}
-                                            disabled={isProcessing}
-                                            className="text-xs text-muted underline underline-offset-2 lowercase hover:text-ink2 disabled:opacity-50"
-                                        >
-                                            remove captions from this clip
-                                        </button>
-                                    )}
-                                </>
-                            );
-                        })()}
-                    </div>
+                                </div>
+                            </div>
+                        </Group>
+                    )}
+
+                    {/* Clips ship captioned by default, so the way
+                        out has to be here — otherwise a user who
+                        doesn't want captions is stuck with them. */}
+                    {onRemove && (
+                        <section aria-labelledby={`${uid}-remove`} className="rounded-card border border-rule2 p-4 space-y-3">
+                            <h3 id={`${uid}-remove`} className="font-display text-sm text-ink">No captions</h3>
+                            <p className="text-xs text-muted leading-relaxed">Clips come captioned by default. Take them off this clip if you don't want them.</p>
+                            <button
+                                type="button"
+                                onClick={onRemove}
+                                disabled={isProcessing}
+                                className="btn-danger"
+                            >
+                                <Trash2 size={14} aria-hidden="true" />
+                                Remove captions from this clip
+                            </button>
+                        </section>
+                    )}
                 </div>
             </div>
         </Modal>
+    );
+}
+
+// A group of controls in a sunken well, named by an h3.
+function Group({ title, children }) {
+    const id = useId();
+    return (
+        <section aria-labelledby={id} className="tray p-4 space-y-4">
+            <h3 id={id} className="font-display text-sm text-ink">{title}</h3>
+            {children}
+        </section>
+    );
+}
+
+// A labelled range input with its value read out in mono beside the label.
+function Slider({ label, valueText, minLabel, maxLabel, ...input }) {
+    const id = useId();
+    return (
+        <div>
+            <div className="flex items-baseline justify-between gap-3 mb-1">
+                <label htmlFor={id} className="text-xs font-medium text-ink2">{label}</label>
+                <output htmlFor={id} className="font-mono text-xs text-ink tabular-nums">{valueText}</output>
+            </div>
+            <input id={id} type="range" aria-valuetext={valueText} className="w-full h-7 cursor-pointer accent-ink" {...input} />
+            {(minLabel || maxLabel) && (
+                <div className="flex justify-between font-mono text-[11px] text-muted" aria-hidden="true">
+                    <span>{minLabel}</span>
+                    <span>{maxLabel}</span>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// An on/off switch: a real checkbox (keyboard, screen readers) drawn as a slide.
+function Switch({ label, checked, onChange }) {
+    return (
+        <label className="flex items-center justify-between gap-4 min-h-[36px] [@media(pointer:coarse)]:min-h-[44px] cursor-pointer">
+            <span className="text-xs font-medium text-ink2">{label}</span>
+            <span className="flex items-center gap-2 shrink-0">
+                <span className="font-mono text-[11px] text-muted w-6 text-right" aria-hidden="true">{checked ? 'On' : 'Off'}</span>
+                <input type="checkbox" role="switch" checked={checked} onChange={onChange} className="peer sr-only" />
+                <span
+                    aria-hidden="true"
+                    className="relative w-10 h-6 rounded-[6px] border border-rule2 bg-paper2 transition-colors duration-200
+                        peer-checked:bg-ink peer-checked:border-ink
+                        peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[color:var(--color-focus)]
+                        after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:w-4 after:h-4 after:rounded-[4px] after:bg-ink2
+                        after:transition-transform after:duration-200 peer-checked:after:translate-x-4 peer-checked:after:bg-paper2"
+                />
+            </span>
+        </label>
+    );
+}
+
+// One preset colour of the caption itself (the value is burned into the video).
+function Swatch({ color, label, selected, onClick }) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            aria-pressed={selected}
+            aria-label={label}
+            title={label}
+            className="grid place-items-center w-9 h-9 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:h-11 rounded-input hover:bg-paper2 transition-colors"
+        >
+            <span
+                aria-hidden="true"
+                className={`block w-6 h-6 rounded-full border border-rule2 ${selected ? 'ring-2 ring-ink ring-offset-2 ring-offset-paper3' : ''}`}
+                style={{ backgroundColor: color }}
+            />
+        </button>
+    );
+}
+
+// A colour picker shown as a labelled well with its hex value.
+function ColorWell({ label, value, onChange }) {
+    return (
+        <label className="relative flex items-center gap-3 cursor-pointer rounded-input focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[color:var(--color-focus)]">
+            <span
+                aria-hidden="true"
+                className="w-9 h-9 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:h-11 rounded-input border border-rule2 shrink-0"
+                style={{ backgroundColor: value }}
+            />
+            <span className="text-xs font-medium text-ink2">{label} color</span>
+            <span className="ml-auto font-mono text-[11px] text-muted" aria-hidden="true">{value}</span>
+            <input type="color" value={value} onChange={onChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+        </label>
     );
 }

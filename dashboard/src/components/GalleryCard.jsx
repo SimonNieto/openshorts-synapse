@@ -65,13 +65,16 @@ export default function GalleryCard({ clip }) {
         }
     };
 
+    const caption = clip.tiktok_desc || clip.insta_desc;
+
     return (
-        <div
+        <article
             ref={cardRef}
-            className="card card-hover overflow-hidden flex flex-col group animate-fade"
+            aria-label={clip.title}
+            className="card card-hover w-full overflow-hidden flex flex-col animate-fade"
         >
-            {/* Video Player - Lazy loaded */}
-            <div className="aspect-[9/16] bg-black relative group/video">
+            {/* The plate: the clip on black, lazy loaded. */}
+            <div className="aspect-[9/16] bg-black border-b border-rule2 relative">
                 {isVisible ? (
                     <video
                         ref={videoRef}
@@ -80,72 +83,77 @@ export default function GalleryCard({ clip }) {
                         className="w-full h-full object-cover"
                         playsInline
                         preload="metadata"
+                        aria-label={clip.title}
                         onLoadedData={() => setHasLoaded(true)}
                     />
                 ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-paper">
-                        <div className="w-12 h-12 rounded-full bg-paper3 flex items-center justify-center">
-                            <Play size={24} className="text-muted ml-1" />
-                        </div>
+                    <div className="w-full h-full flex items-center justify-center" aria-hidden="true">
+                        <span className="w-12 h-12 rounded-full border border-rule2 flex items-center justify-center">
+                            <Play size={20} className="text-muted ml-0.5" />
+                        </span>
                     </div>
                 )}
-                <div className="absolute top-2 left-2">
-                    <span className="readout bg-black/70 px-2 py-1 rounded-full">
-                        {new Date(clip.created_at).toLocaleDateString()}
-                    </span>
-                </div>
             </div>
 
             {/* Content & Details */}
-            <div className="flex-1 p-4 flex flex-col min-w-0">
-                <div className="mb-3">
-                    <h3 className="text-sm font-semibold text-ink leading-tight line-clamp-2 mb-2 break-words" title={clip.title}>
+            <div className="flex-1 p-4 flex flex-col gap-4 min-w-0">
+                <div>
+                    <h3 className="font-display text-base text-ink leading-snug line-clamp-2 break-words" title={clip.title}>
                         {clip.title}
                     </h3>
-                    <div className="flex flex-wrap gap-2">
-                        <span className="readout bg-paper3 px-1.5 py-0.5 rounded-full">{clip.duration.toFixed(1)}s</span>
-                        <span className="readout bg-paper3 px-1.5 py-0.5 rounded-full truncate max-w-[150px]" title={clip.job_id}>ID: {clip.job_id.substring(0, 8)}</span>
-                    </div>
+                    <p className="readout mt-1.5 flex flex-wrap gap-x-2 gap-y-1">
+                        <span>{new Date(clip.created_at).toLocaleDateString()}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{clip.duration.toFixed(1)}s</span>
+                        <span aria-hidden="true">·</span>
+                        <span className="truncate max-w-[150px]" title={clip.job_id}>ID {clip.job_id.substring(0, 8)}</span>
+                    </p>
                 </div>
 
-                <div className="space-y-2 flex-1 overflow-y-auto custom-scrollbar max-h-[150px] pr-1 mb-3">
+                <div className="space-y-3 flex-1 overflow-y-auto custom-scrollbar max-h-[180px] pr-1">
                     {/* YouTube Title */}
-                    <div className="bg-paper rounded-input p-2 relative group/item">
-                        <p className="eyebrow mb-1">YouTube Title</p>
-                        <p className="text-xs text-ink2 select-all line-clamp-2 hover:line-clamp-none transition-all">{clip.title}</p>
-                        <button
-                            onClick={() => handleCopy(clip.title, 'yt')}
-                            className="absolute top-2 right-2 p-1 text-muted hover:text-brass transition-colors opacity-0 group-hover/item:opacity-100"
-                            title="Copy Title"
-                        >
-                            {copied === 'yt' ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
-                        </button>
+                    <div className="tray p-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <p className="readout">YouTube title</p>
+                            <button
+                                type="button"
+                                onClick={() => handleCopy(clip.title, 'yt')}
+                                aria-label={copied === 'yt' ? 'YouTube title copied' : 'Copy YouTube title'}
+                                className="-m-1.5 p-1.5 rounded-input text-muted hover:text-ink transition-colors [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px] inline-flex items-center justify-center"
+                            >
+                                {copied === 'yt' ? <Check size={14} className="text-ok" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                            </button>
+                        </div>
+                        <p className="text-xs text-ink2 mt-1 select-all line-clamp-2 hover:line-clamp-none break-words">{clip.title}</p>
                     </div>
 
                     {/* TikTok / IG Caption */}
-                    <div className="bg-paper rounded-input p-2 relative group/item">
-                        <p className="eyebrow mb-1">TikTok · IG Caption</p>
-                        <p className="text-xs text-ink2 select-all line-clamp-3 hover:line-clamp-none transition-all cursor-pointer">
-                            {clip.tiktok_desc || clip.insta_desc}
-                        </p>
-                        <button
-                            onClick={() => handleCopy(clip.tiktok_desc || clip.insta_desc, 'caption')}
-                            className="absolute top-2 right-2 p-1 text-muted hover:text-brass transition-colors opacity-0 group-hover/item:opacity-100"
-                            title="Copy Caption"
-                        >
-                            {copied === 'caption' ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
-                        </button>
+                    <div className="tray p-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <p className="readout">TikTok · Instagram caption</p>
+                            <button
+                                type="button"
+                                onClick={() => handleCopy(clip.tiktok_desc || clip.insta_desc, 'caption')}
+                                aria-label={copied === 'caption' ? 'Caption copied' : 'Copy caption'}
+                                className="-m-1.5 p-1.5 rounded-input text-muted hover:text-ink transition-colors [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px] inline-flex items-center justify-center"
+                            >
+                                {copied === 'caption' ? <Check size={14} className="text-ok" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                            </button>
+                        </div>
+                        <p className="text-xs text-ink2 mt-1 select-all line-clamp-3 hover:line-clamp-none break-words">{caption}</p>
                     </div>
                 </div>
+                <p className="sr-only" aria-live="polite">{copied ? 'Copied to the clipboard' : ''}</p>
 
                 {/* Footer Action */}
                 <button
+                    type="button"
                     onClick={handleDownload}
-                    className="btn-quiet w-full"
+                    className="btn-ghost w-full"
                 >
-                    <Download size={14} className="shrink-0" /> Download Clip
+                    <Download size={14} className="shrink-0" aria-hidden="true" /> Download clip
                 </button>
             </div>
-        </div>
+        </article>
     );
 }

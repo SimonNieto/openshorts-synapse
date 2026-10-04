@@ -5,7 +5,10 @@ import { apiFetch } from '../lib/api';
 import StepIndicator from './ui/StepIndicator';
 import SegmentedControl from './ui/SegmentedControl';
 
-const STEPS = ['Input', 'Titles', 'Generate', 'Description', 'Publish'];
+const STEPS = ['Source', 'Title', 'Thumbnail', 'Description', 'Publish'];
+
+// Small icon buttons grow to the 44px touch floor on coarse pointers (design.md).
+const TOUCH_TARGET = '[@media(pointer:coarse)]:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px]';
 
 function DragDropZone({ label, accept, onFile, file, onClear, icon }) {
   const Icon = icon;
@@ -26,39 +29,47 @@ function DragDropZone({ label, accept, onFile, file, onClear, icon }) {
 
   if (file) {
     return (
-      <div className="relative border border-rule2 rounded-card p-3 bg-paper3">
-        <div className="flex items-center gap-3">
-          {file.type?.startsWith('image/') ? (
-            <img src={URL.createObjectURL(file)} className="w-12 h-12 rounded-input object-cover" alt="" />
-          ) : (
-            <div className="w-12 h-12 rounded-input bg-paper2 border border-rule flex items-center justify-center">
-              <Icon size={18} className="text-muted" />
-            </div>
-          )}
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-ink truncate">{file.name}</p>
-            <p className="readout mt-0.5">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
-          </div>
-          <button onClick={onClear} className="text-muted hover:text-ink transition-colors">
-            <X size={16} />
-          </button>
+      <div className="flex items-center gap-3 rounded-input border border-rule2 bg-paper3 p-2.5">
+        {file.type?.startsWith('image/') ? (
+          <img src={URL.createObjectURL(file)} className="w-12 h-12 rounded-input object-cover bg-black border border-rule2 shrink-0" alt="" />
+        ) : (
+          <span className="w-12 h-12 rounded-input bg-paper2 border border-rule flex items-center justify-center shrink-0" aria-hidden="true">
+            <Icon size={18} className="text-muted" />
+          </span>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-ink truncate">{file.name}</p>
+          <p className="readout mt-0.5">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
         </div>
+        <button
+          type="button"
+          onClick={onClear}
+          aria-label={`Remove ${file.name}`}
+          className={`w-9 h-9 shrink-0 flex items-center justify-center rounded-input text-muted hover:text-ink hover:bg-paper2 transition-colors ${TOUCH_TARGET}`}
+        >
+          <X size={16} aria-hidden="true" />
+        </button>
       </div>
     );
   }
 
   return (
-    <div
-      onClick={() => inputRef.current?.click()}
-      onDrop={handleDrop}
-      onDragOver={handleDragOver}
-      onDragLeave={() => setIsDragging(false)}
-      className={`border-2 border-dashed rounded-card p-6 text-center cursor-pointer transition-colors duration-200 ${isDragging ? 'border-brass bg-paper3' : 'border-rule2 hover:border-brass'
-        }`}
-    >
-      <Icon size={18} className="mx-auto text-muted mb-2" />
-      <p className="text-sm text-ink2 lowercase">{label}</p>
-      <p className="text-xs text-muted mt-1 lowercase">Drop or click to upload</p>
+    <>
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={() => setIsDragging(false)}
+        className={`w-full rounded-input border border-dashed px-4 py-6 text-center transition-colors duration-200 ${isDragging
+          ? 'border-ink bg-paper3'
+          : 'border-rule2 hover:border-ink hover:bg-paper3'
+          }`}
+      >
+        <Icon size={20} className={`mx-auto mb-2 ${isDragging ? 'text-ink' : 'text-muted'}`} aria-hidden="true" />
+        <span className="block text-sm font-medium text-ink">{label}</span>
+        <span className="block text-xs text-muted mt-1">Drop it here or click to browse</span>
+      </button>
       <input
         ref={inputRef}
         type="file"
@@ -66,11 +77,11 @@ function DragDropZone({ label, accept, onFile, file, onClear, icon }) {
         className="hidden"
         onChange={(e) => e.target.files[0] && onFile(e.target.files[0])}
       />
-    </div>
+    </>
   );
 }
 
-export default function ThumbnailStudio({ geminiApiKey, uploadPostKey, uploadUserId, managed = false, onCreateClips = null }) {
+export default function ThumbnailStudio({ geminiApiKey, uploadPostKey, uploadUserId, managed = false, onCreateClips = null, onOpenSettings = null }) {
   // Managed (hosted plan): Gemini runs server-side via the bearer token, no BYOK key.
   // Only send X-Gemini-Key for self-host BYOK. apiFetch attaches the bearer token.
   const keyHeader = geminiApiKey ? { 'X-Gemini-Key': geminiApiKey } : {};
@@ -465,60 +476,108 @@ export default function ThumbnailStudio({ geminiApiKey, uploadPostKey, uploadUse
     setRecommended([]);
   };
 
+  // --- Presentation only (copy + derived status; no state of its own) ---
+  const stepHeads = [
+    {
+      kicker: 'New project',
+      title: 'Start from a video or a title',
+      lede: 'Upload the video to get title ideas drawn from what is said in it, or write your own title and go straight to thumbnails.',
+    },
+    {
+      kicker: 'Title',
+      title: 'Choose the title',
+      lede: mode === 'manual'
+        ? 'Check the title that will sit next to your thumbnail in the feed.'
+        : 'Title ideas drawn from your video. Pick one, or send notes for another round.',
+    },
+    {
+      kicker: 'Thumbnail',
+      title: 'Design the thumbnail',
+      lede: 'Brief the image model, then pick the thumbnail that wins the click.',
+    },
+    {
+      kicker: 'Description',
+      title: 'Write the description',
+      lede: mode === 'video'
+        ? 'Generate a description with chapter timestamps from the transcript, then edit it freely.'
+        : 'Write the description that runs under the video.',
+    },
+    {
+      kicker: 'Publish',
+      title: 'Publish to YouTube',
+      lede: 'A last read of the title, thumbnail and description before the video goes to your channel.',
+    },
+  ];
+  const head = stepHeads[step];
+
+  // One polite announcement for whatever is running right now.
+  const liveStatus = isAnalyzing ? 'Analyzing the video…'
+    : isRefining ? 'Refining titles…'
+      : isGenerating ? 'Generating thumbnails. This may take a minute per thumbnail.'
+        : isDescribing ? 'Writing the description…'
+          : isPublishing ? 'Publishing to YouTube…'
+            : (step === 2 && generatedThumbnails.length > 0) ? `${generatedThumbnails.length} thumbnail${generatedThumbnails.length === 1 ? '' : 's'} ready. Select one to continue.`
+              : (step === 4 && publishResult?.success) ? 'Published successfully.'
+                : '';
+
   return (
-    <div className="h-full overflow-y-auto custom-scrollbar p-4 sm:p-6 md:p-8 animate-fade">
-      <div className="max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="flex items-end justify-between mb-2">
-          <div>
-            <p className="eyebrow mb-2">05 · YOUTUBE STUDIO</p>
-            <h1 className="font-display lowercase text-2xl text-ink flex items-center gap-3">
-              <span className="w-10 h-10 rounded-card bg-paper3 flex items-center justify-center">
-                <Image size={18} className="text-brass" />
-              </span>
-              YouTube Studio
-            </h1>
+    <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
+      <div className="max-w-6xl mx-auto p-4 sm:p-8 space-y-8">
+        <p className="sr-only" aria-live="polite">{liveStatus}</p>
+
+        {/* Masthead: the step's headline, what it is for, and a way out */}
+        <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+          <div className="min-w-0">
+            <p className="eyebrow mb-2">{head.kicker}</p>
+            <h2 className="page-title">{head.title}</h2>
+            <p className="page-lede mt-2">{head.lede}</p>
           </div>
           {step > 0 && (
-            <button onClick={handleReset} className="text-xs lowercase text-muted hover:text-ink transition-colors flex items-center gap-1">
-              <Plus size={12} /> New Project
+            <button type="button" onClick={handleReset} className="btn-quiet self-start sm:self-end shrink-0">
+              <Plus size={14} aria-hidden="true" />
+              New project
             </button>
           )}
-        </div>
-        <p className="text-sm lowercase text-muted mb-6">Generate viral titles, AI thumbnails, descriptions and publish directly to YouTube</p>
+        </header>
 
-        <div className="mb-8">
+        <div className="border-y border-rule py-4">
           <StepIndicator steps={STEPS} current={step} />
         </div>
 
         {/* Gemini API Key Warning (self-host BYOK only; managed uses server key) */}
         {needsKey && (
-          <div className="mb-6 p-5 bg-warn/10 rounded-card flex items-start gap-3">
-            <AlertCircle size={18} className="text-warn shrink-0 mt-0.5" />
+          <div className="flex items-start gap-3 rounded-card border border-warn/40 bg-warn/10 p-4 sm:p-5">
+            <AlertCircle size={18} className="text-warn shrink-0 mt-0.5" aria-hidden="true" />
             <div>
-              <p className="text-sm font-medium text-warn lowercase">Gemini API Key Required</p>
-              <p className="text-xs text-muted mt-1">YouTube Studio requires a Google Gemini API key to function. Please configure it in the <strong>Settings</strong> tab before using this feature. Gemini's free tier includes 1,500 requests per day.</p>
+              <p className="text-sm font-semibold text-ink">Gemini API key required</p>
+              <p className="text-sm text-ink2 mt-1">
+                YouTube Studio needs a Google Gemini API key. Add it in <strong className="font-semibold text-ink">Settings</strong> before
+                you start. Gemini's free tier includes 1,500 requests per day.
+              </p>
             </div>
           </div>
         )}
 
         {/* ===== STEP 0: Input Mode Selection ===== */}
         {step === 0 && (
-          <div className={`grid md:grid-cols-2 gap-6 ${needsKey ? 'opacity-50 pointer-events-none select-none' : ''}`}>
+          <div
+            className={`grid lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] gap-6 lg:gap-8 ${needsKey ? 'opacity-50 pointer-events-none select-none' : ''}`}
+            inert={needsKey ? '' : undefined}
+          >
             {/* Mode A: Video Analysis */}
-            <div className="card card-hover p-6 space-y-4">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-8 h-8 rounded-input bg-paper3 flex items-center justify-center">
-                  <Video size={16} className="text-brass" />
-                </div>
-                <div>
-                  <p className="eyebrow">A · ANALYZE VIDEO</p>
-                  <p className="text-xs text-muted mt-0.5">AI suggests viral titles from your content</p>
+            <section aria-labelledby="ts-video-heading" className="card-print p-5 sm:p-7 flex flex-col gap-5">
+              <div className="flex items-start gap-3">
+                <span className="w-10 h-10 rounded-input bg-paper3 border border-rule flex items-center justify-center shrink-0" aria-hidden="true">
+                  <Video size={18} className="text-ink" />
+                </span>
+                <div className="min-w-0">
+                  <h3 id="ts-video-heading" className="font-display text-xl text-ink leading-tight">From your video</h3>
+                  <p className="text-sm text-muted mt-1">AI reads the transcript and suggests titles that match what is actually said.</p>
                 </div>
               </div>
 
               <DragDropZone
-                label="Upload video file"
+                label="Choose a video file"
                 accept="video/*"
                 onFile={(f) => { setVideoFile(f); setMode('video'); handlePreUpload(f); }}
                 file={videoFile}
@@ -526,212 +585,255 @@ export default function ThumbnailStudio({ geminiApiKey, uploadPostKey, uploadUse
                 icon={Video}
               />
 
-              {isPreprocessing && (
-                <div className="flex items-center gap-2 text-xs lowercase text-muted bg-paper3 rounded-input px-3 py-2">
-                  <Loader2 size={12} className="animate-spin text-brass" />
-                  Pre-processing video (Whisper transcription starting)...
-                </div>
-              )}
-              {preprocessSessionId && !isPreprocessing && (
-                <div className="flex items-center gap-2 text-xs lowercase text-ok bg-ok/10 rounded-input px-3 py-2">
-                  <Check size={12} />
-                  Video uploaded — transcription running in background
-                </div>
-              )}
-
-              <button
-                onClick={handleAnalyze}
-                disabled={isAnalyzing || !videoFile}
-                className="w-full btn-primary"
-              >
-                {isAnalyzing ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Analyzing video...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={16} className="hidden sm:block" />
-                    <span className="whitespace-nowrap">Analyze & Get Titles</span>
-                  </>
+              <div aria-live="polite">
+                {isPreprocessing && (
+                  <p className="flex items-center gap-2 text-sm text-ink2 tray px-3 py-2.5">
+                    <Loader2 size={14} className="animate-spin text-muted shrink-0" aria-hidden="true" />
+                    Pre-processing the video (Whisper transcription starting)…
+                  </p>
                 )}
-              </button>
-            </div>
+                {preprocessSessionId && !isPreprocessing && (
+                  <p className="flex items-center gap-2 text-sm text-ink2 tray px-3 py-2.5">
+                    <Check size={14} className="text-ok shrink-0" aria-hidden="true" />
+                    Video uploaded. Transcription is running in the background.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-auto">
+                <button
+                  type="button"
+                  onClick={handleAnalyze}
+                  disabled={isAnalyzing || !videoFile}
+                  className="w-full btn-accent"
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                      Analyzing video…
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} aria-hidden="true" />
+                      Analyze and suggest titles
+                    </>
+                  )}
+                </button>
+              </div>
+            </section>
 
             {/* Mode B: Manual Title */}
-            <div className="card card-hover p-6 space-y-4 flex flex-col">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-8 h-8 rounded-input bg-paper3 flex items-center justify-center">
-                  <Type size={16} className="text-brass" />
-                </div>
-                <div>
-                  <p className="eyebrow">B · WRITE YOUR OWN</p>
-                  <p className="text-xs text-muted mt-0.5">Skip analysis, enter your title directly</p>
+            <section aria-labelledby="ts-manual-heading" className="card p-5 sm:p-7 flex flex-col gap-5">
+              <div className="flex items-start gap-3">
+                <span className="w-10 h-10 rounded-input bg-paper3 border border-rule flex items-center justify-center shrink-0" aria-hidden="true">
+                  <Type size={18} className="text-muted" />
+                </span>
+                <div className="min-w-0">
+                  <h3 id="ts-manual-heading" className="font-display text-xl text-ink leading-tight">Write your own</h3>
+                  <p className="text-sm text-muted mt-1">Skip the analysis and go straight to thumbnails with a title you already have.</p>
                 </div>
               </div>
 
-              <div className="flex-1 flex flex-col justify-center">
+              <div>
+                <label htmlFor="ts-manual-input" className="block text-sm font-medium text-ink mb-2">YouTube title</label>
                 <input
+                  id="ts-manual-input"
                   type="text"
                   value={manualTitle}
                   onChange={(e) => setManualTitle(e.target.value)}
-                  placeholder="Enter your YouTube title..."
-                  className="input-field text-sm mb-4"
+                  placeholder="Enter your YouTube title…"
+                  className="input-field"
                   maxLength={70}
+                  aria-describedby="ts-manual-count"
                 />
-                <p className="readout mb-4">{manualTitle.length} / 70</p>
+                <p id="ts-manual-count" className="readout mt-2 text-right">{manualTitle.length} / 70</p>
               </div>
 
-              <button
-                onClick={handleManualMode}
-                disabled={!manualTitle.trim()}
-                className="w-full btn-ghost disabled:opacity-45 disabled:cursor-not-allowed"
-              >
-                <ArrowRight size={16} />
-                Use This Title
-              </button>
-            </div>
+              <div className="mt-auto">
+                <button
+                  type="button"
+                  onClick={handleManualMode}
+                  disabled={!manualTitle.trim()}
+                  className="w-full btn-ghost"
+                >
+                  Use this title
+                  <ArrowRight size={16} aria-hidden="true" />
+                </button>
+              </div>
+            </section>
           </div>
         )}
 
         {/* ===== STEP 1: Title Selection ===== */}
         {step === 1 && (
-          <div className="grid md:grid-cols-5 gap-6">
-            {/* Left: Chat / Controls */}
-            <div className="md:col-span-2 flex flex-col gap-4">
+          <div className={`grid gap-6 lg:gap-8 items-start ${mode === 'manual' ? 'max-w-2xl' : 'lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]'}`}>
+            {/* Titles */}
+            <div className="min-w-0 space-y-4">
+              {selectedTitle && (
+                <div className="sticky top-2 z-10 card-print p-3 sm:p-4 flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="readout flex items-center gap-1.5">
+                      <Check size={12} className="text-ink" aria-hidden="true" />
+                      Selected
+                    </p>
+                    <p className="font-display text-base sm:text-lg text-ink leading-snug mt-0.5 line-clamp-2 break-words">{selectedTitle}</p>
+                  </div>
+                  {mode !== 'manual' && selectedTitle && (
+                    <button
+                      type="button"
+                      onClick={handleConfirmTitle}
+                      className="btn-accent shrink-0"
+                    >
+                      <span>Use <span className="hidden sm:inline">this </span>title</span>
+                      <ArrowRight size={16} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {titles.length > 0 && (
+                <section aria-labelledby="ts-titles-heading">
+                  <div className="flex items-baseline justify-between gap-3 border-b border-rule2 pb-3">
+                    <h3 id="ts-titles-heading" className="font-display text-lg text-ink">Suggested titles</h3>
+                    <p className="readout">{titles.length} titles</p>
+                  </div>
+                  <ol className="divide-y divide-rule">
+                    {titles.map((title, i) => {
+                      const rec = recommended.find(r => r.index === i);
+                      const recRank = recommended.findIndex(r => r.index === i);
+                      const isSelected = selectedTitle === title;
+                      return (
+                        <li key={i}>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectTitle(title)}
+                            aria-pressed={isSelected}
+                            className={`w-full text-left grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3 sm:gap-4 px-2 sm:px-3 py-4 border-l-2 transition-colors duration-200 ${isSelected
+                              ? 'bg-paper3 border-ink'
+                              : 'border-transparent hover:bg-paper2'
+                              }`}
+                          >
+                            <span className={`font-mono text-xs pt-1 ${isSelected ? 'text-ink' : 'text-muted'}`} aria-hidden="true">
+                              {isSelected ? <Check size={14} /> : String(i + 1).padStart(2, '0')}
+                            </span>
+                            <span className="min-w-0">
+                              {rec && (
+                                <span className="readout block mb-1 !text-ink2">{recRank === 0 ? 'Top pick' : 'Second pick'}</span>
+                              )}
+                              <span className="block font-display text-[1.05rem] sm:text-xl leading-snug text-ink break-words">{title}</span>
+                              {rec && (
+                                <span className="block text-sm text-muted mt-1.5 leading-relaxed">{rec.reason}</span>
+                              )}
+                              <span className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mt-2">
+                                <span className="readout">{title.length} chars</span>
+                                {thumbnailTexts[i] && (
+                                  <span className="readout">
+                                    Thumbnail text{' '}
+                                    <span className="normal-case tracking-normal font-body text-xs text-ink2">“{thumbnailTexts[i]}”</span>
+                                  </span>
+                                )}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </section>
+              )}
+
+              {mode !== 'manual' && !selectedTitle && titles.length > 0 && (
+                <p className="text-sm text-muted">Pick a title to continue.</p>
+              )}
+
+              {isRefining && (
+                <p className="flex items-center justify-center gap-2 py-6 text-sm text-ink2">
+                  <Loader2 size={16} className="animate-spin text-muted" aria-hidden="true" />
+                  Refining titles…
+                </p>
+              )}
+            </div>
+
+            {/* Controls: your own title, or the refinement chat */}
+            <div className="flex flex-col gap-4 min-w-0 lg:sticky lg:top-2">
               {mode === 'manual' ? (
-                <div className="card p-6 space-y-4">
-                  <p className="eyebrow">YOUR TITLE</p>
-                  <input
-                    type="text"
-                    value={manualTitle}
-                    onChange={(e) => setManualTitle(e.target.value)}
-                    className="input-field text-sm"
-                    maxLength={70}
-                  />
-                  <p className="readout">{manualTitle.length} / 70</p>
+                <section aria-labelledby="ts-own-heading" className="card p-5 sm:p-6 space-y-4">
+                  <h3 id="ts-own-heading" className="font-display text-lg text-ink">Your title</h3>
+                  <div>
+                    <label htmlFor="ts-own-input" className="sr-only">YouTube title</label>
+                    <input
+                      id="ts-own-input"
+                      type="text"
+                      value={manualTitle}
+                      onChange={(e) => setManualTitle(e.target.value)}
+                      className="input-field"
+                      maxLength={70}
+                      aria-describedby="ts-own-count"
+                    />
+                    <p id="ts-own-count" className="readout mt-2 text-right">{manualTitle.length} / 70</p>
+                  </div>
                   <button
+                    type="button"
                     onClick={handleConfirmTitle}
                     disabled={!manualTitle.trim()}
-                    className="w-full btn-primary"
+                    className="w-full btn-accent"
                   >
-                    <ArrowRight size={16} />
-                    Continue to Thumbnails
+                    Continue to thumbnails
+                    <ArrowRight size={16} aria-hidden="true" />
                   </button>
-                </div>
+                </section>
               ) : (
-                <div className="card p-4 flex flex-col h-[500px]">
-                  <div className="flex items-center gap-2 mb-3 pb-3 border-b border-rule">
-                    <MessageSquare size={14} className="text-brass" />
-                    <span className="eyebrow">TITLE REFINEMENT CHAT</span>
+                <section aria-labelledby="ts-chat-heading" className="card flex flex-col h-[440px] lg:h-[540px]">
+                  <div className="flex items-center gap-2 px-4 py-3 border-b border-rule">
+                    <MessageSquare size={16} className="text-muted" aria-hidden="true" />
+                    <h3 id="ts-chat-heading" className="font-display text-base text-ink">Refine with notes</h3>
                   </div>
 
                   {/* Chat messages */}
-                  <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar mb-3">
+                  <div
+                    className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4 space-y-3"
+                    role="log"
+                    aria-live="polite"
+                    aria-labelledby="ts-chat-heading"
+                  >
                     {chatHistory.map((msg, i) => (
-                      <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[90%] px-3 py-2 rounded-card text-xs ${msg.role === 'user'
-                          ? 'bg-paper3 text-ink2'
+                      <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                        <span className="readout mb-1">{msg.role === 'user' ? 'You' : 'Assistant'}</span>
+                        <p className={`max-w-[92%] px-3 py-2 rounded-card text-sm leading-relaxed break-words ${msg.role === 'user'
+                          ? 'bg-paper3 text-ink'
                           : 'border border-rule text-ink2'
                           }`}>
                           {msg.content}
-                        </div>
+                        </p>
                       </div>
                     ))}
                     <div ref={chatEndRef} />
                   </div>
 
                   {/* Chat input */}
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 p-3 border-t border-rule">
+                    <label htmlFor="ts-chat-input" className="sr-only">Notes for the next round of titles</label>
                     <input
+                      id="ts-chat-input"
                       type="text"
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleRefine()}
-                      placeholder="Make them more clickbait..."
-                      className="input-field text-xs flex-1"
+                      placeholder="e.g. Shorter, more curiosity…"
+                      className="input-field flex-1 min-w-0"
                       disabled={isRefining}
                     />
                     <button
+                      type="button"
                       onClick={handleRefine}
                       disabled={isRefining || !chatInput.trim()}
-                      className="btn-quiet px-3 disabled:opacity-45 disabled:cursor-not-allowed"
+                      className="btn-ghost px-3.5 shrink-0"
+                      aria-label="Send notes"
                     >
-                      {isRefining ? <Loader2 size={14} className="animate-spin text-brass" /> : <Send size={14} />}
+                      {isRefining ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
                     </button>
                   </div>
-                </div>
-              )}
-
-              {mode !== 'manual' && selectedTitle && (
-                <button
-                  onClick={handleConfirmTitle}
-                  className="w-full btn-primary"
-                >
-                  <ArrowRight size={16} />
-                  Use Selected Title
-                </button>
-              )}
-            </div>
-
-            {/* Right: Title Cards */}
-            <div className="md:col-span-3 space-y-3">
-              {selectedTitle && (
-                <div className="p-3 bg-ok/10 rounded-card flex items-center gap-2 text-sm">
-                  <Check size={14} className="text-ok shrink-0" />
-                  <span className="text-ok font-medium truncate">Selected: {selectedTitle}</span>
-                </div>
-              )}
-
-              {titles.length > 0 && (
-                <div className="space-y-2">
-                  {titles.map((title, i) => {
-                    const rec = recommended.find(r => r.index === i);
-                    const recRank = recommended.findIndex(r => r.index === i);
-                    return (
-                      <button
-                        key={i}
-                        onClick={() => handleSelectTitle(title)}
-                        className={`w-full text-left p-4 rounded-card border transition-colors duration-200 text-sm ${selectedTitle === title
-                          ? 'bg-paper3 border-brass text-ink'
-                          : 'border-rule text-ink2 hover:bg-paper3 hover:border-rule2'
-                          }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <span className={`w-6 h-6 rounded-full border flex items-center justify-center font-mono text-micro shrink-0 mt-0.5 ${selectedTitle === title ? 'bg-brass border-brass text-brassink' :
-                            rec ? 'border-rule2 text-brass' :
-                              'border-rule text-muted'
-                            }`}>
-                            {selectedTitle === title ? <Check size={10} /> : rec ? '★' : i + 1}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="leading-relaxed">{title}</span>
-                              {rec && (
-                                <span className="badge-brass shrink-0">
-                                  {recRank === 0 ? 'TOP PICK' : '2ND PICK'}
-                                </span>
-                              )}
-                            </div>
-                            {rec && (
-                              <p className="text-xs text-muted mt-1.5 leading-relaxed">{rec.reason}</p>
-                            )}
-                            {thumbnailTexts[i] && (
-                              <p className="readout mt-1.5">thumbnail: {thumbnailTexts[i]}</p>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {isRefining && (
-                <div className="flex items-center justify-center py-8 text-muted">
-                  <Loader2 size={18} className="animate-spin mr-2 text-brass" />
-                  <span className="text-sm lowercase">Refining titles...</span>
-                </div>
+                </section>
               )}
             </div>
           </div>
@@ -739,433 +841,518 @@ export default function ThumbnailStudio({ geminiApiKey, uploadPostKey, uploadUse
 
         {/* ===== STEP 2: Thumbnail Generation ===== */}
         {step === 2 && (
-          <div className="grid md:grid-cols-5 gap-6">
-            {/* Left: Controls */}
-            <div className="md:col-span-2 space-y-4">
-              <div className="card p-6 space-y-4">
-                <p className="eyebrow mb-1">TITLE</p>
-                <div className="p-3 bg-paper3 border border-rule rounded-input text-sm text-ink">
-                  {selectedTitle || manualTitle}
-                </div>
-
+          <div className="grid lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)] gap-6 lg:gap-10 items-start">
+            {/* The brief */}
+            <div className="space-y-4 min-w-0">
+              <section aria-labelledby="ts-brief-title" className="card p-5 space-y-3">
+                <h3 id="ts-brief-title" className="readout">Title</h3>
+                <p className="font-display text-lg text-ink leading-snug break-words">{selectedTitle || manualTitle}</p>
                 <button
+                  type="button"
                   onClick={() => setStep(1)}
-                  className="text-xs lowercase text-muted hover:text-ink transition-colors flex items-center gap-1"
+                  className="btn-quiet"
                 >
-                  <ArrowLeft size={12} /> Change title
+                  <ArrowLeft size={14} aria-hidden="true" /> Change title
                 </button>
-              </div>
+              </section>
 
               {mode === 'video' && frames !== null && (
-                <div className="card p-6 space-y-3">
-                  <p className="eyebrow">YOUR FACE FROM THE VIDEO</p>
+                <section aria-labelledby="ts-frames-heading" className="card p-5 space-y-3">
+                  <h3 id="ts-frames-heading" className="font-display text-base text-ink">Your face from the video</h3>
                   {frames.length === 0 ? (
-                    <p className="text-xs text-muted lowercase">{framesLoading ? 'Looking for sharp frames with a face...' : 'No usable face found in the video.'}</p>
+                    <p className="text-sm text-muted">{framesLoading ? 'Looking for sharp frames with a face…' : 'No usable face found in the video.'}</p>
                   ) : (
                     <>
-                      <div className="grid grid-cols-3 gap-2">
-                        {frames.map((f) => (
-                          <button
-                            key={f.url}
-                            type="button"
-                            onClick={() => setSelectedFrame(selectedFrame === f.url ? null : f.url)}
-                            className={`relative rounded-input overflow-hidden border-2 transition-colors ${selectedFrame === f.url ? 'border-brass' : 'border-transparent hover:border-rule2'}`}
-                          >
-                            <img src={getApiUrl(f.url)} alt="" className="w-full aspect-video object-cover" />
-                            <span className="absolute bottom-1 right-1 readout bg-black/60 text-white px-1 rounded">
-                              {Math.floor(f.time / 60)}:{String(Math.floor(f.time % 60)).padStart(2, '0')}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                      <p className="text-xs text-muted lowercase">
+                      <ul className="grid grid-cols-3 gap-2">
+                        {frames.map((f) => {
+                          const at = `${Math.floor(f.time / 60)}:${String(Math.floor(f.time % 60)).padStart(2, '0')}`;
+                          const isPicked = selectedFrame === f.url;
+                          return (
+                            <li key={f.url}>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedFrame(selectedFrame === f.url ? null : f.url)}
+                                aria-pressed={isPicked}
+                                aria-label={`Frame at ${at}`}
+                                className={`relative block w-full rounded-input overflow-hidden bg-black border transition-colors ${isPicked ? 'border-ink' : 'border-rule2 hover:border-ink'}`}
+                              >
+                                <img src={getApiUrl(f.url)} alt="" className="w-full aspect-video object-cover" />
+                                <span className="absolute bottom-1 right-1 font-mono text-[10.5px] leading-none text-ink bg-paper/85 px-1 py-0.5 rounded-[4px]" aria-hidden="true">
+                                  {at}
+                                </span>
+                                {isPicked && (
+                                  <span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-ink text-paper flex items-center justify-center" aria-hidden="true">
+                                    <Check size={12} />
+                                  </span>
+                                )}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <p className="text-xs text-muted">
                         {selectedFrame ? 'This frame is the person reference (a photo upload below overrides it).' : 'Pick a frame so the thumbnail shows you, not a stranger.'}
                       </p>
                     </>
                   )}
-                </div>
+                </section>
               )}
 
-              <div className="card p-6 space-y-4">
-                <p className="eyebrow">FACE IMAGE · OPTIONAL</p>
+              <section aria-labelledby="ts-refs-heading" className="card p-5 space-y-4">
+                <div>
+                  <h3 id="ts-refs-heading" className="font-display text-base text-ink">Reference images</h3>
+                  <p className="text-xs text-muted mt-1">Both optional.</p>
+                </div>
                 <DragDropZone
-                  label="Upload face / person photo"
+                  label="Face or person photo"
                   accept="image/*"
                   onFile={setFaceImage}
                   file={faceImage}
                   onClear={() => setFaceImage(null)}
                   icon={Upload}
                 />
-              </div>
-
-              <div className="card p-6 space-y-4">
-                <p className="eyebrow">BACKGROUND · OPTIONAL</p>
                 <DragDropZone
-                  label="Upload background image"
+                  label="Background image"
                   accept="image/*"
                   onFile={setBgImage}
                   file={bgImage}
                   onClear={() => setBgImage(null)}
                   icon={Image}
                 />
-              </div>
+              </section>
 
-              <div className="card p-6 space-y-4">
-                <p className="eyebrow">INSTRUCTIONS · OPTIONAL</p>
+              <div className="card p-5 space-y-2">
+                <label htmlFor="ts-extra-prompt" className="flex items-baseline justify-between gap-2">
+                  <span className="font-display text-base text-ink">Instructions</span>
+                  <span className="readout">Optional</span>
+                </label>
                 <textarea
+                  id="ts-extra-prompt"
                   value={extraPrompt}
                   onChange={(e) => setExtraPrompt(e.target.value)}
-                  placeholder="e.g. Use red and black colors, dramatic lighting, include money emojis..."
-                  className="input-field text-sm resize-none h-20"
+                  placeholder="e.g. Red and black colours, dramatic lighting, money emojis…"
+                  className="input-field resize-none h-24"
                 />
               </div>
 
-              <div className="card p-6 space-y-4">
-                <p className="eyebrow">TEXT ON THUMBNAIL</p>
-                <SegmentedControl
-                  options={[{ value: true, label: 'Crisp' }, { value: false, label: 'AI painted' }]}
-                  value={burnText}
-                  onChange={setBurnText}
-                  size="sm"
-                />
-                <p className="text-xs text-muted lowercase">
-                  {burnText ? 'Text is set in a bold font after the image is painted: always spelled right.' : 'The image model paints the text itself: more integrated, sometimes misspelled.'}
-                </p>
-              </div>
+              <section aria-labelledby="ts-output-heading" className="card p-5 space-y-5">
+                <h3 id="ts-output-heading" className="sr-only">Output</h3>
+                <fieldset className="space-y-2">
+                  <legend className="text-sm font-medium text-ink mb-2">Text on the thumbnail</legend>
+                  <SegmentedControl
+                    options={[{ value: true, label: 'Crisp' }, { value: false, label: 'AI painted' }]}
+                    value={burnText}
+                    onChange={setBurnText}
+                  />
+                  <p className="text-xs text-muted">
+                    {burnText ? 'Text is set in a bold font after the image is painted: always spelled right.' : 'The image model paints the text itself: more integrated, sometimes misspelled.'}
+                  </p>
+                </fieldset>
 
-              <div className="card p-6 space-y-4">
-                <p className="eyebrow">COUNT</p>
-                <SegmentedControl
-                  options={[1, 2, 3, 4].map(n => ({ value: n, label: String(n) }))}
-                  value={thumbnailCount}
-                  onChange={setThumbnailCount}
-                  size="sm"
-                />
-              </div>
+                <fieldset>
+                  <legend className="text-sm font-medium text-ink mb-2">How many thumbnails</legend>
+                  <SegmentedControl
+                    options={[1, 2, 3, 4].map(n => ({ value: n, label: String(n) }))}
+                    value={thumbnailCount}
+                    onChange={setThumbnailCount}
+                    size="sm"
+                  />
+                </fieldset>
+              </section>
 
               <button
+                type="button"
                 onClick={handleGenerate}
                 disabled={isGenerating}
-                className="w-full btn-primary"
+                className="w-full btn-accent"
               >
                 {isGenerating ? (
                   <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Generating thumbnails...
+                    <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                    Generating thumbnails…
                   </>
                 ) : (
                   <>
-                    <Sparkles size={16} />
-                    Generate Thumbnails
+                    <Sparkles size={16} aria-hidden="true" />
+                    Generate thumbnails
                   </>
                 )}
               </button>
-
             </div>
 
-            {/* Right: Generated Thumbnails */}
-            <div className="md:col-span-3">
+            {/* The results: framed 16:9 thumbnails on black */}
+            <section aria-labelledby="ts-results-heading" className="min-w-0 space-y-5">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-rule2 pb-3">
+                <h3 id="ts-results-heading" className="font-display text-xl text-ink">Thumbnails</h3>
+                <p className="readout">
+                  {generatedThumbnails.length > 0 ? `${generatedThumbnails.length} ready` : `${thumbnailCount} to generate`}
+                </p>
+              </div>
+
               {generatedThumbnails.length > 0 ? (
-                <div className="space-y-4">
-                  <p className="text-sm lowercase text-muted">Generated Thumbnails — click to select for publishing</p>
-                  <div className="grid gap-4">
+                <div className="space-y-6">
+                  <p className="text-sm text-muted">Select the one to publish. Download any of them.</p>
+                  <ul className={`grid gap-x-5 gap-y-7 ${generatedThumbnails.length > 1 ? 'sm:grid-cols-2' : ''}`}>
                     {generatedThumbnails.map((thumb, i) => {
                       const url = thumb.url;
+                      const isSelected = selectedThumbnail === url;
                       return (
-                      <div
-                        key={url}
-                        onClick={() => setSelectedThumbnail(url)}
-                        className={`glass-panel overflow-hidden group relative cursor-pointer transition-colors duration-200 ${selectedThumbnail === url ? 'border-2 border-brass' : ''
-                          }`}
-                      >
-                        <img
-                          src={getApiUrl(url)}
-                          alt={`Thumbnail ${i + 1}`}
-                          className="w-full aspect-video object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center gap-3 opacity-0 group-hover:opacity-100">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDownload(url); }}
-                            className="btn-quiet"
-                          >
-                            <Download size={14} />
-                            Download
-                          </button>
-                        </div>
-                        <div className="p-3 flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <span className="text-xs lowercase text-muted flex items-center gap-2">
-                              Thumbnail {i + 1}{thumb.text ? ` · "${thumb.text}"` : ''}
-                              {selectedThumbnail === url && (
-                                <span className="text-brass flex items-center gap-1"><Check size={10} /> Selected</span>
+                        <li key={url}>
+                          <figure>
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedThumbnail(url)}
+                                aria-pressed={isSelected}
+                                aria-label={`Select thumbnail ${i + 1}${thumb.text ? `: ${thumb.text}` : ''}`}
+                                className={`block w-full rounded-input overflow-hidden bg-black border transition-[border-color,box-shadow] duration-200 ${isSelected
+                                  ? 'border-vermilion shadow-print-accent'
+                                  : 'border-rule2 hover:border-ink'
+                                  }`}
+                              >
+                                <img
+                                  src={getApiUrl(url)}
+                                  alt=""
+                                  className="w-full aspect-video object-cover"
+                                />
+                              </button>
+                              {isSelected && (
+                                <span className="badge-float absolute top-2 left-2 pointer-events-none">
+                                  <Check size={12} aria-hidden="true" /> Selected
+                                </span>
                               )}
-                            </span>
-                            {thumb.why && <p className="text-xs text-muted mt-1 truncate">{thumb.why}</p>}
-                            {thumb.fallback && <p className="text-xs text-warn mt-1">Gemini refused to draw this person (public figures are blocked), so it was rendered without them.</p>}
-                          </div>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDownload(url); }}
-                            className="text-xs lowercase text-muted hover:text-ink transition-colors flex items-center gap-1 shrink-0"
-                          >
-                            <Download size={12} /> Save
-                          </button>
-                        </div>
-                      </div>
+                            </div>
+                            <figcaption className="mt-3 flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="readout">Thumbnail {i + 1}</p>
+                                {thumb.text && <p className="text-sm font-medium text-ink leading-snug mt-1 break-words">“{thumb.text}”</p>}
+                                {thumb.why && <p className="text-xs text-muted mt-1 line-clamp-2">{thumb.why}</p>}
+                                {thumb.fallback && (
+                                  <p className="text-xs text-ink2 mt-1.5 flex items-start gap-1.5">
+                                    <AlertCircle size={14} className="text-warn shrink-0" aria-hidden="true" />
+                                    Gemini refused to draw this person (public figures are blocked), so it was rendered without them.
+                                  </p>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleDownload(url); }}
+                                className="btn-quiet shrink-0"
+                                aria-label={`Download thumbnail ${i + 1}`}
+                              >
+                                <Download size={14} aria-hidden="true" />
+                                <span className="hidden sm:inline">Download</span>
+                              </button>
+                            </figcaption>
+                          </figure>
+                        </li>
                       );
                     })}
-                  </div>
+                  </ul>
 
                   {/* How it reads in the feed on a phone, where the click is decided */}
-                  <div className="card p-4 space-y-3">
-                    <p className="eyebrow">PHONE PREVIEW</p>
-                    <div className="space-y-3">
+                  <section aria-labelledby="ts-feed-heading" className="tray p-4 sm:p-5 space-y-4">
+                    <div>
+                      <h3 id="ts-feed-heading" className="font-display text-base text-ink">In the phone feed</h3>
+                      <p className="text-xs text-muted mt-0.5">How each thumbnail reads at feed size, where the click is decided.</p>
+                    </div>
+                    <ul className="space-y-3">
                       {generatedThumbnails.map((thumb) => (
-                        <div key={thumb.url} className="flex gap-3 items-start">
-                          <img src={getApiUrl(thumb.url)} alt="" className="w-[168px] h-[94px] object-cover rounded-input shrink-0" />
+                        <li key={thumb.url} className="flex gap-3 items-start">
+                          <img src={getApiUrl(thumb.url)} alt="" className="w-[140px] sm:w-[168px] aspect-video object-cover rounded-input bg-black border border-rule2 shrink-0" />
                           <div className="min-w-0">
-                            <p className="text-sm text-ink leading-snug line-clamp-2">{selectedTitle || manualTitle}</p>
+                            <p className="text-sm text-ink font-medium leading-snug line-clamp-2 break-words">{selectedTitle || manualTitle}</p>
                             <p className="text-xs text-muted mt-1">Your channel · 1.2K views · 2 hours ago</p>
                           </div>
-                        </div>
+                        </li>
                       ))}
-                    </div>
-                  </div>
+                    </ul>
+                  </section>
 
-                  {/* Regenerate */}
-                  <button
-                    onClick={handleGenerate}
-                    disabled={isGenerating}
-                    className="w-full btn-ghost"
-                  >
-                    {isGenerating ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin text-brass" />
-                        Regenerating...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={14} />
-                        Regenerate
-                      </>
-                    )}
-                  </button>
-
-                  {/* Proceed to Description */}
-                  {selectedThumbnail && (
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    {/* Regenerate */}
                     <button
-                      onClick={() => setStep(3)}
-                      className="w-full btn-primary"
+                      type="button"
+                      onClick={handleGenerate}
+                      disabled={isGenerating}
+                      className="btn-ghost sm:flex-1"
                     >
-                      <ArrowRight size={16} />
-                      Next: Description
+                      {isGenerating ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                          Regenerating…
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={16} aria-hidden="true" />
+                          Regenerate
+                        </>
+                      )}
                     </button>
+
+                    {/* Proceed to Description */}
+                    {selectedThumbnail && (
+                      <button
+                        type="button"
+                        onClick={() => setStep(3)}
+                        className="btn-primary sm:flex-1"
+                      >
+                        Next: description
+                        <ArrowRight size={16} aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                  {!selectedThumbnail && (
+                    <p className="text-sm text-muted">Select a thumbnail to continue.</p>
                   )}
                 </div>
               ) : isGenerating ? (
-                <div className="h-full flex flex-col items-center justify-center text-muted space-y-4 min-h-[400px]">
-                  <div className="w-16 h-16 rounded-full border-2 border-rule2 border-t-brass animate-spin" />
-                  <div className="text-center">
-                    <p className="text-sm lowercase font-medium text-ink2">Generating thumbnails...</p>
-                    <p className="text-xs lowercase text-muted mt-1">This may take a minute per thumbnail</p>
-                  </div>
+                <div className="space-y-4">
+                  <ul className={`grid gap-5 ${thumbnailCount > 1 ? 'sm:grid-cols-2' : ''}`} aria-hidden="true">
+                    {Array.from({ length: thumbnailCount }, (_, i) => (
+                      <li key={i} className="aspect-video rounded-input bg-paper3 border border-rule2 animate-pulse" />
+                    ))}
+                  </ul>
+                  <p className="flex items-center gap-2 text-sm text-ink2">
+                    <Loader2 size={16} className="animate-spin text-muted shrink-0" aria-hidden="true" />
+                    Generating thumbnails. This may take a minute per thumbnail.
+                  </p>
                 </div>
               ) : (
-                <div className="h-full flex flex-col items-center justify-center text-muted space-y-4 min-h-[400px]">
-                  <div className="w-20 h-20 rounded-card bg-paper3 border border-rule flex items-center justify-center">
-                    <Image size={28} className="text-muted" />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm lowercase text-ink2">Your thumbnails will appear here</p>
-                    <p className="text-xs lowercase text-muted mt-1">Configure options and click Generate</p>
-                  </div>
+                <div className="space-y-4">
+                  <ul className={`grid gap-5 ${thumbnailCount > 1 ? 'sm:grid-cols-2' : ''}`} aria-hidden="true">
+                    {Array.from({ length: thumbnailCount }, (_, i) => (
+                      <li key={i} className="aspect-video rounded-input border border-dashed border-rule2 flex items-center justify-center">
+                        <span className="readout">Thumbnail {i + 1}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-sm text-muted">Your thumbnails will appear here. Set the brief, then press Generate thumbnails.</p>
                 </div>
               )}
-            </div>
+            </section>
           </div>
         )}
 
         {/* ===== STEP 3: YouTube Description ===== */}
         {step === 3 && (
-          <div className="grid md:grid-cols-5 gap-6">
-            {/* Left: Context & Controls */}
-            <div className="md:col-span-2 space-y-4">
+          <div className="grid lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)] gap-6 lg:gap-10 items-start">
+            {/* Context & Controls */}
+            <div className="space-y-4 min-w-0">
               <button
+                type="button"
                 onClick={() => setStep(2)}
-                className="text-xs lowercase text-muted hover:text-ink transition-colors flex items-center gap-1 mb-2"
+                className="btn-quiet"
               >
-                <ArrowLeft size={12} /> Back to Generate
+                <ArrowLeft size={14} aria-hidden="true" /> Back to thumbnails
               </button>
 
               {/* Selected Thumbnail Preview */}
               {selectedThumbnail && (
-                <div className="glass-panel overflow-hidden">
+                <figure>
                   <img
                     src={getApiUrl(selectedThumbnail)}
                     alt="Selected thumbnail"
-                    className="w-full aspect-video object-cover"
+                    className="w-full aspect-video object-cover rounded-input bg-black border border-rule2"
                   />
-                  <div className="p-3">
-                    <span className="text-xs lowercase text-brass flex items-center gap-1"><Check size={10} /> Selected Thumbnail</span>
-                  </div>
-                </div>
+                  <figcaption className="readout mt-2 flex items-center gap-1.5">
+                    <Check size={12} className="text-ink" aria-hidden="true" /> Selected thumbnail
+                  </figcaption>
+                </figure>
               )}
 
               {/* Title */}
-              <div className="glass-panel p-6 space-y-3">
-                <p className="eyebrow">TITLE</p>
-                <div className="p-3 bg-paper3 border border-rule rounded-input text-sm text-ink">
-                  {selectedTitle || manualTitle}
-                </div>
-              </div>
+              <section aria-labelledby="ts-desc-title" className="card p-5 space-y-2">
+                <h3 id="ts-desc-title" className="readout">Title</h3>
+                <p className="font-display text-lg text-ink leading-snug break-words">{selectedTitle || manualTitle}</p>
+              </section>
 
               {/* Generate Description Button */}
               {mode === 'video' && (
-                <div className="glass-panel p-6 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <p className="eyebrow flex items-center gap-2">
-                      <Sparkles size={14} className="text-brass" />
-                      AI DESCRIPTION
-                    </p>
-                    <span className="readout">WITH CHAPTERS</span>
+                <section aria-labelledby="ts-ai-desc-heading" className="card p-5 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 id="ts-ai-desc-heading" className="font-display text-base text-ink flex items-center gap-2">
+                      <Sparkles size={16} className="text-muted" aria-hidden="true" />
+                      AI description
+                    </h3>
+                    <span className="readout">With chapters</span>
                   </div>
-                  <p className="text-xs text-muted">
-                    Generate a YouTube description with chapter timestamps from your video transcript.
+                  <p className="text-sm text-muted">
+                    Written from your video transcript, with chapter timestamps.
                   </p>
                   <button
+                    type="button"
                     onClick={handleGenerateDescription}
                     disabled={isDescribing}
-                    className="w-full btn-ghost"
+                    className={`w-full ${description ? 'btn-ghost' : 'btn-accent'}`}
                   >
                     {isDescribing ? (
                       <>
-                        <Loader2 size={14} className="animate-spin text-brass" />
-                        Generating description...
+                        <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                        Generating description…
                       </>
                     ) : (
                       <>
-                        <FileText size={14} />
-                        {description ? 'Regenerate Description' : 'Generate Description'}
+                        <FileText size={16} aria-hidden="true" />
+                        {description ? 'Regenerate description' : 'Generate description'}
                       </>
                     )}
                   </button>
-                </div>
+                </section>
+              )}
+            </div>
+
+            {/* Editable Description */}
+            <section aria-labelledby="ts-desc-label" className="card-print p-5 sm:p-6 flex flex-col gap-3 min-w-0">
+              <div className="flex items-center justify-between gap-3">
+                <label id="ts-desc-label" htmlFor="ts-desc" className="font-display text-lg text-ink">YouTube description</label>
+                <span id="ts-desc-count" className="readout">{description.length} / 5000</span>
+              </div>
+
+              <textarea
+                id="ts-desc"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={mode === 'video'
+                  ? "Press 'Generate description' to write one with chapters, or write your own…"
+                  : "Write your YouTube video description here…"
+                }
+                className="input-field resize-y min-h-[320px] lg:min-h-[480px] leading-relaxed custom-scrollbar"
+                maxLength={5000}
+                aria-describedby={description ? 'ts-desc-count' : 'ts-desc-count ts-desc-help'}
+              />
+
+              {!description && (
+                <p id="ts-desc-help" className="text-sm text-muted">
+                  {mode === 'video'
+                    ? "AI writes a description with chapter timestamps from your video's Whisper transcript."
+                    : "Write a description for your YouTube video. You can go on to publish once it has one."}
+                </p>
               )}
 
               {/* Next: Publish */}
               {description && (
-                <button
-                  onClick={() => setStep(4)}
-                  className="w-full btn-primary"
-                >
-                  <ArrowRight size={16} />
-                  Next: Publish
-                </button>
-              )}
-            </div>
-
-            {/* Right: Editable Description */}
-            <div className="md:col-span-3 space-y-4">
-              <div className="glass-panel p-6 space-y-4 h-full flex flex-col">
-                <div className="flex items-center justify-between">
-                  <p className="eyebrow flex items-center gap-2">
-                    <FileText size={14} className="text-muted" />
-                    YOUTUBE DESCRIPTION
-                  </p>
-                  <span className="readout">{description.length} / 5000</span>
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setStep(4)}
+                    className="btn-accent w-full sm:w-auto"
+                  >
+                    Next: publish
+                    <ArrowRight size={16} aria-hidden="true" />
+                  </button>
                 </div>
-
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder={mode === 'video'
-                    ? "Click 'Generate Description' to auto-generate with chapters, or write your own..."
-                    : "Write your YouTube video description here..."
-                  }
-                  className="input-field text-sm resize-none flex-1 min-h-[500px] font-mono custom-scrollbar"
-                  maxLength={5000}
-                />
-
-                {!description && (
-                  <p className="text-xs text-muted">
-                    {mode === 'video'
-                      ? "AI will generate a compelling description with chapter timestamps from your video's Whisper transcript."
-                      : "Write a description for your YouTube video. You can proceed to publish once you have a description."}
-                  </p>
-                )}
-              </div>
-            </div>
+              )}
+            </section>
           </div>
         )}
 
         {/* ===== STEP 4: Publish to YouTube ===== */}
         {step === 4 && (
-          <div className="grid md:grid-cols-5 gap-6">
-            {/* Left: Summary & Publish */}
-            <div className="md:col-span-2 space-y-4">
-              <button
-                onClick={() => setStep(3)}
-                className="text-xs lowercase text-muted hover:text-ink transition-colors flex items-center gap-1 mb-2"
-              >
-                <ArrowLeft size={12} /> Back to Description
-              </button>
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(17rem,21rem)] gap-6 lg:gap-10 items-start">
+            {/* The final read: thumbnail, title, description */}
+            <section aria-labelledby="ts-proof-heading" className="card p-5 sm:p-6 space-y-5 min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 id="ts-proof-heading" className="font-display text-lg text-ink">Final read</h3>
+                <button
+                  type="button"
+                  onClick={() => setStep(3)}
+                  className="btn-quiet"
+                >
+                  <ArrowLeft size={14} aria-hidden="true" /> Back to description
+                </button>
+              </div>
 
               {/* Selected Thumbnail Preview */}
               {selectedThumbnail && (
-                <div className="glass-panel overflow-hidden">
+                <figure>
                   <img
                     src={getApiUrl(selectedThumbnail)}
                     alt="Selected thumbnail"
-                    className="w-full aspect-video object-cover"
+                    className="w-full aspect-video object-cover rounded-input bg-black border border-rule2"
                   />
-                  <div className="p-3">
-                    <span className="text-xs lowercase text-brass flex items-center gap-1"><Check size={10} /> Selected Thumbnail</span>
-                  </div>
-                </div>
+                  <figcaption className="readout mt-2 flex items-center gap-1.5">
+                    <Check size={12} className="text-ink" aria-hidden="true" /> Selected thumbnail
+                  </figcaption>
+                </figure>
               )}
 
               {/* Editable Title */}
-              <div className="glass-panel p-6 space-y-3">
-                <p className="eyebrow">TITLE</p>
+              <div>
+                <label htmlFor="ts-publish-title" className="block text-sm font-medium text-ink mb-2">Title</label>
                 <input
+                  id="ts-publish-title"
                   type="text"
                   value={selectedTitle || manualTitle}
                   onChange={(e) => selectedTitle ? setSelectedTitle(e.target.value) : setManualTitle(e.target.value)}
-                  className="input-field text-sm"
+                  className="input-field font-display text-lg"
                   maxLength={100}
+                  aria-describedby="ts-publish-title-count"
                 />
+                <p id="ts-publish-title-count" className="readout mt-2 text-right">{(selectedTitle || manualTitle).length} / 100</p>
+              </div>
+
+              {/* Description (still editable) */}
+              <div>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <label htmlFor="ts-publish-desc" className="text-sm font-medium text-ink">Description</label>
+                  <span className="readout">{description.length} / 5000</span>
+                </div>
+                <textarea
+                  id="ts-publish-desc"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="input-field resize-y min-h-[320px] lg:min-h-[420px] leading-relaxed custom-scrollbar"
+                  maxLength={5000}
+                />
+              </div>
+            </section>
+
+            {/* Publish */}
+            <aside aria-labelledby="ts-publish-heading" className="card-print p-5 sm:p-6 space-y-4 lg:sticky lg:top-2">
+              <div>
+                <h3 id="ts-publish-heading" className="font-display text-lg text-ink flex items-center gap-2">
+                  <Youtube size={18} className="text-muted" aria-hidden="true" />
+                  Publish
+                </h3>
+                <p className="text-sm text-muted mt-1">The video goes to your YouTube channel with this title, thumbnail and description.</p>
               </div>
 
               {/* Publish Button */}
               {(!managed && (!uploadPostKey || !uploadUserId)) ? (
-                <div className="glass-panel p-6 space-y-3">
-                  <div className="flex items-center gap-2 text-warn">
-                    <AlertCircle size={16} />
-                    <span className="text-sm font-medium lowercase">Upload-Post Not Configured</span>
-                  </div>
-                  <p className="text-xs text-muted">
-                    To publish directly to YouTube, configure your Upload-Post API key and connect a profile in Settings.
+                <div className="rounded-input border border-warn/40 bg-warn/10 p-4 space-y-3">
+                  <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+                    <AlertCircle size={16} className="text-warn shrink-0" aria-hidden="true" />
+                    Upload-Post not configured
                   </p>
-                  <button
-                    onClick={() => { }}
-                    className="text-xs lowercase text-brass hover:underline flex items-center gap-1"
-                  >
-                    <Settings size={12} /> Go to Settings
-                  </button>
+                  <p className="text-sm text-ink2">
+                    To publish straight to YouTube, add your Upload-Post API key and connect a profile in Settings.
+                  </p>
+                  {onOpenSettings && (
+                    <button
+                      type="button"
+                      onClick={onOpenSettings}
+                      className="btn-quiet"
+                    >
+                      <Settings size={14} aria-hidden="true" /> Go to Settings
+                    </button>
+                  )}
                 </div>
               ) : (
                 <button
+                  type="button"
                   onClick={handlePublish}
                   disabled={isPublishing}
-                  className="w-full btn-primary"
+                  className="w-full btn-accent"
                 >
                   {isPublishing ? (
                     <>
-                      <Loader2 size={16} className="animate-spin" />
-                      Publishing to YouTube...
+                      <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                      Publishing to YouTube…
                     </>
                   ) : (
                     <>
-                      <Youtube size={16} />
+                      <Youtube size={16} aria-hidden="true" />
                       Publish to YouTube
                     </>
                   )}
@@ -1174,66 +1361,40 @@ export default function ThumbnailStudio({ geminiApiKey, uploadPostKey, uploadUse
 
               {/* Polling status */}
               {isPublishing && (
-                <div className="readout flex items-center gap-2">
-                  <Loader2 size={12} className="animate-spin text-brass" />
-                  UPLOADING — POLLING STATUS EVERY 2S
-                </div>
+                <p className="readout flex items-center gap-2">
+                  <Loader2 size={12} className="animate-spin shrink-0" aria-hidden="true" />
+                  Uploading · checking status every 2 s
+                </p>
               )}
 
               {/* Publish Result */}
               {publishResult && (
-                <div className="glass-panel p-4">
-                  {publishResult.success ? (
-                    <div className="space-y-2">
-                      <span className="badge-ok">PUBLISHED</span>
-                      <p className="text-sm lowercase font-medium text-ink">Published successfully!</p>
-                      <p className="text-xs text-muted">Your video is being uploaded to YouTube asynchronously.</p>
-                      {onCreateClips && sessionId && (
-                        <button
-                          onClick={() => onCreateClips(sessionId)}
-                          className="btn-primary px-4 py-2 text-xs mt-1"
-                          title="Send this video and its transcript to the clip generator"
-                        >
-                          <Video size={14} />
-                          create clips from this video
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <span className="badge-danger">FAILED</span>
-                      <p className="text-sm lowercase font-medium text-danger">Publish failed</p>
-                      <p className="text-xs text-muted">{publishResult.error}</p>
-                    </div>
-                  )}
-                </div>
+                publishResult.success ? (
+                  <div className="rounded-input border border-ok/40 bg-ok/10 p-4 space-y-2">
+                    <span className="badge-ok"><Check size={12} aria-hidden="true" /> Published</span>
+                    <p className="text-sm font-semibold text-ink">Published successfully</p>
+                    <p className="text-sm text-ink2">Your video is being uploaded to YouTube in the background.</p>
+                    {onCreateClips && sessionId && (
+                      <button
+                        type="button"
+                        onClick={() => onCreateClips(sessionId)}
+                        className="btn-primary w-full mt-1"
+                        title="Send this video and its transcript to the clip generator"
+                      >
+                        <Video size={16} aria-hidden="true" />
+                        Create clips from this video
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div role="alert" className="rounded-input border border-danger/40 bg-danger/10 p-4 space-y-2">
+                    <span className="badge-danger"><AlertCircle size={12} aria-hidden="true" /> Failed</span>
+                    <p className="text-sm font-semibold text-ink">Publish failed</p>
+                    <p className="text-sm text-ink2 break-words">{publishResult.error}</p>
+                  </div>
+                )
               )}
-            </div>
-
-            {/* Right: Description Preview (read-only feel, still editable) */}
-            <div className="md:col-span-3 space-y-4">
-              <div className="glass-panel p-6 space-y-4 h-full flex flex-col">
-                <div className="flex items-center justify-between">
-                  <p className="eyebrow flex items-center gap-2">
-                    <FileText size={14} className="text-muted" />
-                    YOUTUBE DESCRIPTION
-                  </p>
-                  <button
-                    onClick={() => setStep(3)}
-                    className="text-xs lowercase text-muted hover:text-ink flex items-center gap-1 transition-colors"
-                  >
-                    <ArrowLeft size={10} /> Edit
-                  </button>
-                </div>
-
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="input-field text-sm resize-none flex-1 min-h-[500px] font-mono custom-scrollbar"
-                  maxLength={5000}
-                />
-              </div>
-            </div>
+            </aside>
           </div>
         )}
       </div>

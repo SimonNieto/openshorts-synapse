@@ -69,43 +69,56 @@ export default function OAuthConsent() {
   const name = client?.client_name || 'an app';
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <div className="card p-8 max-w-md w-full text-center">
-        <div className="w-12 h-12 rounded-full bg-brass/10 flex items-center justify-center mx-auto mb-4">
-          <Plug size={20} className="text-brass" />
+    <main id="main-content" className="min-h-screen flex items-center justify-center px-4 py-10">
+      <div className="card-print p-6 sm:p-8 max-w-md w-full">
+        {/* the app on one end, Synapse AI on the other, a filament between */}
+        <div className="flex items-center gap-3 mb-7" aria-hidden="true">
+          <span className="w-11 h-11 rounded-card tray flex items-center justify-center shrink-0">
+            <Plug size={18} className="text-ink" />
+          </span>
+          <span className="flex-1 border-t border-dashed border-rule2" />
+          <img src="/logo-synapse.svg" alt="" width="44" height="44" className="w-11 h-11 shrink-0" />
         </div>
-        <h1 className="font-display lowercase text-2xl text-ink mb-2">Connect {name} to Synapse AI</h1>
+
+        <p className="readout mb-2">Connect an app</p>
+        <h1 className="font-display text-2xl text-ink leading-tight break-words">Connect {name} to Synapse AI</h1>
         {error ? (
-          <p className="text-warn text-sm">{error}</p>
+          <p role="alert" className="text-warn text-sm mt-4 leading-relaxed">{error}</p>
         ) : (
           <>
-            <p className="text-muted text-sm mb-6">
-              <b className="text-ink">{name}</b> wants to clip and publish videos with your account
-              {me?.email ? <> (<span className="text-ink">{me.email}</span>)</> : null}.
+            <p className="text-ink2 text-sm mt-3 mb-6 leading-relaxed">
+              <b className="text-ink font-medium">{name}</b> wants to clip and publish videos with your account
+              {me?.email ? <> (<span className="text-ink break-all">{me.email}</span>)</> : null}.
               It will use your plan&apos;s minutes and you can disconnect it any time from
               Account → API keys.
             </p>
-            <ul className="text-left text-xs text-ink2 space-y-1.5 mb-6">
-              <li className="flex gap-2"><ShieldCheck size={14} className="text-ok shrink-0 mt-0.5" /> Process videos and read the resulting clips</li>
-              <li className="flex gap-2"><ShieldCheck size={14} className="text-ok shrink-0 mt-0.5" /> Add subtitles, recut and publish clips you own</li>
-              <li className="flex gap-2"><ShieldCheck size={14} className="text-ok shrink-0 mt-0.5" /> Nothing else: no billing, no account settings, no key management</li>
+            <p className="readout mb-3">It will be able to</p>
+            <ul className="tray p-4 text-sm text-ink2 space-y-2.5 mb-7">
+              <li className="flex gap-2.5"><ShieldCheck size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> Process videos and read the resulting clips</li>
+              <li className="flex gap-2.5"><ShieldCheck size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> Add subtitles, recut and publish clips you own</li>
+              <li className="flex gap-2.5"><ShieldCheck size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" /> Nothing else: no billing, no account settings, no key management</li>
             </ul>
             {loading || !client ? (
-              <div className="flex justify-center py-2"><Loader2 className="animate-spin text-brass" size={18} /></div>
+              <div role="status" className="flex justify-center py-2">
+                <Loader2 className="animate-spin text-muted" size={18} aria-hidden="true" />
+                <span className="sr-only">Loading…</span>
+              </div>
             ) : isSignedIn ? (
-              <div className="flex gap-3">
-                <button onClick={() => decide(false)} disabled={busy} className="btn-ghost flex-1 py-2.5">Cancel</button>
-                <button onClick={() => decide(true)} disabled={busy} className="btn-primary flex-1 py-2.5">
-                  {busy ? <Loader2 size={16} className="animate-spin" /> : 'Allow'}
+              <div className="flex flex-col-reverse sm:flex-row gap-3">
+                <button type="button" onClick={() => decide(false)} disabled={busy} className="btn-ghost flex-1 py-2.5">Cancel</button>
+                <button type="button" onClick={() => decide(true)} disabled={busy} aria-busy={busy || undefined} className="btn-accent flex-1 py-2.5">
+                  {busy
+                    ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /><span className="sr-only">Connecting…</span></>
+                    : 'Allow'}
                 </button>
               </div>
             ) : (
-              <button onClick={() => setShowLogin(true)} className="btn-primary w-full py-2.5">Sign in to continue</button>
+              <button type="button" onClick={() => setShowLogin(true)} className="btn-accent w-full py-2.5">Sign in to continue</button>
             )}
           </>
         )}
       </div>
       {showLogin && !isSignedIn && <LoginModal onClose={() => setShowLogin(false)} />}
-    </div>
+    </main>
   );
 }

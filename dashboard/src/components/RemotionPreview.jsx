@@ -6,6 +6,9 @@ import { ShortVideo } from '../remotion/compositions/ShortVideo';
  * Wraps Remotion's Player component for real-time preview in modals.
  * Accepts the same ShortVideoProps interface as the Remotion composition.
  *
+ * The player sits on true black (a media surface, design.md): the frame
+ * around it — the ink border — belongs to whoever places it.
+ *
  * @param {object} props
  * @param {string} props.videoUrl - URL to the base clip video
  * @param {number} props.durationInSeconds - Video duration in seconds
@@ -40,7 +43,7 @@ export default function RemotionPreview({
     );
 
     return (
-        <div className={`w-full h-full ${className}`}>
+        <div role="group" aria-label="Live preview" className={`w-full h-full bg-black ${className}`}>
             <Player
                 component={ShortVideo}
                 inputProps={inputProps}

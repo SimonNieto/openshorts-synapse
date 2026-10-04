@@ -50,36 +50,39 @@ export default function TrialUpgradeModal({ plan, onActivated, onClose }) {
   };
 
   return (
-    <Modal isOpen onClose={onClose} eyebrow="TRIAL" size="md">
+    <Modal isOpen onClose={onClose} eyebrow="Trial" size="md">
       {done ? (
-        <div className="text-center py-4">
-          <div className="inline-flex p-3 bg-paper3 rounded-full text-ok mb-4"><CheckCircle2 size={24} /></div>
-          <h2 className="font-display lowercase text-xl text-ink mb-1">You're all set</h2>
-          <p className="text-muted text-sm">Your plan is active{planMinutes ? ` with ${planMinutes} minutes` : ''}. Go ahead and generate your clips.</p>
+        <div role="status" aria-live="polite" className="text-center py-4">
+          <span className="inline-flex p-3 tray rounded-full text-ok mb-4"><CheckCircle2 size={24} aria-hidden="true" /></span>
+          <h2 className="font-display text-xl text-ink mb-1.5">You're all set</h2>
+          <p className="text-muted text-sm leading-relaxed">Your plan is active{planMinutes ? ` with ${planMinutes} minutes` : ''}. Go ahead and generate your clips.</p>
         </div>
       ) : (
         <>
-          <div className="inline-flex p-3 bg-paper3 rounded-full text-brass mb-4"><Rocket size={24} /></div>
-          <h2 className="font-display lowercase text-xl text-ink mb-1">You've used your free trial minutes</h2>
-          <p className="text-muted text-sm mb-6">
+          <span className="inline-flex p-3 tray rounded-full text-ink mb-4" aria-hidden="true"><Rocket size={24} /></span>
+          <h2 className="font-display text-xl text-ink mb-2">You've used your free trial minutes</h2>
+          <p className="text-ink2 text-sm mb-6 leading-relaxed">
             Activate your{plan ? <> <span className="capitalize font-medium text-ink">{plan}</span></> : ''} plan now to unlock{' '}
             {planMinutes ? <><b className="text-ink font-medium">{planMinutes} minutes</b> every month</> : 'your full monthly minutes'} and keep creating.
             Your card is charged today and your 3-day trial ends now.
           </p>
 
-          {error && <p className="text-warn text-xs mb-4">{error}</p>}
+          {error && <p role="alert" className="text-warn text-sm mb-4 leading-relaxed">{error}</p>}
 
           <button
+            type="button"
             onClick={activate}
             disabled={busy}
-            className="btn-primary w-full"
+            aria-busy={busy || undefined}
+            className="btn-accent w-full"
           >
-            {busy ? <><Loader2 size={18} className="animate-spin" /> Activating…</> : <>Activate my plan now</>}
+            {busy ? <><Loader2 size={18} className="animate-spin" aria-hidden="true" /> Activating…</> : <>Activate my plan now</>}
           </button>
           <button
+            type="button"
             onClick={onClose}
             disabled={busy}
-            className="w-full mt-2 text-muted hover:text-ink text-sm lowercase py-2 disabled:opacity-60 transition-colors"
+            className="w-full mt-2 min-h-[44px] text-muted hover:text-ink text-sm py-2 disabled:opacity-60 transition-colors"
           >
             Maybe later
           </button>

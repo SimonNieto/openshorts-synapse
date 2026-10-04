@@ -1,168 +1,154 @@
-# Design — OpenShorts
+# Design — Synapse AI · « Synapse · Graphite »
 
-A locked design system for this app (dashboard + landing). Every page redesign
-reads this file before emitting code. Do not regenerate per page — extend or
-amend this file when the system needs to grow.
+The locked design system of Synapse AI (dashboard + landing + account + legal),
+built on OpenShorts (MIT). Every page redesign reads this file before writing
+code. Extend this file when the system needs to grow; never invent a parallel
+system inside a page.
 
-Theme: **Lumen · Night Foundry** (Hallmark catalog, atmospheric genre).
-Register: premium AI-tool instrument (Modal / Anthropic / ElevenLabs school).
-The product's own numbers — timecodes, aspect ratios, clip counts, costs —
-are the decoration: they render as UPPERCASE mono readouts.
+## The idea
 
-## Genre
+**The synapse night, made sober.** Synapse AI keeps its identity — a dark
+night, a neuron, filaments, a node that fires — but with almost no colour: a
+graphite-black canvas, white ink, hairline filaments, and ONE desaturated cyan
+signal (the firing node). It should feel calm, precise and premium, like a
+well-made pro tool at night. The colour of the site is its content: the drawn
+B-roll images the product makes. The chrome around them stays monochrome.
 
-atmospheric
+Retired: the violet, the gradients, the glow soup, the lowercase headings, the
+numbered eyebrows (old « Nuit synapse » / « Night Foundry »), and the light
+newsprint experiment (« Édition »). **Dark, monochrome, one signal, sentence
+case.**
 
-## Macrostructure family
+## Tokens (src/tokens.css · Tailwind names in brackets)
 
-- Marketing pages (Landing): **Marquee Hero, Lumen-canonical** — lowercase
-  serif headline hero-left with one coral verb-landmark, hand-built CSS
-  apparatus hero-right, meter strip below the fold, then sections with mono
-  eyebrows. Nav: N9 edge-aligned minimal. Footer: Ft5 Statement.
-- App pages (dashboard tabs, modals): **Workbench** — small functional
-  headings, hairline cards lit from within, mono readouts, zero enrichment.
-  Function carries the page.
-- Content pages (Legal): **Long Document** — single column, 65ch measure,
-  inline headings, typographic links.
+| token | value | use |
+|---|---|---|
+| `--color-paper` [`paper`] | oklch(14.5% 0.006 265) | the canvas: graphite black |
+| `--color-paper-2` [`paper2`] | oklch(18% 0.007 265) | raised sheet: cards, modals, inputs |
+| `--color-paper-3` [`paper3`] | oklch(22% 0.008 265) | sunken / hover: rail tiles, chips, quiet buttons, trays |
+| `--color-ink` [`ink`] | oklch(96.5% 0.003 265) | white ink: headlines, strong buttons |
+| `--color-ink-2` [`ink2`] | oklch(85% 0.005 265) | body text |
+| `--color-muted` [`muted`] | oklch(66% 0.008 265) | secondary text (≥ 5:1 on paper) |
+| `--color-rule` / `-2` [`border-rule`, `border-rule2`] | white 9% / 17% | hairline filaments |
+| `--color-accent` [`vermilion` / legacy `brass`, `cyan`, `primary`] | oklch(82% 0.095 212) | THE signal (desaturated cyan): the one main action of a view, the active/selected state, the firing node. Nothing else. |
+| `--color-accent-soft` [`vermilionsoft`] | dark cyan wash | selected rows / tiles |
+| `--color-accent-ink` [`brassink`] | near-black | text on the signal |
+| `--color-accent-2` [`cobalt` / legacy `coral`, `violet`, `accent`] | oklch(78% 0.04 250) | quiet steel: links, info |
+| `--color-ok` / `warn` / `danger` | muted green / ochre / red | real states only, always with an icon or a word |
+| `shadow-print` / `shadow-print-accent` / `shadow-sheet` | hairline + deep shadow / signal ring / resting | depth (no offset "print" shadows, no neon) |
 
-## Theme tokens (Night Foundry)
+The Tailwind name `vermilion` is historical: it IS the cyan signal now. No
+hard-coded hex, no `white/xx`, `black/xx`, `zinc-*`, `gray-*`, `slate-*`, no
+per-feature hues on UI chrome. Real media surfaces (video players, 9:16
+previews, image lightboxes) sit on `bg-black` framed by a hairline
+`border-rule2`.
 
-- `--color-paper`      oklch(13% 0.014 265)   — page canvas, late-night violet
-- `--color-paper-2`    oklch(16.5% 0.015 265) — elevated surface (cards, modals, sidebar)
-- `--color-paper-3`    oklch(20% 0.016 265)   — hover surface / inset chips
-- `--color-ink`        oklch(96% 0.006 262)   — headlines, near-white
-- `--color-ink-2`      oklch(86% 0.01 262)    — body text
-- `--color-muted`      oklch(64% 0.012 262)   — secondary text
-- `--color-rule`       oklch(96% 0.006 262 / 0.08) — hairline borders
-- `--color-rule-2`     oklch(96% 0.006 262 / 0.14) — stronger hairline
-- `--rule-blueprint`   oklch(96% 0.006 262 / 0.04) — blueprint grid lines
-- `--color-accent`     oklch(76% 0.17 50)     — molten brass (THE accent)
-- `--color-accent-ink` oklch(17% 0.03 50)     — text on brass fills
-- `--color-accent-2`   oklch(68% 0.16 18)     — coral chord (verb landmark ONLY + rare secondary)
-- `--color-glow`       oklch(80% 0.16 50 / 0.42) — apparatus halo
-- `--color-paper-emit` oklch(76% 0.17 50 / 0.04) — inner-emission wash
-- `--color-focus`      oklch(76% 0.17 50)     — focus rings
-- `--color-ok`         oklch(75% 0.11 150)    — success states
-- `--color-warn`       oklch(78% 0.14 75)     — warnings (keys missing, low quota)
-- `--color-danger`     oklch(66% 0.18 25)     — errors, destructive
+**Colour budget per screen:** the accent on at most the main action + the
+active/selected state (+ one underlined word or firing node on hero screens).
+Everything else is ink / ink2 / muted / rules.
 
-Tailwind names: `paper, paper2, paper3, ink, ink2, muted, brass, brassink,
-coral, ok, warn, danger` (+ legacy aliases `background→paper`, `surface→paper2`,
-`primary→brass`, `accent→coral` so untouched files degrade gracefully).
-Borders: use `border-rule` / `border-rule2` utilities (defined in index.css).
+## Type
 
-## Typography
+- **Headlines: Geist 600** (`font-display`, `.page-title`), sentence case,
+  tracking -0.035em. One `h1` per page (the shell's top bar owns it in the
+  app); `h2` for sections, `h3` for cards.
+- **Big numbers: Geist 300** (`font-quote`) — durations, counts, scores.
+- **Body / UI: Geist** 400/500/600 (default).
+- **Labels: JetBrains Mono** (`.eyebrow` in the signal colour, `.readout`
+  muted, badges) — UPPERCASE micro labels and machine data only.
+- **Sentence case everywhere** in UI chrome ("New clip", "Save tags"). No
+  `lowercase` class on UI text, no Title Case. Never transform user content.
+- **Eyebrows are words, never numbers.**
+- `.ink-underline` — a thin hand-drawn signal stroke under ONE key word on a
+  hero/empty state. Optional, at most one per screen.
+- Minimum 12px content text, 10.5px mono labels.
 
-- Display: **Instrument Serif 400**, `font-display`, always roman (never italic),
-  **lowercase**, tracking -0.032em, line-height 1.02.
-- Body: **Geist** 400/500/600, `font-body`.
-- Mono: **JetBrains Mono** 400/500, `font-mono` — UPPERCASE labels only.
-- Two-register rule: UI prose (headings, buttons, nav, empty states, helper
-  text) renders **lowercase**; mono labels (eyebrows, badges, readouts, stat
-  labels, keyboard hints) render **UPPERCASE** 10.5–11px tracking 0.10em at
-  ~55% opacity. That contrast is the typographic signature.
-- **NEVER lowercase user content**: video titles, captions, transcripts,
-  descriptions, emails, API keys, log output, filenames, prices in legal copy.
-  Apply `lowercase` class per-element on UI chrome only — no global
-  text-transform on body.
-- Numerals: `font-variant-numeric: tabular-nums` wherever numbers appear
-  (`tabular-nums` utility). Big stats: Instrument Serif + tabular-nums.
-- Type scale anchor: `--text-display: clamp(3rem, 6vw + 1rem, 6rem)` (landing
-  hero only). App headings stay small: text-xl/2xl max, serif lowercase.
+## Shape, space, motion
 
-## Spacing
+- Radii: cards 10px (`rounded-card`), inputs/buttons 8px (`rounded-input`),
+  badges 4px. No pill buttons.
+- 4-pt spacing. Pages breathe: `p-4 sm:p-8`, sections `space-y-8`. Forms
+  `max-w-2xl`, galleries/workbenches `max-w-7xl`.
+- Motion: `--ease-out`, 180ms states, 500ms reveals, fade or 6px rise.
+  Clickable cards: `card-hover` (lift + the hairline lights up in the signal).
+  A node may pulse (`synapse-fire`) only while something is actually running.
+  `prefers-reduced-motion` collapses everything.
 
-4-point scale via Tailwind defaults (p-2/3/4/6/8/12/16). No arbitrary
-`text-[9px]`-style values — minimum readable label is 10.5px (`text-micro`
-utility). Radii: `--radius-card: 10px` (rounded-card), `--radius-input: 8px`
-(rounded-input), pills `rounded-full` for CTAs and status chips only.
+## Component recipes (src/index.css — use these)
 
-## Motion
+- `.card` — raised graphite sheet with hairline. `.card-hover` for clickable.
+- `.card-print` — the ONE feature card of a view (stronger hairline, depth, a
+  faint lit top edge): the new-clip drop zone, the running job, modal panels.
+- `.tray` — sunken well: grouped options, empty states, logs.
+- `.btn-accent` — the signal: THE action of the screen (one per view).
+- `.btn-primary` — white ink button: strong secondary actions.
+- `.btn-ghost` (outlined), `.btn-quiet` (sunken utility), `.btn-danger`.
+- `.input-field` — labelled (`htmlFor` or `sr-only`), signal focus ring.
+- `.badge-ok|-warn|-danger|-brass|-ink|-float`, `.readout`, `.eyebrow`,
+  `.status-pill(-ok|-warn)`, `.chip-byok`, `.page-title`, `.page-lede`.
+- `.neural-field` + `.neural-node(-2)` — a local hand-built neuron/filament
+  SVG (hero, empty states, progress). The body already carries a faint
+  filament field: don't stack more than one extra drawing per screen.
+- `<Modal>`, `<SegmentedControl>` (active = white fill), `<StepIndicator>`
+  (done = white, current = signal) in src/components/ui — the only versions.
+- Icons: lucide 16–18px, `text-muted` default, `text-ink` active, signal only
+  for the one signal. Decorative icons `aria-hidden`; icon-only buttons
+  `aria-label`.
 
-- Easings: `--ease-out: cubic-bezier(0.16, 1, 0.3, 1)` only. Never `ease`.
-- Durations: 220ms UI state, 600ms section reveals, 4s apparatus pulse.
-- Reveal pattern: fade only (`animate-fade`), optional 12px translateY on
-  section entry. No slide-ins, no bounce, no scale-pops.
-- Cards hover: `translateY(-4px)` + inner-glow brighten, 220ms.
-- Reduced motion: everything collapses to instant final state.
-- Focus ring: 2px brass, appears INSTANTLY (never animated).
+## Imagery
 
-## Microinteractions stance
+The product's drawn B-roll (`/landing/*.jpg`: fridge, dmt, universe, dopamine,
+voice, negation, frustration, wheelchair) is the only colour-rich imagery:
+hero, empty states, how-it-works. Frame it on black with a hairline and a mono
+caption. The synapse drawing (neuron, filaments, one cyan nucleus) is the
+brand mark and the hero motif. No stock photos, no gradient blobs, no glowing
+orbs.
 
-- Silent success (inline check, quiet state change) — never celebratory.
-- Buttons: `active:translate-y-px`, no scale tricks.
-- Hover tooltips delay 800ms; focus tooltips 0ms.
-- Loaders: `Loader2` lucide spin is fine, tinted `text-muted` or `text-brass`.
+## Shell (App.jsx)
 
-## CTA voice
+- Left rail (`.shell-rail`): logo + wordmark "Synapse **AI**" (AI in the
+  signal), a `btn-accent` "New clip", groups Create · Library · Grow ·
+  Settings as mono `.nav-group-label`s; active tool = `.nav-tile-active`
+  (raised tile, signal edge) + `aria-current="page"`.
+- Top bar (`.shell-topbar`): the page's `h1` + one-line description, status
+  pills on the right.
+- Phone: bottom tab bar (≤ 5 destinations) + drawer; 44px targets; safe area.
+- Skip link to `#main-content`.
 
-- Primary: `.btn-primary` — brass fill, `text-brassink`, `rounded-full`,
-  lowercase label, font-medium. One per view section.
-- Secondary: `.btn-ghost` — hairline `border-rule2`, ink text, rounded-full.
-- Tertiary/utility: `.btn-quiet` — `bg-paper3` fill, no border.
-- Destructive: `.btn-danger` — danger outline, fills on hover.
-- Labels are verbs, lowercase: "start clipping", "generate", "publish",
-  "download". Never "Get Started!", never Title Case.
+## Pages may differ on
 
-## Component recipes (shared — use these, don't reinvent)
+- Landing: a hero with the synapse drawing (large neuron in thin white lines,
+  one cyan firing nucleus) beside a 9:16 plate; then the drawn B-roll plates,
+  a 3-step "how it works", the modes, trust, FAQ, CTA. Same tokens.
+- Progress (a job running): the pipeline as a synapse pathway — steps as
+  nodes on a thin filament; done = solid white, current = the cyan node
+  pulsing softly, pending = hollow; live status in mono; source preview on
+  black; logs in a `.tray`. Honest data only, no fake telemetry.
+- Legal: typography only, 65ch.
 
-- `.card` — hairline border + inner emission (radial brass 4–5%), rounded-card,
-  bg-paper2. Hover variant `.card-hover` lifts and brightens. Replaces ALL
-  glass-panel / bg-surface/50 / backdrop-blur cards.
-- `.eyebrow` — mono UPPERCASE micro label. Section pattern: eyebrow stacked
-  ABOVE the heading, same column (`01 · TOOLS` then the serif heading). Never
-  tag-left/heading-right.
-- `<Modal>` from `src/components/ui/Modal.jsx` — the ONLY modal shell
-  (overlay plain `bg-black/70`, NO backdrop-blur; panel bg-paper2 hairline).
-- `<SegmentedControl>` from `src/components/ui/SegmentedControl.jsx` — all
-  option-button grids (position/size/animation pickers, platform toggles).
-  Active state = brass hairline + paper3 fill + ink text. Never bg-white
-  text-black, never per-feature colors.
-- `<StepIndicator>` from `src/components/ui/StepIndicator.jsx` — the single
-  wizard stepper (ThumbnailStudio + SaaShortsTab share it). Mono ordinals.
-- `.input-field` — inset bg-paper, hairline, focus brass ring (redefined in
-  index.css; existing class name kept).
-- `.readout` — mono UPPERCASE value chip for machine data (timecodes, costs,
-  ratios, model names): `00:42 · 9:16 · $0.65`.
-- Status: `.badge-ok` / `.badge-warn` / `.badge-danger` — tinted 10% fills,
-  mono uppercase.
+## Accessibility (non-negotiable)
 
-## What pages MUST share
+WCAG AA contrast; keyboard reachable everything with visible focus; buttons
+not `div onClick`; landmarks (`nav aria-label`, `main#main-content`,
+`section aria-labelledby`); labels for every input, `aria-describedby` for
+help, `role="alert"` for errors, `aria-live="polite"` for async status,
+`role="progressbar"` with values for progress; meaningful `alt`; 44px touch
+targets on coarse pointers; reduced motion honoured.
 
-- Single accent: brass. Coral ONLY as the headline verb-landmark (landing) and
-  at most one small secondary highlight per view. NOTHING ELSE gets a hue.
-- Zero gradients (text or background). Zero glassmorphism / backdrop-blur
-  panels. Zero per-feature identity colors (the old violet/emerald/amber/teal
-  per-tab coding is retired — tools are differentiated by mono eyebrow ordinals
-  `01 · CLIPS`, `02 · AI SHORTS`, not by hue).
-- The two-register typography (lowercase prose / UPPERCASE mono labels).
-- The CTA voice, radii, hairline card language.
-- English copy everywhere (ScheduleWeekModal migrates from Spanish).
-- Lucide icons at 16–18px, `text-muted` default, brass when active.
+## Hard bans
 
-## What pages MAY differ on
-
-- Landing may use enrichment: ONE hand-built CSS apparatus (filament chamber
-  reading as a 9:16 clip instrument) + blueprint grid + meter strip. App pages
-  get NONE of these (no grid bg, no apparatus, no meter) — except ProcessingAnimation,
-  which keeps its scanner HUD but re-tinted to brass/ink tokens.
-- Legal is typography-only.
-
-## Hard bans (Lumen)
-
-No italics anywhere. No gradient text. No gradient buttons. No backdrop-blur.
-No glowing orbs. No invented metrics (existing cited stats/prices are the
-brief's real copy — keep them). No emoji as icons in chrome (existing emoji
-option labels in SaaShorts pickers may stay as content). No rounded-2xl
-soup — use rounded-card/rounded-input/rounded-full deliberately. No
-`bg-[#121214]`-style hardcoded colors — tokens only. No Title Case UI copy.
+Light page backgrounds. Violet. Gradients (background or text). Neon glow,
+blur glass panels. Pill buttons. Colour beyond the budget above. `lowercase`
+UI text. Numbered eyebrows. Emoji as UI icons. Hard-coded colours. Invented
+metrics, fake testimonials, fake logos.
 
 ## Functional contract (NEVER break)
 
-Hash routing (`#app`, `#/pricing`, `#/account`, `#legal`, `#features`,
-`#how-it-works`, `#pricing`, `#comparison`, `#faq` anchors), `billingEnabled` /
-`isManaged` / `isSignedIn` gating, all handlers and props, localStorage keys
-(`gemini_key`, `uploadPostKey_v3`, `elevenLabsKey_v1`, `falKey_v1`,
-`uploadUserId`, `openshorts_session`, `openshorts_auth`,
-`openshorts_skip_landing`), API calls and BYOK headers, QuotaError flows,
-Remotion preview/render wiring. Redesign is classes + markup structure only.
+Redesign = markup structure, classes and UI copy only. Never change state,
+effects, handlers, props interfaces, API calls (paths, payloads, headers),
+localStorage keys (`gemini_key`, `uploadPostKey_v3`, `elevenLabsKey_v1`,
+`falKey_v1`, `uploadUserId`, `openshorts_*` …), hash routing (`#app`,
+`#/pricing`, `#/account`, `#legal`, landing anchors), `billingEnabled` /
+`isManaged` / `isSignedIn` gating, QuotaError flows, Remotion wiring,
+`data-tutorial` attributes. Keep every feature and mode (AI Shorts, AI Agent,
+UGC Gallery, YouTube Studio, …). Licence: keep "Built on OpenShorts (MIT)".

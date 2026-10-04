@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Loader2, CreditCard, LogOut, Plus } from 'lucide-react';
+import { Loader2, CreditCard, LogOut, Plus, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiJson } from '../lib/api';
 import { track } from '../lib/analytics';
@@ -96,7 +96,14 @@ export default function AccountPage() {
     } catch (e) { setBusy(false); alert(e?.detail || 'Could not start checkout.'); }
   }, []);
 
-  if (!me) return <div className="flex justify-center py-16"><Loader2 className="animate-spin text-brass" /></div>;
+  if (!me) {
+    return (
+      <div role="status" className="flex justify-center py-16">
+        <Loader2 className="animate-spin text-muted" aria-hidden="true" />
+        <span className="sr-only">Loading your account…</span>
+      </div>
+    );
+  }
 
   const m = minutes || {};
   const total = (m.plan_allowance || 0) + (m.topup_remaining || 0) + (m.plan_used || 0);
@@ -104,115 +111,149 @@ export default function AccountPage() {
   const low = total > 0 && (m.remaining || 0) <= total * 0.2;
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <p className="eyebrow mb-1.5">ACCOUNT</p>
-          <h2 className="font-display lowercase text-2xl text-ink leading-tight">Your account</h2>
-          <p className="text-muted text-sm mt-1">{me.user?.email}</p>
+    <div className="max-w-2xl mx-auto space-y-12">
+      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div className="min-w-0">
+          <p className="eyebrow mb-2">Account</p>
+          <h1 className="page-title">Your account</h1>
+          <p className="text-muted text-sm mt-2 break-all">{me.user?.email}</p>
         </div>
-        <button onClick={logout} className="btn-quiet shrink-0">
-          <LogOut size={16} /> Sign out
+        <button type="button" onClick={logout} className="btn-quiet shrink-0 self-start sm:self-auto">
+          <LogOut size={16} aria-hidden="true" /> Sign out
         </button>
-      </div>
+      </header>
 
       {activating && (
-        <div className="card px-4 py-3 text-sm text-ink2 flex items-center gap-2 lowercase">
-          <Loader2 size={16} className="animate-spin text-brass" /> Activating your plan…
+        <div role="status" aria-live="polite" className="tray px-4 py-3 text-sm text-ink2 flex items-center gap-2.5">
+          <Loader2 size={16} className="animate-spin text-muted" aria-hidden="true" /> Activating your plan…
         </div>
       )}
 
-      <div className="card p-6">
-        <div className="flex items-center justify-between gap-4 mb-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-ink font-medium capitalize">{plan ? `${plan} plan` : 'No active plan'}</span>
-            {/* Payment-issue states get the explanatory banner below instead —
-                showing raw Stripe jargon ("past_due") twice explains nothing. */}
-            {me.status && me.status !== 'active'
-              && !PAYMENT_ISSUE_STATES.includes(me.status) && (
-              <span className="badge-warn">{me.status}</span>
-            )}
-            {me.cancel_at_period_end && (
-              <span className="badge-warn">cancels at period end</span>
+      <section aria-labelledby="account-plan-title" className="space-y-5">
+        <h2 id="account-plan-title" className="font-display text-xl text-ink">Plan and usage</h2>
+
+        <div className="card-print p-5 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="readout mb-1.5">Current plan</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-display text-xl text-ink first-letter:uppercase">{plan ? `${plan} plan` : 'No active plan'}</h3>
+                {/* Payment-issue states get the explanatory banner below instead —
+                    showing raw Stripe jargon ("past_due") twice explains nothing. */}
+                {me.status && me.status !== 'active'
+                  && !PAYMENT_ISSUE_STATES.includes(me.status) && (
+                  <span className="badge-warn">{me.status}</span>
+                )}
+                {me.cancel_at_period_end && (
+                  <span className="badge-warn">Cancels at period end</span>
+                )}
+              </div>
+            </div>
+            {/* Any Stripe relationship — live OR broken (past_due, unpaid) — must
+                keep the portal reachable. A declined card demotes `plan` to free,
+                so keying this off the plan alone hid the one button that fixes it. */}
+            {me.has_billing_account ? (
+              <button type="button" onClick={openPortal} disabled={busy} className="btn-ghost px-4 py-2 shrink-0">
+                <CreditCard size={16} aria-hidden="true" /> Manage billing
+              </button>
+            ) : (
+              <button type="button" onClick={() => { window.location.hash = '#/pricing'; }} className="btn-accent px-4 py-2 shrink-0">
+                Upgrade
+              </button>
             )}
           </div>
-          {/* Any Stripe relationship — live OR broken (past_due, unpaid) — must
-              keep the portal reachable. A declined card demotes `plan` to free,
-              so keying this off the plan alone hid the one button that fixes it. */}
-          {me.has_billing_account ? (
-            <button onClick={openPortal} disabled={busy} className="btn-ghost px-4 py-2 shrink-0">
-              <CreditCard size={16} /> Manage billing
-            </button>
-          ) : (
-            <button onClick={() => { window.location.hash = '#/pricing'; }} className="btn-primary px-4 py-2 shrink-0 text-xs">
-              Upgrade
-            </button>
+
+          {/* A bare "past_due" chip explains nothing. Say what happened and what
+              fixes it — this is the whole reason the account reads as free. */}
+          {PAYMENT_ISSUE_STATES.includes(me.status) && (
+            <div className="mt-5 rounded-card border border-warn/40 bg-warn/5 p-4 text-sm text-ink2 flex items-start gap-3">
+              <AlertTriangle size={16} className="text-warn shrink-0 mt-0.5" aria-hidden="true" />
+              <p className="leading-relaxed">
+                <b className="text-ink">We couldn't charge your card.</b>{' '}
+                {me.status === 'incomplete'
+                  ? 'Your payment was never completed, so the plan never started.'
+                  : 'Your plan is paused and you\'re on free minutes until it goes through.'}{' '}
+                <button type="button" onClick={openPortal} disabled={busy}
+                        className="text-ink underline decoration-ink/40 underline-offset-2 hover:decoration-current">
+                  Update your card
+                </button>{' '}
+                and it resumes right away.
+              </p>
+            </div>
           )}
+
+          <div className="mt-6 pt-6 border-t border-rule">
+            <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+              <p className="flex items-baseline gap-2">
+                <span className="font-quote text-5xl text-ink leading-none tabular-nums">{fmt1(m.remaining)}</span>
+                <span className="text-sm text-muted">min remaining in total</span>
+              </p>
+              {low && <span className="badge-warn">Running low</span>}
+            </div>
+
+            <dl className="mt-6 space-y-3 text-sm">
+              <div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted">Plan minutes</dt>
+                  <dd className="text-ink2 tabular-nums">{fmt1(m.plan_used)} / {fmt1(m.plan_allowance)} used</dd>
+                </div>
+                <div
+                  className="mt-2 h-1.5 bg-paper3 rounded-full overflow-hidden"
+                  role="progressbar"
+                  aria-label="Plan minutes used"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(usedPct)}
+                >
+                  <div className={`h-full transition-all ${low ? 'bg-warn' : 'bg-ink'}`} style={{ width: `${usedPct}%` }} />
+                </div>
+              </div>
+              <div className="flex justify-between gap-4 pt-1">
+                <dt className="text-muted">Top-up minutes</dt>
+                <dd className="text-ink2 tabular-nums">{fmt1(m.topup_remaining)} remaining</dd>
+              </div>
+            </dl>
+          </div>
         </div>
 
-        {/* A bare "past_due" chip explains nothing. Say what happened and what
-            fixes it — this is the whole reason the account reads as free. */}
-        {PAYMENT_ISSUE_STATES.includes(me.status) && (
-          <div className="mb-4 rounded-card border border-warn/40 bg-warn/5 p-3 text-sm text-ink2">
-            <b className="text-ink">We couldn't charge your card.</b>{' '}
-            {me.status === 'incomplete'
-              ? 'Your payment was never completed, so the plan never started.'
-              : 'Your plan is paused and you\'re on free minutes until it goes through.'}{' '}
-            <button onClick={openPortal} disabled={busy}
-                    className="underline underline-offset-2 hover:text-ink">
-              Update your card
-            </button>{' '}
-            and it resumes right away.
-          </div>
+        {topups.length > 0 && (
+          <section aria-labelledby="account-topups-title" className="card p-5 sm:p-6">
+            <h3 id="account-topups-title" className="font-display text-lg text-ink mb-1 flex items-center gap-2">
+              <Plus size={16} className="text-muted" aria-hidden="true" /> Buy more minutes
+            </h3>
+            <p className="text-muted text-sm mb-4">Top-ups never expire while your plan is active.</p>
+            <ul className="grid grid-cols-2 gap-3">
+              {topups.map((t) => (
+                <li key={t.price_id}>
+                  <button type="button" onClick={() => buyTopup(t.price_id)} disabled={busy}
+                    className="w-full h-full tray card-hover p-4 text-left disabled:opacity-50 disabled:pointer-events-none">
+                    <span className="block font-quote text-3xl text-ink leading-none tabular-nums">+{t.minutes}<span className="text-sm text-muted ml-1">min</span></span>
+                    <span className="block readout mt-2">
+                      {new Intl.NumberFormat('en-US', { style: 'currency', currency: (t.currency || 'usd').toUpperCase(), maximumFractionDigits: 0 }).format((t.amount || 0) / 100)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
-        <div className="space-y-2">
-          <div className="flex justify-between text-sm">
-            <span className="text-muted lowercase">Plan minutes</span>
-            <span className="text-ink2">{fmt1(m.plan_used)} / {fmt1(m.plan_allowance)} used</span>
-          </div>
-          <div className="h-1.5 bg-paper3 rounded-full overflow-hidden">
-            <div className={`h-full transition-all ${low ? 'bg-warn' : 'bg-brass'}`} style={{ width: `${usedPct}%` }} />
-          </div>
-          <div className="flex justify-between text-sm pt-1">
-            <span className="text-muted lowercase">Top-up minutes</span>
-            <span className="text-ink2">{fmt1(m.topup_remaining)} remaining</span>
-          </div>
-          <div className="flex justify-between text-sm pt-2 border-t border-rule">
-            <span className="text-ink font-medium lowercase">Total remaining</span>
-            <span className="text-brass font-medium">{fmt1(m.remaining)} min</span>
-          </div>
-        </div>
-      </div>
+        {/* Only accounts that ever had a Stripe relationship can have invoices. */}
+        {me.has_billing_account && <InvoicesCard />}
 
-      {/* Only accounts that ever had a Stripe relationship can have invoices. */}
-      {me.has_billing_account && <InvoicesCard />}
+        <SocialAnalyticsCard />
+      </section>
 
-      <SocialAnalyticsCard />
+      <section aria-labelledby="account-agents-title" className="space-y-5">
+        <h2 id="account-agents-title" className="font-display text-xl text-ink">Agents and API</h2>
+        <McpConnectCard cloud />
+        <ApiKeysCard />
+      </section>
 
-      {topups.length > 0 && (
-        <div className="card p-6">
-          <h3 className="font-display lowercase text-lg text-ink mb-1 flex items-center gap-2"><Plus size={16} className="text-brass" /> Buy more minutes</h3>
-          <p className="text-muted text-sm mb-4 lowercase">Top-ups never expire while your plan is active.</p>
-          <div className="grid grid-cols-2 gap-3">
-            {topups.map((t) => (
-              <button key={t.price_id} onClick={() => buyTopup(t.price_id)} disabled={busy}
-                className="border border-rule hover:border-brass rounded-card p-4 text-left transition-colors disabled:opacity-50">
-                <div className="text-ink font-medium">+{t.minutes} min</div>
-                <div className="readout mt-1">
-                  {new Intl.NumberFormat('en-US', { style: 'currency', currency: (t.currency || 'usd').toUpperCase(), maximumFractionDigits: 0 }).format((t.amount || 0) / 100)}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <McpConnectCard cloud />
-
-      <ApiKeysCard />
-
-      <DeleteAccountCard />
+      <section aria-labelledby="account-danger-title" className="space-y-5">
+        <h2 id="account-danger-title" className="font-display text-xl text-ink">Close your account</h2>
+        <DeleteAccountCard />
+      </section>
     </div>
   );
 }

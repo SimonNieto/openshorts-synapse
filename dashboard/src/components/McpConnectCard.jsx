@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Plug, Copy, Check } from 'lucide-react';
 import { getApiUrl } from '../config';
+import SegmentedControl from './ui/SegmentedControl';
 
 // "Connect an agent": the one place that tells a person how to drive
 // OpenShorts from Claude, ChatGPT, Cursor or n8n. Cloud accounts connect by
@@ -93,11 +94,11 @@ export default function McpConnectCard({ cloud = true, compact = false }) {
   }, [current]);
 
   return (
-    <div className="card p-6" id="connect-agent">
-      <h3 className="font-display lowercase text-lg text-ink mb-1 flex items-center gap-2">
-        <Plug size={16} className="text-brass" /> Connect an agent
+    <section aria-labelledby="connect-agent-title" className="card p-5 sm:p-6" id="connect-agent">
+      <h3 id="connect-agent-title" className="font-display text-lg text-ink mb-1 flex items-center gap-2">
+        <Plug size={16} className="text-muted" aria-hidden="true" /> Connect an agent
       </h3>
-      <p className="text-muted text-sm mb-4">
+      <p className="text-muted text-sm mb-5 leading-relaxed">
         Let Claude, ChatGPT, Cursor or n8n clip and publish for you through the built-in MCP server:
         8 tools (process a video or upload one, check a job, list clips, add subtitles, recut, publish, quota).
         {cloud
@@ -105,36 +106,33 @@ export default function McpConnectCard({ cloud = true, compact = false }) {
           : ' This install runs without accounts, so no key is needed.'}
       </p>
 
-      <div className="flex flex-wrap gap-1.5 mb-4" role="tablist" aria-label="client">
-        {clients.map((c) => (
-          <button
-            key={c.id}
-            role="tab"
-            aria-selected={c.id === active}
-            onClick={() => { setActive(c.id); setCopied(false); }}
-            className={`px-3 py-1.5 rounded-input text-xs border transition-colors ${
-              c.id === active ? 'border-brass text-ink bg-brass/10' : 'border-rule text-muted hover:text-ink'}`}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
+      <fieldset className="mb-4">
+        <legend className="readout mb-2">Client</legend>
+        <SegmentedControl
+          size="sm"
+          columns={4}
+          value={active}
+          onChange={(id) => { setActive(id); setCopied(false); }}
+          options={clients.map((c) => ({ value: c.id, label: c.label }))}
+        />
+      </fieldset>
 
       {current.kind === 'steps' && (
-        <ol className="list-decimal pl-5 space-y-1.5 text-sm text-ink2 mb-3">
+        <ol className="list-decimal marker:text-muted pl-5 space-y-1.5 text-sm text-ink2 mb-3 break-words">
           {current.steps.map((s) => <li key={s}>{s}</li>)}
         </ol>
       )}
 
       <div className="relative">
-        <pre className={`font-mono text-ink2 whitespace-pre-wrap break-all rounded-card border border-rule bg-paper p-3 pr-20 text-xs ${compact ? '' : 'leading-relaxed'}`}>
+        <pre className={`font-mono text-ink2 whitespace-pre-wrap break-all rounded-input border border-rule bg-paper p-3 pr-24 text-xs ${compact ? '' : 'leading-relaxed'}`}>
           {current.snippet}
         </pre>
-        <button onClick={copy} className="btn-ghost absolute top-2 right-2 px-2.5 py-1 text-xs" aria-label="copy">
-          {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy'}
+        <button type="button" onClick={copy} className="btn-ghost absolute top-2 right-2 px-2.5 py-1 text-xs bg-paper2">
+          {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />} {copied ? 'Copied' : 'Copy'}
         </button>
+        <span className="sr-only" aria-live="polite">{copied ? 'Copied to the clipboard' : ''}</span>
       </div>
-      {current.note && <p className="text-muted text-xs mt-2">{current.note}</p>}
-    </div>
+      {current.note && <p className="text-muted text-xs mt-2.5 leading-relaxed">{current.note}</p>}
+    </section>
   );
 }

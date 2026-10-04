@@ -115,23 +115,23 @@ export default function ClipTutorial({ phase, jobStatus, onStart, onSkip, onDism
 
   if (phase === 'intro') {
     return (
-      <Modal isOpen hideClose eyebrow="FIRST CLIPS" title="Let's make your first shorts" size="md">
-        <div className="flex items-start gap-3 mb-4">
-          <div className="w-10 h-10 rounded-input bg-paper3 flex items-center justify-center shrink-0">
-            <LayoutDashboard size={18} className="text-brass" />
-          </div>
+      <Modal isOpen hideClose eyebrow="First clips" title="Let's make your first shorts" size="md">
+        <div className="flex items-start gap-3 mb-5">
+          <span aria-hidden="true" className="w-10 h-10 rounded-input border border-rule2 bg-paper3 flex items-center justify-center shrink-0 text-ink">
+            <LayoutDashboard size={18} />
+          </span>
           <p className="text-sm text-ink2 leading-relaxed">
             People come here for <b className="text-ink font-medium">Clip Generator</b>: a long video in,
             vertical shorts out. We will walk the screen, then you run one video.
           </p>
         </div>
-        <button type="button" onClick={onStart} className="btn-primary w-full">
-          Show me around <ArrowRight size={16} />
+        <button type="button" onClick={onStart} className="btn-accent w-full">
+          Show me around <ArrowRight size={16} aria-hidden="true" />
         </button>
         <button
           type="button"
           onClick={onSkip}
-          className="w-full mt-2 text-muted hover:text-ink text-sm lowercase py-2 transition-colors"
+          className="w-full mt-2 min-h-[44px] rounded-input text-muted hover:text-ink hover:bg-paper3 text-sm transition-colors"
         >
           I'll explore later
         </button>
@@ -143,11 +143,11 @@ export default function ClipTutorial({ phase, jobStatus, onStart, onSkip, onDism
     return (
       <div
         className="fixed z-[80] left-3 right-3 md:left-auto md:right-6 md:w-[22rem]
-          bottom-3 md:bottom-6 card p-4"
+          bottom-3 md:bottom-6 card-print p-4"
         role="status"
       >
-        <p className="eyebrow mb-2">First clips</p>
-        <p className={`text-sm leading-relaxed ${jobStatus === 'error' ? 'text-danger' : 'text-muted'}`}>
+        <p className="readout mb-1.5">First clips</p>
+        <p className={`text-sm leading-relaxed ${jobStatus === 'error' ? 'text-danger' : 'text-ink2'}`}>
           {jobStatus === 'error'
             ? 'That run failed. Try another video — other tools stay locked until one job finishes.'
             : 'Hang on — Clip Generator is finding the moments and cutting vertical shorts.'}
@@ -165,14 +165,18 @@ export default function ClipTutorial({ phase, jobStatus, onStart, onSkip, onDism
       return (
         <div
           className="fixed z-[80] inset-x-3 bottom-3 md:inset-x-auto md:right-6 md:bottom-6 md:max-w-sm
-            card px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-1"
+            card-print pl-4 pr-2 py-2 flex flex-wrap items-center gap-x-3 gap-y-1"
           role="status"
         >
-          <p className="text-sm text-muted leading-snug flex-1 min-w-0">
+          <p className="text-sm text-ink2 leading-snug flex-1 min-w-0 py-1.5">
             Your turn — add a video and generate.
           </p>
-          <button type="button" onClick={onSkip} className="text-xs lowercase text-muted hover:text-ink shrink-0">
-            skip
+          <button
+            type="button"
+            onClick={onSkip}
+            className="shrink-0 min-h-[44px] px-3 rounded-input text-sm text-muted hover:text-ink hover:bg-paper3 transition-colors"
+          >
+            Skip
           </button>
         </div>
       );
@@ -180,24 +184,27 @@ export default function ClipTutorial({ phase, jobStatus, onStart, onSkip, onDism
 
     const hole = spot?.hole;
     const tip = spot?.tip;
+    // The dim around the spotlight: the canvas itself, at 78%, so the page
+    // recedes into the night instead of being washed out.
+    const scrim = 'color-mix(in oklab, var(--color-paper) 78%, transparent)';
 
     return (
-      <div className="fixed inset-0 z-[80]" role="dialog" aria-modal="true" aria-label="Clip Generator tutorial">
-        {!hole && <div className="absolute inset-0 bg-black/55" />}
+      <div className="fixed inset-0 z-[80]" role="dialog" aria-modal="true" aria-labelledby="clip-tutorial-title">
+        {!hole && <div className="absolute inset-0" style={{ background: scrim }} />}
         {hole && (
           <div
-            className="absolute rounded-input pointer-events-none border border-brass/70"
+            className="absolute rounded-input pointer-events-none border border-vermilion"
             style={{
               top: hole.top,
               left: hole.left,
               width: hole.width,
               height: hole.height,
-              boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)',
+              boxShadow: `0 0 0 9999px ${scrim}`,
             }}
           />
         )}
         <div
-          className="absolute card p-4 max-h-[min(70vh,24rem)] overflow-y-auto"
+          className="absolute card-print p-4 sm:p-5 max-h-[min(70vh,24rem)] overflow-y-auto custom-scrollbar"
           style={{
             top: tip?.top ?? 16,
             left: tip?.left ?? 12,
@@ -205,13 +212,24 @@ export default function ClipTutorial({ phase, jobStatus, onStart, onSkip, onDism
             maxWidth: 'calc(100vw - 24px)',
           }}
         >
-          <p className="eyebrow mb-2">{String(step + 1).padStart(2, '0')} / {String(TOUR.length).padStart(2, '0')}</p>
-          <h3 className="font-display lowercase text-lg text-ink leading-tight mb-2">{spec.title}</h3>
-          <p className="text-sm text-muted leading-relaxed mb-4">{spec.body}</p>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <p className="readout">Tour · step {step + 1} of {TOUR.length}</p>
+            {/* where we are in the tour, as nodes on a filament */}
+            <span aria-hidden="true" className="flex items-center gap-1.5">
+              {TOUR.map((t, i) => (
+                <span
+                  key={t.target}
+                  className={`h-1.5 rounded-full transition-all duration-200 ${i === step ? 'w-4 bg-ink' : i < step ? 'w-1.5 bg-ink2' : 'w-1.5 bg-[color:var(--color-rule-2)]'}`}
+                />
+              ))}
+            </span>
+          </div>
+          <h3 id="clip-tutorial-title" className="font-display text-lg text-ink leading-tight mb-2">{spec.title}</h3>
+          <p className="text-sm text-ink2 leading-relaxed mb-4">{spec.body}</p>
           <div className="flex flex-wrap items-center gap-2">
             {step > 0 && (
               <button type="button" onClick={() => setStep((s) => s - 1)} className="btn-ghost text-sm px-3">
-                <ArrowLeft size={14} /> Back
+                <ArrowLeft size={14} aria-hidden="true" /> Back
               </button>
             )}
             <button
@@ -219,11 +237,15 @@ export default function ClipTutorial({ phase, jobStatus, onStart, onSkip, onDism
               onClick={last ? onLast : () => setStep((s) => s + 1)}
               className="btn-primary text-sm px-4 ml-auto"
             >
-              {last ? 'Got it' : 'Next'} <ArrowRight size={14} />
+              {last ? 'Got it' : 'Next'} <ArrowRight size={14} aria-hidden="true" />
             </button>
           </div>
-          <button type="button" onClick={onSkip} className="mt-3 text-xs lowercase text-muted hover:text-ink transition-colors">
-            skip — unlock the rest
+          <button
+            type="button"
+            onClick={onSkip}
+            className="mt-3 -ml-2 min-h-[40px] [@media(pointer:coarse)]:min-h-[44px] px-2 rounded-input text-xs text-muted hover:text-ink hover:bg-paper3 transition-colors"
+          >
+            Skip the tour and unlock the rest
           </button>
         </div>
       </div>
@@ -232,19 +254,19 @@ export default function ClipTutorial({ phase, jobStatus, onStart, onSkip, onDism
 
   if (phase === 'celebrate') {
     return (
-      <Modal isOpen onClose={onDismissCelebrate} hideClose eyebrow="DONE" title="You made your first clips" size="sm">
+      <Modal isOpen onClose={onDismissCelebrate} hideClose eyebrow="Done" title="You made your first clips" size="sm">
         <div className="text-center py-2">
-          <div className="inline-flex p-3 bg-paper3 rounded-full text-ok mb-4">
-            <CheckCircle2 size={28} />
-          </div>
+          <span aria-hidden="true" className="inline-flex h-14 w-14 items-center justify-center rounded-full border border-rule2 bg-paper3 text-ok mb-4">
+            <CheckCircle2 size={26} />
+          </span>
           <p className="text-sm text-ink2 leading-relaxed mb-1">
             That is the whole product, on one video.
           </p>
           <p className="text-sm text-muted leading-relaxed mb-6">
             The other tools are unlocked. Come back to Clip Generator whenever you have another long video.
           </p>
-          <button type="button" onClick={onDismissCelebrate} className="btn-primary w-full">
-            <Sparkles size={16} /> See my clips
+          <button type="button" onClick={onDismissCelebrate} className="btn-accent w-full">
+            <Sparkles size={16} aria-hidden="true" /> See my clips
           </button>
         </div>
       </Modal>

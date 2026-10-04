@@ -22,45 +22,54 @@ export default function WatermarkModal({ onClose, onContinue }) {
   };
 
   return (
-    <Modal isOpen onClose={() => close(false)} eyebrow="FREE PLAN" title="Upgrade to remove the watermark" size="md">
-      <p className="text-muted text-sm mb-4">
+    <Modal
+      isOpen
+      onClose={() => close(false)}
+      eyebrow="Free plan"
+      title="Upgrade to remove the watermark"
+      size="md"
+      footer={
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+          <button type="button" onClick={() => close(true)} className="btn-ghost">
+            Download anyway
+          </button>
+          <button
+            type="button"
+            onClick={() => { close(false); window.location.hash = '#/pricing'; }}
+            className="btn-accent"
+          >
+            Upgrade
+          </button>
+        </div>
+      }
+    >
+      <p className="text-ink2 text-sm leading-relaxed mb-5">
         Clips on the free plan carry the Synapse AI mark in the corner, and are
         kept for 7 days. Any paid plan exports them clean and keeps them for good.
       </p>
 
-      <div className="rounded-card border border-rule overflow-hidden bg-paper mb-5">
+      {/* A sample clip, on black in a hairline frame */}
+      <div className="h-56 flex items-center justify-center bg-black border border-rule2 rounded-input overflow-hidden mb-5">
         <video
           src="/demo/clip-vertical.mp4"
           autoPlay
           muted
           loop
           playsInline
-          className="w-full max-h-56 object-cover"
+          aria-hidden="true"
+          className="h-full w-auto max-w-full object-contain"
         />
       </div>
 
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <label className="flex items-center gap-2 text-sm text-muted cursor-pointer">
-          <input
-            type="checkbox"
-            checked={dontShow}
-            onChange={(e) => setDontShow(e.target.checked)}
-            className="accent-brass"
-          />
-          Don't show this again
-        </label>
-        <div className="flex items-center gap-2">
-          <button onClick={() => close(true)} className="btn-ghost px-4 py-2 text-sm">
-            Download anyway
-          </button>
-          <button
-            onClick={() => { close(false); window.location.hash = '#/pricing'; }}
-            className="btn-primary px-4 py-2 text-sm"
-          >
-            Upgrade
-          </button>
-        </div>
-      </div>
+      <label className="inline-flex items-center gap-2.5 min-h-[32px] [@media(pointer:coarse)]:min-h-[44px] text-sm text-ink2 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={dontShow}
+          onChange={(e) => setDontShow(e.target.checked)}
+          className="w-4 h-4 shrink-0 accent-[var(--color-accent)] cursor-pointer"
+        />
+        Don't show this again
+      </label>
     </Modal>
   );
 }

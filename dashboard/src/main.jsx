@@ -16,13 +16,20 @@ const OAuthConsent = lazy(() => import('./components/OAuthConsent'))
 
 function PageShell({ title, children }) {
   return (
-    <div className="min-h-screen bg-paper text-ink2">
-      <header className="h-14 sm:h-16 border-b border-rule bg-paper flex items-center justify-between gap-3 px-4 sm:px-6 sticky top-0 z-20">
-        <a href="#app" className="brand-word text-lg truncate">synapse <span className="brand-ai">ai</span></a>
-        <a href="#app" className="text-sm lowercase text-muted hover:text-ink transition-colors shrink-0">← <span className="hidden sm:inline">Back to app</span><span className="sm:hidden">back</span></a>
+    <div className="min-h-screen text-ink2">
+      <header className="sticky top-0 z-20 bg-paper border-b border-rule">
+        <div className="max-w-7xl mx-auto h-14 sm:h-16 flex items-center justify-between gap-3 px-4 sm:px-8">
+          <a href="#app" className="flex items-center gap-2.5 min-h-[44px] min-w-0" aria-label="Synapse AI, open the app">
+            <img src="/logo-synapse.svg" alt="" width="28" height="28" className="w-7 h-7 shrink-0" />
+            <span className="brand-word text-lg truncate">Synapse <span className="brand-ai">AI</span></span>
+          </a>
+          <a href="#app" className="btn-ghost px-3.5 py-2 shrink-0">
+            <span aria-hidden="true">←</span> Back to app
+          </a>
+        </div>
       </header>
-      <main className="p-4 sm:p-6 md:p-8 pb-[max(2rem,env(safe-area-inset-bottom))]">
-        {title && <h1 className="font-display lowercase text-2xl sm:text-3xl text-ink text-center mb-6 sm:mb-10">{title}</h1>}
+      <main id="main-content" className="px-4 py-8 sm:px-8 sm:py-12 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+        {title && <h1 className="page-title text-center mb-6 sm:mb-10">{title}</h1>}
         {children}
       </main>
     </div>
@@ -52,21 +59,23 @@ function AccountView() {
 // explanation, and "openshorts_skip_landing" would send them into the app.
 function DeletedView() {
   return (
-    <div className="min-h-screen bg-paper text-ink2 flex items-center justify-center p-6">
-      <div className="max-w-md text-center space-y-4">
-        <h1 className="font-display lowercase text-2xl sm:text-3xl text-ink">Your account is deleted</h1>
-        <p className="text-sm">
+    <main id="main-content" className="min-h-screen text-ink2 flex items-center justify-center p-4 sm:p-8">
+      <div className="card-print max-w-md w-full p-6 sm:p-8 space-y-4">
+        <img src="/logo-synapse.svg" alt="" width="40" height="40" className="w-10 h-10" />
+        <p className="readout">Account</p>
+        <h1 className="page-title">Your account is deleted</h1>
+        <p className="text-sm leading-relaxed">
           Your projects, clips and transcripts are gone, any subscription is
           cancelled, and your API keys no longer work. We've emailed you a
           confirmation with the details.
         </p>
-        <p className="text-sm text-muted">
+        <p className="text-sm text-muted leading-relaxed">
           You're welcome back any time — signing up again with the same address
           starts a brand-new, empty account.
         </p>
         <a href="#landing" className="btn-ghost px-4 py-2 inline-flex">Back to Synapse AI</a>
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -105,7 +114,7 @@ function Root() {
   if (view === 'oauth') return <OAuthConsent />;
   if (view === 'deleted') return <DeletedView />;
   if (view === 'auth') {
-    return <div className="min-h-screen flex items-center justify-center bg-background text-zinc-400">Signing you in…</div>;
+    return <div role="status" className="min-h-screen flex items-center justify-center text-muted text-sm">Signing you in…</div>;
   }
   if (view === 'app') return <App />;
   return <Landing onLaunchApp={handleLaunchApp} />;
@@ -122,7 +131,7 @@ applyConsent();
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <AuthProvider>
-      <Suspense fallback={<div className="min-h-screen bg-paper flex items-center justify-center text-muted text-sm lowercase">loading…</div>}>
+      <Suspense fallback={<div role="status" className="min-h-screen flex items-center justify-center text-muted text-sm">Loading…</div>}>
         <Root />
       </Suspense>
       <CookieBanner />

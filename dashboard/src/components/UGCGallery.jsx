@@ -45,63 +45,73 @@ export default function UGCGallery() {
   const loading = (tab === 'videos' && loadingVideos) || (tab === 'avatars' && loadingAvatars);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <p className="eyebrow mb-1">04 · UGC GALLERY</p>
-        <h2 className="font-display lowercase text-2xl md:text-3xl text-ink">ugc gallery</h2>
-        <p className="readout mt-2">
+    <section aria-labelledby="ugc-title" className="space-y-8">
+      <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        <div className="min-w-0">
+          <p className="eyebrow mb-2">Library</p>
+          <h2 id="ugc-title" className="page-title">AI actor videos</h2>
+          <p className="page-lede mt-3">
+            Videos shared to the public gallery from AI Shorts, and the AI actors generated so far.
+          </p>
+        </div>
+        <p className="readout shrink-0">
           {loadingVideos ? '…' : videos.length} videos
-          {avatarsLoaded ? ` · ${avatars.length} avatars` : ''}
+          {avatarsLoaded ? ` · ${avatars.length} actors` : ''}
         </p>
-      </div>
+      </header>
 
-      <div className="max-w-xs w-full">
+      <div className="max-w-xs w-full" role="group" aria-label="Show">
         <SegmentedControl
           size="sm"
           value={tab}
           onChange={setTab}
           options={[
             { value: 'videos', label: `Videos (${loadingVideos ? '…' : videos.length})`, icon: <Film size={14} /> },
-            { value: 'avatars', label: `Avatars (${avatarsLoaded ? avatars.length : '…'})`, icon: <User size={14} /> },
+            { value: 'avatars', label: `Actors (${avatarsLoaded ? avatars.length : '…'})`, icon: <User size={14} /> },
           ]}
         />
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 size={24} className="animate-spin text-brass" />
-          <span className="ml-2 text-muted lowercase">Loading gallery...</span>
+        <div role="status" aria-live="polite" className="tray flex items-center justify-center gap-2 h-64 text-sm text-muted">
+          <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+          Loading the gallery…
         </div>
       ) : tab === 'videos' ? (
         videos.length === 0 ? (
-          <div className="text-center py-16">
-            <Film size={40} className="mx-auto text-muted opacity-40 mb-3" />
-            <p className="text-sm text-muted lowercase">No videos yet. Generate one from AI Shorts.</p>
-          </div>
+          <EmptyPlate
+            image="/landing/voice.jpg"
+            title="No shared videos yet"
+            text={'Generate a video in AI Shorts and tick “Share this video in the public gallery” before you generate: it will show up here.'}
+          />
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+          <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-4 gap-y-8">
             {videos.map((video) => (
-              <VideoCard
-                key={video.video_id}
-                video={video}
-                copied={copied}
-                onCopy={handleCopy}
-                onOpen={() => setSelected(video)}
-              />
+              <li key={video.video_id} className="min-w-0">
+                <VideoCard
+                  video={video}
+                  copied={copied}
+                  onCopy={handleCopy}
+                  onOpen={() => setSelected(video)}
+                />
+              </li>
             ))}
-          </div>
+          </ul>
         )
       ) : avatars.length === 0 ? (
-        <div className="text-center py-16">
-          <User size={40} className="mx-auto text-muted opacity-40 mb-3" />
-          <p className="text-sm text-muted lowercase">No avatars yet. Generate actors from AI Shorts.</p>
-        </div>
+        <EmptyPlate
+          image="/landing/frustration.jpg"
+          title="No actors yet"
+          text="Generate actors in AI Shorts, at the cast step: every one you make is kept here."
+        />
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+        <ul className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 gap-y-6">
           {avatars.map((avatar, i) => (
-            <AvatarCard key={avatar.key || i} avatar={avatar} copied={copied} onCopy={handleCopy} />
+            <li key={avatar.key || i} className="min-w-0">
+              <AvatarCard avatar={avatar} copied={copied} onCopy={handleCopy} />
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       {selected && (
@@ -109,7 +119,7 @@ export default function UGCGallery() {
           isOpen
           onClose={() => setSelected(null)}
           size="sm"
-          eyebrow={selected.video_mode === 'lowcost' ? 'LOW COST' : 'PREMIUM'}
+          eyebrow={selected.video_mode === 'lowcost' ? 'Low cost' : 'Premium'}
           title={selected.title || 'Untitled'}
         >
           <video
@@ -118,59 +128,86 @@ export default function UGCGallery() {
             controls
             autoPlay
             playsInline
-            className="w-full rounded-input bg-black aspect-[9/16] object-contain max-h-[60vh]"
+            className="w-full rounded-input bg-black border border-rule2 aspect-[9/16] object-contain max-h-[60vh]"
           />
           <p className="readout mt-3">
             {selected.duration?.toFixed(0)}s
             {selected.cost_estimate?.total != null ? ` · $${selected.cost_estimate.total.toFixed(2)}` : ''}
           </p>
           {selected.caption && (
-            <p className="text-sm text-muted mt-2 leading-relaxed">{selected.caption}</p>
+            <p className="text-sm text-ink2 mt-2 leading-relaxed break-words">{selected.caption}</p>
           )}
           <a
             href={selected.video_url}
             download
-            className="btn-ghost w-full mt-4 justify-center text-sm"
+            className="btn-primary w-full mt-5"
           >
-            <Download size={14} /> Download
+            <Download size={16} aria-hidden="true" /> Download
           </a>
         </Modal>
       )}
+    </section>
+  );
+}
+
+// An empty shelf: one drawn plate on black, then what to do next.
+function EmptyPlate({ image, title, text }) {
+  return (
+    <div className="tray p-4 sm:p-8 grid gap-6 sm:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] items-center">
+      <figure>
+        <div className="aspect-[16/10] bg-black border border-rule2 rounded-card overflow-hidden">
+          <img src={image} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+        </div>
+        <figcaption className="readout mt-2">B-roll drawn by Synapse AI</figcaption>
+      </figure>
+      <div className="min-w-0">
+        <h3 className="font-display text-xl sm:text-2xl text-ink">{title}</h3>
+        <p className="text-sm text-muted mt-2 leading-relaxed max-w-md">{text}</p>
+      </div>
     </div>
   );
 }
 
 function AvatarCard({ avatar, copied, onCopy }) {
   return (
-    <div className="group card overflow-hidden transition-colors hover:border-rule2">
-      <div className="aspect-[3/4] bg-black">
-        <img src={avatar.url} alt="Avatar" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+    <article className="min-w-0">
+      <div className="aspect-[3/4] bg-black border border-rule2 rounded-card overflow-hidden">
+        <img
+          src={avatar.url}
+          alt="AI actor portrait"
+          loading="lazy"
+          decoding="async"
+          className="w-full h-full object-cover"
+        />
       </div>
-      <div className="p-2 space-y-1">
+      <div className="pt-2.5 space-y-2">
         {avatar.description ? (
-          <div className="relative pr-4">
-            <p className="text-micro text-muted line-clamp-2">{avatar.description}</p>
+          <p className="text-xs text-muted line-clamp-3 leading-relaxed">{avatar.description}</p>
+        ) : (
+          <p className="text-xs text-muted">No description</p>
+        )}
+        <div className="flex items-center gap-1.5">
+          {avatar.description && (
             <button
               type="button"
               onClick={() => onCopy(avatar.description, `avatar-${avatar.key}`)}
-              className="absolute top-0 right-0 p-0.5 text-muted hover:text-brass transition-colors"
+              className="btn-quiet text-xs px-2.5 py-1.5 shrink-0"
+              aria-label={copied === `avatar-${avatar.key}` ? 'Prompt copied' : 'Copy prompt'}
               title="Copy prompt"
             >
-              {copied === `avatar-${avatar.key}` ? <Check size={10} className="text-ok" /> : <Copy size={10} />}
+              {copied === `avatar-${avatar.key}` ? <Check size={14} className="text-ok" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
             </button>
-          </div>
-        ) : (
-          <p className="text-micro text-muted opacity-60 lowercase">No description</p>
-        )}
-        <a
-          href={avatar.url}
-          download
-          className="block text-center text-micro lowercase bg-paper3 hover:brightness-110 text-muted hover:text-ink2 py-1 rounded-full transition-all"
-        >
-          <Download size={10} className="inline mr-0.5" />Download
-        </a>
+          )}
+          <a
+            href={avatar.url}
+            download
+            className="btn-quiet text-xs px-2.5 py-1.5 flex-1 min-w-0"
+          >
+            <Download size={14} aria-hidden="true" /> Download
+          </a>
+        </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -180,11 +217,12 @@ function VideoCard({ video, copied, onCopy, onOpen }) {
   const hashtags = (video.hashtags || []).join(' ');
 
   return (
-    <div className="group card overflow-hidden transition-colors hover:border-rule2">
+    <article className="min-w-0">
       <button
         type="button"
         onClick={onOpen}
-        className="relative aspect-[9/16] w-full p-0 border-0 bg-black overflow-hidden cursor-pointer"
+        aria-label={`Play ${video.title || 'Untitled'}`}
+        className="group relative block aspect-[9/16] w-full bg-black border border-rule2 rounded-card overflow-hidden cursor-pointer transition-colors duration-200 hover:border-ink/50"
       >
         {video.actor_url ? (
           <img
@@ -195,44 +233,48 @@ function VideoCard({ video, copied, onCopy, onOpen }) {
             className="w-full h-full object-cover"
           />
         ) : (
-          <div className="w-full h-full bg-paper3" />
+          <span className="block w-full h-full bg-paper3" />
         )}
-        <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/30 transition-colors">
-          <Play size={20} className="text-white/80" />
-        </div>
-        <div className="absolute top-1.5 right-1.5">
-          <span className={`${mode === 'lowcost' ? 'badge-ok' : 'badge-brass'} bg-black/70`}>
-            {mode === 'lowcost' ? 'LOW COST' : 'PREMIUM'}
-          </span>
-        </div>
+        <span
+          aria-hidden="true"
+          className="absolute left-2 bottom-2 w-9 h-9 rounded-full bg-paper/80 border border-rule2 flex items-center justify-center text-ink transition-colors group-hover:bg-paper"
+        >
+          <Play size={15} className="ml-0.5" />
+        </span>
+        <span className="absolute top-2 left-2 readout text-ink2 bg-paper/90 border border-rule2 rounded px-1.5 py-0.5">
+          {mode === 'lowcost' ? 'Low cost' : 'Premium'}
+        </span>
       </button>
 
-      <div className="p-2 space-y-1">
-        <h3 className="text-xs font-semibold text-ink truncate">{video.title || 'Untitled'}</h3>
+      <div className="pt-2.5 space-y-1.5">
+        <h3 className="text-sm font-semibold text-ink leading-snug line-clamp-2 break-words">{video.title || 'Untitled'}</h3>
         <p className="readout">
           {video.duration?.toFixed(0)}s · ${video.cost_estimate?.total?.toFixed(2) || '?'}
         </p>
         {caption && (
-          <div className="relative pr-4">
-            <p className="text-micro text-muted line-clamp-2">{caption}</p>
+          <p className="text-xs text-muted line-clamp-2 leading-relaxed">{caption}</p>
+        )}
+        <div className="flex items-center gap-1.5 pt-1">
+          {caption && (
             <button
               type="button"
               onClick={() => onCopy(`${caption}\n${hashtags}`, `caption-${video.video_id}`)}
-              className="absolute top-0 right-0 p-0.5 text-muted hover:text-brass transition-colors"
+              className="btn-quiet text-xs px-2.5 py-1.5 shrink-0"
+              aria-label={copied === `caption-${video.video_id}` ? 'Caption copied' : 'Copy caption and hashtags'}
               title="Copy caption"
             >
-              {copied === `caption-${video.video_id}` ? <Check size={10} className="text-ok" /> : <Copy size={10} />}
+              {copied === `caption-${video.video_id}` ? <Check size={14} className="text-ok" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
             </button>
-          </div>
-        )}
-        <a
-          href={video.video_url}
-          download
-          className="block text-center text-micro lowercase bg-paper3 hover:brightness-110 text-muted hover:text-ink2 py-1 rounded-full transition-all"
-        >
-          <Download size={10} className="inline mr-0.5" />Download
-        </a>
+          )}
+          <a
+            href={video.video_url}
+            download
+            className="btn-quiet text-xs px-2.5 py-1.5 flex-1 min-w-0"
+          >
+            <Download size={14} aria-hidden="true" /> Download
+          </a>
+        </div>
       </div>
-    </div>
+    </article>
   );
 }

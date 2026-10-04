@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Globe, Sparkles, Download, Copy, Check, ChevronRight, ChevronLeft, Loader2, AlertCircle, Volume2, User, Film, Terminal, ChevronDown, RefreshCw, Share2, Calendar, Upload } from 'lucide-react';
+import { Globe, Download, Copy, Check, ChevronRight, ChevronLeft, Loader2, AlertCircle, Volume2, User, Film, Terminal, ChevronDown, RefreshCw, Share2, Calendar, Upload } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiFetch } from '../lib/api';
 import StepIndicator from './ui/StepIndicator';
@@ -7,14 +7,14 @@ import SegmentedControl from './ui/SegmentedControl';
 import StarBanner from './StarBanner';
 
 const STYLE_OPTIONS = [
-  { id: 'ugc', label: 'UGC Natural', desc: 'Authentic, talking to camera' },
+  { id: 'ugc', label: 'UGC natural', desc: 'Authentic, talking to camera' },
   { id: 'educational', label: 'Educational', desc: 'Clear explanations' },
-  { id: 'shock', label: 'Shock/Discovery', desc: 'Surprising opener' },
+  { id: 'shock', label: 'Shock / discovery', desc: 'Surprising opener' },
   { id: 'story', label: 'Storytelling', desc: 'Mini narrative arc' },
-  { id: 'comparison', label: 'Before/After', desc: 'Comparison style' },
+  { id: 'comparison', label: 'Before / after', desc: 'Comparison style' },
 ];
 
-const STEPS = ['Setup', 'Analysis', 'Configure', 'Generate', 'Result'];
+const STEPS = ['Brief', 'Script', 'Cast', 'Generate', 'Result'];
 
 const CACHE_KEY = 'saasshorts_cache';
 const CACHE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
@@ -396,253 +396,306 @@ export default function SaaShortsTab({ geminiApiKey, elevenLabsKey, falKey, uplo
 
   return (
     <div className="h-full overflow-y-auto custom-scrollbar">
-      <div className="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8">
-        {/* Header */}
-        <div className="flex items-end justify-between mb-2">
-          <div>
-            <p className="eyebrow mb-2">02 · AI SHORTS</p>
-            <h1 className="font-display lowercase text-2xl text-ink">AI Shorts</h1>
+      <div className="max-w-5xl mx-auto px-4 py-6 sm:p-8">
+        {/* Where we are in the wizard */}
+        <div className="mb-8 sm:mb-10">
+          <div className="flex items-center justify-between gap-3 mb-4 min-h-[36px]">
+            <p className="readout">Step {step + 1} of {STEPS.length} · {STEPS[step]}</p>
+            {step > 0 && (
+              <button type="button" onClick={handleReset} className="btn-quiet text-xs">
+                <RefreshCw size={14} aria-hidden="true" /> Start over
+              </button>
+            )}
           </div>
-          {step > 0 && (
-            <button onClick={handleReset} className="text-xs lowercase text-muted hover:text-ink flex items-center gap-1 transition-colors">
-              <RefreshCw size={12} /> Start over
-            </button>
-          )}
-        </div>
-        <p className="text-sm lowercase text-muted mb-6">
-          Generate viral UGC videos for any product or business
-        </p>
-
-        {/* Progress Steps */}
-        <div className="mb-8">
           <StepIndicator steps={STEPS} current={step} />
         </div>
 
-        {/* ── Step 0: URL Input ────────────────────────────────── */}
+        {/* ── Step 0: the brief ───────────────────────────────── */}
         {step === 0 && (
-          <div className="animate-fade space-y-6">
-            <div className="card p-4 sm:p-8 space-y-6">
-              {/* Video Mode Selector */}
-              <div>
-                <label className="eyebrow block mb-3">Video Mode</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setVideoMode('lowcost')}
-                    className={`card card-hover p-4 text-left ${
-                      videoMode === 'lowcost' ? 'border-brass' : ''
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1.5 gap-2">
-                      <span className={`text-sm font-medium lowercase ${videoMode === 'lowcost' ? 'text-ink' : 'text-ink2'}`}>Low Cost</span>
-                      <span className="badge-ok">recommended</span>
-                    </div>
-                    <p className="readout mb-1.5">~$0.80 / VIDEO</p>
-                    <p className="text-xs text-muted leading-relaxed">Hailuo 2.3 img2video + VEED Lipsync. Good movement + lip-sync.</p>
-                  </button>
-                  <button
-                    onClick={() => setVideoMode('premium')}
-                    className={`card card-hover p-4 text-left ${
-                      videoMode === 'premium' ? 'border-brass' : ''
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1.5 gap-2">
-                      <span className={`text-sm font-medium lowercase ${videoMode === 'premium' ? 'text-ink' : 'text-ink2'}`}>Premium</span>
-                      <span className="badge-brass">best quality</span>
-                    </div>
-                    <p className="readout mb-1.5">~$2.00 / VIDEO</p>
-                    <p className="text-xs text-muted leading-relaxed">Kling Avatar v2 Standard. Full integrated movement.</p>
-                  </button>
-                </div>
-              </div>
+          <section aria-labelledby="ais-brief-title" className="animate-fade">
+            <StepHeading id="ais-brief-title" eyebrow="Brief" title="What should the short be about?">
+              Give us a website, a description, or both. We research the product, find the pain points your
+              audience feels and write scripts an AI actor can perform.
+            </StepHeading>
 
-              <div>
-                <label className="eyebrow block mb-2">Website URL <span className="opacity-60">(optional)</span></label>
-                <div className="flex gap-3">
-                  <div className="relative flex-1">
-                    <Globe size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-                    <input
-                      type="url"
-                      value={url}
-                      onChange={(e) => setUrl(e.target.value)}
-                      placeholder="https://your-website.com"
-                      className="input-field pl-10"
-                      onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
+            <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_15rem] lg:gap-12">
+              <div className="min-w-0 space-y-10">
+                {/* The brief itself: the one feature card of this step */}
+                <div className="card-print p-4 sm:p-6 space-y-5">
+                  <div>
+                    <label htmlFor="ais-url" className="block text-sm font-medium text-ink mb-1.5">
+                      Website <span className="font-normal text-muted">(optional)</span>
+                    </label>
+                    <div className="relative">
+                      <Globe size={16} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+                      <input
+                        id="ais-url"
+                        type="url"
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        placeholder="https://your-website.com"
+                        className="input-field pl-10"
+                        aria-describedby="ais-url-help"
+                        onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
+                      />
+                    </div>
+                    <p id="ais-url-help" className="text-xs text-muted mt-1.5">If you add one, we scrape and research the site for you.</p>
+                  </div>
+
+                  <div>
+                    <label htmlFor="ais-description" className="block text-sm font-medium text-ink mb-1.5">
+                      {url.trim() ? 'Extra context' : 'Describe the product or business'}{' '}
+                      <span className="font-normal text-muted">{url.trim() ? '(optional)' : '(required without a website)'}</span>
+                    </label>
+                    <textarea
+                      id="ais-description"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      rows={3}
+                      className="input-field resize-none text-sm"
+                      placeholder="e.g. artisan pizzeria in Madrid, productivity coach, sportswear store, meditation app..."
                     />
                   </div>
                 </div>
-                <p className="text-xs lowercase text-muted mt-1.5">If provided, we&apos;ll scrape and research your site automatically</p>
-              </div>
 
-              <div>
-                <label className="eyebrow block mb-2">
-                  {url.trim() ? 'Extra context' : 'Describe your product/business'} <span className="opacity-60">{url.trim() ? '(optional)' : '(required if no URL)'}</span>
-                </label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={2}
-                  className="input-field resize-none text-sm"
-                  placeholder="e.g. artisan pizzeria in Madrid, productivity coach, sportswear store, meditation app..."
-                />
-              </div>
-
-              <div>
-                <label className="eyebrow block mb-3">Language</label>
-                <div className="mb-6">
-                  <SegmentedControl
-                    options={[
-                      { value: 'en', label: 'English', icon: '🇺🇸' },
-                      { value: 'es', label: 'Español', icon: '🇪🇸' },
-                    ]}
-                    value={language}
-                    onChange={setLanguage}
-                  />
+                {/* Video mode */}
+                <div>
+                  <SubHeading id="ais-mode-title" title="Video mode" hint="How the actor is filmed, and what each video costs." />
+                  <div role="radiogroup" aria-labelledby="ais-mode-title" className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-4">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={videoMode === 'lowcost'}
+                      onClick={() => setVideoMode('lowcost')}
+                      className={`${choiceCard(videoMode === 'lowcost')} p-4 sm:p-5`}
+                    >
+                      <ChoiceMark active={videoMode === 'lowcost'} />
+                      <span className="flex flex-wrap items-center gap-2 pr-9">
+                        <span className="text-base font-semibold text-ink">Low cost</span>
+                        <span className={TAG}>Recommended</span>
+                      </span>
+                      <span className={`readout block mt-2 ${videoMode === 'lowcost' ? 'text-ink2' : ''}`}>~$0.80 / video</span>
+                      <span className={`block text-sm leading-relaxed mt-2 ${videoMode === 'lowcost' ? 'text-ink2' : 'text-muted'}`}>
+                        Hailuo 2.3 img2video + VEED Lipsync. Good movement and lip-sync.
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={videoMode === 'premium'}
+                      onClick={() => setVideoMode('premium')}
+                      className={`${choiceCard(videoMode === 'premium')} p-4 sm:p-5`}
+                    >
+                      <ChoiceMark active={videoMode === 'premium'} />
+                      <span className="flex flex-wrap items-center gap-2 pr-9">
+                        <span className="text-base font-semibold text-ink">Premium</span>
+                        <span className={TAG}>Best quality</span>
+                      </span>
+                      <span className={`readout block mt-2 ${videoMode === 'premium' ? 'text-ink2' : ''}`}>~$2.00 / video</span>
+                      <span className={`block text-sm leading-relaxed mt-2 ${videoMode === 'premium' ? 'text-ink2' : 'text-muted'}`}>
+                        Kling Avatar v2 Standard. Full, integrated movement.
+                      </span>
+                    </button>
+                  </div>
                 </div>
 
-                <label className="eyebrow block mb-3">Actor</label>
-                <div className="mb-6">
-                  <SegmentedControl
-                    options={[
-                      { value: 'female', label: 'Woman', icon: '👩' },
-                      { value: 'male', label: 'Man', icon: '👨' },
-                    ]}
-                    value={actorGender}
-                    onChange={setActorGender}
-                  />
+                {/* Language + actor */}
+                <div className="grid gap-8 sm:grid-cols-2">
+                  <div>
+                    <SubHeading id="ais-lang-title" title="Language" />
+                    <div className="mt-3" role="group" aria-labelledby="ais-lang-title">
+                      <SegmentedControl
+                        options={[
+                          { value: 'en', label: 'English' },
+                          { value: 'es', label: 'Español' },
+                        ]}
+                        value={language}
+                        onChange={setLanguage}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <SubHeading id="ais-gender-title" title="Actor" />
+                    <div className="mt-3" role="group" aria-labelledby="ais-gender-title">
+                      <SegmentedControl
+                        options={[
+                          { value: 'female', label: 'Woman' },
+                          { value: 'male', label: 'Man' },
+                        ]}
+                        value={actorGender}
+                        onChange={setActorGender}
+                      />
+                    </div>
+                  </div>
                 </div>
 
-                <label className="eyebrow block mb-3">Video Style</label>
-                <SegmentedControl
-                  options={STYLE_OPTIONS.map((s) => ({ value: s.id, label: s.label, hint: s.desc }))}
-                  value={style}
-                  onChange={setStyle}
-                  columns={5}
-                />
-              </div>
-
-              <div>
-                <label className="eyebrow block mb-3">Number of Scripts</label>
-                <SegmentedControl
-                  options={[1, 2, 3, 5].map((n) => ({ value: n, label: String(n) }))}
-                  value={numScripts}
-                  onChange={setNumScripts}
-                  size="sm"
-                />
-              </div>
-
-              {analyzeError && (
-                <div className="flex items-center gap-2 text-sm text-danger bg-danger/10 rounded-input p-3">
-                  <AlertCircle size={14} />
-                  {analyzeError}
+                {/* Style */}
+                <div>
+                  <SubHeading id="ais-style-title" title="Style" hint="The shape of the script." />
+                  <div role="radiogroup" aria-labelledby="ais-style-title" className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
+                    {STYLE_OPTIONS.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={style === s.id}
+                        onClick={() => setStyle(s.id)}
+                        className={`${choiceCard(style === s.id)} p-3 sm:p-4`}
+                      >
+                        <ChoiceMark active={style === s.id} small />
+                        <span className="block text-sm font-semibold text-ink pr-7 break-words">{s.label}</span>
+                        <span className={`block text-xs leading-snug mt-1 ${style === s.id ? 'text-ink2' : 'text-muted'}`}>{s.desc}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              )}
 
-              <button
-                onClick={handleAnalyze}
-                disabled={analyzing || (!url.trim() && !description.trim())}
-                className="btn-primary w-full"
-              >
-                {analyzing ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    {url.trim() ? 'Scraping + researching web + generating scripts... (45-90s)' : 'Generating scripts... (20-40s)'}
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={16} className="hidden sm:block" />
-                    {url.trim() ? 'research & generate scripts' : 'generate scripts'}
-                  </>
-                )}
-              </button>
+                {/* Number of scripts */}
+                <div>
+                  <SubHeading id="ais-count-title" title="How many scripts?" hint="We write several takes; you pick the one to film." />
+                  <div className="mt-3 max-w-xs" role="group" aria-labelledby="ais-count-title">
+                    <SegmentedControl
+                      options={[1, 2, 3, 5].map((n) => ({ value: n, label: String(n) }))}
+                      value={numScripts}
+                      onChange={setNumScripts}
+                      size="sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-6 border-t border-rule2">
+                  {analyzeError && (
+                    <div role="alert" className="flex items-start gap-2 text-sm text-danger bg-danger/10 border border-danger/30 rounded-input p-3">
+                      <AlertCircle size={16} className="shrink-0 mt-0.5" aria-hidden="true" />
+                      <span className="min-w-0 break-words">{analyzeError}</span>
+                    </div>
+                  )}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                    <button
+                      type="button"
+                      onClick={handleAnalyze}
+                      disabled={analyzing || (!url.trim() && !description.trim())}
+                      className="btn-primary w-full sm:w-auto"
+                    >
+                      {analyzing ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                          {url.trim() ? 'Researching…' : 'Writing scripts…'}
+                        </>
+                      ) : (
+                        <>
+                          {url.trim() ? 'Research and write scripts' : 'Write scripts'}
+                          <ChevronRight size={16} aria-hidden="true" />
+                        </>
+                      )}
+                    </button>
+                    <p className="readout" aria-live="polite">
+                      {analyzing
+                        ? (url.trim() ? 'Scraping the site, researching the web, writing scripts · 45–90 s' : 'Writing scripts · 20–40 s')
+                        : (url.trim() ? 'Takes about 45–90 s' : 'Takes about 20–40 s')}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* How it works */}
+              <aside aria-labelledby="ais-how-title" className="lg:sticky lg:top-8 self-start lg:border-l lg:border-rule lg:pl-8">
+                <h3 id="ais-how-title" className="readout">How it works</h3>
+                <ol className="mt-3 divide-y divide-rule border-y border-rule lg:border-y-0">
+                  <li className="py-4 lg:pt-1">
+                    <h4 className="text-sm font-semibold text-ink">Deep research</h4>
+                    <p className="text-sm text-muted mt-1 leading-relaxed">
+                      AI analyzes your product from its website and the web, or works straight from your description.
+                    </p>
+                  </li>
+                  <li className="py-4">
+                    <h4 className="text-sm font-semibold text-ink">Pain-point scripts</h4>
+                    <p className="text-sm text-muted mt-1 leading-relaxed">
+                      Hook, problem, solution: scripts aimed at the real pain points of your audience.
+                    </p>
+                  </li>
+                  <li className="py-4">
+                    <h4 className="text-sm font-semibold text-ink">AI actor videos</h4>
+                    <p className="text-sm text-muted mt-1 leading-relaxed">
+                      Realistic AI actors with lip-sync, b-roll and captions. From ~$0.50 a video.
+                    </p>
+                  </li>
+                </ol>
+              </aside>
             </div>
-
-            {/* Info cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="card p-4">
-                <h3 className="eyebrow">Deep Research</h3>
-                <p className="text-xs text-muted mt-2">AI analyzes your product via URL scraping + web research, or generates directly from your description.</p>
-              </div>
-              <div className="card p-4">
-                <h3 className="eyebrow">Pain Point Scripts</h3>
-                <p className="text-xs text-muted mt-2">Generates hook-problem-solution scripts targeting your audience&apos;s real pain points.</p>
-              </div>
-              <div className="card p-4">
-                <h3 className="eyebrow">AI Actor Videos</h3>
-                <p className="text-xs text-muted mt-2">Realistic AI-generated actors with lip-sync, b-roll, and viral subtitles. From ~$0.50/video.</p>
-              </div>
-            </div>
-          </div>
+          </section>
         )}
 
-        {/* ── Step 1: Analysis Results ─────────────────────────── */}
+        {/* ── Step 1: analysis + scripts ──────────────────────── */}
         {step === 1 && analysis && (
-          <div className="animate-fade space-y-6">
-            {/* Analysis Summary */}
-            <div className="card p-6">
-              <div className="flex items-center justify-between mb-4 gap-3">
-                <h2 className="text-lg font-medium text-ink truncate">
-                  {analysis.product_name || 'Analysis'}
-                </h2>
-                <div className="flex items-center gap-2 shrink-0">
-                  {fromCache && (
-                    <span className="badge-warn">
-                      cached
-                      <button onClick={() => { setStep(0); setFromCache(false); }} className="hover:text-ink transition-colors" title="Re-analyze">
-                        <RefreshCw size={9} />
-                      </button>
-                    </span>
-                  )}
-                  <span className="readout">{analysis.industry}</span>
-                </div>
+          <div className="animate-fade space-y-12">
+            <section aria-labelledby="ais-analysis-title">
+              <StepHeading id="ais-analysis-title" eyebrow="Analysis" title={analysis.product_name || 'Analysis'}>
+                {analysis.one_liner}
+              </StepHeading>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 -mt-3 mb-6">
+                {analysis.industry && <span className={TAG}>{analysis.industry}</span>}
+                {fromCache && (
+                  <>
+                    <span className={TAG}>Cached result</span>
+                    <button
+                      type="button"
+                      onClick={() => { setStep(0); setFromCache(false); }}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-cobalt underline underline-offset-2 hover:text-ink transition-colors min-h-[44px] sm:min-h-0"
+                    >
+                      <RefreshCw size={12} aria-hidden="true" /> Re-analyze
+                    </button>
+                  </>
+                )}
               </div>
-              <p className="text-sm text-ink2 mb-5">{analysis.one_liner}</p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid gap-8 md:grid-cols-2 md:gap-10 border-t border-rule2 pt-6">
                 <div>
-                  <h3 className="eyebrow mb-3">Pain Points</h3>
-                  <div className="space-y-2">
+                  <h3 className="text-base font-semibold text-ink">Pain points</h3>
+                  <ul className="mt-3 divide-y divide-rule border-y border-rule">
                     {(analysis.pain_points || []).map((pp, i) => (
-                      <div key={i} className="flex items-start gap-2.5 text-sm">
-                        <span className="mt-2 flex gap-0.5 shrink-0" title={pp.intensity}>
+                      <li key={i} className="flex items-start gap-3 py-2.5 text-sm">
+                        <span className="mt-1.5 flex gap-0.5 shrink-0" title={pp.intensity} aria-hidden="true">
                           {[0, 1, 2].map((d) => (
                             <span
                               key={d}
-                              className={`w-1 h-1 rounded-full ${
+                              className={`w-1.5 h-1.5 rounded-full ${
                                 d < (pp.intensity === 'high' ? 3 : pp.intensity === 'medium' ? 2 : 1)
-                                  ? 'bg-brass'
+                                  ? 'bg-ink'
                                   : 'bg-[color:var(--color-rule-2)]'
                               }`}
                             />
                           ))}
                         </span>
-                        <div>
+                        <span className="min-w-0">
+                          {pp.intensity && <span className="sr-only">Intensity {pp.intensity}: </span>}
                           <span className="text-ink2">{pp.pain}</span>
                           {pp.source && pp.source !== 'website' && (
                             <span className="ml-1.5 readout">{pp.source}</span>
                           )}
-                        </div>
-                      </div>
+                        </span>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
                 <div>
-                  <h3 className="eyebrow mb-3">Emotional Hooks</h3>
-                  <div className="divide-y divide-rule border-y border-rule">
+                  <h3 className="text-base font-semibold text-ink">Emotional hooks</h3>
+                  <ul className="mt-3 divide-y divide-rule border-y border-rule">
                     {(analysis.emotional_hooks || []).map((h, i) => (
-                      <div key={i} className="text-sm text-ink2 py-2">
+                      <li key={i} className="text-sm text-ink2 py-2.5 leading-relaxed">
                         {h}
-                      </div>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
               </div>
-            </div>
+            </section>
 
-            {/* Web Research Results */}
+            {/* Web research */}
             {webResearch && (
-              <div className="card p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="eyebrow">Web Research</h3>
+              <section aria-labelledby="ais-research-title" className="tray p-4 sm:p-6">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 mb-5">
+                  <h3 id="ais-research-title" className="text-base font-semibold text-ink">Web research</h3>
                   {webResearch.grounding_sources && (
                     <span className="readout">
                       {webResearch.grounding_sources.length} sources
@@ -652,21 +705,17 @@ export default function SaaShortsTab({ geminiApiKey, elevenLabsKey, falKey, uplo
 
                 {/* Real user reviews */}
                 {webResearch.real_reviews && webResearch.real_reviews.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="eyebrow mb-2">Real User Reviews</h4>
-                    <div className="space-y-2">
+                  <div className="mb-6">
+                    <h4 className="readout mb-3">Real user reviews</h4>
+                    <div className="grid gap-3 sm:grid-cols-2">
                       {webResearch.real_reviews.slice(0, 5).map((review, i) => (
-                        <div key={i} className="text-xs bg-paper rounded-input p-2.5 border border-rule">
-                          <p className="text-ink2">&quot;{review.quote}&quot;</p>
-                          <div className="flex items-center gap-2 mt-1.5">
-                            <span className="text-muted">{review.source}</span>
-                            <span className={`readout ${
-                              review.sentiment === 'positive' ? 'text-ok' :
-                              review.sentiment === 'negative' ? 'text-danger' :
-                              ''
-                            }`}>{review.sentiment}</span>
-                          </div>
-                        </div>
+                        <figure key={i} className="bg-paper2 border border-rule rounded-input p-3.5">
+                          <blockquote className="text-sm text-ink2 leading-relaxed">&ldquo;{review.quote}&rdquo;</blockquote>
+                          <figcaption className="flex flex-wrap items-center gap-2 mt-2">
+                            <span className="text-xs text-muted">{review.source}</span>
+                            <span className="readout">· {review.sentiment}</span>
+                          </figcaption>
+                        </figure>
                       ))}
                     </div>
                   </div>
@@ -674,396 +723,301 @@ export default function SaaShortsTab({ geminiApiKey, elevenLabsKey, falKey, uplo
 
                 {/* Competitors */}
                 {webResearch.competitors && webResearch.competitors.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="eyebrow mb-2">Competitors</h4>
-                    <div className="flex flex-wrap gap-2">
+                  <div className="mb-6">
+                    <h4 className="readout mb-3">Competitors</h4>
+                    <ul className="flex flex-wrap gap-2">
                       {webResearch.competitors.map((c, i) => (
-                        <span key={i} className="text-xs bg-paper3 px-2 py-1 rounded-full text-ink2" title={c.comparison}>
+                        <li key={i} className="text-xs bg-paper2 border border-rule2 px-2 py-1 rounded text-ink2" title={c.comparison}>
                           {c.name}
-                        </span>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   </div>
                 )}
 
                 {/* Sources */}
                 {webResearch.grounding_sources && webResearch.grounding_sources.length > 0 && (
                   <div>
-                    <h4 className="eyebrow mb-2">Sources</h4>
-                    <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                    <h4 className="readout mb-3">Sources</h4>
+                    <ul className="flex flex-wrap gap-x-4 gap-y-2">
                       {webResearch.grounding_sources.slice(0, 8).map((src, i) => (
-                        <a
-                          key={i}
-                          href={src.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-muted underline underline-offset-2 hover:text-brass transition-colors truncate max-w-[200px]"
-                          title={src.title}
-                        >
-                          {src.title || (() => { try { return new URL(src.url).hostname; } catch { return src.url; } })()}
-                        </a>
+                        <li key={i} className="min-w-0">
+                          <a
+                            href={src.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-block align-bottom text-xs text-cobalt underline underline-offset-2 hover:text-ink transition-colors truncate max-w-[220px]"
+                            title={src.title}
+                          >
+                            {src.title || (() => { try { return new URL(src.url).hostname; } catch { return src.url; } })()}
+                          </a>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   </div>
                 )}
-              </div>
+              </section>
             )}
 
             {/* Scripts */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-display lowercase text-xl text-ink">Generated Scripts</h2>
+            <section aria-labelledby="ais-scripts-title">
+              <div className="flex flex-wrap items-end justify-between gap-3 mb-5">
+                <div>
+                  <h2 id="ais-scripts-title" className="font-display text-2xl text-ink leading-tight">Pick the script to film</h2>
+                  <p className="text-sm text-muted mt-1.5">You can still edit its narration in the next step.</p>
+                </div>
                 <span className="readout">{scripts.length} scripts</span>
               </div>
 
-              <div className="grid grid-cols-1 gap-4">
+              <div className="space-y-4">
                 {scripts.map((script, i) => (
-                  <div
-                    key={i}
-                    onClick={() => handleSelectScript(i)}
-                    className={`card card-hover p-5 cursor-pointer ${
-                      selectedScript === i ? 'border-brass' : ''
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <span className={`w-7 h-7 rounded-full border flex items-center justify-center font-mono text-micro ${
-                          selectedScript === i ? 'border-brass text-brass' : 'border-rule text-muted'
-                        }`}>
-                          {String(i + 1).padStart(2, '0')}
-                        </span>
-                        <div>
-                          <h3 className="text-sm font-medium text-ink">{script.title}</h3>
-                          <span className="readout">{script.duration_seconds}s &middot; {script.style} &middot; {script.target_platform}</span>
+                  <article key={i} className={`${choiceCard(selectedScript === i)} p-4 sm:p-6`}>
+                    <ChoiceMark active={selectedScript === i} />
+                    <div className="flex items-start gap-4 sm:gap-5">
+                      <span aria-hidden="true" className="font-quote text-4xl sm:text-5xl leading-none text-ink w-7 sm:w-9 shrink-0 -mt-1">
+                        {i + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="pr-9">
+                          {/* The title is the control; its ::after stretches over the whole card. */}
+                          <button
+                            type="button"
+                            aria-pressed={selectedScript === i}
+                            onClick={() => handleSelectScript(i)}
+                            className="text-left text-base sm:text-lg font-semibold text-ink leading-snug after:absolute after:inset-0 after:rounded-card after:content-['']"
+                          >
+                            {script.title}
+                          </button>
+                        </h3>
+                        <p className={`readout mt-1.5 ${selectedScript === i ? 'text-ink2' : ''}`}>
+                          {script.duration_seconds}s &middot; {script.style} &middot; {script.target_platform}
+                        </p>
+
+                        {/* Segment timeline */}
+                        <div className="flex gap-1 mt-4" aria-hidden="true">
+                          {(script.segments || []).map((seg, j) => (
+                            <div
+                              key={j}
+                              className={`h-1.5 rounded-sm ${
+                                seg.type === 'hook' ? 'bg-ink' :
+                                seg.type === 'problem' ? 'bg-ink/60' :
+                                seg.type === 'solution' ? 'bg-ink/35' :
+                                'bg-ink/20'
+                              }`}
+                              style={{ flex: (seg.end - seg.start) }}
+                              title={`${seg.type}: ${seg.start}s-${seg.end}s`}
+                            />
+                          ))}
+                        </div>
+
+                        <dl className="mt-4 space-y-2">
+                          {(script.segments || []).map((seg, j) => (
+                            <div key={j} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 text-sm">
+                              <dt className={`readout pt-0.5 ${selectedScript === i ? 'text-ink2' : ''}`}>{seg.type}</dt>
+                              <dd className="text-ink2 leading-relaxed">{seg.narration}</dd>
+                            </div>
+                          ))}
+                        </dl>
+
+                        {/* Hook text & hashtags */}
+                        <div className="mt-4 pt-3 border-t border-rule flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
+                          <span className={`readout ${selectedScript === i ? 'text-ink2' : ''}`}>Hook</span>
+                          <span className="text-sm text-ink">&ldquo;{script.hook_text}&rdquo;</span>
+                          {(script.hashtags || []).slice(0, 4).map((tag, j) => (
+                            <span key={j} className={`readout normal-case ${selectedScript === i ? 'text-ink2' : ''}`}>{tag}</span>
+                          ))}
                         </div>
                       </div>
-                      {selectedScript === i && (
-                        <span className="badge-brass">selected</span>
-                      )}
                     </div>
-
-                    {/* Segments preview */}
-                    <div className="flex gap-1 mb-1.5">
-                      {(script.segments || []).map((seg, j) => (
-                        <div
-                          key={j}
-                          className={`h-1 rounded-full ${
-                            seg.type === 'hook' ? 'bg-brass' :
-                            seg.type === 'problem' ? 'bg-brass/55' :
-                            seg.type === 'solution' ? 'bg-brass/30' :
-                            'bg-brass/20'
-                          }`}
-                          style={{ flex: (seg.end - seg.start) }}
-                          title={`${seg.type}: ${seg.start}s-${seg.end}s`}
-                        />
-                      ))}
-                    </div>
-                    <p className="readout mb-3">hook &middot; problem &middot; solution</p>
-
-                    <div className="space-y-2">
-                      {(script.segments || []).map((seg, j) => (
-                        <div key={j} className="flex gap-3 text-xs">
-                          <span className="readout shrink-0 w-16 pt-px">
-                            {seg.type}
-                          </span>
-                          <span className="text-ink2 leading-relaxed">{seg.narration}</span>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Hook text & hashtags */}
-                    <div className="mt-3 pt-3 border-t border-rule flex items-center gap-3 flex-wrap">
-                      <span className="readout">hook</span>
-                      <span className="text-xs text-ink2">&quot;{script.hook_text}&quot;</span>
-                      {(script.hashtags || []).slice(0, 4).map((tag, j) => (
-                        <span key={j} className="readout">{tag}</span>
-                      ))}
-                    </div>
-                  </div>
+                  </article>
                 ))}
               </div>
-            </div>
+            </section>
 
-            <div className="flex justify-between">
-              <button onClick={() => setStep(0)} className="btn-ghost px-4 py-2 text-sm">
-                <ChevronLeft size={14} /> Back
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 pt-6 border-t border-rule2">
+              <button type="button" onClick={() => setStep(0)} className="btn-ghost">
+                <ChevronLeft size={16} aria-hidden="true" /> Back
               </button>
-              <button onClick={() => setStep(2)} className="btn-primary px-6 py-2 text-sm">
-                Configure video <ChevronRight size={14} />
+              <button type="button" onClick={() => setStep(2)} className="btn-primary">
+                Choose actor and voice <ChevronRight size={16} aria-hidden="true" />
               </button>
             </div>
           </div>
         )}
 
-        {/* ── Step 2: Configure ────────────────────────────────── */}
+        {/* ── Step 2: cast & voice ────────────────────────────── */}
         {step === 2 && scripts[selectedScript] && (
-          <div className="animate-fade space-y-6">
-            <div className="card p-6 space-y-5">
-              <h2 className="font-display lowercase text-xl text-ink">Configure Video</h2>
-              <p className="text-sm lowercase text-muted">
-                script: <strong className="text-ink2 normal-case font-medium">{scripts[selectedScript].title}</strong>
-              </p>
+          <section aria-labelledby="ais-cast-title" className="animate-fade">
+            <StepHeading id="ais-cast-title" eyebrow="Cast" title="Who performs it, and how it sounds">
+              Script: <span className="text-ink2 font-medium">{scripts[selectedScript].title}</span>
+            </StepHeading>
 
-              {/* Voice Selection */}
-              <div>
-                <label className="eyebrow block mb-2">
-                  Voice {language === 'es' ? '(Spanish)' : '(English)'}
-                </label>
-                {(() => {
-                  // Filter voices by language/accent
-                  const filtered = voices.length > 0
-                    ? voices.filter((v) => {
-                        const gender = (v.labels?.gender || '').toLowerCase();
-                        // Only show voices that match the selected gender
-                        return gender === actorGender;
-                      })
-                      .sort((a, b) => {
-                        const aAccent = (a.labels?.accent || '').toLowerCase();
-                        const bAccent = (b.labels?.accent || '').toLowerCase();
-                        if (language === 'es') {
-                          // Spanish/latin accents first, then everything else
-                          const aScore = (aAccent.includes('spanish') || aAccent.includes('latin')) ? 0 : 1;
-                          const bScore = (bAccent.includes('spanish') || bAccent.includes('latin')) ? 0 : 1;
-                          return aScore - bScore;
-                        }
-                        // English: american/british first
-                        const aScore = (aAccent.includes('american') || aAccent.includes('british')) ? 0 : 1;
-                        const bScore = (bAccent.includes('american') || bAccent.includes('british')) ? 0 : 1;
-                        return aScore - bScore;
-                      })
-                    : [];
+            <div className="grid gap-10 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:gap-12">
+              {/* Actor */}
+              <div className="min-w-0">
+                <SubHeading id="ais-actor-title" title="Actor" hint="Pick an earlier actor, upload a photo or generate new ones." />
 
-                  if (filtered.length > 0) {
-                    return (
-                      <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
-                        {filtered.map((v) => (
-                          <button
-                            key={v.voice_id}
-                            onClick={() => setSelectedVoice(v.voice_id)}
-                            className={`w-full flex items-center gap-3 p-2.5 rounded-input border text-left transition-colors duration-200 ${
-                              selectedVoice === v.voice_id
-                                ? 'border-brass bg-paper3'
-                                : 'border-rule bg-paper hover:bg-paper3'
-                            }`}
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className={`text-sm truncate ${selectedVoice === v.voice_id ? 'text-ink' : 'text-ink2'}`}>{v.name}</div>
-                              <div className="readout mt-0.5">
-                                {v.labels?.accent || ''} {v.labels?.gender || ''} {v.category ? `· ${v.category}` : ''}
-                              </div>
-                            </div>
-                            {v.preview_url && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); new Audio(v.preview_url).play(); }}
-                                className="shrink-0 w-7 h-7 rounded-full bg-paper3 text-muted hover:text-brass flex items-center justify-center transition-colors"
-                                title="Preview voice"
-                              >
-                                <Volume2 size={12} />
-                              </button>
-                            )}
-                            {selectedVoice === v.voice_id && <Check size={14} className="text-brass shrink-0" />}
-                          </button>
-                        ))}
-                      </div>
-                    );
-                  }
-
-                  // Fallback defaults by gender + language
-                  const defaults = {
-                    'en-female': [
-                      { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel (calm)' },
-                      { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella (soft)' },
-                    ],
-                    'en-male': [
-                      { id: '29vD33N1CtxCmqQRPOHJ', name: 'Drew (confident)' },
-                      { id: 'TxGEqnHWrfWFTfGW9XjX', name: 'Josh (deep)' },
-                      { id: 'yoZ06aMxZJJ28mfd3POQ', name: 'Sam (raspy)' },
-                    ],
-                    'es-female': [
-                      { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella (suave)' },
-                      { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel (calmada)' },
-                    ],
-                    'es-male': [
-                      { id: 'ErXwobaYiN019PkySvjV', name: 'Antoni (cálido)' },
-                      { id: '29vD33N1CtxCmqQRPOHJ', name: 'Drew (confiado)' },
-                    ],
-                  };
-                  const key = `${language}-${actorGender}`;
-                  const opts = defaults[key] || defaults['en-female'];
-                  return (
-                    <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)} className="input-field">
-                      {opts.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-                    </select>
-                  );
-                })()}
-                <p className="text-xs lowercase text-muted mt-1.5">
-                  {actorGender === 'female' ? 'female' : 'male'} voices &middot; multilingual model speaks your selected language &middot; click speaker to preview
-                </p>
-              </div>
-
-              {/* Actor Selection: Gallery + Generate New */}
-              <div>
-                <label className="eyebrow block mb-2">
-                  AI Actor — Choose Your Actor
-                </label>
-
-                {/* Existing Gallery from S3 */}
+                {/* Existing gallery */}
                 {actorGallery.length > 0 && (
-                  <div className="mb-4">
-                    <p className="text-xs lowercase text-muted mb-2">Previously generated actors (click to select)</p>
-                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-48 overflow-y-auto pr-1">
+                  <div className="mt-4">
+                    <p className="readout mb-2">Your earlier actors</p>
+                    <div role="group" aria-labelledby="ais-actor-title" className="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-60 overflow-y-auto custom-scrollbar pr-1">
                       {actorGallery.map((img, i) => (
                         <button
                           key={img.url}
+                          type="button"
+                          aria-pressed={selectedActor === img.url}
                           onClick={() => setSelectedActor(img.url)}
-                          className={`relative rounded-input overflow-hidden border-2 transition-colors duration-200 aspect-[3/4] ${
-                            selectedActor === img.url ? 'border-brass' : 'border-rule hover:border-rule2'
+                          className={`relative rounded-input overflow-hidden border-2 bg-black transition-colors duration-200 aspect-[3/4] ${
+                            selectedActor === img.url ? 'border-vermilion' : 'border-rule2 hover:border-ink/50'
                           }`}
                         >
-                          <img src={img.url} alt={`Actor ${i+1}`} className="w-full h-full object-cover" />
-                          {selectedActor === img.url && (
-                            <div className="absolute top-1 right-1 w-5 h-5 bg-brass rounded-full flex items-center justify-center">
-                              <Check size={10} className="text-brassink" />
-                            </div>
-                          )}
+                          <img src={img.url} alt={`Actor ${i + 1}`} className="w-full h-full object-cover" />
+                          {selectedActor === img.url && <ImageCheck />}
                         </button>
                       ))}
                     </div>
                   </div>
                 )}
                 {loadingGallery && (
-                  <p className="text-xs lowercase text-muted mb-3 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Loading actor gallery...</p>
+                  <p role="status" className="text-xs text-muted mt-4 flex items-center gap-1.5">
+                    <Loader2 size={14} className="animate-spin" aria-hidden="true" /> Loading your actors…
+                  </p>
                 )}
 
-                {/* Upload Custom Actor */}
-                <div className="mb-4">
-                  <div className="flex items-center gap-3">
-                    <label className="flex-1 flex items-center justify-center gap-2 text-sm lowercase text-muted px-4 py-3 rounded-input border border-dashed border-rule2 hover:border-brass hover:text-ink2 transition-colors duration-200 cursor-pointer">
-                      <Upload size={14} />
-                      <span>Upload your own photo</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          // Show instant preview
-                          const localPreview = URL.createObjectURL(file);
-                          setUploadedActorPreview({ localPreview, serverUrl: null });
-                          setSelectedActor(null);
+                {/* Upload a custom actor */}
+                <div className="mt-4 flex items-center gap-3">
+                  <label className="flex-1 min-h-[48px] flex items-center justify-center gap-2 text-sm text-ink2 px-4 py-3 rounded-input border border-dashed border-rule2 hover:border-ink/50 hover:text-ink transition-colors duration-200 cursor-pointer focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[color:var(--color-focus)]">
+                    <Upload size={16} className="text-muted" aria-hidden="true" />
+                    <span>Upload your own photo</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        // Show instant preview
+                        const localPreview = URL.createObjectURL(file);
+                        setUploadedActorPreview({ localPreview, serverUrl: null });
+                        setSelectedActor(null);
 
-                          const formData = new FormData();
-                          formData.append('file', file);
-                          try {
-                            const res = await apiFetch('/api/saasshorts/actor-upload', {
-                              method: 'POST',
-                              body: formData,
-                            });
-                            if (res.ok) {
-                              const data = await res.json();
-                              if (data.url) {
-                                setUploadedActorPreview({ localPreview, serverUrl: data.url });
-                                setSelectedActor(data.url);
-                              }
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        try {
+                          const res = await apiFetch('/api/saasshorts/actor-upload', {
+                            method: 'POST',
+                            body: formData,
+                          });
+                          if (res.ok) {
+                            const data = await res.json();
+                            if (data.url) {
+                              setUploadedActorPreview({ localPreview, serverUrl: data.url });
+                              setSelectedActor(data.url);
                             }
-                          } catch (err) { console.error('Upload failed:', err); }
-                          e.target.value = '';
-                        }}
-                      />
-                    </label>
-                    {uploadedActorPreview && (
-                      <button
-                        onClick={() => {
-                          if (uploadedActorPreview.serverUrl) {
-                            setSelectedActor(uploadedActorPreview.serverUrl);
                           }
-                        }}
-                        className={`relative w-16 h-20 rounded-input overflow-hidden border-2 transition-colors duration-200 flex-shrink-0 ${
-                          selectedActor === uploadedActorPreview.serverUrl
-                            ? 'border-brass'
-                            : 'border-rule hover:border-rule2'
-                        }`}
-                      >
-                        <img src={uploadedActorPreview.localPreview} alt="Uploaded" className="w-full h-full object-cover" />
-                        {selectedActor === uploadedActorPreview.serverUrl && (
-                          <div className="absolute top-1 right-1 w-4 h-4 bg-brass rounded-full flex items-center justify-center">
-                            <Check size={8} className="text-brassink" />
-                          </div>
-                        )}
-                        {!uploadedActorPreview.serverUrl && (
-                          <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
-                            <Loader2 size={12} className="animate-spin text-ink" />
-                          </div>
-                        )}
-                      </button>
-                    )}
-                  </div>
+                        } catch (err) { console.error('Upload failed:', err); }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {uploadedActorPreview && (
+                    <button
+                      type="button"
+                      aria-pressed={selectedActor === uploadedActorPreview.serverUrl}
+                      aria-label={uploadedActorPreview.serverUrl ? 'Use your uploaded photo' : 'Uploading your photo'}
+                      onClick={() => {
+                        if (uploadedActorPreview.serverUrl) {
+                          setSelectedActor(uploadedActorPreview.serverUrl);
+                        }
+                      }}
+                      className={`relative w-16 h-20 rounded-input overflow-hidden border-2 bg-black transition-colors duration-200 flex-shrink-0 ${
+                        selectedActor === uploadedActorPreview.serverUrl
+                          ? 'border-vermilion'
+                          : 'border-rule2 hover:border-ink/50'
+                      }`}
+                    >
+                      <img src={uploadedActorPreview.localPreview} alt="" className="w-full h-full object-cover" />
+                      {selectedActor === uploadedActorPreview.serverUrl && <ImageCheck />}
+                      {!uploadedActorPreview.serverUrl && (
+                        <span className="absolute inset-0 bg-paper/70 flex items-center justify-center">
+                          <Loader2 size={16} className="animate-spin text-ink" aria-hidden="true" />
+                        </span>
+                      )}
+                    </button>
+                  )}
                 </div>
 
-                {/* Generate New Actors */}
-                <p className="text-xs lowercase text-muted mb-2">{actorGallery.length > 0 ? 'Or generate new actors' : 'Or describe your actor'}</p>
-                <textarea
-                  value={actorDescription}
-                  onChange={(e) => { setActorDescription(e.target.value); setActorOptions([]); }}
-                  rows={2}
-                  className="input-field resize-none text-sm"
-                  placeholder="e.g. A young woman in her late 20s, dark hair, casual outfit..."
-                />
+                {/* Generate new actors */}
+                <div className="mt-6">
+                  <label htmlFor="ais-actor-desc" className="block text-sm font-medium text-ink mb-1.5">
+                    {actorGallery.length > 0 ? 'Or generate new actors' : 'Or describe your actor'}
+                  </label>
+                  <textarea
+                    id="ais-actor-desc"
+                    value={actorDescription}
+                    onChange={(e) => { setActorDescription(e.target.value); setActorOptions([]); }}
+                    rows={2}
+                    className="input-field resize-none text-sm"
+                    placeholder="e.g. A young woman in her late 20s, dark hair, casual outfit..."
+                  />
 
-
-                <button
-                  onClick={async () => {
-                    if (!falKey || !actorDescription) return;
-                    setGeneratingActors(true);
-                    setActorOptions([]);
-                    setSelectedActor(null);
-                    try {
-                      const res = await apiFetch('/api/saasshorts/actor-options', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-Fal-Key': falKey },
-                        body: JSON.stringify({ actor_description: actorDescription, num_options: 3 }),
-                      });
-                      if (res.ok) {
-                        const data = await res.json();
-                        setActorOptions(data.images || []);
-                        // Refresh gallery to include newly uploaded actors
-                        const galRes = await fetch(getApiUrl('/api/saasshorts/actor-gallery'));
-                        if (galRes.ok) {
-                          const galData = await galRes.json();
-                          setActorGallery(galData.images || []);
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!falKey || !actorDescription) return;
+                      setGeneratingActors(true);
+                      setActorOptions([]);
+                      setSelectedActor(null);
+                      try {
+                        const res = await apiFetch('/api/saasshorts/actor-options', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'X-Fal-Key': falKey },
+                          body: JSON.stringify({ actor_description: actorDescription, num_options: 3 }),
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          setActorOptions(data.images || []);
+                          // Refresh gallery to include newly uploaded actors
+                          const galRes = await fetch(getApiUrl('/api/saasshorts/actor-gallery'));
+                          if (galRes.ok) {
+                            const galData = await galRes.json();
+                            setActorGallery(galData.images || []);
+                          }
                         }
-                      }
-                    } catch (e) { console.error(e); }
-                    finally { setGeneratingActors(false); }
-                  }}
-                  disabled={generatingActors || !falKey || !actorDescription}
-                  className="btn-ghost mt-2 w-full py-2.5 text-sm"
-                >
-                  {generatingActors ? <><Loader2 size={14} className="animate-spin" /> Generating 3 actors...</> : <><User size={14} /> {actorOptions.length > 0 ? 'Regenerate actors' : 'Generate 3 new actors'} <span className="readout">~$0.06</span></>}
-                </button>
+                      } catch (e) { console.error(e); }
+                      finally { setGeneratingActors(false); }
+                    }}
+                    disabled={generatingActors || !falKey || !actorDescription}
+                    className="btn-ghost mt-3 w-full"
+                  >
+                    {generatingActors ? (
+                      <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Generating 3 actors…</>
+                    ) : (
+                      <><User size={16} aria-hidden="true" /> {actorOptions.length > 0 ? 'Regenerate actors' : 'Generate 3 new actors'} <span className="readout">~$0.06</span></>
+                    )}
+                  </button>
+                </div>
 
-                {/* Newly Generated Actor Options */}
+                {/* Newly generated actor options */}
                 {actorOptions.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-xs lowercase text-muted mb-2">New actors (select one)</p>
+                  <div className="mt-5">
+                    <p className="readout mb-2">New actors · pick one</p>
                     <div className="grid grid-cols-3 gap-3">
                       {actorOptions.map((imgUrl, i) => (
                         <button
                           key={imgUrl}
+                          type="button"
+                          aria-pressed={selectedActor === imgUrl}
                           onClick={() => setSelectedActor(imgUrl)}
-                          className={`relative rounded-card overflow-hidden border-2 transition-colors duration-200 aspect-[9/16] ${
-                            selectedActor === imgUrl ? 'border-brass' : 'border-rule hover:border-rule2'
+                          className={`relative rounded-card overflow-hidden border-2 bg-black transition-colors duration-200 aspect-[9/16] ${
+                            selectedActor === imgUrl ? 'border-vermilion' : 'border-rule2 hover:border-ink/50'
                           }`}
                         >
-                          <img src={imgUrl} alt={`New ${i+1}`} className="w-full h-full object-cover" />
-                          {selectedActor === imgUrl && (
-                            <div className="absolute top-2 right-2 w-6 h-6 bg-brass rounded-full flex items-center justify-center">
-                              <Check size={12} className="text-brassink" />
-                            </div>
-                          )}
-                          <span className="absolute bottom-1.5 left-1.5 readout bg-black/70 text-ink2 px-1.5 py-0.5 rounded-full">
-                            New {i+1}
+                          <img src={imgUrl} alt={`New actor ${i + 1}`} className="w-full h-full object-cover" />
+                          {selectedActor === imgUrl && <ImageCheck />}
+                          <span className="absolute bottom-1.5 left-1.5 readout text-ink2 bg-paper border border-rule2 px-1.5 py-0.5 rounded" aria-hidden="true">
+                            New {i + 1}
                           </span>
                         </button>
                       ))}
@@ -1072,31 +1026,151 @@ export default function SaaShortsTab({ geminiApiKey, elevenLabsKey, falKey, uplo
                 )}
 
                 {!selectedActor && (actorOptions.length > 0 || actorGallery.length > 0) && (
-                  <p className="text-xs lowercase text-warn mt-2 flex items-center gap-1"><AlertCircle size={12} /> Select an actor to continue</p>
+                  <p className="text-sm text-warn mt-3 flex items-center gap-1.5">
+                    <AlertCircle size={14} aria-hidden="true" /> Select an actor to continue
+                  </p>
                 )}
               </div>
 
-              {/* Narration Edit */}
-              <div>
-                <label className="eyebrow block mb-2">
-                  Narration Script
-                </label>
-                <textarea
-                  value={editedNarration}
-                  onChange={(e) => setEditedNarration(e.target.value)}
-                  rows={5}
-                  className="input-field resize-none font-mono text-xs"
-                />
-                <p className="readout mt-1.5">{editedNarration.length} chars &middot; ~{Math.round(editedNarration.split(' ').length / 2.5)}s speech</p>
-              </div>
+              {/* Voice + narration */}
+              <div className="min-w-0 space-y-10">
+                <div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h3 id="ais-voice-title" className="font-display text-lg text-ink">Voice</h3>
+                    <span className="readout">{language === 'es' ? 'Spanish' : 'English'}</span>
+                  </div>
+                  <div className="mt-3">
+                    {(() => {
+                      // Filter voices by language/accent
+                      const filtered = voices.length > 0
+                        ? voices.filter((v) => {
+                            const gender = (v.labels?.gender || '').toLowerCase();
+                            // Only show voices that match the selected gender
+                            return gender === actorGender;
+                          })
+                          .sort((a, b) => {
+                            const aAccent = (a.labels?.accent || '').toLowerCase();
+                            const bAccent = (b.labels?.accent || '').toLowerCase();
+                            if (language === 'es') {
+                              // Spanish/latin accents first, then everything else
+                              const aScore = (aAccent.includes('spanish') || aAccent.includes('latin')) ? 0 : 1;
+                              const bScore = (bAccent.includes('spanish') || bAccent.includes('latin')) ? 0 : 1;
+                              return aScore - bScore;
+                            }
+                            // English: american/british first
+                            const aScore = (aAccent.includes('american') || aAccent.includes('british')) ? 0 : 1;
+                            const bScore = (bAccent.includes('american') || bAccent.includes('british')) ? 0 : 1;
+                            return aScore - bScore;
+                          })
+                        : [];
 
-              {/* Cost Estimate */}
-              <div className="card p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="eyebrow">Estimated Cost</span>
-                  <span className="readout text-ink">~${videoMode === 'lowcost' ? '0.65' : '2.50'}</span>
+                      if (filtered.length > 0) {
+                        return (
+                          <div role="group" aria-labelledby="ais-voice-title" className="space-y-1.5 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                            {filtered.map((v) => (
+                              <div
+                                key={v.voice_id}
+                                className={`flex items-center rounded-input border transition-colors duration-200 ${
+                                  selectedVoice === v.voice_id
+                                    ? 'border-vermilion bg-vermilionsoft'
+                                    : 'border-rule bg-paper2 hover:border-rule2'
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  aria-pressed={selectedVoice === v.voice_id}
+                                  onClick={() => setSelectedVoice(v.voice_id)}
+                                  className="flex-1 min-w-0 min-h-[44px] flex items-center gap-3 px-3 py-2.5 text-left"
+                                >
+                                  <span className="flex-1 min-w-0">
+                                    <span className={`block text-sm truncate ${selectedVoice === v.voice_id ? 'text-ink font-medium' : 'text-ink2'}`}>{v.name}</span>
+                                    <span className={`readout block mt-0.5 truncate ${selectedVoice === v.voice_id ? 'text-ink2' : ''}`}>
+                                      {v.labels?.accent || ''} {v.labels?.gender || ''} {v.category ? `· ${v.category}` : ''}
+                                    </span>
+                                  </span>
+                                  {selectedVoice === v.voice_id && <Check size={16} className="text-vermilion shrink-0" aria-hidden="true" />}
+                                </button>
+                                {v.preview_url && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); new Audio(v.preview_url).play(); }}
+                                    className="shrink-0 mr-1.5 w-11 h-11 sm:w-9 sm:h-9 rounded-input text-muted hover:text-ink hover:bg-paper3 flex items-center justify-center transition-colors"
+                                    aria-label={`Preview ${v.name}`}
+                                    title="Preview voice"
+                                  >
+                                    <Volume2 size={16} aria-hidden="true" />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
+
+                      // Fallback defaults by gender + language
+                      const defaults = {
+                        'en-female': [
+                          { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel (calm)' },
+                          { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella (soft)' },
+                        ],
+                        'en-male': [
+                          { id: '29vD33N1CtxCmqQRPOHJ', name: 'Drew (confident)' },
+                          { id: 'TxGEqnHWrfWFTfGW9XjX', name: 'Josh (deep)' },
+                          { id: 'yoZ06aMxZJJ28mfd3POQ', name: 'Sam (raspy)' },
+                        ],
+                        'es-female': [
+                          { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella (suave)' },
+                          { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel (calmada)' },
+                        ],
+                        'es-male': [
+                          { id: 'ErXwobaYiN019PkySvjV', name: 'Antoni (cálido)' },
+                          { id: '29vD33N1CtxCmqQRPOHJ', name: 'Drew (confiado)' },
+                        ],
+                      };
+                      const key = `${language}-${actorGender}`;
+                      const opts = defaults[key] || defaults['en-female'];
+                      return (
+                        <select
+                          value={selectedVoice}
+                          onChange={(e) => setSelectedVoice(e.target.value)}
+                          className="input-field"
+                          aria-labelledby="ais-voice-title"
+                        >
+                          {opts.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                        </select>
+                      );
+                    })()}
+                  </div>
+                  <p className="text-xs text-muted mt-2 leading-relaxed">
+                    {actorGender === 'female' ? 'Female' : 'Male'} voices &middot; the multilingual model speaks your selected language &middot; use the speaker to preview
+                  </p>
                 </div>
-                <div className="space-y-1">
+
+                <div>
+                  <label htmlFor="ais-narration" className="font-display text-lg text-ink block">Narration</label>
+                  <textarea
+                    id="ais-narration"
+                    value={editedNarration}
+                    onChange={(e) => setEditedNarration(e.target.value)}
+                    rows={7}
+                    className="input-field resize-y text-sm leading-relaxed mt-3"
+                    aria-describedby="ais-narration-meta"
+                  />
+                  <p id="ais-narration-meta" className="readout mt-1.5">
+                    {editedNarration.length} chars &middot; ~{Math.round(editedNarration.split(' ').length / 2.5)}s speech
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* The bill + publishing consent + generate */}
+            <div className="mt-10 grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start">
+              <div className="tray p-4 sm:p-5">
+                <div className="flex items-baseline justify-between gap-3 mb-3">
+                  <h3 className="text-sm font-semibold text-ink">Estimated cost</h3>
+                  <span className="font-mono text-sm text-ink">~${videoMode === 'lowcost' ? '0.65' : '2.50'}</span>
+                </div>
+                <dl className="space-y-1.5 border-t border-rule pt-3">
                   {(videoMode === 'lowcost'
                     ? [
                         ['Flux image', '$0.05'],
@@ -1112,83 +1186,99 @@ export default function SaaShortsTab({ geminiApiKey, elevenLabsKey, falKey, uplo
                         ['Kling b-roll', '$0.70'],
                       ]
                   ).map(([item, cost]) => (
-                    <div key={item} className="flex items-center justify-between readout">
-                      <span>{item}</span>
-                      <span>{cost}</span>
+                    <div key={item} className="flex items-center justify-between gap-3 readout">
+                      <dt>{item}</dt>
+                      <dd>{cost}</dd>
                     </div>
                   ))}
-                </div>
+                </dl>
               </div>
 
-              {/* Missing keys warning */}
-              {(!falKey || !elevenLabsKey) && (
-                <div className="p-3 bg-warn/10 rounded-input flex items-center gap-2 text-sm text-warn">
-                  <AlertCircle size={14} />
-                  {!falKey && 'fal.ai API key missing. '}{!elevenLabsKey && 'ElevenLabs API key missing. '}
-                  Set them in Settings.
-                </div>
-              )}
+              <div className="space-y-4">
+                {/* Missing keys warning */}
+                {(!falKey || !elevenLabsKey) && (
+                  <div role="alert" className="p-3 bg-warn/10 border border-warn/30 rounded-input flex items-start gap-2 text-sm text-warn">
+                    <AlertCircle size={16} className="shrink-0 mt-0.5" aria-hidden="true" />
+                    <span>
+                      {!falKey && 'fal.ai API key missing. '}{!elevenLabsKey && 'ElevenLabs API key missing. '}
+                      Set them in Settings.
+                    </span>
+                  </div>
+                )}
 
-              <label className="flex items-start gap-2 text-sm text-ink cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={shareToGallery}
-                  onChange={(e) => setShareToGallery(e.target.checked)}
-                  className="mt-0.5 accent-brass"
-                />
-                <span>
-                  Share this video in the public gallery
-                  <span className="block text-xs text-muted">
-                    Your video, product name and script will be visible at openshorts.app/gallery
+                <label className="flex items-start gap-3 text-sm text-ink cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={shareToGallery}
+                    onChange={(e) => setShareToGallery(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 shrink-0 accent-[var(--color-accent)]"
+                  />
+                  <span>
+                    Share this video in the public gallery
+                    <span className="block text-xs text-muted mt-0.5 leading-relaxed">
+                      Your video, product name and script will be visible at openshorts.app/gallery
+                    </span>
                   </span>
-                </span>
-              </label>
+                </label>
+              </div>
             </div>
 
-            <div className="flex justify-between">
-              <button onClick={() => setStep(1)} className="btn-ghost px-4 py-2 text-sm">
-                <ChevronLeft size={14} /> Back
+            <div className="mt-8 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 pt-6 border-t border-rule2">
+              <button type="button" onClick={() => setStep(1)} className="btn-ghost">
+                <ChevronLeft size={16} aria-hidden="true" /> Back
               </button>
               <button
+                type="button"
                 onClick={handleGenerate}
                 disabled={!falKey || !elevenLabsKey || !selectedActor || generating}
-                className="btn-primary px-6 py-2 text-sm"
+                className="btn-accent"
               >
                 {generating ? (
-                  <><Loader2 size={14} className="animate-spin" /> Generating...</>
+                  <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Generating…</>
                 ) : !selectedActor ? (
-                  <><User size={14} /> Select an actor first</>
+                  <><User size={16} aria-hidden="true" /> Select an actor first</>
                 ) : (
-                  <><Film size={14} /> Generate video (~${videoMode === 'lowcost' ? '0.65' : '2.00'})</>
+                  <><Film size={16} aria-hidden="true" /> Generate video <span className="font-mono text-xs">~${videoMode === 'lowcost' ? '0.65' : '2.00'}</span></>
                 )}
               </button>
             </div>
-          </div>
+          </section>
         )}
 
-        {/* ── Step 3: Generation Progress ──────────────────────── */}
+        {/* ── Step 3: generation progress ─────────────────────── */}
         {step === 3 && (
-          <div className="animate-fade space-y-6">
-            <div className="card p-6">
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="font-display lowercase text-xl text-ink">Video Generation</h2>
-                <span className={
-                  genStatus === 'processing' ? 'badge-brass' :
-                  genStatus === 'completed' ? 'badge-ok' :
-                  'badge-danger'
-                }>
-                  {genStatus.toUpperCase()}
-                </span>
+          <section aria-labelledby="ais-gen-title" className="animate-fade">
+            <StepHeading
+              id="ais-gen-title"
+              eyebrow="Generation"
+              title={genStatus === 'failed' ? 'The generation stopped' : genStatus === 'completed' ? 'Your short is ready' : 'Making your short'}
+            >
+              The talking-head video alone takes 2–5 minutes. Keep this page open: the result appears here.
+            </StepHeading>
+
+            <div className="card-print p-4 sm:p-6">
+              <div className="flex items-center justify-between gap-3 mb-6">
+                <h3 className="text-sm font-semibold text-ink">Pipeline</h3>
+                <p role="status" aria-live="polite">
+                  <span className="sr-only">Status: </span>
+                  <span className={
+                    genStatus === 'processing' ? TAG :
+                    genStatus === 'completed' ? 'badge-ok' :
+                    'badge-danger'
+                  }>
+                    {STATUS_WORD[genStatus] || genStatus}
+                  </span>
+                </p>
               </div>
 
-              {/* Progress steps */}
-              <div className="border-y border-rule divide-y divide-rule mb-4">
+              {/* Progress steps: nodes on a filament */}
+              <ol className="mb-6">
                 {[
                   'Generating actor image + voiceover',
                   'Creating talking head video (2-5 min)',
                   'Generating b-roll clips',
                   'Compositing final video',
-                ].map((label, i) => {
+                ].map((label, i, all) => {
                   const logStr = genLogs.join(' ').toLowerCase();
                   const stepDone =
                     i === 0 ? logStr.includes('[2/6]') || logStr.includes('[3/6]') :
@@ -1202,90 +1292,110 @@ export default function SaaShortsTab({ geminiApiKey, elevenLabsKey, falKey, uplo
                     logStr.includes('[6/6]') && genStatus !== 'completed';
 
                   return (
-                    <div key={i} className="flex items-center gap-3 py-2.5 text-sm">
-                      <span className="font-mono text-micro text-muted w-5 shrink-0">{String(i + 1).padStart(2, '0')}</span>
-                      {stepDone ? (
-                        <Check size={14} className="text-ok shrink-0" />
-                      ) : stepActive ? (
-                        <Loader2 size={14} className="text-brass animate-spin shrink-0" />
-                      ) : (
-                        <span className="w-3.5 h-3.5 rounded-full border border-rule shrink-0" />
+                    <li key={i} className="relative flex items-start gap-4 pb-5 last:pb-0">
+                      {i < all.length - 1 && (
+                        <span
+                          aria-hidden="true"
+                          className={`absolute left-[11px] top-6 bottom-0 w-px ${stepDone ? 'bg-ink/70' : 'bg-[color:var(--color-rule-2)]'}`}
+                        />
                       )}
-                      <span className={`lowercase ${stepDone ? 'text-muted' : stepActive ? 'text-ink' : 'text-muted/60'}`}>
-                        {label}
+                      <span
+                        aria-hidden="true"
+                        className={`relative z-[1] mt-px w-6 h-6 shrink-0 rounded-full border flex items-center justify-center ${
+                          stepDone ? 'bg-ink border-ink text-paper' :
+                          stepActive ? 'border-vermilion bg-paper2' :
+                          'border-rule2 bg-paper2'
+                        }`}
+                      >
+                        {stepDone ? (
+                          <Check size={13} />
+                        ) : stepActive ? (
+                          <span className="w-2 h-2 rounded-full bg-vermilion motion-safe:animate-pulse" />
+                        ) : null}
                       </span>
-                    </div>
+                      <span className={`text-sm pt-0.5 ${stepDone ? 'text-ink2' : stepActive ? 'text-ink font-medium' : 'text-muted'}`}>
+                        {label}
+                        <span className="sr-only">{stepDone ? ' (done)' : stepActive ? ' (in progress)' : ' (waiting)'}</span>
+                      </span>
+                    </li>
                   );
                 })}
-              </div>
+              </ol>
 
-              {/* Logs Terminal */}
-              <div className="bg-paper rounded-card border border-rule overflow-hidden">
-                <div className="px-4 py-2 border-b border-rule flex items-center justify-between">
+              {/* Logs */}
+              <div className="tray overflow-hidden">
+                <div className="px-3 sm:px-4 py-1.5 border-b border-rule flex items-center justify-between gap-3">
                   <span className="readout flex items-center gap-2">
-                    <Terminal size={12} /> Generation Logs
+                    <Terminal size={14} aria-hidden="true" /> Generation log
                   </span>
-                  <button onClick={() => setLogsExpanded(!logsExpanded)} className="text-muted hover:text-ink transition-colors">
-                    <ChevronDown size={14} className={logsExpanded ? '' : 'rotate-180'} />
+                  <button
+                    type="button"
+                    onClick={() => setLogsExpanded(!logsExpanded)}
+                    aria-expanded={logsExpanded}
+                    aria-controls="ais-gen-logs"
+                    aria-label={logsExpanded ? 'Hide the log' : 'Show the log'}
+                    className="w-11 h-11 sm:w-9 sm:h-9 -mr-1.5 rounded-input flex items-center justify-center text-muted hover:text-ink hover:bg-paper2 transition-colors"
+                  >
+                    <ChevronDown size={16} aria-hidden="true" className={`transition-transform ${logsExpanded ? 'rotate-180' : ''}`} />
                   </button>
                 </div>
                 {logsExpanded && (
-                  <div className="p-4 max-h-64 overflow-y-auto font-mono text-xs space-y-1 custom-scrollbar">
+                  <div id="ais-gen-logs" className="p-3 sm:p-4 max-h-64 overflow-y-auto font-mono text-xs space-y-1 custom-scrollbar break-words">
                     {genLogs.map((log, i) => (
-                      <div key={i} className={`${log.toLowerCase().includes('error') ? 'text-danger' : log.includes('✅') ? 'text-ok' : 'text-muted'}`}>
+                      <div key={i} className={`${log.toLowerCase().includes('error') ? 'text-danger' : log.includes('✅') ? 'text-ok' : 'text-ink2'}`}>
                         {log}
                       </div>
                     ))}
                     {genStatus === 'processing' && (
-                      <div className="animate-pulse text-brass">_</div>
+                      <div className="motion-safe:animate-pulse text-muted" aria-hidden="true">_</div>
                     )}
                   </div>
                 )}
               </div>
 
-              {/* Retry button when failed */}
+              {/* Retry when failed */}
               {genStatus === 'failed' && (
-                <div className="mt-4 p-4 bg-danger/10 rounded-card space-y-3">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle size={16} className="text-danger shrink-0" />
-                    <span className="text-sm text-danger">Generation failed. You can retry or go back to change settings.</span>
-                  </div>
-                  <div className="flex gap-3">
+                <div role="alert" className="mt-5 p-4 border border-danger/40 bg-danger/10 rounded-card space-y-3">
+                  <p className="flex items-start gap-2 text-sm text-danger">
+                    <AlertCircle size={16} className="shrink-0 mt-0.5" aria-hidden="true" />
+                    Generation failed. Retry from the cached assets, or go back and change the settings.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <button
+                      type="button"
                       onClick={() => { setStep(2); setGenStatus('idle'); setGenerating(false); }}
-                      className="btn-quiet px-4 py-2 text-sm"
+                      className="btn-ghost"
                     >
-                      <ChevronLeft size={14} /> Change voice/settings
+                      <ChevronLeft size={16} aria-hidden="true" /> Change voice or settings
                     </button>
                     <button
+                      type="button"
                       onClick={handleRetry}
                       disabled={generating}
-                      className="btn-ghost px-4 py-2 text-sm"
+                      className="btn-primary"
                     >
-                      <RefreshCw size={14} /> Retry
+                      <RefreshCw size={16} aria-hidden="true" /> Retry
                     </button>
                   </div>
                 </div>
               )}
             </div>
-          </div>
+          </section>
         )}
 
-        {/* ── Step 4: Results ──────────────────────────────────── */}
+        {/* ── Step 4: result ──────────────────────────────────── */}
         {step === 4 && genResult && (
-          <div className="animate-fade space-y-6">
-            <div className="card p-6">
-              <h2 className="font-display lowercase text-xl text-ink mb-4">
-                Your Short is Ready
-              </h2>
+          <section aria-labelledby="ais-result-title" className="animate-fade">
+            <StepHeading id="ais-result-title" eyebrow="Result" title="Your short is ready" />
 
-              <div className="mb-4">
-                <StarBanner message="Happy with your short?" />
-              </div>
+            <div className="mb-8">
+              <StarBanner message="Happy with your short?" />
+            </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Video Player */}
-                <div className="card aspect-[9/16] max-h-[500px] bg-black overflow-hidden relative">
+            <div className="grid gap-8 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:gap-12">
+              {/* The video, on black */}
+              <figure className="w-full max-w-[20rem] mx-auto lg:mx-0">
+                <div className="aspect-[9/16] bg-black border border-rule2 rounded-card overflow-hidden">
                   <video
                     src={getApiUrl(genResult.video_url)}
                     controls
@@ -1293,97 +1403,88 @@ export default function SaaShortsTab({ geminiApiKey, elevenLabsKey, falKey, uplo
                     autoPlay
                   />
                 </div>
+                <figcaption className="readout mt-2">
+                  {genResult.duration?.toFixed(1)}s &middot; 9:16 vertical
+                </figcaption>
+              </figure>
 
-                {/* Details */}
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-sm font-medium text-ink mb-1">{genResult.script?.title}</h3>
-                    <p className="readout">{genResult.duration?.toFixed(1)}s &middot; 9:16 vertical</p>
-                  </div>
-
-                  {/* Cost breakdown */}
-                  {genResult.cost_estimate && (
-                    <div className="card p-4">
-                      <div className="eyebrow mb-2">Cost Breakdown</div>
-                      <div className="space-y-1">
-                        {Object.entries(genResult.cost_estimate).filter(([k]) => k !== 'total').map(([k, v]) => (
-                          <div key={k} className="flex justify-between readout">
-                            <span>{k.replace(/_/g, ' ')}</span>
-                            <span>${v}</span>
-                          </div>
-                        ))}
-                        <div className="flex justify-between readout text-ink border-t border-rule pt-1.5 mt-1.5">
-                          <span>Total</span>
-                          <span>${genResult.cost_estimate.total}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Caption */}
-                  {genResult.script?.caption && (
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="eyebrow">Caption</span>
-                        <button
-                          onClick={() => handleCopy(genResult.script.caption, 'caption')}
-                          className="text-xs lowercase text-muted hover:text-brass flex items-center gap-1 transition-colors"
-                        >
-                          {copied === 'caption' ? <Check size={10} className="text-ok" /> : <Copy size={10} />}
-                          {copied === 'caption' ? 'Copied' : 'Copy'}
-                        </button>
-                      </div>
-                      <p className="text-xs text-ink2 bg-paper border border-rule rounded-input p-2.5">{genResult.script.caption}</p>
-                    </div>
-                  )}
-
-                  {/* Hashtags */}
-                  {genResult.script?.hashtags && (
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="eyebrow">Hashtags</span>
-                        <button
-                          onClick={() => handleCopy(genResult.script.hashtags.join(' '), 'hashtags')}
-                          className="text-xs lowercase text-muted hover:text-brass flex items-center gap-1 transition-colors"
-                        >
-                          {copied === 'hashtags' ? <Check size={10} className="text-ok" /> : <Copy size={10} />}
-                          {copied === 'hashtags' ? 'Copied' : 'Copy'}
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {genResult.script.hashtags.map((tag, i) => (
-                          <span key={i} className="readout bg-paper3 px-2 py-0.5 rounded-full">{tag}</span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="flex gap-3 pt-2">
+              {/* Details */}
+              <div className="min-w-0 space-y-8">
+                <div>
+                  <h3 className="text-xl font-semibold text-ink leading-snug">{genResult.script?.title}</h3>
+                  <div className="flex flex-wrap gap-3 mt-4">
                     <a
                       href={getApiUrl(genResult.video_url)}
                       download
-                      className="btn-primary px-4 py-2 text-sm"
+                      className="btn-primary"
                     >
-                      <Download size={14} /> Download
+                      <Download size={16} aria-hidden="true" /> Download
                     </a>
                     <button
+                      type="button"
                       onClick={handleReset}
-                      className="btn-ghost px-4 py-2 text-sm"
+                      className="btn-ghost"
                     >
-                      <RefreshCw size={14} /> New video
+                      <RefreshCw size={16} aria-hidden="true" /> New video
                     </button>
                   </div>
+                </div>
 
-                  {/* Publish to Social Media */}
-                  <div className="card p-4 space-y-3 mt-2">
-                    <h3 className="eyebrow">Publish to Social Media</h3>
+                {/* Caption */}
+                {genResult.script?.caption && (
+                  <div>
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <h4 className="readout">Caption</h4>
+                      <CopyButton done={copied === 'caption'} onClick={() => handleCopy(genResult.script.caption, 'caption')} what="caption" />
+                    </div>
+                    <p className="text-sm text-ink2 bg-paper2 border border-rule rounded-input p-3 leading-relaxed break-words">{genResult.script.caption}</p>
+                  </div>
+                )}
 
-                    {!uploadPostKey ? (
-                      <p className="text-xs lowercase text-muted">Set your Upload-Post API key in Settings to enable publishing.</p>
-                    ) : (
-                      <>
-                        {/* Platform toggles */}
+                {/* Hashtags */}
+                {genResult.script?.hashtags && (
+                  <div>
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <h4 className="readout">Hashtags</h4>
+                      <CopyButton done={copied === 'hashtags'} onClick={() => handleCopy(genResult.script.hashtags.join(' '), 'hashtags')} what="hashtags" />
+                    </div>
+                    <ul className="flex flex-wrap gap-1.5">
+                      {genResult.script.hashtags.map((tag, i) => (
+                        <li key={i} className="text-xs text-ink2 bg-paper3 border border-rule px-2 py-0.5 rounded">{tag}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Cost breakdown */}
+                {genResult.cost_estimate && (
+                  <div className="tray p-4">
+                    <h4 className="text-sm font-semibold text-ink mb-3">Cost breakdown</h4>
+                    <dl className="space-y-1.5">
+                      {Object.entries(genResult.cost_estimate).filter(([k]) => k !== 'total').map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-3 readout">
+                          <dt>{k.replace(/_/g, ' ')}</dt>
+                          <dd>${v}</dd>
+                        </div>
+                      ))}
+                      <div className="flex justify-between gap-3 border-t border-rule pt-2 mt-2 font-mono text-sm text-ink">
+                        <dt>Total</dt>
+                        <dd>${genResult.cost_estimate.total}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                )}
+
+                {/* Publish to social media */}
+                <section aria-labelledby="ais-publish-title" className="card p-4 sm:p-5 space-y-4">
+                  <h3 id="ais-publish-title" className="font-display text-lg text-ink">Publish</h3>
+
+                  {!uploadPostKey ? (
+                    <p className="text-sm text-muted">Set your Upload-Post API key in Settings to enable publishing.</p>
+                  ) : (
+                    <>
+                      {/* Platform toggles */}
+                      <div role="group" aria-label="Platforms">
                         <SegmentedControl
                           multi
                           size="sm"
@@ -1399,100 +1500,174 @@ export default function SaaShortsTab({ geminiApiKey, elevenLabsKey, falKey, uplo
                             youtube: arr.includes('youtube'),
                           })}
                         />
+                      </div>
 
-                        {/* Same notice as ResultCard: TikTok lands as a draft,
-                            and finding nothing live reads as a failed post. */}
-                        {publishPlatforms.tiktok && (
-                          <p className="mt-2 text-xs text-muted lowercase">
-                            tiktok arrives as a <b className="text-ink2">draft</b> and you'll get a
-                            notification in the app — finishing it there lets you add trending sounds
-                            and hashtags, which reaches more people than posting from an api.
-                          </p>
-                        )}
+                      {/* Same notice as ResultCard: TikTok lands as a draft,
+                          and finding nothing live reads as a failed post. */}
+                      {publishPlatforms.tiktok && (
+                        <p className="text-xs text-muted leading-relaxed">
+                          TikTok arrives as a <b className="text-ink2 font-semibold">draft</b> and you&apos;ll get a
+                          notification in the app. Finishing it there lets you add trending sounds
+                          and hashtags, which reaches more people than posting from an API.
+                        </p>
+                      )}
 
-                        {/* Schedule toggle */}
-                        <div className="flex items-center gap-3">
-                          <label className="flex items-center gap-2 text-xs lowercase text-muted cursor-pointer">
+                      {/* Schedule toggle */}
+                      <div className="flex flex-wrap items-center gap-3">
+                        <label className="flex items-center gap-2 text-sm text-ink2 cursor-pointer min-h-[44px] sm:min-h-0">
+                          <input
+                            type="checkbox"
+                            checked={isScheduling}
+                            onChange={(e) => setIsScheduling(e.target.checked)}
+                            className="w-4 h-4 accent-[var(--color-accent)]"
+                          />
+                          <Calendar size={14} className="text-muted" aria-hidden="true" /> Schedule for later
+                        </label>
+                        {isScheduling && (
+                          <>
+                            <label htmlFor="ais-schedule-date" className="sr-only">Publish date and time</label>
                             <input
-                              type="checkbox"
-                              checked={isScheduling}
-                              onChange={(e) => setIsScheduling(e.target.checked)}
-                              className="w-3.5 h-3.5 rounded accent-brass"
-                            />
-                            <Calendar size={12} /> Schedule
-                          </label>
-                          {isScheduling && (
-                            <input
+                              id="ais-schedule-date"
                               type="datetime-local"
                               value={scheduleDate}
                               onChange={(e) => setScheduleDate(e.target.value)}
-                              className="input-field text-xs py-1 px-2 w-auto"
+                              className="input-field text-sm py-2 px-3 w-full sm:w-auto"
                             />
-                          )}
-                        </div>
+                          </>
+                        )}
+                      </div>
 
-                        {/* Publish button */}
-                        <button
-                          onClick={async () => {
-                            const selected = Object.keys(publishPlatforms).filter(k => publishPlatforms[k]);
-                            if (selected.length === 0) { setPublishResult({ ok: false, msg: 'Select at least one platform' }); return; }
-                            if (isScheduling && !scheduleDate) { setPublishResult({ ok: false, msg: 'Select a date' }); return; }
+                      {/* Publish button */}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const selected = Object.keys(publishPlatforms).filter(k => publishPlatforms[k]);
+                          if (selected.length === 0) { setPublishResult({ ok: false, msg: 'Select at least one platform' }); return; }
+                          if (isScheduling && !scheduleDate) { setPublishResult({ ok: false, msg: 'Select a date' }); return; }
 
-                            setPublishing(true);
-                            setPublishResult(null);
-                            try {
-                              const payload = {
-                                job_id: jobId,
-                                api_key: uploadPostKey,
-                                user_id: uploadUserId,
-                                platforms: selected,
-                                title: genResult.script?.title,
-                                description: genResult.script?.caption || genResult.script?.full_narration,
-                              };
-                              if (isScheduling && scheduleDate) {
-                                payload.scheduled_date = new Date(scheduleDate).toISOString();
-                                payload.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-                              }
-                              const res = await apiFetch('/api/saasshorts/post', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(payload),
-                              });
-                              if (!res.ok) {
-                                const err = await res.json().catch(() => ({ detail: 'Failed' }));
-                                throw new Error(err.detail || 'Failed');
-                              }
-                              setPublishResult({ ok: true, msg: isScheduling ? 'Scheduled!' : 'Published!' });
-                            } catch (e) {
-                              setPublishResult({ ok: false, msg: e.message });
-                            } finally {
-                              setPublishing(false);
+                          setPublishing(true);
+                          setPublishResult(null);
+                          try {
+                            const payload = {
+                              job_id: jobId,
+                              api_key: uploadPostKey,
+                              user_id: uploadUserId,
+                              platforms: selected,
+                              title: genResult.script?.title,
+                              description: genResult.script?.caption || genResult.script?.full_narration,
+                            };
+                            if (isScheduling && scheduleDate) {
+                              payload.scheduled_date = new Date(scheduleDate).toISOString();
+                              payload.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
                             }
-                          }}
-                          disabled={publishing}
-                          className="btn-primary w-full py-2 text-sm"
-                        >
-                          {publishing ? (
-                            <><Loader2 size={14} className="animate-spin" /> {isScheduling ? 'Scheduling...' : 'Publishing...'}</>
-                          ) : (
-                            <><Share2 size={14} /> {isScheduling ? 'Schedule post' : 'Publish now'}</>
-                          )}
-                        </button>
+                            const res = await apiFetch('/api/saasshorts/post', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(payload),
+                            });
+                            if (!res.ok) {
+                              const err = await res.json().catch(() => ({ detail: 'Failed' }));
+                              throw new Error(err.detail || 'Failed');
+                            }
+                            setPublishResult({ ok: true, msg: isScheduling ? 'Scheduled!' : 'Published!' });
+                          } catch (e) {
+                            setPublishResult({ ok: false, msg: e.message });
+                          } finally {
+                            setPublishing(false);
+                          }
+                        }}
+                        disabled={publishing}
+                        className="btn-primary w-full"
+                      >
+                        {publishing ? (
+                          <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> {isScheduling ? 'Scheduling…' : 'Publishing…'}</>
+                        ) : (
+                          <><Share2 size={16} aria-hidden="true" /> {isScheduling ? 'Schedule post' : 'Publish now'}</>
+                        )}
+                      </button>
 
+                      <div aria-live="polite">
                         {publishResult && (
-                          <p className={`text-xs ${publishResult.ok ? 'text-ok' : 'text-danger'}`}>
+                          <p className={`text-sm flex items-center gap-1.5 ${publishResult.ok ? 'text-ok' : 'text-danger'}`}>
+                            {publishResult.ok
+                              ? <Check size={14} aria-hidden="true" />
+                              : <AlertCircle size={14} aria-hidden="true" />}
                             {publishResult.msg}
                           </p>
                         )}
-                      </>
-                    )}
-                  </div>
-                </div>
+                      </div>
+                    </>
+                  )}
+                </section>
               </div>
             </div>
-          </div>
+          </section>
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Presentational helpers ───────────────────────────────────────
+
+const STATUS_WORD = { processing: 'Processing', completed: 'Completed', failed: 'Failed', idle: 'Stopped' };
+
+// A neutral mono tag (colour is reserved for the signal).
+const TAG = 'readout inline-flex items-center rounded border border-rule2 px-1.5 py-0.5';
+
+// A choice tile: monochrome at rest, the signal edge + wash when selected.
+const choiceCard = (active) => `card card-hover relative block w-full text-left ${active ? 'border-vermilion bg-vermilionsoft' : ''}`;
+
+function StepHeading({ id, eyebrow, title, children }) {
+  return (
+    <header className="mb-6 sm:mb-8">
+      <p className="eyebrow mb-2">{eyebrow}</p>
+      <h2 id={id} className="page-title break-words">{title}</h2>
+      {children && <p className="page-lede mt-3">{children}</p>}
+    </header>
+  );
+}
+
+function SubHeading({ id, title, hint }) {
+  return (
+    <div>
+      <h3 id={id} className="font-display text-lg text-ink">{title}</h3>
+      {hint && <p className="text-sm text-muted mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+function ChoiceMark({ active, small = false }) {
+  const pos = small ? 'top-2.5 right-2.5 w-5 h-5' : 'top-3.5 right-3.5 w-6 h-6';
+  return (
+    <span
+      aria-hidden="true"
+      className={`absolute ${pos} rounded-full border flex items-center justify-center transition-colors duration-200 ${
+        active ? 'bg-vermilion border-vermilion text-brassink' : 'bg-paper2 border-rule2'
+      }`}
+    >
+      {active && <Check size={small ? 12 : 14} strokeWidth={2.5} />}
+    </span>
+  );
+}
+
+function ImageCheck() {
+  return (
+    <span aria-hidden="true" className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-vermilion text-brassink flex items-center justify-center">
+      <Check size={12} strokeWidth={2.5} />
+    </span>
+  );
+}
+
+function CopyButton({ done, onClick, what }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="btn-quiet text-xs px-2.5 py-1.5"
+    >
+      {done ? <Check size={14} className="text-ok" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+      <span aria-live="polite">{done ? 'Copied' : 'Copy'}<span className="sr-only"> the {what}</span></span>
+    </button>
   );
 }

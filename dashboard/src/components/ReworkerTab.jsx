@@ -3,6 +3,14 @@ import { Loader2, Upload, Eraser, RotateCcw, AlertCircle, X, Play, Pause, ScanTe
 import { apiFetch, apiJson } from '../lib/api';
 import { getApiUrl } from '../config';
 import { LANGUAGES } from './TranslateModal';
+import StepIndicator from './ui/StepIndicator';
+import SegmentedControl from './ui/SegmentedControl';
+
+// The three parts of the flow, for the stepper (presentation only).
+const FLOW_STEPS = ['Source', 'Options', 'Result'];
+
+// Small icon buttons grow to the 44px touch floor on coarse pointers (design.md).
+const TOUCH_TARGET = '[@media(pointer:coarse)]:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px]';
 
 // Fresh state: one box starts drawn as a reasonable guess (a caption bar
 // across the top third, where a hook usually sits, for the first 5s — the
@@ -370,38 +378,56 @@ export default function ReworkerTab({ geminiApiKey, elevenLabsKey, onDone }) {
     }
   };
 
+  // --- Presentation only (derived from the state above) ---------------------
+  const flowStep = (stage === 'processing' || stage === 'error') ? 2 : (stage === 'configure' && source) ? 1 : 0;
+  // Validation errors raised while configuring show next to the action that raised them.
+  const errorNearActions = stage === 'configure' && !!source;
+  const errorBox = error ? (
+    <div role="alert" className="flex items-start gap-2.5 rounded-input border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-ink">
+      <AlertCircle size={16} className="text-danger shrink-0 mt-0.5" aria-hidden="true" />
+      <span className="break-words">{error}</span>
+    </div>
+  ) : null;
+  const previewRunning = preview?.status === 'running';
+
   return (
-    <div className="h-full overflow-y-auto p-8 max-w-3xl mx-auto animate-fade">
-      <p className="eyebrow mb-1.5">08 · REWORKER</p>
-      <h1 className="font-display lowercase text-2xl text-ink mb-2">viral clip reworker</h1>
-      <p className="text-muted text-sm mb-8 lowercase">
-        Upload a clip and erase its existing hook and captions — with an optional dub. Once erased, the clip
-        opens in the Clip Generator's own editor, with the same hook / subtitle / reframing tools as any
-        generated clip. The old text is found automatically; only the letters are erased, and what was behind
-        them is rebuilt from the neighbouring frames. Text parked for seconds on a moving face can still leave
-        a soft patch — use the preview to judge before running the whole clip.
-      </p>
+    <div className="max-w-5xl mx-auto p-4 sm:p-8 space-y-8 animate-fade">
+      <header className="max-w-3xl">
+        <p className="eyebrow mb-2">Rework</p>
+        <h2 className="page-title">Wipe a viral clip clean</h2>
+        <p className="page-lede mt-3">
+          Upload a clip and erase its burned-in hook and captions, with an optional dub. Once erased, the clip opens
+          in the Clip Generator's own editor, with the same hook, subtitle and reframing tools as any generated clip.
+        </p>
+      </header>
 
-      {error && (
-        <div className="mb-5 flex items-start gap-2 text-danger text-sm">
-          <AlertCircle size={16} className="shrink-0 mt-0.5" />
-          <span>{error}</span>
-        </div>
-      )}
+      <div className="border-y border-rule py-4">
+        <StepIndicator steps={FLOW_STEPS} current={flowStep} />
+      </div>
 
+      {!errorNearActions && errorBox}
+
+      {/* ===== 1 · Source ===== */}
       {/* stage === 'configure' with no source is an impossible-but-seen combo
           (a stale localStorage entry from before a field rename): fall back
           to the upload prompt rather than rendering nothing. */}
       {(stage === 'upload' || (stage === 'configure' && !source)) && (
-        <div
-          className="card border-dashed border-2 border-rule rounded-card p-12 text-center cursor-pointer hover:border-brass transition-colors"
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); handleFile(e.dataTransfer.files?.[0]); }}
-        >
-          <Upload size={32} className="mx-auto mb-3 text-muted" />
-          <p className="text-sm text-ink lowercase">click to upload or drag and drop</p>
-          <p className="readout mt-1">MP4, MOV</p>
+        <section aria-labelledby="rw-source-heading" className="space-y-4">
+          <h3 id="rw-source-heading" className="font-display text-xl text-ink">Source clip</h3>
+          <button
+            type="button"
+            className="card-print card-hover w-full border-dashed px-6 py-12 sm:py-16 text-center"
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); handleFile(e.dataTransfer.files?.[0]); }}
+          >
+            <span className="mx-auto mb-4 w-14 h-14 rounded-card border border-rule2 bg-paper3 flex items-center justify-center" aria-hidden="true">
+              <Upload size={22} className="text-ink" />
+            </span>
+            <span className="block font-display text-lg text-ink">Choose a clip or drop it here</span>
+            <span className="block text-sm text-muted mt-1.5">The one whose hook and captions you want gone.</span>
+            <span className="readout block mt-3">MP4 · MOV</span>
+          </button>
           <input
             ref={fileInputRef}
             type="file"
@@ -409,252 +435,381 @@ export default function ReworkerTab({ geminiApiKey, elevenLabsKey, onDone }) {
             className="hidden"
             onChange={(e) => handleFile(e.target.files?.[0])}
           />
-        </div>
+        </section>
       )}
 
       {stage === 'uploading' && (
-        <div className="flex flex-col items-center justify-center py-20 gap-3">
-          <Loader2 size={28} className="animate-spin text-brass" />
-          <p className="text-sm text-muted lowercase">uploading...</p>
-        </div>
+        <section aria-labelledby="rw-uploading-heading" className="card flex flex-col items-center justify-center gap-3 py-16 text-center" role="status">
+          <Loader2 size={28} className="animate-spin text-muted" aria-hidden="true" />
+          <h3 id="rw-uploading-heading" className="text-sm font-medium text-ink2">Uploading the clip…</h3>
+        </section>
       )}
 
+      {/* ===== 2 · Options ===== */}
       {stage === 'configure' && source && (
-        <div className="space-y-6">
-          <div>
-            <label className="eyebrow block mb-2">
-              scrub to the moment, then drag a box over the old hook — and again over the old captions, if any
-            </label>
-            <p className="text-xs text-muted mb-2">
-              Old captions usually run through the whole clip, not just a few seconds — use "whole clip" below
-              on that region, or your new captions will overlap whatever's left unerased after your end time.
-            </p>
-            <div className="flex items-center gap-3 mb-3">
-              <button
-                onClick={() => runDetect(jobId, source.duration)}
-                disabled={detecting}
-                className="btn-ghost text-xs flex items-center gap-1.5 shrink-0"
-                title="find the old captions and hook automatically (replaces the current boxes)"
-              >
-                {detecting ? <Loader2 size={12} className="animate-spin" /> : <ScanText size={12} />}
-                {detecting ? 'detecting text...' : 'auto-detect text'}
-              </button>
-              {detectNote && <span className="text-xs text-muted">{detectNote}</span>}
-            </div>
-            <div
-              ref={frameRef}
-              className="relative select-none rounded-card overflow-hidden bg-black mx-auto"
-              style={{ aspectRatio: `${source.width} / ${source.height}`, maxWidth: 320 }}
-              onMouseDown={startDrag}
-              onTouchStart={startDrag}
-            >
-              <video
-                ref={videoRef}
-                src={source.url}
-                className="w-full h-full object-contain pointer-events-none"
-                playsInline
-                onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
-              />
-              {boxes.map((b, i) => {
-                const active = (b.start == null || currentTime >= b.start) && (b.end == null || currentTime <= b.end);
-                return (
-                  <div
-                    key={i}
-                    className={`absolute border-2 bg-brass/20 group transition-opacity ${active ? 'border-brass opacity-100' : 'border-brass/40 opacity-40'}`}
-                    style={{ left: `${b.x * 100}%`, top: `${b.y * 100}%`, width: `${b.w * 100}%`, height: `${b.h * 100}%` }}
-                  >
-                    <button
-                      onClick={(e) => { e.stopPropagation(); removeBox(i); }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      className="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-danger text-white flex items-center justify-center opacity-70 group-hover:opacity-100"
-                      title="remove this region"
-                    >
-                      <X size={10} />
-                    </button>
-                  </div>
-                );
-              })}
-              {draft && draft.w > 0 && draft.h > 0 && (
-                <div
-                  className="absolute border-2 border-dashed border-brass bg-brass/10 pointer-events-none"
-                  style={{ left: `${draft.x * 100}%`, top: `${draft.y * 100}%`, width: `${draft.w * 100}%`, height: `${draft.h * 100}%` }}
-                />
-              )}
-            </div>
-
-            {/* Custom transport, not native <video controls>: those would sit
-                under our drag overlay and be unreachable, since the overlay
-                has to cover the whole frame to map drag coordinates correctly. */}
-            <div className="flex items-center gap-2 mt-2 mx-auto" style={{ maxWidth: 320 }}>
-              <button onClick={togglePlay} className="btn-ghost p-1.5 shrink-0" title={playing ? 'pause' : 'play'}>
-                {playing ? <Pause size={14} /> : <Play size={14} />}
-              </button>
-              <input
-                type="range"
-                min={0}
-                max={source.duration || 0}
-                step={0.05}
-                value={currentTime}
-                onChange={(e) => seekTo(Number(e.target.value))}
-                className="flex-1"
-              />
-              <span className="readout shrink-0 w-20 text-right">{fmtTime(currentTime)} / {fmtTime(source.duration)}</span>
-            </div>
-
-            <div className="flex items-center justify-between mt-3">
-              <span className="readout">{boxes.length} region{boxes.length === 1 ? '' : 's'} to erase</span>
-              <button onClick={() => setBoxes(DEFAULT_BOXES)} className="btn-ghost text-xs flex items-center gap-1">
-                <RotateCcw size={12} /> reset
-              </button>
-            </div>
-
-            {boxes.length > 0 && (
-              <div className="space-y-2 mt-2">
-                {boxes.map((b, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs">
-                    <span className="readout w-16 shrink-0" title={b.kind ? `found automatically: ${b.kind}` : undefined}>
-                      {b.kind || `region ${i + 1}`}
-                    </span>
-                    <input
-                      type="number" min={0} step={0.1} value={b.start ?? ''}
-                      onChange={(e) => updateBoxTime(i, 'start', e.target.value)}
-                      className="input-field w-16 py-1 px-2 text-xs"
-                    />
-                    <button
-                      onClick={() => seekTo(Number(b.start) || 0)}
-                      className="text-brass hover:underline shrink-0"
-                      title="seek video to this region's start"
-                    >
-                      <Play size={11} />
-                    </button>
-                    <span className="text-muted">to</span>
-                    <input
-                      type="number" min={0} step={0.1} value={b.end ?? ''}
-                      onChange={(e) => updateBoxTime(i, 'end', e.target.value)}
-                      className="input-field w-16 py-1 px-2 text-xs"
-                    />
-                    <span className="readout">sec</span>
-                    <button
-                      onClick={() => setBoxes((prev) => prev.map((box, j) => (j === i ? { ...box, start: 0, end: Math.floor((source.duration || 0) * 10) / 10 } : box)))}
-                      className="btn-ghost text-[11px] px-2 py-0.5 ml-auto shrink-0"
-                      title="repeats through the whole clip (e.g. a caption bar, not a one-off hook)"
-                    >
-                      whole clip
-                    </button>
-                  </div>
-                ))}
+        <div className="space-y-8">
+          <div className="grid lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] gap-8 items-start">
+            {/* Regions to erase */}
+            <section aria-labelledby="rw-regions-heading" className="space-y-4 min-w-0">
+              <div>
+                <h3 id="rw-regions-heading" className="font-display text-xl text-ink">Mark the old text</h3>
+                <p className="text-sm text-ink2 mt-1.5">
+                  Scrub to the moment, then drag a box over the old hook, and again over the old captions if any.
+                </p>
               </div>
-            )}
-          </div>
 
-          <div>
-            <label className="eyebrow block mb-2">erase quality</label>
-            <select value={eraseMode} onChange={(e) => { setEraseMode(e.target.value); setPreview(null); }} className="input-field appearance-none cursor-pointer">
-              <option value="smart">smart — letters only, background rebuilt from other frames (recommended)</option>
-              <option value="legacy">fast — blur the whole box (old method, visible smear)</option>
-            </select>
-            <div className="flex items-center gap-3 mt-3">
-              <button
-                onClick={startPreview}
-                disabled={preview?.status === 'running' || boxes.length === 0}
-                className="btn-ghost text-xs flex items-center gap-1.5 shrink-0"
-                title="erase 3 seconds around the current video time and show before / after"
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => runDetect(jobId, source.duration)}
+                  disabled={detecting}
+                  className="btn-ghost"
+                  title="Find the old captions and hook automatically (replaces the current boxes)"
+                >
+                  {detecting ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <ScanText size={14} aria-hidden="true" />}
+                  {detecting ? 'Detecting text…' : 'Auto-detect text'}
+                </button>
+                <p className="text-sm text-muted" aria-live="polite">{detectNote}</p>
+              </div>
+
+              <div
+                ref={frameRef}
+                role="group"
+                aria-label="Clip frame: drag to draw a region to erase"
+                className="relative select-none touch-none cursor-crosshair rounded-input overflow-hidden bg-black border border-rule2 mx-auto"
+                style={{ aspectRatio: `${source.width} / ${source.height}`, maxWidth: 320 }}
+                onMouseDown={startDrag}
+                onTouchStart={startDrag}
               >
-                {preview?.status === 'running' ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
-                {preview?.status === 'running' ? 'rendering preview (~30 s)...' : `preview 3 s around ${fmtTime(currentTime)}`}
-              </button>
-              {preview?.status === 'failed' && <span className="text-xs text-danger">{preview.error}</span>}
-            </div>
-            {preview?.status === 'done' && (
-              <div className="mt-3">
-                <div className="flex justify-around readout mb-1 mx-auto" style={{ maxWidth: 480 }}>
-                  <span>before</span><span>after</span>
-                </div>
                 <video
-                  key={preview.url}
-                  src={preview.url}
-                  className="w-full rounded-card bg-black mx-auto block"
-                  style={{ maxWidth: 480 }}
-                  autoPlay loop muted playsInline controls
+                  ref={videoRef}
+                  src={source.url}
+                  className="w-full h-full object-contain pointer-events-none"
+                  playsInline
+                  onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => setPlaying(false)}
                 />
+                {boxes.map((b, i) => {
+                  const active = (b.start == null || currentTime >= b.start) && (b.end == null || currentTime <= b.end);
+                  return (
+                    <div
+                      key={i}
+                      className={`absolute border-2 border-ink bg-paper/35 group transition-opacity ${active ? 'opacity-100' : 'opacity-40'}`}
+                      style={{ left: `${b.x * 100}%`, top: `${b.y * 100}%`, width: `${b.w * 100}%`, height: `${b.h * 100}%` }}
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removeBox(i); }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-paper2 text-ink border border-rule2 flex items-center justify-center opacity-80 group-hover:opacity-100 focus-visible:opacity-100"
+                        title="Remove this region"
+                        aria-label={`Remove region ${i + 1}`}
+                      >
+                        <X size={12} aria-hidden="true" />
+                      </button>
+                    </div>
+                  );
+                })}
+                {draft && draft.w > 0 && draft.h > 0 && (
+                  <div
+                    className="absolute border-2 border-dashed border-ink bg-paper/20 pointer-events-none"
+                    style={{ left: `${draft.x * 100}%`, top: `${draft.y * 100}%`, width: `${draft.w * 100}%`, height: `${draft.h * 100}%` }}
+                  />
+                )}
               </div>
-            )}
-          </div>
 
-          <div>
-            <label className="eyebrow block mb-2">dub voice</label>
-            <select value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)} className="input-field appearance-none cursor-pointer">
-              <option value="">original (no dub)</option>
-              {Object.entries(LANGUAGES).sort((a, b) => a[1].localeCompare(b[1])).map(([code, name]) => (
-                <option key={code} value={code}>{name}</option>
-              ))}
-            </select>
-            <p className="text-xs text-muted mt-1">
-              replaces the voice with an AI dub. Want captions in a different language instead (voice unchanged)?
-              Do that afterwards from the subtitles tool's own "translate captions" — works on any clip.
-            </p>
-          </div>
+              {/* Custom transport, not native <video controls>: those would sit
+                  under our drag overlay and be unreachable, since the overlay
+                  has to cover the whole frame to map drag coordinates correctly. */}
+              <div className="flex items-center gap-2 mx-auto" style={{ maxWidth: 320 }}>
+                <button
+                  type="button"
+                  onClick={togglePlay}
+                  className={`btn-ghost p-2 shrink-0 ${TOUCH_TARGET}`}
+                  aria-label={playing ? 'Pause' : 'Play'}
+                >
+                  {playing ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
+                </button>
+                <label htmlFor="rw-seek" className="sr-only">Clip position</label>
+                <input
+                  id="rw-seek"
+                  type="range"
+                  min={0}
+                  max={source.duration || 0}
+                  step={0.05}
+                  value={currentTime}
+                  onChange={(e) => seekTo(Number(e.target.value))}
+                  className="flex-1 min-w-0 accent-ink"
+                />
+                <span className="readout shrink-0">{fmtTime(currentTime)} / {fmtTime(source.duration)}</span>
+              </div>
 
-          {/* Small, deliberately-imperfect variations: a platform's
-              duplicate/recycled-content check is frame-hash-based, not
-              semantic, so a flip/speed/zoom/color nudge changes the file's
-              fingerprint without being visible to a viewer. */}
-          <div>
-            <label className="eyebrow block mb-2">vary the edit (optional)</label>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-ink lowercase">flip horizontally</span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" checked={flip} onChange={(e) => setFlip(e.target.checked)} className="sr-only peer" />
-                <div className="w-8 h-4 rounded-full bg-paper3 peer-checked:bg-brass transition-colors after:content-[''] after:absolute after:top-0 after:left-0 after:h-4 after:w-4 after:rounded-full after:bg-ink after:transition-all peer-checked:after:translate-x-full" />
-              </label>
+              <div className="flex items-center justify-between gap-3 pt-2 border-t border-rule">
+                <p className="readout">{boxes.length} region{boxes.length === 1 ? '' : 's'} to erase</p>
+                <button type="button" onClick={() => setBoxes(DEFAULT_BOXES)} className="btn-quiet">
+                  <RotateCcw size={14} aria-hidden="true" /> Reset
+                </button>
+              </div>
+              <p className="text-xs text-muted">
+                Old captions usually run through the whole clip, not just a few seconds. Use “Whole clip” on that
+                region, or your new captions will overlap whatever is left unerased after the end time.
+              </p>
+
+              {boxes.length > 0 && (
+                <ol className="space-y-2">
+                  {boxes.map((b, i) => (
+                    <li key={i} className="tray p-3 space-y-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="readout flex-1 min-w-0 truncate" title={b.kind ? `Found automatically: ${b.kind}` : undefined}>
+                          {b.kind || `Region ${i + 1}`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setBoxes((prev) => prev.map((box, j) => (j === i ? { ...box, start: 0, end: Math.floor((source.duration || 0) * 10) / 10 } : box)))}
+                          className="btn-ghost px-2.5 py-1 text-xs shrink-0"
+                          title="Repeats through the whole clip (e.g. a caption bar, not a one-off hook)"
+                        >
+                          Whole clip
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeBox(i)}
+                          className={`btn-danger p-2 shrink-0 ${TOUCH_TARGET}`}
+                          aria-label={`Remove region ${i + 1}`}
+                        >
+                          <X size={14} aria-hidden="true" />
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <label htmlFor={`rw-start-${i}`} className="sr-only">Region {i + 1} start, in seconds</label>
+                        <input
+                          id={`rw-start-${i}`}
+                          type="number" min={0} step={0.1} value={b.start ?? ''}
+                          onChange={(e) => updateBoxTime(i, 'start', e.target.value)}
+                          className="input-field w-20 py-1.5 px-2"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => seekTo(Number(b.start) || 0)}
+                          className={`btn-quiet p-2 shrink-0 ${TOUCH_TARGET}`}
+                          title="Seek video to this region's start"
+                          aria-label={`Jump to the start of region ${i + 1}`}
+                        >
+                          <Play size={12} aria-hidden="true" />
+                        </button>
+                        <span className="text-muted">to</span>
+                        <label htmlFor={`rw-end-${i}`} className="sr-only">Region {i + 1} end, in seconds</label>
+                        <input
+                          id={`rw-end-${i}`}
+                          type="number" min={0} step={0.1} value={b.end ?? ''}
+                          onChange={(e) => updateBoxTime(i, 'end', e.target.value)}
+                          className="input-field w-20 py-1.5 px-2"
+                        />
+                        <span className="readout">sec</span>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+
+            {/* Options */}
+            <div className="space-y-6 min-w-0">
+              <section aria-labelledby="rw-erase-heading" className="card p-5 sm:p-6 space-y-4">
+                <div>
+                  <h3 id="rw-erase-heading" className="font-display text-lg text-ink">Erase quality</h3>
+                  <p className="text-sm text-muted mt-1">
+                    The old text is found automatically; only the letters are erased, and what was behind them is
+                    rebuilt from the neighbouring frames. Text parked for seconds on a moving face can still leave a
+                    soft patch, so preview before running the whole clip.
+                  </p>
+                </div>
+                <SegmentedControl
+                  options={[
+                    { value: 'smart', label: 'Smart', hint: 'Recommended' },
+                    { value: 'legacy', label: 'Fast', hint: 'Old method' },
+                  ]}
+                  value={eraseMode}
+                  onChange={(v) => { setEraseMode(v); setPreview(null); }}
+                />
+                <p className="text-sm text-ink2">
+                  {eraseMode === 'smart'
+                    ? 'Letters only: the background is rebuilt from other frames.'
+                    : 'Blurs the whole box: quicker, but leaves a visible smear.'}
+                </p>
+
+                <div className="border-t border-rule pt-4 space-y-3">
+                  <button
+                    type="button"
+                    onClick={startPreview}
+                    disabled={preview?.status === 'running' || boxes.length === 0}
+                    className="btn-ghost w-full sm:w-auto"
+                    title="Erase 3 seconds around the current video time and show before / after"
+                  >
+                    {previewRunning ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}
+                    {previewRunning ? 'Rendering preview (~30 s)…' : `Preview 3 s around ${fmtTime(currentTime)}`}
+                  </button>
+                  <p className="sr-only" aria-live="polite">
+                    {previewRunning ? 'Rendering the preview…' : preview?.status === 'done' ? 'Preview ready.' : ''}
+                  </p>
+                  {preview?.status === 'failed' && (
+                    <p role="alert" className="text-sm text-ink2 flex items-start gap-2">
+                      <AlertCircle size={16} className="text-danger shrink-0 mt-0.5" aria-hidden="true" />
+                      <span className="break-words">{preview.error}</span>
+                    </p>
+                  )}
+                  {preview?.status === 'done' && (
+                    <figure className="space-y-1.5">
+                      <div className="flex justify-around readout" aria-hidden="true">
+                        <span>Before</span><span>After</span>
+                      </div>
+                      <video
+                        key={preview.url}
+                        src={preview.url}
+                        className="w-full rounded-input bg-black border border-rule2 block"
+                        autoPlay loop muted playsInline controls
+                        aria-label="Erase preview, before and after"
+                      />
+                    </figure>
+                  )}
+                </div>
+              </section>
+
+              <section aria-labelledby="rw-dub-heading" className="card p-5 sm:p-6 space-y-3">
+                <h3 id="rw-dub-heading" className="font-display text-lg text-ink">Dub voice</h3>
+                <label htmlFor="rw-dub" className="sr-only">Dub language</label>
+                <select
+                  id="rw-dub"
+                  value={targetLanguage}
+                  onChange={(e) => setTargetLanguage(e.target.value)}
+                  className="input-field cursor-pointer"
+                  aria-describedby="rw-dub-help"
+                >
+                  <option value="">Original voice (no dub)</option>
+                  {Object.entries(LANGUAGES).sort((a, b) => a[1].localeCompare(b[1])).map(([code, name]) => (
+                    <option key={code} value={code}>{name}</option>
+                  ))}
+                </select>
+                <p id="rw-dub-help" className="text-sm text-muted">
+                  Replaces the voice with an AI dub. Want captions in another language instead, with the voice
+                  unchanged? Do that afterwards with “Translate captions” in the subtitles tool; it works on any clip.
+                </p>
+              </section>
+
+              {/* Small, deliberately-imperfect variations: a platform's
+                  duplicate/recycled-content check is frame-hash-based, not
+                  semantic, so a flip/speed/zoom/color nudge changes the file's
+                  fingerprint without being visible to a viewer. */}
+              <section aria-labelledby="rw-vary-heading" className="card p-5 sm:p-6 space-y-5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h3 id="rw-vary-heading" className="font-display text-lg text-ink">Vary the edit</h3>
+                  <span className="readout">Optional</span>
+                </div>
+
+                <label htmlFor="rw-flip" className="flex items-center justify-between gap-4 cursor-pointer min-h-[44px]">
+                  <span className="text-sm text-ink">Flip horizontally</span>
+                  <span className="relative inline-flex items-center shrink-0">
+                    <input
+                      id="rw-flip"
+                      type="checkbox"
+                      role="switch"
+                      checked={flip}
+                      onChange={(e) => setFlip(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <span
+                      aria-hidden="true"
+                      className="block w-10 h-6 rounded-full border border-rule2 bg-paper3 transition-colors peer-checked:bg-ink peer-checked:border-ink peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[color:var(--color-focus)]"
+                    />
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-1 top-1 w-4 h-4 rounded-full bg-muted transition-transform peer-checked:translate-x-4 peer-checked:bg-paper"
+                    />
+                  </span>
+                </label>
+
+                <div className="grid sm:grid-cols-3 gap-5">
+                  <div>
+                    <div className="flex items-baseline justify-between mb-2">
+                      <label htmlFor="rw-speed" className="text-sm text-ink">Speed</label>
+                      <span className="readout">{Math.round(speed * 100)}%</span>
+                    </div>
+                    <input id="rw-speed" type="range" min="0.95" max="1.05" step="0.01" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="w-full accent-ink" />
+                  </div>
+                  <div>
+                    <div className="flex items-baseline justify-between mb-2">
+                      <label htmlFor="rw-zoom" className="text-sm text-ink">Zoom</label>
+                      <span className="readout">{Math.round(zoom * 100)}%</span>
+                    </div>
+                    <input id="rw-zoom" type="range" min="1.0" max="1.15" step="0.01" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-full accent-ink" />
+                  </div>
+                  <div>
+                    <div className="flex items-baseline justify-between mb-2">
+                      <label htmlFor="rw-color" className="text-sm text-ink">Color</label>
+                      <span className="readout">{Math.round(colorBoost * 100)}%</span>
+                    </div>
+                    <input id="rw-color" type="range" min="1.0" max="1.2" step="0.01" value={colorBoost} onChange={(e) => setColorBoost(Number(e.target.value))} className="w-full accent-ink" />
+                  </div>
+                </div>
+              </section>
             </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <div className="flex justify-between mb-1"><span className="readout">speed</span><span className="readout">{Math.round(speed * 100)}%</span></div>
-                <input type="range" min="0.95" max="1.05" step="0.01" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="w-full accent-brass" />
-              </div>
-              <div>
-                <div className="flex justify-between mb-1"><span className="readout">zoom</span><span className="readout">{Math.round(zoom * 100)}%</span></div>
-                <input type="range" min="1.0" max="1.15" step="0.01" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-full accent-brass" />
-              </div>
-              <div>
-                <div className="flex justify-between mb-1"><span className="readout">color</span><span className="readout">{Math.round(colorBoost * 100)}%</span></div>
-                <input type="range" min="1.0" max="1.2" step="0.01" value={colorBoost} onChange={(e) => setColorBoost(Number(e.target.value))} className="w-full accent-brass" />
-              </div>
-            </div>
           </div>
 
-          <div className="flex gap-3">
-            <button onClick={reset} className="btn-ghost flex-1">cancel</button>
-            <button onClick={handleSubmit} className="btn-primary flex-1 flex items-center justify-center gap-2">
-              <Eraser size={16} /> erase and open in editor
+          {errorNearActions && errorBox}
+
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 border-t border-rule2 pt-5">
+            <button type="button" onClick={reset} className="btn-ghost">Cancel</button>
+            <button type="button" onClick={handleSubmit} className="btn-accent">
+              <Eraser size={16} aria-hidden="true" /> Erase and open in editor
             </button>
           </div>
         </div>
       )}
 
+      {/* ===== 3 · Result ===== */}
       {stage === 'processing' && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            <Loader2 size={20} className="animate-spin text-brass" />
-            <p className="text-sm text-ink lowercase">erasing — this can take a minute</p>
-            <span className="readout ml-auto">{progress}%</span>
+        <section aria-labelledby="rw-result-heading" className="card-print p-5 sm:p-7 space-y-5">
+          <div className="flex items-start gap-4">
+            <Loader2 size={22} className="animate-spin text-muted shrink-0 mt-1" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <h3 id="rw-result-heading" className="font-display text-xl text-ink">Erasing the old text</h3>
+              <p className="text-sm text-muted mt-1">This can take a minute. The clip opens in the editor as soon as it is done.</p>
+            </div>
+            <p className="font-quote text-5xl leading-none text-ink shrink-0" aria-hidden="true">
+              {progress}<span className="text-2xl text-muted">%</span>
+            </p>
           </div>
-          <div className="h-1.5 rounded-full bg-paper3 overflow-hidden">
-            <div className="h-full bg-brass transition-all duration-500" style={{ width: `${progress}%` }} />
+          <div
+            role="progressbar"
+            aria-label="Erasing progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress}
+            className="h-1.5 rounded-full bg-paper3 overflow-hidden"
+          >
+            <div className="h-full bg-ink transition-all duration-500" style={{ width: `${progress}%` }} />
           </div>
-          <div className="card p-4 max-h-64 overflow-y-auto font-mono text-xs text-muted space-y-1">
-            {logs.map((l, i) => <div key={i}>{l}</div>)}
+          <div>
+            <p id="rw-log-label" className="readout mb-2">Log</p>
+            <div
+              role="log"
+              aria-live="polite"
+              aria-labelledby="rw-log-label"
+              className="tray p-4 max-h-64 overflow-y-auto custom-scrollbar font-mono text-xs text-ink2 space-y-1 break-words"
+            >
+              {logs.map((l, i) => <div key={i}>{l}</div>)}
+            </div>
           </div>
-        </div>
+        </section>
       )}
 
       {stage === 'error' && (
-        <div className="text-center py-10">
-          <button onClick={reset} className="btn-primary">try again</button>
-        </div>
+        <section aria-labelledby="rw-error-heading" className="card p-6 sm:p-8 text-center space-y-4">
+          <h3 id="rw-error-heading" className="font-display text-xl text-ink">The clip could not be processed</h3>
+          <p className="text-sm text-muted">The reason is shown above. Upload the clip again to retry.</p>
+          <button type="button" onClick={reset} className="btn-primary">Try again</button>
+        </section>
       )}
     </div>
   );

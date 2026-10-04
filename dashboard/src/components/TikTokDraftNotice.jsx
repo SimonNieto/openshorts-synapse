@@ -26,15 +26,15 @@ export default function TikTokDraftNotice() {
     const { tiktokPostMode } = useAuth();
     if (tiktokPostMode !== 'MEDIA_UPLOAD') return null;
     return (
-        <div className="mb-4 px-3 py-2 rounded-input text-xs text-ink2 bg-paper3 flex items-start gap-2">
-            <AlertCircle size={14} className="mt-0.5 shrink-0 text-brass" />
-            <div className="lowercase">
-                tiktok arrives as a <b className="text-ink">draft</b>, not a live post — you'll
-                get a notification in the app. its api won't carry the title or description
-                onto a draft, so you write those there too, along with trending sounds,
-                effects and hashtags — which reaches more people than posting straight
-                from an api.
-            </div>
+        <div role="note" className="tray mb-4 px-3 py-2.5 flex items-start gap-2.5 text-[13px] leading-relaxed text-ink2">
+            <AlertCircle size={15} className="mt-0.5 shrink-0 text-muted" aria-hidden="true" />
+            <p className="min-w-0">
+                TikTok receives it as a <strong className="font-semibold text-ink">draft</strong>, not
+                a live post — you'll get a notification in the app. Its API doesn't carry the
+                title or description onto a draft, so you write those there, along with
+                trending sounds, effects and hashtags. That reaches more people than posting
+                straight from an API.
+            </p>
         </div>
     );
 }

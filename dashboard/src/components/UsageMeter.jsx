@@ -2,7 +2,7 @@ import React from 'react';
 import { Zap } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
-// Compact minutes-remaining pill for the header (managed users only).
+// Compact minutes-remaining meter for the header (managed users only).
 export default function UsageMeter({ onClick }) {
   const { isManaged, minutes } = useAuth();
   if (!isManaged || !minutes) return null;
@@ -14,14 +14,16 @@ export default function UsageMeter({ onClick }) {
 
   return (
     <button
+      type="button"
       onClick={onClick}
       title="Manage your plan"
-      className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-rule2 bg-paper2 hover:bg-paper3 transition-colors"
+      aria-label={`${remaining} minutes left${low ? ', running low' : ''}. Manage your plan`}
+      className={`status-pill gap-2 hover:bg-paper3 [@media(pointer:coarse)]:min-h-[44px] transition-colors ${low ? 'status-pill-warn' : 'text-ink2 hover:text-ink'}`}
     >
-      <Zap size={14} className={low ? 'text-warn' : 'text-brass'} />
-      <span className={`readout ${low ? 'text-warn' : ''}`}>{remaining} min</span>
-      <span className="w-12 h-1.5 rounded-full bg-paper3 overflow-hidden hidden sm:inline-block">
-        <span className={`block h-full ${low ? 'bg-warn' : 'bg-brass'}`} style={{ width: `${pct}%` }} />
+      <Zap size={14} aria-hidden="true" className={low ? 'text-warn' : 'text-muted'} />
+      <span aria-hidden="true" className="tabular-nums">{remaining} min</span>
+      <span aria-hidden="true" className="w-12 h-1 rounded-full bg-[color:var(--color-rule-2)] overflow-hidden hidden sm:inline-block">
+        <span className={`block h-full rounded-full ${low ? 'bg-warn' : 'bg-ink2'}`} style={{ width: `${pct}%` }} />
       </span>
     </button>
   );

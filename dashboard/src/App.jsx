@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Square, Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket, Library, Images } from 'lucide-react';
+import { Square, Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Smartphone, ExternalLink, Copy, CheckCircle2, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket, Library, Images } from 'lucide-react';
 import KeyInput from './components/KeyInput';
 import MediaInput from './components/MediaInput';
 import ResultCard from './components/ResultCard';
@@ -82,7 +82,7 @@ const decrypt = (text) => {
 
 // Simple TikTok icon sine Lucide might not have it or it varies
 const TikTokIcon = ({ size = 16, className = "" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true" focusable="false">
     <path d="M19.589 6.686a4.793 4.793 0 0 1-3.77-4.245V2h-3.445v13.672a2.896 2.896 0 0 1-5.201 1.743l-.002-.001.002.001a2.895 2.895 0 0 1 3.183-4.51v-3.5a6.329 6.329 0 0 0-5.394 10.692 6.33 6.33 0 0 0 10.857-4.424V8.687a8.182 8.182 0 0 0 4.773 1.526V6.79a4.831 4.831 0 0 1-1.003-.104z" />
   </svg>
 );
@@ -97,19 +97,29 @@ const formatRetention = (seconds) => {
   return `${Math.max(1, Math.round(seconds / 60))} min`;
 };
 
-const ProfileNetworkIcons = ({ profile, size = 12 }) => (
-  <span className="flex items-center gap-1.5">
-    <span className={profile?.connected?.includes('tiktok') ? 'text-ink' : 'text-muted opacity-40'}>
-      <TikTokIcon size={size} />
+// The three networks of a profile: lit when connected, dimmed when not. The
+// state is also spelled out for screen readers (never icon brightness alone).
+const NETWORKS = [['tiktok', 'TikTok'], ['instagram', 'Instagram'], ['youtube', 'YouTube']];
+const ProfileNetworkIcons = ({ profile, size = 12 }) => {
+  const connected = profile?.connected || [];
+  return (
+    <span className="flex items-center gap-1.5">
+      {NETWORKS.map(([id]) => {
+        const NetIcon = id === 'tiktok' ? TikTokIcon : id === 'instagram' ? Instagram : Youtube;
+        return (
+          <span key={id} className={connected.includes(id) ? 'text-ink' : 'text-muted opacity-40'}>
+            <NetIcon size={size} aria-hidden="true" />
+          </span>
+        );
+      })}
+      <span className="sr-only">
+        {connected.length
+          ? `Connected: ${NETWORKS.filter(([id]) => connected.includes(id)).map(([, name]) => name).join(', ')}`
+          : 'No network connected'}
+      </span>
     </span>
-    <span className={profile?.connected?.includes('instagram') ? 'text-ink' : 'text-muted opacity-40'}>
-      <Instagram size={size} />
-    </span>
-    <span className={profile?.connected?.includes('youtube') ? 'text-ink' : 'text-muted opacity-40'}>
-      <Youtube size={size} />
-    </span>
-  </span>
-);
+  );
+};
 
 const UserProfileSelector = ({ profiles, selectedUserId, onSelect, onConnect }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -118,78 +128,77 @@ const UserProfileSelector = ({ profiles, selectedUserId, onSelect, onConnect }) 
 
   const selectedProfile = profiles.find(p => p.username === selectedUserId) || profiles[0];
   const autoId = isAutoProfileId(selectedProfile?.username);
+  const profileName = (p) => (isAutoProfileId(p?.username) ? `Social profile ${profiles.indexOf(p) + 1}` : p?.username);
 
   return (
     <div className="relative z-50">
       <button
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
-        aria-label="social profile"
+        aria-label={`Posting profile: ${profileName(selectedProfile) || 'none selected'}`}
+        aria-expanded={isOpen}
+        aria-haspopup="true"
         /* Phone: avatar + chevron only. A 180px pill next to the menu button,
            the section title and the minutes meter overflowed a 360px header. */
-        className="flex items-center justify-between gap-1 bg-paper2 border border-rule2 rounded-input px-2 sm:px-3 py-2 text-sm text-ink2 hover:bg-paper3 transition-colors sm:min-w-[180px]"
+        className="flex items-center justify-between gap-1.5 bg-paper2 border border-rule2 rounded-input px-2 sm:px-3 min-h-[44px] sm:min-h-[36px] text-sm text-ink2 hover:text-ink hover:border-ink/40 transition-colors sm:min-w-[170px]"
       >
-        <span className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-full bg-paper3 border border-rule flex items-center justify-center font-mono text-micro text-brass shrink-0">
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="w-6 h-6 rounded-full bg-paper3 border border-rule flex items-center justify-center font-mono text-micro text-ink shrink-0" aria-hidden="true">
             {autoId ? "S" : (selectedProfile?.username?.substring(0, 1).toUpperCase() || "U")}
-          </div>
+          </span>
           {autoId ? (
             <span className="hidden sm:flex"><ProfileNetworkIcons profile={selectedProfile} size={13} /></span>
           ) : (
-            <span className="hidden sm:block font-medium text-ink truncate max-w-[100px]">{selectedProfile?.username || "Select User"}</span>
+            <span className="hidden sm:block font-medium text-ink truncate max-w-[110px]">{selectedProfile?.username || "Select a profile"}</span>
           )}
         </span>
-        <ChevronDown size={14} className={`text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown size={14} className={`text-muted transition-transform shrink-0 ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
 
       {isOpen && (
-        <div className="absolute top-full mt-2 right-0 w-64 card overflow-hidden">
-          <div className="max-h-60 overflow-y-auto custom-scrollbar">
-            {profiles.map((profile) => (
-              <button
-                key={profile.username}
-                onClick={() => {
-                  onSelect(profile.username);
-                  setIsOpen(false);
-                }}
-                className="w-full flex items-center justify-between px-4 py-3 hover:bg-paper3 transition-colors text-left group border-b border-rule last:border-0"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-paper3 flex items-center justify-center font-mono text-micro text-ink border border-rule shrink-0">
-                    {isAutoProfileId(profile.username) ? "S" : profile.username.substring(0, 2).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-ink2 group-hover:text-ink transition-colors truncate">
-                      {isAutoProfileId(profile.username)
-                        ? `Social profile ${profiles.indexOf(profile) + 1}`
-                        : profile.username}
-                    </div>
-                    <div className="flex gap-2 mt-0.5">
-                      {/* Status indicators */}
-                      <div className={`flex items-center gap-1 ${profile.connected.includes('tiktok') ? 'text-ink2' : 'text-muted opacity-40'}`}>
-                        <TikTokIcon size={10} />
-                      </div>
-                      <div className={`flex items-center gap-1 ${profile.connected.includes('instagram') ? 'text-ink2' : 'text-muted opacity-40'}`}>
-                        <Instagram size={10} />
-                      </div>
-                      <div className={`flex items-center gap-1 ${profile.connected.includes('youtube') ? 'text-ink2' : 'text-muted opacity-40'}`}>
-                        <Youtube size={10} />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                {selectedUserId === profile.username && <Check size={14} className="text-brass shrink-0" />}
-              </button>
-            ))}
-          </div>
+        <div className="absolute top-full mt-2 right-0 w-[min(18rem,calc(100vw-1.5rem))] card-print overflow-hidden animate-fade">
+          <p className="readout px-4 pt-3 pb-2">Post as</p>
+          <ul className="max-h-60 overflow-y-auto custom-scrollbar">
+            {profiles.map((profile) => {
+              const selected = selectedUserId === profile.username;
+              return (
+                <li key={profile.username} className="border-t border-rule">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelect(profile.username);
+                      setIsOpen(false);
+                    }}
+                    aria-current={selected ? 'true' : undefined}
+                    className={`w-full flex items-center justify-between gap-3 px-4 py-3 min-h-[44px] transition-colors text-left group ${selected ? 'bg-paper3' : 'hover:bg-paper3'}`}
+                  >
+                    <span className="flex items-center gap-3 min-w-0">
+                      <span className="w-8 h-8 rounded-full bg-paper3 flex items-center justify-center font-mono text-micro text-ink border border-rule shrink-0" aria-hidden="true">
+                        {isAutoProfileId(profile.username) ? "S" : profile.username.substring(0, 2).toUpperCase()}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-ink2 group-hover:text-ink transition-colors truncate">
+                          {profileName(profile)}
+                        </span>
+                        <span className="flex mt-1"><ProfileNetworkIcons profile={profile} size={11} /></span>
+                      </span>
+                    </span>
+                    {selected && <Check size={15} className="text-vermilion shrink-0" aria-hidden="true" />}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
           {/* For managed users this dropdown otherwise does nothing (one profile,
               nothing to switch) — its real job is being the door to connecting
               the greyed-out networks it displays. */}
           {onConnect && (
             <button
+              type="button"
               onClick={() => { setIsOpen(false); onConnect(); }}
-              className="w-full flex items-center gap-2 px-4 py-3 text-sm text-brass hover:bg-paper3 transition-colors text-left border-t border-rule"
+              className="w-full flex items-center gap-2 px-4 py-3 min-h-[44px] text-sm text-ink2 hover:text-ink hover:bg-paper3 transition-colors text-left border-t border-rule"
             >
-              <Share2 size={14} /> Connect / manage accounts
+              <Share2 size={14} className="text-muted" aria-hidden="true" /> Connect or manage accounts
             </button>
           )}
         </div>
@@ -375,7 +384,7 @@ function App() {
   // is only a status badge over a log nobody reads: fold it away and give the
   // clips the full width. The "logs" chip brings it back on demand.
   const [showJobPanel, setShowJobPanel] = useState(false);
-  // The Clip Generator++ profile picked in its tab (used by the results' "viral style").
+  // The Synapse Cut profile picked in its tab (used by the results' "viral style").
   const [plusProfile, setPlusProfile] = useState(null);
   // Real progress from /api/status (app.py _job_progress): percent, stage,
   // clips done / total, ETA — computed from what the pipeline actually logs.
@@ -953,7 +962,7 @@ function App() {
   const tutorialLock = tutorialPhase === 'intro' || tutorialPhase === 'coach' || tutorialPhase === 'celebrate';
 
   // Self-host opt-in (dashboard/.env.local: VITE_HIDE_CLASSIC_CLIPGEN=1): only
-  // Clip Generator++ is shown. The classic tab's code stays; every path that
+  // Synapse Cut (ex Clip Generator++) is shown. The classic tab's code stays; every path that
   // lands on it (reopened project, "back" from another tool) goes to ++ instead.
   const hideClassic = !billingEnabled && import.meta.env.VITE_HIDE_CLASSIC_CLIPGEN === '1';
 
@@ -986,10 +995,10 @@ function App() {
     finishTutorial();
   };
   // Included in the plan (fully managed, no keys): Clip Generator + YouTube Studio.
-  // Advanced (bring your own fal.ai + ElevenLabs keys): AI Shorts + AI Agent.
+  // Advanced (bring your own fal.ai + ElevenLabs keys): AI Shorts.
   const INCLUDED_TOOL_TABS = ['dashboard', 'thumbnails'];
-  const ADVANCED_TOOL_TABS = ['saasshorts', 'ai-agent'];
-  const TOOL_NAMES = { dashboard: 'the Clip Generator', thumbnails: 'the YouTube Studio' };
+  const ADVANCED_TOOL_TABS = ['saasshorts'];
+  const TOOL_NAMES = { dashboard: 'the Clip generator', thumbnails: 'YouTube Studio' };
   const gateThisTab = needsPlan && INCLUDED_TOOL_TABS.includes(activeTab);      // included tool, no plan yet
   const advancedThisTab = billingEnabled && ADVANCED_TOOL_TABS.includes(activeTab); // BYOK-notice tools
 
@@ -1190,34 +1199,32 @@ function App() {
   // desktop rail, the mobile drawer and the bottom tab bar. `short` is the tab-bar label, `desc` the line under the
   // page title in the top bar (and the rail's tooltip).
   const navItems = [
-    ...(hideClassic ? [] : [{ id: 'dashboard', group: 'create', icon: LayoutDashboard, label: 'Clip Generator', short: 'clips', primary: true,
+    ...(hideClassic ? [] : [{ id: 'dashboard', group: 'create', icon: LayoutDashboard, label: 'Clip generator', short: 'Clips', primary: true,
       desc: 'Paste a link or drop a video: the best moments, cut into vertical shorts.' }]),
-    ...(!billingEnabled ? [{ id: 'plus', group: 'create', icon: Rocket, label: 'Clip Generator++', short: 'clips++', primary: hideClassic,
+    ...(!billingEnabled ? [{ id: 'plus', group: 'create', icon: Rocket, label: 'Synapse Cut', short: 'Cut', primary: hideClassic,
       desc: 'Your channel profiles: moments, hooks, captions and drawn B-roll, in your house style.' }] : []),
-    { id: 'saasshorts', group: 'create', icon: Sparkles, label: 'AI Shorts', short: 'ai shorts', byok: true, primary: true,
+    { id: 'saasshorts', group: 'create', icon: Sparkles, label: 'AI Shorts', short: 'AI Shorts', byok: true, primary: true,
       desc: 'Generate a short from a script or a product, voiced and edited by AI.' },
-    { id: 'ai-agent', group: 'create', icon: Bot, label: 'AI Agent', short: 'agent', byok: true,
-      desc: 'Talk to the studio: ask an agent to clip, write or publish for you.' },
-    ...(!billingEnabled ? [{ id: 'story', group: 'create', icon: Clapperboard, label: 'Story Channel', short: 'story',
+    ...(!billingEnabled ? [{ id: 'story', group: 'create', icon: Clapperboard, label: 'Story channel', short: 'Story',
       desc: 'Long stories told as a series of shorts.' }] : []),
-    ...(!billingEnabled || isSignedIn ? [{ id: 'history', group: 'library', icon: History, label: 'History', short: 'history',
+    ...(!billingEnabled || isSignedIn ? [{ id: 'history', group: 'library', icon: History, label: 'History', short: 'History',
       desc: 'Every project you made, ready to reopen.' }] : []),
-    { id: 'ugc-gallery', group: 'library', icon: LayoutGrid, label: 'UGC Gallery', short: 'gallery', primary: true,
+    { id: 'ugc-gallery', group: 'library', icon: LayoutGrid, label: 'UGC gallery', short: 'Gallery', primary: true,
       desc: 'The videos generated with AI actors.' },
-    ...(!billingEnabled ? [{ id: 'broll-gallery', group: 'library', icon: Images, label: 'B-roll images', short: 'images',
+    ...(!billingEnabled ? [{ id: 'broll-gallery', group: 'library', icon: Images, label: 'B-roll images', short: 'Images',
       desc: 'Every drawn picture, kept or refused: thumbs up or down, why, what to change.' }] : []),
-    ...(!billingEnabled ? [{ id: 'notions', group: 'library', icon: Library, label: 'Notion pictures', short: 'notions',
+    ...(!billingEnabled ? [{ id: 'notions', group: 'library', icon: Library, label: 'Notion pictures', short: 'Notions',
       desc: 'The pictures kept for the notions of your episodes.' }] : []),
-    { id: 'thumbnails', group: 'grow', icon: Image, label: 'YouTube Studio', short: 'studio', primary: true,
+    { id: 'thumbnails', group: 'grow', icon: Image, label: 'YouTube Studio', short: 'Studio', primary: true,
       desc: 'Thumbnails, titles and descriptions for YouTube.' },
-    ...(!billingEnabled ? [{ id: 'viral-finder', group: 'grow', icon: Flame, label: 'Viral Finder', short: 'finder',
+    ...(!billingEnabled ? [{ id: 'viral-finder', group: 'grow', icon: Flame, label: 'Viral finder', short: 'Finder',
       desc: 'Find the videos that are taking off in your niche.' }] : []),
-    { id: 'reworker', group: 'grow', icon: Eraser, label: 'Viral Clip Reworker', short: 'reworker', byok: true,
+    { id: 'reworker', group: 'grow', icon: Eraser, label: 'Viral clip reworker', short: 'Reworker', byok: true,
       desc: 'Take a viral clip and make it yours.' },
-    ...(!billingEnabled ? [{ id: 'publish-plan', group: 'grow', icon: Calendar, label: 'Publish Plan', short: 'plan',
+    ...(!billingEnabled ? [{ id: 'publish-plan', group: 'grow', icon: Calendar, label: 'Publish plan', short: 'Plan',
       desc: 'Plan and schedule your posts across platforms.' }] : []),
-    { id: 'settings', group: 'system', icon: Settings, label: 'Settings', short: 'settings',
-      desc: 'API keys, connected accounts and preferences.' },
+    { id: 'settings', group: 'system', icon: Settings, label: 'Settings', short: 'Settings',
+      desc: 'Your niche, API keys and connected accounts.' },
   ];
   const NAV_GROUPS = [
     { id: 'create', label: 'Create' },
@@ -1245,6 +1252,7 @@ function App() {
   const tabLocked = (id) => tutorialLock && id !== 'dashboard';
 
   // One nav button, the same in the rail (``compact`` from md to lg: icon only) and the drawer.
+  // Monochrome at rest; the active page is the raised tile with the signal on its edge.
   const NavButton = ({ item, compact = false, drawer = false }) => {
     const NavIcon = item.icon;
     const isActive = activeTab === item.id;
@@ -1256,34 +1264,43 @@ function App() {
         onClick={() => goToTab(item.id)}
         disabled={locked}
         aria-current={isActive ? 'page' : undefined}
-        title={locked ? 'Finish your first clips to unlock' : `${item.label} — ${item.desc}`}
-        className={`group relative w-full flex items-center gap-3 rounded-input transition-all min-h-[44px] ${drawer ? 'px-3 py-2' : 'px-2.5 py-1.5'}
-          ${isActive ? 'bg-paper3/80 text-ink nav-glow' : 'text-ink2/75 hover:text-ink hover:bg-paper3/50'}
-          ${locked ? 'opacity-40 cursor-not-allowed hover:bg-transparent' : ''}`}
+        aria-label={compact ? `${item.label}${locked ? ' (locked)' : ''}` : undefined}
+        title={locked ? 'Finish your first clips to unlock' : `${item.label}: ${item.desc}`}
+        className={`group relative w-full flex items-center gap-3 rounded-input transition-colors py-2 ${drawer ? 'min-h-[44px]' : 'min-h-[44px] md:min-h-[40px]'}
+          ${compact ? 'justify-center lg:justify-start px-0 lg:px-3' : 'px-3'}
+          ${isActive ? 'nav-tile-active' : 'text-ink2 hover:text-ink hover:bg-paper3'}
+          ${locked ? 'opacity-40 cursor-not-allowed hover:bg-transparent hover:text-ink2' : ''}`}
       >
-        <span className={`flex items-center justify-center w-8 h-8 rounded-lg shrink-0 transition-all
-          ${isActive ? 'nav-tile-active' : 'bg-paper3/70 border border-rule group-hover:border-rule2'}`}>
-          <NavIcon size={16} className={isActive ? 'text-brassink' : 'text-ink2'} aria-hidden="true" />
-        </span>
-        <span className={`text-[0.92rem] flex-1 text-left truncate ${compact ? 'hidden lg:block' : ''}`}>{item.label}</span>
-        {locked
-          ? <Lock size={12} className={`shrink-0 ${compact ? 'hidden lg:block' : ''}`} aria-label="locked" />
-          : item.byok ? <span className={`chip-byok ${compact ? 'hidden lg:inline-flex' : ''}`} title="Bring your own keys (fal.ai, ElevenLabs)">BYOK</span> : null}
+        <NavIcon size={17} className={`shrink-0 transition-colors ${isActive ? 'text-ink' : 'text-muted group-hover:text-ink2'}`} aria-hidden="true" />
+        <span className={`text-sm flex-1 text-left truncate ${isActive ? 'font-medium' : ''} ${compact ? 'hidden lg:block' : ''}`}>{item.label}</span>
+        {locked ? (
+          <span className={`shrink-0 text-muted ${compact ? 'hidden lg:inline-flex' : 'inline-flex'}`}>
+            <Lock size={12} aria-hidden="true" />
+            {!compact && <span className="sr-only">(locked)</span>}
+          </span>
+        ) : item.byok ? (
+          <span className={`chip-byok ${compact ? 'hidden lg:inline-flex' : ''}`} title="Bring your own keys (fal.ai, ElevenLabs)">BYOK</span>
+        ) : null}
       </button>
     );
   };
 
-  // The rail's and the drawer's sections: Create, Library, Grow; Settings pinned below.
+  // The rail's and the drawer's sections: Create, Library, Grow — a mono label
+  // and a hairline filament, then the tools. Settings is pinned below.
   const NavSections = ({ compact = false, drawer = false }) => (
     <>
       {NAV_GROUPS.map((g) => {
         const items = navItems.filter((n) => n.group === g.id);
         if (!items.length) return null;
+        const labelId = `nav-group-${g.id}${drawer ? '-d' : ''}`;
         return (
-          <div key={g.id} className="space-y-0.5" role="group" aria-labelledby={`nav-group-${g.id}${drawer ? '-d' : ''}`}>
-            <p id={`nav-group-${g.id}${drawer ? '-d' : ''}`}
-              className={`nav-group-label px-3 pt-4 pb-1.5 ${compact ? 'hidden lg:block' : ''}`}>{g.label}</p>
-            {compact && <div className="lg:hidden h-px mx-3 my-3 bg-rule" aria-hidden="true" />}
+          <div key={g.id} className="space-y-0.5" role="group" aria-labelledby={labelId}>
+            <p id={labelId}
+              className={`nav-group-label items-center gap-2.5 px-3 pt-5 pb-2 ${compact ? 'sr-only lg:not-sr-only lg:flex' : 'flex'}`}>
+              <span>{g.label}</span>
+              <span className="flex-1 border-t border-rule" aria-hidden="true" />
+            </p>
+            {compact && <div className="lg:hidden mx-3 my-3 border-t border-rule" aria-hidden="true" />}
             {items.map((item) => <NavButton key={item.id} item={item} compact={compact} drawer={drawer} />)}
           </div>
         );
@@ -1292,9 +1309,12 @@ function App() {
   );
 
   // Shared footer links — same list in the desktop rail and the mobile drawer, so they can never drift apart.
+  // Collapsed rail (md to lg): icon only, centred.
+  const footerLink = 'flex items-center gap-2.5 py-2 min-h-[44px] md:min-h-[34px] text-xs text-muted hover:text-ink transition-colors rounded-input';
   const NavFooterLinks = ({ collapsed = false }) => (
     <>
-      <a href="#landing" className="flex items-center gap-2 px-3 py-2 min-h-[36px] text-xs text-muted hover:text-ink2 transition-colors rounded-input">
+      <a href="#landing" aria-label={collapsed ? 'Synapse AI home' : undefined}
+        className={`${footerLink} ${collapsed ? 'justify-center lg:justify-start px-0 lg:px-3' : 'px-3'}`}>
         <Globe size={14} className="shrink-0" aria-hidden="true" />
         <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>Synapse AI home</span>
       </a>
@@ -1302,28 +1322,32 @@ function App() {
         href="https://github.com/mutonby/openshorts"
         target="_blank"
         rel="noopener noreferrer"
-        className="flex items-center gap-2 px-3 py-2 min-h-[36px] text-xs text-muted hover:text-ink2 transition-colors rounded-input"
+        aria-label={collapsed ? 'Built on OpenShorts (MIT), opens GitHub in a new tab' : undefined}
+        className={`${footerLink} ${collapsed ? 'justify-center lg:justify-start px-0 lg:px-3' : 'px-3'}`}
         title="Synapse AI is built on OpenShorts, open source under the MIT license"
       >
         <svg height="14" viewBox="0 0 16 16" version="1.1" width="14" aria-hidden="true" fill="currentColor" className="shrink-0"><path fillRule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>built on OpenShorts (MIT)</span>
+        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>Built on OpenShorts (MIT)</span>
       </a>
       {billingEnabled && (
-        <a href="#/pricing" className="flex items-center gap-2 px-3 py-2 min-h-[36px] text-xs text-muted hover:text-ink2 transition-colors rounded-input">
+        <a href="#/pricing" aria-label={collapsed ? 'Plans and pricing' : undefined}
+          className={`${footerLink} ${collapsed ? 'justify-center lg:justify-start px-0 lg:px-3' : 'px-3'}`}>
           <Sparkles size={14} className="shrink-0" aria-hidden="true" />
-          <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>plans &amp; pricing</span>
+          <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>Plans and pricing</span>
         </a>
       )}
     </>
   );
 
-  // The brand block, the same in the rail and the drawer.
+  // The brand block, the same in the rail and the drawer: the neuron mark and
+  // the wordmark, "AI" in the signal.
   const Brand = ({ compact = false, onClick }) => (
-    <a href="#landing" onClick={onClick} className="flex items-center gap-3 min-w-0" title="Synapse AI home">
-      <img src="/logo-synapse.svg" alt="" className="w-9 h-9 shrink-0 rounded-[10px] logo-glow" />
+    <a href="#landing" onClick={onClick} aria-label="Synapse AI home" title="Synapse AI home"
+      className="flex items-center gap-2.5 min-w-0 rounded-input">
+      <img src="/logo-synapse.svg" alt="" className="w-9 h-9 shrink-0 rounded-input" />
       <span className={`flex flex-col leading-none ${compact ? 'hidden lg:flex' : ''}`}>
-        <span className="brand-word text-[1.15rem]">synapse <span className="brand-ai">ai</span></span>
-        <span className="readout mt-1">clip studio</span>
+        <span className="brand-word text-[1.12rem]">Synapse <span className="brand-ai">AI</span></span>
+        <span className="readout mt-1.5">Clip studio</span>
       </span>
     </a>
   );
@@ -1332,66 +1356,75 @@ function App() {
     <button
       type="button"
       onClick={() => goToTab(newClipTab)}
-      className={`btn-primary w-full ${compact ? 'px-0 lg:px-4' : 'px-4'} py-2.5 text-sm`}
+      className={`btn-accent w-full ${compact ? 'px-0 lg:px-4' : 'px-4'} py-2.5 text-sm`}
       aria-label="New clip"
     >
       <Plus size={16} aria-hidden="true" />
-      <span className={compact ? 'hidden lg:inline' : ''}>new clip</span>
+      <span className={compact ? 'hidden lg:inline' : ''}>New clip</span>
     </button>
   );
 
   // Desktop rail: icon-only from md, labelled from lg. Below md it is gone — a phone gets the drawer and the tab bar.
+  // One nav landmark holds every destination: the groups scroll, Settings stays pinned at the foot.
   const Sidebar = () => (
-    <aside className="hidden md:flex w-[76px] lg:w-[272px] shell-rail flex-col h-full shrink-0 transition-all duration-300" aria-label="Main">
-      <div className="px-4 lg:px-5 pt-5 pb-4 flex items-center justify-center lg:justify-start">
+    <aside className="hidden md:flex w-[76px] lg:w-[264px] shell-rail flex-col h-full shrink-0" aria-label="Studio">
+      <div className="px-3 lg:px-5 pt-5 pb-5 flex items-center justify-center lg:justify-start">
         <Brand compact />
       </div>
-      <div className="px-3 lg:px-4 pb-2">
+      <div className="px-3 lg:px-4">
         <NewClipButton compact />
       </div>
-      <nav className="flex-1 overflow-y-auto custom-scrollbar px-2.5 lg:px-3 pb-3" aria-label="Sections">
-        <NavSections compact />
+      <nav className="flex-1 min-h-0 flex flex-col mt-2" aria-label="Main">
+        <div className="flex-1 overflow-y-auto custom-scrollbar px-2.5 lg:px-3 pb-3">
+          <NavSections compact />
+        </div>
+        <div className="px-2.5 lg:px-3 pt-2 border-t border-rule">
+          {navItems.filter((n) => n.group === 'system').map((item) => <NavButton key={item.id} item={item} compact />)}
+        </div>
       </nav>
-      <div className="px-2.5 lg:px-3 pt-2 pb-3 border-t border-rule space-y-0.5">
-        {navItems.filter((n) => n.group === 'system').map((item) => <NavButton key={item.id} item={item} compact />)}
+      <div className="px-2.5 lg:px-3 pt-1 pb-3">
         <NavFooterLinks collapsed />
       </div>
     </aside>
   );
 
-  // Mobile drawer: the complete nav, reachable from the header's menu button.
+  // Mobile drawer: the complete nav, reachable from the top bar's menu button and the tab bar's "More".
   const MobileNavDrawer = () => (
     <div className="md:hidden fixed inset-0 z-[90] flex" role="dialog" aria-modal="true" aria-label="Navigation">
-      <div className="absolute inset-0 bg-black/70 animate-fade" onClick={() => setNavOpen(false)} aria-hidden="true" />
-      <div className="relative w-[18rem] max-w-[86vw] h-full shell-rail flex flex-col animate-slide-in-left">
-        <div className="flex items-center justify-between px-5 h-16 border-b border-rule shrink-0">
+      <div className="absolute inset-0 bg-paper/80 animate-fade" onClick={() => setNavOpen(false)} aria-hidden="true" />
+      <div className="relative w-[18rem] max-w-[86vw] h-full shell-rail bg-paper2 flex flex-col animate-slide-in-left">
+        <div className="flex items-center justify-between gap-3 pl-4 pr-2 h-16 border-b border-rule shrink-0">
           <Brand onClick={() => setNavOpen(false)} />
-          <button onClick={() => setNavOpen(false)} aria-label="Close navigation"
-            className="p-2.5 -mr-2 rounded-input text-muted hover:text-ink transition-colors">
-            <X size={20} />
+          <button type="button" onClick={() => setNavOpen(false)} aria-label="Close navigation"
+            className="w-11 h-11 flex items-center justify-center rounded-input text-muted hover:text-ink hover:bg-paper3 transition-colors">
+            <X size={20} aria-hidden="true" />
           </button>
         </div>
         <div className="px-4 pt-4"><NewClipButton /></div>
-        <nav className="flex-1 overflow-y-auto custom-scrollbar px-3 pb-3" aria-label="Sections">
+        <nav className="flex-1 overflow-y-auto custom-scrollbar px-3 pb-3" aria-label="Main">
           <NavSections drawer />
-          <div className="pt-3 mt-3 border-t border-rule space-y-0.5">
+          <div className="pt-3 mt-3 border-t border-rule">
             {navItems.filter((n) => n.group === 'system').map((item) => <NavButton key={item.id} item={item} drawer />)}
           </div>
         </nav>
-        <div className="px-3 py-3 border-t border-rule space-y-0.5 safe-bottom shrink-0">
+        <div className="px-3 py-2 border-t border-rule safe-bottom shrink-0">
           <NavFooterLinks />
         </div>
       </div>
     </div>
   );
 
-  // Bottom tab bar: the everyday destinations plus "more" for the rest. A flex sibling of the scrolling pane rather
-  // than `fixed`, so nothing ever hides behind it and no pane needs compensating padding.
+  // Bottom tab bar: the everyday destinations plus "More" for the rest. A flex sibling of the scrolling pane rather
+  // than `fixed`, so nothing ever hides behind it and no pane needs compensating padding. The active tab carries the
+  // signal as a short filament along its top edge.
   const MobileTabBar = () => {
     const tabs = navItems.filter((n) => n.primary);
     const moreActive = !tabs.some((t) => t.id === activeTab);
+    const tabClass = (active) => `relative flex-1 min-w-0 flex flex-col items-center justify-center gap-1.5 py-2 min-h-[56px] transition-colors
+      ${active ? 'text-ink' : 'text-muted active:text-ink2'}`;
+    const ActiveEdge = () => <span className="absolute top-0 inset-x-3 h-0.5 rounded-b bg-vermilion" aria-hidden="true" />;
     return (
-      <nav className="md:hidden shrink-0 border-t border-rule bg-paper2/90 backdrop-blur-md safe-bottom" aria-label="Quick sections">
+      <nav className="md:hidden shrink-0 border-t border-rule bg-paper2 safe-bottom" aria-label="Quick sections">
         <div className="flex items-stretch">
           {tabs.map((item) => {
             const NavIcon = item.icon;
@@ -1405,12 +1438,11 @@ function App() {
                 disabled={tabLocked(item.id)}
                 aria-current={isActive ? 'page' : undefined}
                 title={tabLocked(item.id) ? 'Finish your first clips to unlock' : item.label}
-                className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-1 py-2 min-h-[58px] transition-colors ${isActive ? 'text-ink' : 'text-muted active:text-ink2'} ${tabLocked(item.id) ? 'opacity-40 cursor-not-allowed' : ''}`}
+                className={`${tabClass(isActive)} ${tabLocked(item.id) ? 'opacity-40 cursor-not-allowed' : ''}`}
               >
-                <span className={`flex items-center justify-center w-9 h-7 rounded-full ${isActive ? 'nav-tile-active' : ''}`}>
-                  <NavIcon size={18} className={isActive ? 'text-brassink' : ''} aria-hidden="true" />
-                </span>
-                <span className="text-[11px] leading-none truncate max-w-full px-0.5">{item.short}</span>
+                {isActive && <ActiveEdge />}
+                <NavIcon size={19} aria-hidden="true" />
+                <span className={`text-[11px] leading-none truncate max-w-full px-0.5 ${isActive ? 'font-medium' : ''}`}>{item.short}</span>
               </button>
             );
           })}
@@ -1419,12 +1451,11 @@ function App() {
             onClick={() => setNavOpen(true)}
             aria-label="More sections"
             aria-expanded={navOpen}
-            className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-1 py-2 min-h-[58px] transition-colors ${moreActive ? 'text-ink' : 'text-muted active:text-ink2'}`}
+            className={tabClass(moreActive)}
           >
-            <span className={`flex items-center justify-center w-9 h-7 rounded-full ${moreActive ? 'nav-tile-active' : ''}`}>
-              <Menu size={18} className={moreActive ? 'text-brassink' : ''} aria-hidden="true" />
-            </span>
-            <span className="text-[11px] leading-none">more</span>
+            {moreActive && <ActiveEdge />}
+            <Menu size={19} aria-hidden="true" />
+            <span className={`text-[11px] leading-none ${moreActive ? 'font-medium' : ''}`}>More</span>
           </button>
         </div>
       </nav>
@@ -1440,59 +1471,39 @@ function App() {
       <Sidebar />
       {navOpen && <MobileNavDrawer />}
 
-      <main className="flex-1 min-w-0 flex flex-col h-full overflow-hidden relative" aria-labelledby="page-title">
-        <svg className="neural-field" aria-hidden="true" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
-          <defs>
-            <linearGradient id="nf" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stopColor="oklch(81% 0.14 212)" />
-              <stop offset="1" stopColor="oklch(68% 0.22 300)" />
-            </linearGradient>
-          </defs>
-          <g stroke="url(#nf)" fill="none" strokeWidth="1.2" strokeLinecap="round">
-            <path d="M980 90 C 900 160, 860 240, 780 260 S 640 300, 600 380" />
-            <path d="M980 90 C 1040 170, 1100 200, 1180 210" />
-            <path d="M980 90 C 960 30, 1010 0, 1060 -20" />
-            <path d="M600 380 C 560 460, 640 540, 700 600 S 760 720, 900 760" />
-            <path d="M600 380 C 520 400, 430 380, 360 430" />
-            <path d="M780 260 C 820 330, 900 360, 1000 380" />
-          </g>
-          <g fill="url(#nf)">
-            <circle cx="980" cy="90" r="5" className="neural-node" />
-            <circle cx="600" cy="380" r="4" className="neural-node neural-node-2" />
-            <circle cx="780" cy="260" r="3" />
-            <circle cx="1000" cy="380" r="2.5" />
-            <circle cx="360" cy="430" r="2.5" />
-            <circle cx="900" cy="760" r="3" />
-          </g>
-        </svg>
+      {/* The column right of the rail: the page (top bar + workspace) and, on a phone, the tab bar under it. */}
+      <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden">
+      <main id="main-content" tabIndex={-1} aria-labelledby="page-title"
+        className="flex-1 min-h-0 flex flex-col overflow-hidden relative focus:outline-none">
 
-        {/* Top bar: where you are (section · page), what the page does, and the studio's status. */}
-        <header className="shell-topbar h-16 flex items-center justify-between gap-3 px-3 sm:px-6 shrink-0 z-10">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        {/* Top bar: the page's one h1, its group and what it does; the studio's status on the right. */}
+        <header className="shell-topbar min-h-[60px] sm:min-h-[68px] flex items-center justify-between gap-3 px-3 sm:px-6 lg:px-8 py-2 shrink-0 z-10">
+          <div className="flex items-center gap-1.5 sm:gap-4 min-w-0">
             <button
               type="button"
               onClick={() => setNavOpen(true)}
               aria-label="Open navigation"
-              className="md:hidden -ml-1 p-2.5 rounded-input text-ink2 active:bg-paper3 transition-colors shrink-0"
+              aria-expanded={navOpen}
+              className="md:hidden -ml-1.5 w-11 h-11 flex items-center justify-center rounded-input text-ink2 hover:text-ink active:bg-paper3 transition-colors shrink-0"
             >
-              <Menu size={20} />
+              <Menu size={20} aria-hidden="true" />
             </button>
-            {activeNav && (
-              <span className="hidden sm:flex items-center justify-center w-9 h-9 rounded-[10px] nav-tile-active shrink-0" aria-hidden="true">
-                <activeNav.icon size={17} className="text-brassink" />
-              </span>
-            )}
             <div className="min-w-0">
-              <p className="readout leading-none mb-1 hidden sm:block">{activeGroup ? activeGroup.label : 'Synapse AI'}</p>
-              <h1 id="page-title" data-tutorial="nav-clips" className="text-ink font-semibold text-[1.02rem] sm:text-lg leading-tight truncate tracking-tight">
+              <h1 id="page-title" data-tutorial="nav-clips" className="font-display text-lg sm:text-[1.35rem] text-ink leading-tight truncate">
                 {activeNav?.label || 'Synapse AI'}
               </h1>
-              {activeNav?.desc && <p className="hidden lg:block text-xs text-muted truncate max-w-[52ch]">{activeNav.desc}</p>}
+              {activeNav?.desc && (
+                <p className="hidden md:flex items-center gap-2 mt-1 text-xs text-muted min-w-0">
+                  <span className="nav-group-label shrink-0">{activeGroup ? activeGroup.label : 'Studio'}</span>
+                  <span className="h-3 border-l border-rule2 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{activeNav.desc}</span>
+                </p>
+              )}
             </div>
             {status !== 'idle' && (
-              <button onClick={handleReset} className="btn-quiet px-3 py-1.5 text-xs shrink-0 ml-1" aria-label="New project">
-                <Plus size={14} />
-                <span className="hidden sm:inline">new project</span>
+              <button type="button" onClick={handleReset} className="btn-quiet px-3 py-1.5 text-xs shrink-0" aria-label="New project">
+                <Plus size={14} aria-hidden="true" />
+                <span className="hidden sm:inline">New project</span>
               </button>
             )}
           </div>
@@ -1517,19 +1528,21 @@ function App() {
               }} />
             )}
             {billingEnabled && isSignedIn && !isManaged && (
-              <button onClick={() => setShowPlanChoice(true)} className="btn-primary px-4 py-2 text-xs">
+              <button type="button" onClick={() => setShowPlanChoice(true)} className="btn-primary px-4 py-2 text-xs">
                 Choose a plan
               </button>
             )}
             {billingEnabled && !isSignedIn && (
-              <button onClick={() => setShowLogin(true)} className="btn-ghost px-4 py-2 text-xs">
+              <button type="button" onClick={() => setShowLogin(true)} className="btn-ghost px-4 py-2 text-xs">
                 Sign in
               </button>
             )}
             {billingEnabled && isSignedIn && <ProfileMenu />}
 
+            {/* The studio's readiness: a real state, so it may carry its colour (with a word and an icon). */}
             {keysMissing ? (
               <button
+                type="button"
                 onClick={() => (billingEnabled && !isSignedIn ? setShowLogin(true) : goToTab('settings'))}
                 className="status-pill status-pill-warn hidden sm:inline-flex"
                 title="Configure API keys or choose a plan"
@@ -1537,102 +1550,114 @@ function App() {
                 <AlertTriangle size={13} aria-hidden="true" />
                 <span className="hidden md:inline">
                   {!geminiOk && !uploadPostKey
-                    ? 'Gemini & Upload-Post keys missing'
+                    ? 'Gemini and Upload-Post keys missing'
                     : !geminiOk
                       ? 'Gemini key missing'
                       : 'Upload-Post key missing'}
                 </span>
-                <span className="md:hidden">keys missing</span>
+                <span className="md:hidden">Keys missing</span>
               </button>
             ) : (
-              <span className="status-pill status-pill-ok hidden sm:inline-flex" title="Your API keys are set">
-                <span className="status-dot" aria-hidden="true" /> ready
+              <span className="status-pill hidden sm:inline-flex text-ink2" title="Your API keys are set">
+                <span className="status-dot" aria-hidden="true" /> Ready
               </span>
             )}
           </div>
         </header>
 
-        {/* Persistent Missing Keys Banner — visible on every screen */}
+        {/* Missing keys: a quiet strip under the top bar on every screen but Settings. */}
         {keysMissing && activeTab !== 'settings' && (
-          <div className="mx-3 sm:mx-6 mt-3 px-3.5 sm:px-4 py-3 bg-paper2 border border-rule rounded-card flex flex-wrap items-center justify-between gap-2.5 sm:gap-4 shrink-0 animate-fade">
-            <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 text-sm text-ink2 min-w-0 flex-1">
-              <KeyRound size={16} className="shrink-0 text-warn mt-0.5 sm:mt-0" />
-              <div className="min-w-0">
-                <span className="font-medium text-ink">Required API keys missing.</span>{' '}
+          <div className="mx-3 sm:mx-6 lg:mx-8 mt-3 tray px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 shrink-0 animate-fade">
+            <div className="flex items-start gap-3 min-w-0 flex-1">
+              <KeyRound size={16} className="shrink-0 text-warn mt-0.5" aria-hidden="true" />
+              <p className="text-sm text-ink2 min-w-0 leading-relaxed">
+                <span className="font-medium text-ink">API keys missing.</span>{' '}
                 <span className="text-muted">
                   {!geminiOk && !uploadPostKey
-                    ? 'Set your Gemini and Upload-Post API keys to use Synapse AI.'
+                    ? 'Add your Gemini and Upload-Post keys to start making clips.'
                     : !geminiOk
-                      ? 'Set your Gemini API key to use Synapse AI.'
-                      : 'Set your Upload-Post API key to use Synapse AI.'}
+                      ? 'Add your Gemini key to start making clips.'
+                      : 'Add your Upload-Post key to start making clips.'}
                 </span>
-              </div>
+              </p>
             </div>
             <button
+              type="button"
               onClick={() => goToTab('settings')}
-              className="btn-quiet px-3 py-1.5 text-xs shrink-0 w-full sm:w-auto"
+              className="btn-ghost px-4 py-2 text-xs shrink-0 w-full sm:w-auto"
             >
-              Go to Settings
+              Open Settings
             </button>
           </div>
         )}
 
-        {/* Session Recovery Banner */}
+        {/* Session recovery: announced once, dismissible. */}
         {sessionRecovered && (
-          <div className="mx-3 sm:mx-6 mt-2 px-3.5 sm:px-4 py-3 bg-paper2 border border-rule rounded-card flex items-start justify-between gap-3 animate-fade shrink-0">
-            <div className="flex items-start sm:items-center gap-2 text-sm text-ink2 flex-wrap min-w-0">
-              <RotateCcw size={16} className="text-brass shrink-0 mt-0.5 sm:mt-0" />
-              <span className="font-medium">Session recovered</span>
-              <span className="text-muted text-xs">Your previous work has been restored.</span>
-            </div>
+          <div role="status" className="mx-3 sm:mx-6 lg:mx-8 mt-3 tray pl-4 pr-1.5 py-1.5 flex items-center justify-between gap-3 animate-fade shrink-0">
+            <p className="flex items-center gap-2.5 text-sm text-ink2 min-w-0 py-1.5">
+              <RotateCcw size={15} className="text-muted shrink-0" aria-hidden="true" />
+              <span className="min-w-0">
+                <span className="font-medium text-ink">Session recovered.</span>{' '}
+                <span className="text-muted">Your previous work is back where you left it.</span>
+              </span>
+            </p>
             <button
+              type="button"
               onClick={() => setSessionRecovered(false)}
-              aria-label="dismiss"
-              className="text-muted hover:text-ink transition-colors shrink-0 -m-1 p-1"
+              aria-label="Dismiss"
+              className="w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center rounded-input text-muted hover:text-ink hover:bg-paper2 transition-colors shrink-0"
             >
-              <X size={16} />
+              <X size={16} aria-hidden="true" />
             </button>
           </div>
         )}
 
-        {/* Included tools (Clip Generator, YouTube Studio): non-blocking trial prompt. */}
+        {/* Included tools (Clip generator, YouTube Studio): non-blocking trial prompt. */}
         {gateThisTab && <TrialGate toolName={TOOL_NAMES[activeTab] || 'this'} />}
 
-        {/* Advanced tools (AI Shorts, AI Agent): BYOK fal.ai + ElevenLabs notice. */}
+        {/* Advanced tools (AI Shorts): BYOK fal.ai + ElevenLabs notice. */}
         {advancedThisTab && <AdvancedBanner needsPlan={needsPlan} onKeys={() => goToTab('settings')} />}
 
-        {/* Main Workspace */}
-        <div id="main-content" tabIndex={-1} className="flex-1 overflow-hidden relative z-[1] focus:outline-none">
+        {/* Workspace: each view scrolls on its own inside it. */}
+        <div className="flex-1 min-h-0 overflow-hidden relative z-[1]">
 
           {/* View: Settings — only what a self-hosted Synapse AI needs: the
               niche, the keys, the Upload-Post connection. Clean hashtags and
               YouTube tags are always on (forced server-side), no toggles. */}
           {activeTab === 'settings' && (
-            <div className="h-full overflow-y-auto p-4 sm:p-8 max-w-2xl mx-auto animate-fade">
-              <p className="flex items-center gap-2 text-xs text-muted mb-6">
-                <Shield size={12} className="text-ok shrink-0" aria-hidden="true" />
-                Keys only live in your browser — sent to the backend just to process a request, never stored there.
+            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
+            <div className="max-w-2xl mx-auto px-4 py-6 sm:p-8 space-y-10 sm:space-y-12 pb-16">
+              <p className="tray flex items-start gap-3 px-4 py-3 text-sm text-ink2 leading-relaxed">
+                <Shield size={16} className="text-muted shrink-0 mt-0.5" aria-hidden="true" />
+                <span>
+                  <span className="font-medium text-ink">Your keys stay in this browser.</span>{' '}
+                  <span className="text-muted">They are sent to the backend only to run a request, never stored there.</span>
+                </span>
               </p>
 
-              <section className="card p-4 sm:p-6 mb-6" aria-labelledby="settings-niche">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0" aria-hidden="true">
-                    <Hash size={16} className="text-brass" />
+              <section aria-labelledby="settings-niche" className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <Hash size={18} className="text-muted shrink-0 mt-1" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <h2 id="settings-niche" className="font-display text-lg text-ink">Niche and hashtags</h2>
+                    <p id="settings-niche-help" className="mt-1 text-sm text-muted leading-relaxed">
+                      What your channel posts. Hashtags are researched from the top Shorts of that niche: every post
+                      gets the 3-5 about its clip, none in the YouTube title, and YouTube's hidden tags are filled on
+                      every upload.
+                    </p>
                   </div>
-                  <h2 id="settings-niche" className="text-base font-medium text-ink">Niche &amp; hashtags</h2>
                 </div>
-                <p className="text-xs text-muted mb-4 leading-relaxed">
-                  What your channel posts (e.g. "Joe Rogan podcast clips"). Hashtags are researched from the top
-                  Shorts of that niche: every post gets the 3-5 about its clip, none in the YouTube title, and
-                  YouTube's hidden tags are filled on every upload.
-                </p>
+
+                <div className="card p-4 sm:p-6 space-y-5">
+                <div>
+                <label htmlFor="settings-niche-input" className="block text-sm font-medium text-ink2 mb-2">Your niche</label>
                 {results?.niche_guess && niche.trim() === results.niche_guess.trim() && (
-                  <p className="text-xs text-brass mb-3 -mt-1">
-                    Guessed from this video by AI — correct it if it's off, it'll be remembered either way.
+                  <p id="settings-niche-guess" className="text-xs text-muted mb-2 flex items-start gap-1.5">
+                    <Sparkles size={13} className="shrink-0 mt-px" aria-hidden="true" />
+                    Guessed from this video by AI. Correct it if it's off, it'll be remembered either way.
                   </p>
                 )}
                 <div className="flex flex-col sm:flex-row gap-2">
-                  <label htmlFor="settings-niche-input" className="sr-only">Niche</label>
                   <input
                     id="settings-niche-input"
                     type="text"
@@ -1640,8 +1665,11 @@ function App() {
                     onChange={(e) => setNiche(e.target.value)}
                     className="input-field"
                     placeholder="e.g. Joe Rogan podcast clips"
+                    aria-describedby={results?.niche_guess && niche.trim() === results.niche_guess.trim()
+                      ? 'settings-niche-help settings-niche-guess' : 'settings-niche-help'}
                   />
                   <button
+                    type="button"
                     onClick={async () => {
                       if (!niche.trim() || nicheResearching) return;
                       setNicheResearching(true);
@@ -1662,22 +1690,27 @@ function App() {
                       }
                     }}
                     disabled={!niche.trim() || nicheResearching}
-                    className="btn-quiet py-2 px-4 text-sm shrink-0"
+                    className="btn-ghost py-2 px-4 text-sm shrink-0"
                   >
-                    {nicheResearching ? 'researching…' : 'see hashtags'}
+                    {nicheResearching
+                      ? <><Loader2 size={14} className="animate-spin" aria-hidden="true" /> Researching…</>
+                      : 'See hashtags'}
                   </button>
                 </div>
+                </div>
+
                 {nicheHistory.filter((n) => n.toLowerCase() !== niche.trim().toLowerCase()).length > 0 && (
-                  <div className="mt-3">
-                    <p className="eyebrow mb-1.5">recent niches</p>
+                  <div role="group" aria-labelledby="settings-recent-niches">
+                    <p id="settings-recent-niches" className="text-xs text-muted mb-2">Recent niches</p>
                     <div className="flex flex-wrap gap-1.5">
                       {nicheHistory
                         .filter((n) => n.toLowerCase() !== niche.trim().toLowerCase())
                         .map((n) => (
                           <button
                             key={n}
+                            type="button"
                             onClick={() => setNiche(n)}
-                            className="readout bg-paper3 hover:bg-paper2 px-2 py-1 rounded-full text-ink2"
+                            className="px-2.5 py-1 min-h-[44px] sm:min-h-[30px] rounded border border-rule bg-paper3 text-xs text-ink2 hover:text-ink hover:border-rule2 transition-colors"
                           >
                             {n}
                           </button>
@@ -1685,125 +1718,165 @@ function App() {
                     </div>
                   </div>
                 )}
-                {nicheError && <p className="text-danger text-xs mt-3" role="alert">{nicheError}</p>}
+
+                {nicheError && (
+                  <p className="text-danger text-sm flex items-start gap-1.5" role="alert">
+                    <AlertTriangle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
+                    {nicheError}
+                  </p>
+                )}
+
+                <div aria-live="polite">
+                  {nicheHashtags && (
+                    <div className="tray p-3.5">
+                      <p className="text-xs text-muted mb-2">Hashtags found for this niche</p>
+                      {nicheHashtags.length === 0
+                        ? <p className="text-sm text-ink2">No hashtags found for this niche.</p>
+                        : (
+                          <ul className="flex flex-wrap gap-1.5">
+                            {nicheHashtags.map((h) => (
+                              <li key={h} className="font-mono text-xs text-ink2 bg-paper2 border border-rule rounded px-2 py-0.5">{h}</li>
+                            ))}
+                          </ul>
+                        )}
+                    </div>
+                  )}
+                </div>
+
                 {niche.trim() && (
-                  <div className="mt-4">
-                    <label htmlFor="settings-niche-tags" className="eyebrow block mb-1.5">base youtube tags for “{niche.trim()}”</label>
+                  <div className="pt-5 border-t border-rule">
+                    <label htmlFor="settings-niche-tags" className="block text-sm font-medium text-ink2 mb-1">
+                      Base YouTube tags for “{niche.trim()}”
+                    </label>
+                    <p id="settings-niche-tags-help" className="text-xs text-muted mb-2">
+                      Comma-separated. Added after each clip's own topics.
+                    </p>
                     <textarea
                       id="settings-niche-tags"
                       value={nicheTagsDraft}
                       onChange={(e) => { setNicheTagsDraft(e.target.value); setNicheTagsSaved(false); }}
                       rows={3}
-                      className="input-field text-xs"
+                      aria-describedby="settings-niche-tags-help"
+                      className="input-field font-mono text-xs leading-relaxed"
                       placeholder="podcast, podcast clips, joe rogan, jre, mental health, science…"
                     />
-                    <div className="flex items-center gap-3 mt-1.5">
+                    <div className="flex flex-wrap items-center gap-3 mt-2">
                       <button
+                        type="button"
                         onClick={async () => {
                           setNicheTagsSaved(await savePublishSettings({ niche: niche.trim(), niche_tags: nicheTagsDraft }));
                         }}
-                        className="btn-quiet py-1.5 px-3 text-xs"
+                        className="btn-ghost py-2 px-4 text-sm"
                       >
-                        save tags
+                        Save tags
                       </button>
-                      <span className="text-xs text-muted" aria-live="polite">
-                        {nicheTagsSaved ? 'saved' : 'comma-separated · added after each clip\'s own topics'}
+                      <span className="text-xs text-ok inline-flex items-center gap-1.5" aria-live="polite">
+                        {nicheTagsSaved && <><Check size={13} aria-hidden="true" /> Saved</>}
                       </span>
                     </div>
                   </div>
                 )}
-                {nicheHashtags && (
-                  <div className="mt-4">
-                    <p className="eyebrow mb-1.5">hashtags found for this niche</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {nicheHashtags.length === 0 && <p className="text-xs text-muted">No hashtags found for this niche.</p>}
-                      {nicheHashtags.map((h) => (
-                        <span key={h} className="readout bg-paper3 px-2 py-0.5 rounded-full">{h}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                </div>
               </section>
 
               {isManaged ? (
-                <div className="card p-6 mb-2">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0">
-                        <Shield size={16} className="text-brass" />
+                <section aria-labelledby="settings-plan" className="space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <Shield size={18} className="text-muted shrink-0 mt-1" aria-hidden="true" />
+                      <div className="min-w-0">
+                        <h2 id="settings-plan" className="font-display text-lg text-ink">Included in your plan</h2>
+                        <p className="mt-1 text-sm text-muted leading-relaxed">
+                          Your plan includes the <strong className="font-medium text-ink2">Clip generator</strong> and{' '}
+                          <strong className="font-medium text-ink2">YouTube Studio</strong>, fully managed: no API keys
+                          required. AI Shorts and dubbing use your own fal.ai and ElevenLabs keys (below).
+                        </p>
                       </div>
-                      <h2 className="text-base font-medium text-ink lowercase">Included in your plan</h2>
                     </div>
-                    <span className="badge-ok">Managed</span>
+                    <span className="badge-ok shrink-0 mt-1">Managed</span>
                   </div>
-                  <p className="text-xs text-muted mb-5 leading-relaxed">
-                    Your plan includes the <strong>Clip Generator</strong> and <strong>YouTube Studio</strong>,
-                    fully managed — no API keys required. AI Shorts &amp; dubbing use your own fal.ai / ElevenLabs
-                    keys (below). Connect your social accounts to publish directly.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button onClick={handleConnectSocials} className="btn-primary py-2 px-4 text-sm">
-                      <Share2 size={16} /> Connect social accounts
-                    </button>
-                    <button onClick={handleOpenCalendar} className="btn-quiet py-2 px-4 text-sm">
-                      <Calendar size={16} /> Content calendar
-                    </button>
+                  <div className="card p-4 sm:p-6">
+                    <p className="text-sm text-ink2 mb-4">Connect your social accounts to publish directly.</p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <button type="button" onClick={handleConnectSocials} className="btn-primary py-2 px-4 text-sm">
+                        <Share2 size={16} aria-hidden="true" /> Connect social accounts
+                      </button>
+                      <button type="button" onClick={handleOpenCalendar} className="btn-ghost py-2 px-4 text-sm">
+                        <Calendar size={16} aria-hidden="true" /> Content calendar
+                        <span className="sr-only">(opens in a new tab)</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
+                </section>
               ) : billingEnabled ? (
-                <div className="card p-6 mb-2">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0">
-                        <Sparkles size={16} className="text-brass" />
+                <section aria-labelledby="settings-plan" className="space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <Sparkles size={18} className="text-muted shrink-0 mt-1" aria-hidden="true" />
+                      <div className="min-w-0">
+                        <h2 id="settings-plan" className="font-display text-lg text-ink">Choose your plan</h2>
+                        <p className="mt-1 text-sm text-muted leading-relaxed">
+                          Generate shorts with zero setup, no API keys needed. Start free with 20 min/month, or go paid
+                          from $12/mo. Cancel anytime.
+                        </p>
                       </div>
-                      <h2 className="text-base font-medium text-ink lowercase">Choose your plan</h2>
                     </div>
-                    <span className="badge-ok">Free plan available</span>
+                    <span className="readout shrink-0 mt-1.5">Free plan available</span>
                   </div>
-                  <p className="text-xs text-muted mb-5 leading-relaxed">
-                    Generate shorts with zero setup — no API keys needed. Start free with 20 min/month, or go paid from $12/mo. Cancel anytime.
-                  </p>
-                  <button onClick={() => setShowPlanChoice(true)} className="btn-primary py-2 px-4 text-sm">
-                    <Sparkles size={16} /> Choose a plan
-                  </button>
-                </div>
+                  <div className="card p-4 sm:p-6">
+                    <button type="button" onClick={() => setShowPlanChoice(true)} className="btn-accent py-2 px-5 text-sm w-full sm:w-auto">
+                      <Sparkles size={16} aria-hidden="true" /> Choose a plan
+                    </button>
+                  </div>
+                </section>
               ) : (
                 <>
               <KeyInput onKeySet={setApiKey} savedKey={apiKey} />
 
-              <section className="card p-4 sm:p-6 mt-8" aria-labelledby="settings-upload-post">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0" aria-hidden="true">
-                      <Share2 size={16} className="text-brass" />
+              <section aria-labelledby="settings-upload-post" className="space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <Share2 size={18} className="text-muted shrink-0 mt-1" aria-hidden="true" />
+                    <div className="min-w-0">
+                      <h2 id="settings-upload-post" className="font-display text-lg text-ink">Publishing with Upload-Post</h2>
+                      <p id="settings-upload-post-help" className="mt-1 text-sm text-muted leading-relaxed">
+                        Sends your clips to TikTok, Instagram Reels and YouTube Shorts. Free tier, no card.
+                      </p>
                     </div>
-                    <h2 id="settings-upload-post" className="text-base font-medium text-ink">Publishing · Upload-Post</h2>
                   </div>
                   {userProfiles.length > 0
-                    ? <span className="badge-ok">connected</span>
-                    : <span className="badge-warn">needed to publish</span>}
+                    ? <span className="badge-ok shrink-0 mt-1"><Check size={11} aria-hidden="true" /> Connected</span>
+                    : <span className="badge-warn shrink-0 mt-1">Needed to publish</span>}
                 </div>
-                <p className="text-xs text-muted mb-5 leading-relaxed">
-                  Sends your clips to TikTok, Instagram Reels and YouTube Shorts. Free tier, no card.
-                </p>
-                <label htmlFor="settings-upload-post-key" className="block text-sm text-muted mb-2">Upload-Post API key</label>
+
+                <div className="card p-4 sm:p-6 space-y-4">
+                <div>
+                <label htmlFor="settings-upload-post-key" className="block text-sm font-medium text-ink2 mb-2">API key</label>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     id="settings-upload-post-key"
                     type="password"
                     value={uploadPostKey}
                     onChange={(e) => setUploadPostKey(e.target.value)}
-                    className="input-field"
+                    className="input-field font-mono"
                     placeholder="ey..."
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-describedby="settings-upload-post-help"
                   />
-                  <button onClick={fetchUserProfiles} disabled={connectStatus === 'loading'} className="btn-quiet py-2 px-4 text-sm">
-                    {connectStatus === 'loading' ? <Loader2 size={14} className="animate-spin" /> : 'Connect'}
+                  <button type="button" onClick={fetchUserProfiles} disabled={connectStatus === 'loading'} className="btn-primary py-2 px-5 text-sm shrink-0">
+                    {connectStatus === 'loading'
+                      ? <><Loader2 size={14} className="animate-spin" aria-hidden="true" /> Connecting…</>
+                      : 'Connect'}
                   </button>
                 </div>
+                </div>
                 {connectStatus && connectStatus !== 'loading' && (
-                  <p className={`text-xs flex items-center gap-1.5 mt-3 ${connectStatus.ok ? 'text-ok' : 'text-danger'}`} role="status">
-                    {connectStatus.ok ? <Check size={13} /> : <AlertTriangle size={13} />}
+                  <p className={`text-sm flex items-start gap-1.5 ${connectStatus.ok ? 'text-ok' : 'text-danger'}`}
+                    role={connectStatus.ok ? 'status' : 'alert'}>
+                    {connectStatus.ok
+                      ? <Check size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
+                      : <AlertTriangle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />}
                     {connectStatus.msg}
                   </p>
                 )}
@@ -1811,60 +1884,79 @@ function App() {
                   const active = userProfiles.find((p) => p.username === uploadUserId) || userProfiles[0];
                   const connected = active?.connected || [];
                   return (
-                    <p className="text-xs text-muted mt-3">
-                      Posting as <span className="text-ink2">{active?.username}</span>
-                      {' · '}
-                      {connected.length
-                        ? <span className="text-ok">{connected.join(', ')} connected</span>
-                        : <span className="text-warn">no social account connected on this profile</span>}
-                    </p>
+                    <dl className="tray px-4 py-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+                      <dt className="text-muted">Posting as</dt>
+                      <dd className="text-ink2 min-w-0 truncate">{active?.username}</dd>
+                      <dt className="text-muted">Networks</dt>
+                      <dd className="min-w-0">
+                        {connected.length
+                          ? <span className="text-ink2">{connected.join(', ')} connected</span>
+                          : <span className="text-warn inline-flex items-center gap-1.5"><AlertTriangle size={13} aria-hidden="true" /> No social account connected on this profile</span>}
+                      </dd>
+                    </dl>
                   );
                 })() : (
                   // The how-to only matters until the account is connected.
-                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                    {[
-                      ['1. Sign in', 'Create the account', 'https://app.upload-post.com/login'],
-                      ['2. Profiles', 'Connect your socials', 'https://app.upload-post.com/manage-users'],
-                      ['3. API key', 'Generate it, paste above', 'https://app.upload-post.com/api-keys'],
-                    ].map(([step, what, href]) => (
-                      <a key={step} href={href} target="_blank" rel="noopener noreferrer" className="p-2 border border-rule rounded-input hover:bg-paper3 transition-colors flex flex-col gap-1">
-                        <span className="text-ink2 font-medium">{step}</span>
-                        <span className="text-muted">{what}</span>
-                      </a>
-                    ))}
+                  <div className="pt-4 border-t border-rule">
+                    <p id="settings-upload-post-steps" className="text-xs text-muted mb-2">Get a key in three steps on upload-post.com</p>
+                    <ol aria-labelledby="settings-upload-post-steps" className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+                      {[
+                        ['Sign in', 'Create the account', 'https://app.upload-post.com/login'],
+                        ['Profiles', 'Connect your socials', 'https://app.upload-post.com/manage-users'],
+                        ['API key', 'Generate it, paste it above', 'https://app.upload-post.com/api-keys'],
+                      ].map(([step, what, href]) => (
+                        <li key={step}>
+                          <a href={href} target="_blank" rel="noopener noreferrer"
+                            className="card-hover h-full min-h-[44px] p-3 tray flex items-start justify-between gap-2 hover:bg-paper2">
+                            <span className="flex flex-col gap-0.5 min-w-0">
+                              <span className="text-ink font-medium">{step}</span>
+                              <span className="text-xs text-muted">{what}</span>
+                            </span>
+                            <ExternalLink size={13} className="text-muted shrink-0 mt-1" aria-hidden="true" />
+                            <span className="sr-only">(opens in a new tab)</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ol>
                   </div>
                 )}
+                </div>
               </section>
 
                 </>
               )}
 
               {/* fal.ai + ElevenLabs: AI Shorts actors and voices, and dubbing. */}
-              <section className="card p-4 sm:p-6 mt-8" aria-labelledby="settings-ai-shorts">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0" aria-hidden="true">
-                      <Sparkles size={16} className="text-brass" />
+              <section aria-labelledby="settings-ai-shorts" className="space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <Sparkles size={18} className="text-muted shrink-0 mt-1" aria-hidden="true" />
+                    <div className="min-w-0">
+                      <h2 id="settings-ai-shorts" className="font-display text-lg text-ink">AI Shorts and dubbing</h2>
+                      <p className="mt-1 text-sm text-muted leading-relaxed">
+                        <strong className="font-medium text-ink2">fal.ai</strong> films the AI actors of AI Shorts;{' '}
+                        <strong className="font-medium text-ink2">ElevenLabs</strong> gives them a voice and translates
+                        your clips. Billed by those providers (~$0.65-2 per AI Short).
+                      </p>
                     </div>
-                    <h2 id="settings-ai-shorts" className="text-base font-medium text-ink">AI Shorts &amp; dubbing</h2>
                   </div>
-                  <span className="readout">BYOK</span>
+                  <span className="chip-byok shrink-0 mt-1.5" title="Bring your own keys">BYOK</span>
                 </div>
-                <p className="text-xs text-muted mb-5 leading-relaxed">
-                  <strong>fal.ai</strong> films the AI actors of AI Shorts; <strong>ElevenLabs</strong> gives them a
-                  voice and translates your clips. Billed by those providers (~$0.65-2 per AI Short).
-                </p>
-                <div className="space-y-5">
+                <div className="card divide-y divide-rule">
                   {[
                     { id: 'fal', label: 'fal.ai API key', value: falKey, set: setFalKey, saved: falSaved, setSaved: setFalSaved,
                       store: 'falKey_v1', placeholder: 'fal_...', href: 'https://fal.ai/dashboard/keys' },
                     { id: 'elevenlabs', label: 'ElevenLabs API key', value: elevenLabsKey, set: setElevenLabsKey, saved: elevenLabsSaved,
                       setSaved: setElevenLabsSaved, store: 'elevenLabsKey_v1', placeholder: 'sk_...', href: 'https://elevenlabs.io/app/settings/api-keys' },
                   ].map((k) => (
-                    <div key={k.id}>
-                      <div className="flex items-baseline justify-between gap-2 mb-2">
-                        <label htmlFor={`settings-key-${k.id}`} className="text-sm text-muted">{k.label}</label>
-                        <a href={k.href} target="_blank" rel="noopener noreferrer" className="text-xs text-brass hover:underline">get a key →</a>
+                    <div key={k.id} className="p-4 sm:p-6">
+                      <div className="flex items-baseline justify-between gap-3 mb-2">
+                        <label htmlFor={`settings-key-${k.id}`} className="text-sm font-medium text-ink2">{k.label}</label>
+                        <a href={k.href} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-cobalt underline underline-offset-2 hover:text-ink transition-colors">
+                          Get a key <ExternalLink size={12} aria-hidden="true" />
+                          <span className="sr-only">(opens in a new tab)</span>
+                        </a>
                       </div>
                       <div className="flex flex-col sm:flex-row gap-2">
                         <input
@@ -1872,10 +1964,13 @@ function App() {
                           type="password"
                           value={k.value}
                           onChange={(e) => k.set(e.target.value)}
-                          className="input-field"
+                          className="input-field font-mono"
                           placeholder={k.placeholder}
+                          autoComplete="off"
+                          spellCheck={false}
                         />
                         <button
+                          type="button"
                           onClick={() => {
                             if (k.value) {
                               localStorage.setItem(k.store, encrypt(k.value));
@@ -1883,15 +1978,17 @@ function App() {
                               setTimeout(() => k.setSaved(false), 2000);
                             }
                           }}
-                          className={k.saved ? 'badge-ok px-4' : 'btn-quiet py-2 px-4 text-sm'}
+                          className={`btn-ghost py-2 px-5 text-sm shrink-0 ${k.saved ? '!text-ok' : ''}`}
                         >
-                          {k.saved ? <><Check size={12} /> saved</> : 'Save'}
+                          {k.saved ? <><Check size={14} aria-hidden="true" /> Saved</> : 'Save'}
                         </button>
                       </div>
+                      <span className="sr-only" aria-live="polite">{k.saved ? `${k.label} saved.` : ''}</span>
                     </div>
                   ))}
                 </div>
               </section>
+            </div>
             </div>
           )}
 
@@ -1900,126 +1997,10 @@ function App() {
             <SaaShortsTab geminiApiKey={apiKey} elevenLabsKey={elevenLabsKey} falKey={falKey} uploadPostKey={uploadPostKey} uploadUserId={uploadUserId} managed={isManaged} />
           )}
 
-          {/* View: AI Agent */}
-          {activeTab === 'ai-agent' && (
-            <div className="h-full overflow-y-auto custom-scrollbar p-4 sm:p-6 md:p-10 animate-fade">
-              <div className="max-w-4xl mx-auto space-y-8">
-
-                {/* Header */}
-                <div className="space-y-3">
-                  <p className="eyebrow flex items-center gap-2">
-                    <Bot size={12} /> 03 · AI AGENT · AUTONOMOUS SKILL
-                  </p>
-                  <h1 className="font-display lowercase text-3xl md:text-4xl text-ink">
-                    Your Personal Clipping Team
-                  </h1>
-                  <p className="text-muted text-base md:text-lg leading-relaxed max-w-2xl">
-                    Drop your videos in a folder and a team of AI clippers picks the viral moments, edits them, and queues them for your approval — like having a 24/7 short-form editing crew on autopilot.
-                  </p>
-                </div>
-
-                {/* Mobile-format warning */}
-                <div className="px-4 py-3 rounded-card border border-rule bg-paper2 flex items-start gap-3">
-                  <Smartphone size={18} className="text-warn shrink-0 mt-0.5" />
-                  <div className="text-sm text-ink2">
-                    <p className="font-medium text-ink mb-1">Upload videos already in vertical (9:16) mobile format.</p>
-                    <p className="text-muted leading-relaxed">
-                      The agent does not reframe horizontal footage. Make sure every source video is shot or pre-cropped to mobile/portrait format before dropping it into the input folder.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Workflow */}
-                <div className="grid md:grid-cols-3 gap-4">
-                  <div className="card p-5 space-y-2">
-                    <div className="w-10 h-10 rounded-input bg-paper3 flex items-center justify-center">
-                      <Upload size={18} className="text-brass" />
-                    </div>
-                    <h3 className="font-medium text-ink lowercase">1. Drop your videos</h3>
-                    <p className="text-xs text-muted leading-relaxed">
-                      Put your long-form vertical footage in the watched folder. The skill picks one video per run.
-                    </p>
-                  </div>
-
-                  <div className="card p-5 space-y-2">
-                    <div className="w-10 h-10 rounded-input bg-paper3 flex items-center justify-center">
-                      <Users size={18} className="text-brass" />
-                    </div>
-                    <h3 className="font-medium text-ink lowercase">2. AI clippers work</h3>
-                    <p className="text-xs text-muted leading-relaxed">
-                      Whisper transcribes, Gemini 3 Flash spots viral beats, FFmpeg cuts each clip and adds a hook overlay.
-                    </p>
-                  </div>
-
-                  <div className="card p-5 space-y-2">
-                    <div className="w-10 h-10 rounded-input bg-paper3 flex items-center justify-center">
-                      <CheckCircle2 size={18} className="text-brass" />
-                    </div>
-                    <h3 className="font-medium text-ink lowercase">3. You validate, it ships</h3>
-                    <p className="text-xs text-muted leading-relaxed">
-                      Approve the candidates you like and the skill auto-publishes them to TikTok, Reels and YouTube Shorts via Upload-Post.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Repo CTA */}
-                <div className="card p-6 md:p-8 space-y-5">
-                  <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div>
-                      <h2 className="font-display lowercase text-xl text-ink mb-1">skill-autoshorts</h2>
-                      <p className="text-sm text-muted">
-                        The Claude Code skill that powers this workflow. Install it once and trigger it whenever you want a fresh batch of clips.
-                      </p>
-                    </div>
-                    <a
-                      href="https://github.com/mutonby/skill-autoshorts"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn-primary py-2 px-4 text-sm shrink-0"
-                    >
-                      View on GitHub <ExternalLink size={14} />
-                    </a>
-                  </div>
-
-                  <div className="bg-paper border border-rule rounded-card p-4 font-mono text-xs text-ink2 flex items-center justify-between gap-3">
-                    <span className="truncate">git clone https://github.com/mutonby/skill-autoshorts</span>
-                    <button
-                      onClick={() => navigator.clipboard.writeText('git clone https://github.com/mutonby/skill-autoshorts')}
-                      className="text-muted hover:text-ink transition-colors shrink-0"
-                      title="Copy"
-                    >
-                      <Copy size={14} />
-                    </button>
-                  </div>
-
-                  <div className="grid sm:grid-cols-2 gap-3 text-sm">
-                    <div className="flex items-start gap-2 text-ink2">
-                      <Check size={16} className="text-brass shrink-0 mt-0.5" />
-                      <span>Daily batch — picks one long video per run</span>
-                    </div>
-                    <div className="flex items-start gap-2 text-ink2">
-                      <Check size={16} className="text-brass shrink-0 mt-0.5" />
-                      <span>Whisper transcription with word-level timing</span>
-                    </div>
-                    <div className="flex items-start gap-2 text-ink2">
-                      <Check size={16} className="text-brass shrink-0 mt-0.5" />
-                      <span>Gemini 3 Flash multimodal moment detection</span>
-                    </div>
-                    <div className="flex items-start gap-2 text-ink2">
-                      <Check size={16} className="text-brass shrink-0 mt-0.5" />
-                      <span>Auto-publish to TikTok, Reels & YouTube Shorts</span>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-          )}
-
           {/* View: UGC Gallery */}
           {activeTab === 'ugc-gallery' && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
-              <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-8">
+              <div className="max-w-7xl mx-auto px-4 py-6 sm:p-8">
                 <UGCGallery />
               </div>
             </div>
@@ -2028,7 +2009,7 @@ function App() {
           {/* View: History */}
           {activeTab === 'history' && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
-              <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-8">
+              <div className="max-w-7xl mx-auto px-4 py-6 sm:p-8">
                 <HistoryTab onReopenProject={restoreProject} billingEnabled={billingEnabled} />
               </div>
             </div>
@@ -2041,21 +2022,24 @@ function App() {
             </div>
           )}
 
+          {/* View: Notion pictures */}
           {activeTab === 'notions' && !billingEnabled && (
-            <div className="h-full overflow-y-auto custom-scrollbar">
+            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
               <NotionLibrary />
             </div>
           )}
 
+          {/* View: B-roll images */}
           {activeTab === 'broll-gallery' && !billingEnabled && (
-            <div className="h-full overflow-y-auto custom-scrollbar">
+            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
               <BrollGallery />
             </div>
           )}
 
+          {/* View: Publish plan */}
           {activeTab === 'publish-plan' && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
-              <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-8">
+              <div className="max-w-7xl mx-auto px-4 py-6 sm:p-8">
                 <PublishPlanTab
                   uploadPostKey={uploadPostKey}
                   uploadUserId={uploadUserId}
@@ -2072,26 +2056,30 @@ function App() {
             </div>
           )}
 
+          {/* View: Story channel */}
           {activeTab === 'story' && (
-            <div className="h-full overflow-y-auto custom-scrollbar">
+            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
               <StoryTab geminiApiKey={apiKey} onOpenProject={restoreProject} />
             </div>
           )}
 
+          {/* View: Viral finder */}
           {activeTab === 'viral-finder' && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
-              <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-8">
+              <div className="max-w-7xl mx-auto px-4 py-6 sm:p-8">
                 <ViralFinderTab />
               </div>
             </div>
           )}
 
+          {/* View: YouTube Studio (the component owns its scroll pane) */}
           {activeTab === 'thumbnails' && (
             <ThumbnailStudio
               geminiApiKey={apiKey}
               uploadPostKey={uploadPostKey}
               uploadUserId={uploadUserId}
               managed={isManaged}
+              onOpenSettings={() => goToTab('settings')}
               onCreateClips={(sessionId) => {
                 setActiveTab('dashboard');
                 // The Studio source is the user's own upload, published to their
@@ -2109,47 +2097,82 @@ function App() {
           {/* View: Dashboard (Idle) */}
           {activeTab === 'dashboard' && status === 'idle' && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
-              <div className="min-h-full flex flex-col items-center justify-center px-4 py-5 sm:p-6">
-              {/* On a phone the hero used to fill the fold on its own and push
-                  the uploader — the whole point of the screen — below it. The
-                  eyebrow, the display size and the gaps all shrink first. */}
-              <div className="max-w-xl w-full text-center space-y-5 sm:space-y-8">
-                <div className="space-y-2.5 sm:space-y-4">
-                  <p className="eyebrow hidden sm:block">01 · CLIP GENERATOR</p>
-                  <h1 className="font-display lowercase text-3xl sm:text-4xl md:text-5xl text-ink">
-                    Create Viral Shorts
-                  </h1>
-                  <p className="text-muted text-[15px] sm:text-lg leading-snug sm:leading-normal max-w-sm sm:max-w-none mx-auto">
-                    Drop your long-form video below to instantly generate viral clips with AI.
+              <div className="min-h-full flex flex-col justify-center px-4 py-5 sm:p-8 lg:px-12 lg:py-12">
+              {/* The studio's front page. Phone: a compact headline, then the
+                  drop zone straight away (the whole point of the screen), then
+                  the extras. Desktop: headline and extras on the left over a
+                  faint neuron, the drop zone as the feature on the right. */}
+              <div className="relative w-full max-w-6xl mx-auto grid gap-5 sm:gap-8 lg:gap-x-14 lg:gap-y-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:grid-rows-[auto_1fr] items-start">
+
+                {/* The synapse motif: one neuron in white hairlines, its nucleus the signal. Static: nothing is running. */}
+                <div className="hidden lg:block relative lg:col-start-1 lg:row-start-1 lg:row-span-2 self-stretch pointer-events-none" aria-hidden="true">
+                  <svg className="neural-field text-ink" viewBox="0 0 400 520" preserveAspectRatio="xMaxYMax meet" fill="none">
+                    <g stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+                      <path d="M300 340 C 290 290, 252 258, 232 210 S 222 128, 182 86" />
+                      <path d="M232 210 C 204 200, 164 210, 132 190" />
+                      <path d="M300 340 C 330 300, 352 262, 392 240" />
+                      <path d="M350 270 C 362 230, 352 190, 372 150" />
+                      <path d="M300 340 C 340 360, 372 390, 400 398" />
+                      <path d="M300 340 C 270 390, 222 420, 172 440 S 82 478, 22 520" />
+                      <path d="M222 420 C 212 458, 232 488, 222 520" />
+                      <path d="M300 340 C 302 390, 322 440, 312 520" />
+                    </g>
+                    <circle cx="300" cy="340" r="15" stroke="currentColor" strokeWidth="1.4" />
+                    <g className="fill-ink">
+                      <circle cx="182" cy="86" r="2.5" />
+                      <circle cx="132" cy="190" r="2" />
+                      <circle cx="372" cy="150" r="2" />
+                      <circle cx="392" cy="240" r="2" />
+                    </g>
+                    <circle cx="300" cy="340" r="5.5" className="fill-vermilion" />
+                  </svg>
+                </div>
+
+                {/* Headline */}
+                <div className="relative lg:col-start-1 lg:row-start-1 space-y-2.5 sm:space-y-4 lg:pt-6">
+                  <p className="readout hidden sm:block">New clip</p>
+                  <h2 className="page-title">
+                    Turn one long video into <span className="ink-underline">shorts</span>
+                  </h2>
+                  <p className="page-lede text-sm sm:text-[0.95rem]">
+                    Drop a file or paste a link. The AI finds the strongest moments and cuts them into
+                    captioned vertical clips, ready to review and publish.
                   </p>
+                </div>
+
+                {/* The drop zone: the feature of the page. */}
+                <div className="relative min-w-0 lg:col-start-2 lg:row-start-1 lg:row-span-2">
+                  <MediaInput
+                    onProcess={handleProcess}
+                    isProcessing={status === 'processing'}
+                    publishProfiles={userProfiles}
+                    defaultProfile={uploadUserId}
+                    canAutoPublish={!billingEnabled && !!uploadPostKey && !!(uploadUserId || userProfiles.length)}
+                  />
+                </div>
+
+                {/* Extras: where clips go, and the agent route. */}
+                <div className="relative lg:col-start-1 lg:row-start-2 space-y-4 lg:pt-4 lg:border-t lg:border-rule">
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted">
+                    <span className="readout">Publishes to</span>
+                    <span className="flex items-center gap-1.5"><Youtube size={16} aria-hidden="true" /> YouTube</span>
+                    <span className="flex items-center gap-1.5"><Instagram size={16} aria-hidden="true" /> Instagram</span>
+                    <span className="flex items-center gap-1.5"><TikTokIcon size={16} className="shrink-0" /> TikTok</span>
+                  </div>
                   {/* The same pipeline is an MCP server: point people at the
-                      one place that explains how to drive it from an agent. */}
-                  {!tutorialLock && (
-                  <p className="text-xs text-muted">
+                      one place that explains how to drive it from an agent —
+                      the cloud Account page (self-host has no such section). */}
+                  {!tutorialLock && billingEnabled && (
+                  <p className="text-sm text-muted">
                     Or let an agent do it:{' '}
                     <a
-                      href={billingEnabled ? '#/account' : '#app'}
-                      onClick={(e) => { if (!billingEnabled) { e.preventDefault(); goToTab('settings'); } }}
-                      className="text-ink2 underline underline-offset-2 hover:text-brass transition-colors"
+                      href="#/account"
+                      className="text-cobalt underline underline-offset-2 hover:text-ink transition-colors"
                     >
-                      connect Claude, ChatGPT or n8n →
+                      connect Claude, ChatGPT or n8n
                     </a>
                   </p>
                   )}
-                </div>
-
-                <MediaInput
-                  onProcess={handleProcess}
-                  isProcessing={status === 'processing'}
-                  publishProfiles={userProfiles}
-                  defaultProfile={uploadUserId}
-                  canAutoPublish={!billingEnabled && !!uploadPostKey && !!(uploadUserId || userProfiles.length)}
-                />
-
-                <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-8 text-muted text-xs sm:text-sm">
-                  <span className="flex items-center gap-2"><Youtube size={16} /> YouTube</span>
-                  <span className="flex items-center gap-2"><Instagram size={16} /> Instagram</span>
-                  <span className="flex items-center gap-2"><TikTokIcon size={16} /> TikTok</span>
                 </div>
               </div>
               </div>
@@ -2173,266 +2196,312 @@ function App() {
           )}
 
           {(activeTab === 'dashboard' || activeTab === 'plus') && (status === 'processing' || status === 'complete' || status === 'error') && (
-            <div className="h-full flex flex-col md:flex-row gap-3 md:gap-4 p-3 md:p-4 overflow-y-auto md:overflow-y-hidden custom-scrollbar animate-fade">
+            <div className="h-full flex flex-col md:flex-row gap-4 md:gap-5 p-4 sm:p-5 md:p-6 overflow-y-auto md:overflow-y-hidden custom-scrollbar animate-fade">
 
-              {/* Left Panel: Preview & Status */}
-              <div className={`${status === 'complete' ? 'w-full md:w-[30%] lg:w-[25%]' : 'w-full md:w-[55%] lg:w-[60%]'} ${jobPanelFolded ? 'hidden' : ''} md:h-full flex flex-col shrink-0 md:shrink card p-3.5 sm:p-6 md:overflow-y-auto custom-scrollbar transition-all duration-700 ease-in-out`}>
-                <div className="mb-4 sm:mb-6 flex items-center justify-between gap-2">
-                  <h2 className="text-sm font-medium text-ink lowercase flex items-center gap-2">
-                    <Activity className={`text-brass ${status === 'processing' ? 'animate-pulse' : ''}`} size={18} />
-                    Live Analysis
-                  </h2>
-                  <div className="flex items-center gap-2">
-                    {status === 'processing' && jobId && (
-                      <button type="button" onClick={handleStopWork} disabled={stopping}
-                        className="btn-quiet px-2.5 py-1 text-xs inline-flex items-center gap-1.5 text-red-400"
-                        title="Stops the job now (transcription, analysis, rendering). Clips already finished stay.">
-                        <Square size={12} />
-                        {stopping ? 'stopping…' : 'stop work'}
-                      </button>
+              {/* Left panel: the job sheet. While the job runs it is THE card of
+                  the view: what stage it is in (the synapse pathway), the source
+                  it is reading, who is thinking, and the raw log underneath. */}
+              <section
+                aria-labelledby="job-panel-title"
+                className={`${status === 'complete' ? 'w-full md:w-[30%] lg:w-[25%]' : 'w-full md:w-[55%] lg:w-[60%]'} ${jobPanelFolded ? 'hidden' : ''} md:h-full flex flex-col shrink-0 md:shrink min-w-0 ${status === 'processing' ? 'card-print' : 'card'} p-4 sm:p-6 md:overflow-y-auto custom-scrollbar transition-[width] duration-500 ease-out`}
+              >
+                <header className="mb-5 sm:mb-6 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    {status === 'processing' ? (
+                      <p className="readout">Live job</p>
+                    ) : status === 'complete' ? (
+                      <p className="badge-ok"><Check size={11} aria-hidden="true" /> Complete</p>
+                    ) : (
+                      <p className="badge-danger"><AlertTriangle size={11} aria-hidden="true" /> Failed</p>
                     )}
-                    <span className={status === 'processing' ? 'badge-brass' :
-                      status === 'complete' ? 'badge-ok' :
-                        'badge-danger'
-                      }>
-                      {status.toUpperCase()}
-                    </span>
+                    <h2 id="job-panel-title" className="font-display text-xl sm:text-2xl text-ink leading-tight mt-2">
+                      {status === 'processing' ? 'Cutting your clips' : status === 'complete' ? 'Job complete' : 'The job didn’t finish'}
+                    </h2>
                   </div>
-                </div>
+                  {status === 'processing' && jobId && (
+                    <button type="button" onClick={handleStopWork} disabled={stopping}
+                      className="btn-danger shrink-0 px-3 py-2 text-xs"
+                      title="Stops the job now (transcription, analysis, rendering). Clips already finished stay.">
+                      <Square size={11} aria-hidden="true" className="fill-current" />
+                      {stopping ? 'Stopping…' : 'Stop job'}
+                    </button>
+                  )}
+                </header>
 
-                {status === 'processing' && <JobProgressBar progress={jobProgress} />}
+                {/* The real progress (app.py _job_progress) drawn as the pipeline's pathway. */}
+                {status === 'processing' && <JobProgressBar progress={jobProgress} pipeline="clips" />}
 
-                {/* Who is thinking right now (ai_brain.py: Claude first, Gemini as fallback). */}
-                {status === 'processing' && <BrainBadge logs={logs} />}
+                {(processingMedia || status === 'processing') && (
+                  <div className={`grid gap-4 mb-5 ${processingMedia && status === 'processing'
+                    ? 'items-start sm:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] md:grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]'
+                    : ''}`}>
+                    {/* The source, framed as a plate (true black, hairline). */}
+                    {processingMedia && (
+                      <ProcessingAnimation
+                        media={processingMedia}
+                        isComplete={status === 'complete'}
+                        syncedTime={syncedTime}
+                        isSyncedPlaying={isSyncedPlaying}
+                        syncTrigger={syncTrigger}
+                        progress={jobProgress}
+                      />
+                    )}
 
-                {/* Video Preview */}
-                {processingMedia && (
-                  <ProcessingAnimation
-                    media={processingMedia}
-                    isComplete={status === 'complete'}
-                    syncedTime={syncedTime}
-                    isSyncedPlaying={isSyncedPlaying}
-                    syncTrigger={syncTrigger}
-                    progress={jobProgress}
-                  />
+                    {status === 'processing' && (
+                      <div className="space-y-3 min-w-0">
+                        {/* Who is thinking right now (ai_brain.py: Claude first, Gemini as fallback). */}
+                        <BrainBadge logs={logs} />
+
+                        {/* Phones only. The log below starts collapsed at this
+                            size, so the tail of it is said here: the real answer
+                            to "what is it doing right now". */}
+                        <div className="sm:hidden tray px-3.5 py-3 min-w-0">
+                          <p className="readout">Latest log line</p>
+                          <p className="mt-1 font-mono text-xs text-ink2 leading-relaxed break-words">
+                            {logs.length ? (logs.filter(isKeyLog).slice(-1)[0] || logs[logs.length - 1]) : 'Starting up…'}
+                          </p>
+                        </div>
+
+                        {/* The render is dead time: the user is watching a progress bar
+                            with nothing to do, so this is where the one star ask goes. */}
+                        <StarBanner message="Got a minute while this renders?" />
+                      </div>
+                    )}
+                  </div>
                 )}
 
-                {/* Phones only. The scan box drops its invented telemetry at
-                    this size and the log terminal below starts collapsed, so
-                    without this the screen would say nothing about what the job
-                    is actually doing. The log tail is the real answer. */}
-                {status === 'processing' && (
-                  <div className="sm:hidden mb-3 flex items-start gap-2 text-xs text-ink2 min-w-0">
-                    <Loader2 size={14} className="animate-spin text-brass shrink-0 mt-px" />
-                    <span className="min-w-0 leading-snug break-words">
-                      {logs.length ? (logs.filter(isKeyLog).slice(-1)[0] || logs[logs.length - 1]) : 'starting up…'}
-                    </span>
-                  </div>
-                )}
-
-                {/* The render is dead time: the user is watching a progress bar
-                    with nothing to do, so this is where the one star ask goes. */}
-                {status === 'processing' && (
-                  <div className="my-3">
-                    <StarBanner message="Got a minute while this renders?" />
-                  </div>
-                )}
-
-                {/* Logs Terminal */}
-                <div className={`bg-paper rounded-card border border-rule overflow-hidden flex flex-col transition-all duration-500 ${status === 'complete' ? `min-h-0 opacity-50 hover:opacity-100 ${logsVisible ? 'h-32' : 'h-auto'}` : `flex-1 ${logsVisible ? 'min-h-[160px] sm:min-h-[200px]' : 'min-h-0 flex-none'}`}`}>
+                {/* The pipeline log */}
+                <div className={`tray overflow-hidden flex flex-col ${status === 'complete' ? `min-h-0 ${logsVisible ? 'h-56' : 'h-auto'}` : `flex-1 ${logsVisible ? 'min-h-[200px] sm:min-h-[240px] max-h-[70vh] md:max-h-none' : 'min-h-0 flex-none'}`}`}>
                   <button
                     type="button"
                     onClick={() => setLogsVisible(!logsVisible)}
                     aria-expanded={logsVisible}
-                    className="w-full px-3.5 sm:px-4 py-2.5 border-b border-rule flex items-center justify-between gap-2 bg-paper2 shrink-0 text-left"
+                    aria-controls="job-log"
+                    className="w-full min-h-[44px] px-4 py-2.5 flex items-center justify-between gap-3 shrink-0 text-left hover:bg-paper2 transition-colors"
                   >
-                    <span className="readout flex items-center gap-2">
-                      <Terminal size={12} /> System Logs
+                    <span className="flex items-center gap-2 text-sm font-medium text-ink">
+                      <Terminal size={14} aria-hidden="true" className="text-muted" />
+                      Pipeline log
                     </span>
                     <span className="flex items-center gap-2 text-muted">
                       {!logsVisible && logs.length > 0 && (
-                        <span className="readout normal-case">{logs.filter(isKeyLog).length}</span>
+                        <span className="readout">{logs.filter(isKeyLog).length} key lines</span>
                       )}
-                      <ChevronDown size={16} className={logsVisible ? '' : 'rotate-180'} />
+                      <ChevronDown size={16} aria-hidden="true" className={`transition-transform duration-200 ${logsVisible ? 'rotate-180' : ''}`} />
                     </span>
                   </button>
                   {logsVisible && (
-                    <div className="flex-1 p-3.5 sm:p-4 overflow-y-auto font-mono text-[11px] sm:text-xs space-y-1.5 custom-scrollbar text-muted break-words">
-                      <div className="flex items-center gap-1.5 pb-1 font-sans">
-                        {[['key', 'key info'], ['all', 'all logs']].map(([v, label]) => (
-                          <button key={v} type="button" onClick={() => setLogMode(v)}
-                            className={`readout px-2.5 py-0.5 rounded-full transition-colors ${logMode === v ? 'bg-paper3 text-ink' : 'text-muted hover:text-ink'}`}>
-                            {label}
-                          </button>
-                        ))}
-                        <span className="readout normal-case text-muted opacity-60">
-                          {logMode === 'key' ? `${logs.filter(isKeyLog).length} of ${logs.length}` : logs.length}
+                    <div id="job-log" className="flex-1 min-h-0 flex flex-col border-t border-rule">
+                      <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-rule">
+                        <div role="group" aria-label="Log detail" className="inline-flex gap-0.5 rounded-input border border-rule2 p-0.5">
+                          {[['key', 'Key lines'], ['all', 'Everything']].map(([v, label]) => (
+                            <button key={v} type="button" onClick={() => setLogMode(v)} aria-pressed={logMode === v}
+                              className={`px-3 py-1 min-h-[30px] [@media(pointer:coarse)]:min-h-[40px] rounded-[6px] text-xs font-medium transition-colors ${logMode === v ? 'bg-ink text-paper' : 'text-muted hover:text-ink'}`}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <span className="readout">
+                          {logMode === 'key' ? `${logs.filter(isKeyLog).length} of ${logs.length}` : `${logs.length} lines`}
                         </span>
                       </div>
-                      {(logMode === 'key' ? logs.filter(isKeyLog) : logs).map((log, i) => (
-                        <div key={i} className={`flex gap-2 ${log.toLowerCase().includes('error') ? 'text-danger' : 'text-muted'}`}>
-                          <span className="text-muted opacity-50 shrink-0 hidden sm:inline">{new Date().toLocaleTimeString()}</span>
-                          <span className="min-w-0 break-words">{log}</span>
+                      {/* Not announced line by line: the stage above already is. */}
+                      <div
+                        role="log"
+                        aria-live="off"
+                        aria-label="Job log"
+                        tabIndex={0}
+                        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 py-3 font-mono text-xs leading-relaxed text-ink2 space-y-1"
+                      >
+                        {(logMode === 'key' ? logs.filter(isKeyLog) : logs).map((log, i) => (
+                          <p key={i} className={`flex gap-3 min-w-0 ${log.toLowerCase().includes('error') ? 'text-danger' : ''}`}>
+                            <span aria-hidden="true" className="hidden sm:inline min-w-[2rem] shrink-0 text-right text-muted tabular-nums select-none">{i + 1}</span>
+                            <span className="min-w-0 [overflow-wrap:anywhere]">{log}</span>
+                          </p>
+                        ))}
+                        {status === 'processing' && (
+                          <span aria-hidden="true" className="inline-block sm:ml-11 h-3.5 w-1.5 align-middle bg-ink2 animate-pulse" />
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* Right panel: the clips, best first, arriving as they render.
+                  No sheet around it: the clip cards are the sheets. */}
+              <section
+                aria-labelledby="results-title"
+                className={`${jobPanelFolded ? 'w-full' : status === 'complete' ? 'w-full md:w-[70%] lg:w-[75%]' : 'w-full md:w-[45%] lg:w-[40%]'} md:h-full flex flex-col shrink-0 md:shrink min-w-0 transition-[width] duration-500 ease-out`}
+              >
+                <header className="shrink-0 pb-4 mb-4 sm:mb-5 border-b border-rule">
+                  <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+                    <div className="min-w-0">
+                      <p className="readout">{status === 'processing' ? 'Arriving as they render' : 'Best first'}</p>
+                      <h2 id="results-title" className="font-display text-xl sm:text-2xl text-ink leading-tight mt-1.5">
+                        Generated shorts
+                      </h2>
+                    </div>
+                    {results?.clips?.length > 0 && (
+                      <dl className="flex items-end gap-6">
+                        <div>
+                          <dt className="readout">To post</dt>
+                          <dd className="font-quote text-4xl text-ink leading-none tabular-nums mt-1">
+                            {results.clips.length - postedCount}
+                          </dd>
                         </div>
-                      ))}
-                      {status === 'processing' && (
-                        <div className="animate-pulse text-brass">_</div>
+                        {postedCount > 0 && (
+                          <div>
+                            <dt className="readout">Posted</dt>
+                            <dd className="font-quote text-4xl text-muted leading-none tabular-nums mt-1">{postedCount}</dd>
+                          </div>
+                        )}
+                      </dl>
+                    )}
+                  </div>
+
+                  {(postedCount > 0 || (results?.cost_analysis && !isManaged) || (status === 'complete' && !processingMedia) || (results?.clips?.length > 0 && status === 'complete')) && (
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      {postedCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowPosted((v) => !v)}
+                          className="btn-quiet px-3 py-2 text-xs"
+                          title="Posted clips leave the project so they can't be posted twice"
+                        >
+                          {showPosted ? 'Hide posted clips' : 'Show posted clips'}
+                        </button>
+                      )}
+                      {status === 'complete' && !processingMedia && (
+                        <button
+                          type="button"
+                          onClick={() => setShowJobPanel((v) => !v)}
+                          className="btn-quiet px-3 py-2 text-xs"
+                          title="Show the job's log"
+                        >
+                          <Terminal size={13} aria-hidden="true" />
+                          {showJobPanel ? 'Hide job log' : 'Show job log'}
+                        </button>
+                      )}
+                      {results?.cost_analysis && !isManaged && (
+                        <span className="readout px-2.5 py-1.5 rounded-input border border-rule" title={`Input: ${results.cost_analysis.input_tokens} | Output: ${results.cost_analysis.output_tokens}`}>
+                          Gemini · ${results.cost_analysis.total_cost.toFixed(5)}
+                        </span>
+                      )}
+                      {results?.clips?.length > 0 && status === 'complete' && (
+                        <div className="w-full sm:w-auto sm:ml-auto grid grid-cols-2 sm:flex gap-2">
+                          <button
+                            type="button"
+                            onClick={handleDownloadAll}
+                            disabled={downloadingAll}
+                            className="btn-ghost px-3.5 py-2 text-xs"
+                            title="Download all clips as a ZIP"
+                          >
+                            {downloadingAll
+                              ? <><Loader2 size={14} className="animate-spin" aria-hidden="true" />Zipping…</>
+                              : <><Download size={14} aria-hidden="true" />Download all</>}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowScheduleWeek(true)}
+                            className="btn-primary px-4 py-2 text-xs"
+                          >
+                            <Calendar size={14} aria-hidden="true" />
+                            Schedule clips
+                          </button>
+                        </div>
                       )}
                     </div>
                   )}
-                </div>
-              </div>
-
-              {/* Right Panel: Results Grid */}
-              <div className={`${jobPanelFolded ? 'w-full' : status === 'complete' ? 'w-full md:w-[70%] lg:w-[75%]' : 'w-full md:w-[45%] lg:w-[40%]'} md:h-full flex flex-col shrink-0 md:shrink card p-3.5 sm:p-6 transition-all duration-700 ease-in-out`}>
-                {/* Title + counters on one row, the two actions on their own row
-                    below. Wrapping them all together dropped a lone half-width
-                    "schedule week" pill under the title on a phone. */}
-                <div className="mb-4 sm:mb-6 shrink-0 space-y-3">
-                  <h2 className="font-display lowercase text-lg sm:text-xl text-ink flex flex-wrap items-center gap-2">
-                    <span className="mr-auto">Generated Shorts</span>
-                    {results?.clips?.length > 0 && (
-                      <span className="readout bg-paper3 px-2.5 py-1 rounded-full">
-                        {results.clips.length - postedCount} to post
-                      </span>
-                    )}
-                    {postedCount > 0 && (
-                      <button
-                        onClick={() => setShowPosted((v) => !v)}
-                        className={`readout px-2.5 py-1 rounded-full border transition-colors ${showPosted
-                          ? 'bg-ok/15 border-ok/50 text-ok'
-                          : 'bg-paper3 border-transparent hover:border-rule2'}`}
-                        title="Posted clips leave the project so they can't be posted twice"
-                      >
-                        {postedCount} posted · {showPosted ? 'hide' : 'show'}
-                      </button>
-                    )}
-                    {results?.cost_analysis && !isManaged && (
-                      <span className="readout bg-paper3 px-2.5 py-1 rounded-full" title={`Input: ${results.cost_analysis.input_tokens} | Output: ${results.cost_analysis.output_tokens}`}>
-                        GEMINI · ${results.cost_analysis.total_cost.toFixed(5)}
-                      </span>
-                    )}
-                    {status === 'complete' && !processingMedia && (
-                      <button
-                        onClick={() => setShowJobPanel((v) => !v)}
-                        className={`readout px-2.5 py-1 rounded-full border inline-flex items-center gap-1.5 transition-colors ${showJobPanel
-                          ? 'bg-brass/15 border-brass/50 text-brass'
-                          : 'bg-paper3 border-transparent hover:border-rule2'}`}
-                        title="Show the job's logs"
-                      >
-                        <Terminal size={11} /> logs
-                      </button>
-                    )}
-                  </h2>
-                  {results?.clips?.length > 0 && status === 'complete' && (
-                    <div className="flex flex-col sm:flex-row sm:justify-end items-stretch sm:items-center gap-2">
-                      <button
-                        onClick={handleDownloadAll}
-                        disabled={downloadingAll}
-                        className="btn-ghost px-3 py-2 text-xs"
-                        title="Download all clips as a ZIP"
-                      >
-                        {downloadingAll
-                          ? <><Loader2 size={14} className="animate-spin" />zipping…</>
-                          : <><Download size={14} />download all</>}
-                      </button>
-                      <button
-                        onClick={() => setShowScheduleWeek(true)}
-                        className="btn-primary px-4 py-2 text-xs"
-                      >
-                        <Calendar size={14} />
-                        schedule clips
-                      </button>
-                    </div>
-                  )}
-                </div>
+                </header>
 
                 {status === 'complete' && results?.clips?.length > 0 && (
-                  <div className="mb-2 space-y-2">
+                  <div className="shrink-0 mb-4 space-y-2.5">
                     {/* Peak-moment upsell: they just SAW their clips — sell while
                         they're proud of the result, before asking for stars. */}
                     {plan === 'free' && (
                       <button
+                        type="button"
                         onClick={() => { setTopUpInfo({ context: 'upsell' }); setShowTopUp(true); }}
-                        className="w-full text-left px-3 py-2.5 rounded-input bg-paper3 border border-brass/40 hover:border-brass text-sm transition-colors"
+                        className="w-full text-left flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-4 px-4 py-3 rounded-card border border-rule2 bg-paper2 hover:border-ink/40 hover:bg-paper3 transition-colors"
                       >
-                        <span className="text-ink">Like these clips?</span>{' '}
-                        <span className="text-muted">They carry a watermark and delete in 7 days.</span>{' '}
-                        <span className="text-brass font-medium">Keep them forever →</span>
+                        <span className="min-w-0 flex-1 text-sm leading-relaxed">
+                          <span className="font-medium text-ink">Like these clips?</span>{' '}
+                          <span className="text-muted">They carry a watermark and are deleted after 7 days.</span>
+                        </span>
+                        <span className="shrink-0 text-sm font-medium text-ink">
+                          Keep them forever <span aria-hidden="true">→</span>
+                        </span>
                       </button>
                     )}
                     {/* Distribution nudge at the same peak: clips on screen,
                         publishing them is one connect away. Hidden once any
                         network is linked or the user dismisses it. */}
                     {showSocialNudge && (
-                      <div className="w-full flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-3 py-2.5 rounded-input bg-paper3 border border-rule text-sm">
-                        <div className="flex items-start gap-3 flex-1 min-w-0">
-                          <div className="min-w-0 leading-relaxed">
-                            <span className="text-ink">Publish these clips straight from here.</span>{' '}
+                      <div className="tray px-4 py-3 flex items-start sm:items-center gap-2">
+                        <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center gap-3">
+                          <p className="min-w-0 flex-1 text-sm leading-relaxed">
+                            <span className="font-medium text-ink">Publish these clips straight from here.</span>{' '}
                             <span className="text-muted">Connect your YouTube, TikTok or Instagram once — after that every clip is one click from posted.</span>
-                          </div>
-                          {/* On a phone the dismiss X rides the copy, so the CTA
-                              below can run the full width of the card. */}
+                          </p>
                           <button
-                            onClick={() => {
-                              track('SocialNudgeDismissed');
-                              setSocialNudgeDismissed(true);
-                              try { localStorage.setItem('os_social_nudge_dismissed', '1'); } catch (_) { /* ignore */ }
-                            }}
-                            aria-label="dismiss"
-                            className="sm:hidden shrink-0 -m-1 p-1 text-muted hover:text-ink"
+                            type="button"
+                            onClick={() => { track('SocialNudgeConnect'); handleConnectSocials(); }}
+                            className="btn-ghost shrink-0 self-start sm:self-auto px-3.5 py-2 text-xs"
                           >
-                            <X size={16} />
+                            Connect socials <span aria-hidden="true">→</span>
                           </button>
                         </div>
                         <button
-                          onClick={() => { track('SocialNudgeConnect'); handleConnectSocials(); }}
-                          className="btn-quiet shrink-0 text-xs py-1.5 px-3 lowercase w-full sm:w-auto"
-                        >
-                          connect socials →
-                        </button>
-                        <button
+                          type="button"
                           onClick={() => {
                             track('SocialNudgeDismissed');
                             setSocialNudgeDismissed(true);
                             try { localStorage.setItem('os_social_nudge_dismissed', '1'); } catch (_) { /* ignore */ }
                           }}
-                          aria-label="dismiss"
-                          className="hidden sm:block shrink-0 p-1 text-muted hover:text-ink"
+                          aria-label="Dismiss"
+                          className="shrink-0 -mr-2 -mt-1.5 sm:my-0 h-11 w-11 sm:h-9 sm:w-9 inline-flex items-center justify-center rounded-input text-muted hover:text-ink hover:bg-paper2 transition-colors"
                         >
-                          <X size={14} />
+                          <X size={16} aria-hidden="true" />
                         </button>
                       </div>
                     )}
                     {/* Self-host only: cloud archives clips to the video library,
                         here they really are gone once the retention sweep runs. */}
                     {!billingEnabled && jobRetentionSeconds > 0 && (
-                      <div className="px-3 py-2.5 rounded-input bg-paper3 border border-paper3 text-sm">
+                      <p className="tray px-4 py-3 text-sm leading-relaxed">
                         <span className="text-ink">Clips are kept for {formatRetention(jobRetentionSeconds)}, then deleted.</span>{' '}
-                        <span className="text-muted">Download what you want to keep, or raise JOB_RETENTION_SECONDS in your env.</span>
-                      </div>
+                        <span className="text-muted">
+                          Download what you want to keep, or raise <code className="font-mono text-xs text-ink2">JOB_RETENTION_SECONDS</code> in your env.
+                        </span>
+                      </p>
                     )}
                   </div>
                 )}
 
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar -mx-1 px-1 pt-1">
                   {results && results.clips && results.clips.length > 0 ? (
-                    <div className={`grid gap-4 pb-10 ${status !== 'complete' ? 'grid-cols-1'
-                      : jobPanelFolded ? 'grid-cols-1 lg:grid-cols-2 min-[1800px]:grid-cols-3' : 'grid-cols-1 xl:grid-cols-2'}`}>
-                      {visibleClips.length === 0 && (
-                        <div className="col-span-full text-center py-16 text-muted">
-                          <p className="text-sm lowercase">Every clip of this project is posted. Nothing left to publish.</p>
-                        </div>
-                      )}
+                    visibleClips.length === 0 ? (
+                      <div className="tray px-6 py-14 text-center">
+                        <p className="text-sm font-medium text-ink">Every clip of this project is posted.</p>
+                        <p className="text-sm text-muted mt-1">Nothing left to publish.</p>
+                      </div>
+                    ) : (
+                    <ul className="grid gap-4 sm:gap-5 pb-10 [grid-template-columns:repeat(auto-fill,minmax(min(100%,28rem),1fr))]">
                       {visibleClips.map(({ clip, index: i }) => (
-                        <div key={`${jobId}-${i}-${clip.video_url || ''}`} className={clip.published ? 'relative' : undefined}>
+                        <li key={`${jobId}-${i}-${clip.video_url || ''}`} className={`min-w-0 ${clip.published ? 'relative' : ''}`}>
                           {clip.published && (
-                            <div className="flex items-center justify-between gap-2 mb-1.5 px-3 py-1.5 rounded-input bg-ok/10 border border-ok/30 text-xs">
-                              <span className="text-ok lowercase">
-                                {clip.published.via === 'manual' ? 'posted by hand' : clip.published.scheduled_for ? `scheduled · ${clip.published.scheduled_for.slice(0, 16).replace('T', ' ')}` : 'posted'}
+                            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-2 px-3 py-1.5 rounded-input border border-rule bg-paper3 text-xs">
+                              <span className="inline-flex items-center gap-1.5 font-medium text-ok">
+                                <CheckCircle2 size={13} aria-hidden="true" />
+                                {clip.published.via === 'manual' ? 'Posted by hand' : clip.published.scheduled_for ? `Scheduled · ${clip.published.scheduled_for.slice(0, 16).replace('T', ' ')}` : 'Posted'}
                               </span>
-                              <button onClick={() => restoreClip(i)} className="text-muted hover:text-ink lowercase">
-                                put back in project
+                              <button
+                                type="button"
+                                onClick={() => restoreClip(i)}
+                                className="min-h-[32px] [@media(pointer:coarse)]:min-h-[44px] text-ink2 hover:text-ink underline underline-offset-2"
+                              >
+                                Put back in project
                               </button>
                             </div>
                           )}
@@ -2462,88 +2531,107 @@ function App() {
                           bulkProgress={bulkSub}
                           onPublished={refreshResults}
                         />
-                        </div>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
+                    )
                   ) : (
                     status === 'processing' ? (
-                      <div className="h-full min-h-[140px] flex flex-col items-center justify-center text-muted space-y-3 text-center px-4">
-                        <Loader2 size={28} className="animate-spin text-brass" />
-                        <p className="text-sm lowercase">Waiting for clips...</p>
-                        <p className="text-xs text-muted/80 max-w-[26ch] leading-snug">
+                      <div className="tray h-full min-h-[180px] flex flex-col items-center justify-center gap-3 text-center px-6 py-10">
+                        <span aria-hidden="true" className="neural-node h-2 w-2 rounded-full bg-muted" />
+                        <p className="text-sm font-medium text-ink">Waiting for the first clip</p>
+                        <p className="text-sm text-muted max-w-[32ch] leading-snug">
                           They appear here one by one as each finishes rendering.
                         </p>
                       </div>
                     ) : status === 'error' ? (
-                      <div className="h-full min-h-[120px] flex flex-col items-center justify-center text-danger space-y-2">
-                        <p>Generation failed.</p>
+                      <div role="alert" className="tray h-full min-h-[160px] flex flex-col items-center justify-center gap-2 text-center px-6 py-10">
+                        <AlertTriangle size={20} aria-hidden="true" className="text-danger" />
+                        <p className="text-sm font-medium text-ink">Generation failed.</p>
+                        {logs.length > 0 && (
+                          <p className="font-mono text-xs text-ink2 leading-relaxed max-w-prose [overflow-wrap:anywhere]">
+                            {logs[logs.length - 1]}
+                          </p>
+                        )}
                       </div>
                     ) : null
                   )}
                 </div>
-              </div>
+              </section>
 
             </div>
           )}
 
         </div>
 
-        {/* Phone navigation. A flex sibling of the scrolling pane, not a fixed
-            overlay, so content is never trapped behind it. */}
-        <MobileTabBar />
-
       </main>
+
+        {/* Phone navigation. A flex sibling of the page, not a fixed overlay,
+            so content is never trapped behind it — and outside <main>, so the
+            landmark holds the page alone. */}
+        <MobileTabBar />
+      </div>
 
       {/* Missing API Key Modal */}
       <Modal
         isOpen={showKeyModal}
         onClose={() => setShowKeyModal(false)}
-        eyebrow="SETUP"
+        eyebrow="Setup"
         title={!geminiOk && !uploadPostKey
-          ? 'Required API Keys Missing'
+          ? 'Two keys before your first clip'
           : !geminiOk
-            ? 'Gemini API Key Required'
-            : 'Upload-Post API Key Required'}
+            ? 'Add your Gemini API key'
+            : 'Add your Upload-Post API key'}
         footer={
-          <div className="flex gap-3">
+          <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3">
             <button
+              type="button"
               onClick={() => setShowKeyModal(false)}
-              className="btn-ghost flex-1 px-4 py-2 text-sm"
+              className="btn-ghost sm:flex-1 px-4 py-2 text-sm"
             >
               Cancel
             </button>
             <button
+              type="button"
               onClick={() => { setShowKeyModal(false); goToTab('settings'); }}
-              className="btn-primary flex-1 px-4 py-2 text-sm"
+              className="btn-accent sm:flex-1 px-4 py-2 text-sm"
             >
-              Go to Settings
+              Open Settings
             </button>
           </div>
         }
       >
         <div className="space-y-4">
-          <p className="text-sm text-muted">
-            Synapse AI needs both a <strong className="text-ink2">Gemini</strong> API key and an <strong className="text-ink2">Upload-Post</strong> API key. Both have free tiers.
+          <p className="text-sm text-muted leading-relaxed">
+            Synapse AI runs on a <strong className="font-medium text-ink2">Gemini</strong> key (finding the moments) and
+            an <strong className="font-medium text-ink2">Upload-Post</strong> key (publishing). Both have free tiers.
+            Paste a key and press Enter, or set them in Settings.
           </p>
 
-          {/* Gemini block */}
-          <div className={`rounded-input p-4 space-y-2 border ${!apiKey ? 'border-rule2' : 'border-rule opacity-70'}`}>
-            <p className="text-xs font-medium text-ink flex items-center gap-2">
-              {apiKey ? <Check size={12} className="text-ok" /> : <AlertTriangle size={12} className="text-warn" />}
-              Gemini API Key {apiKey && <span className="text-ok">— set</span>}
-            </p>
+          {/* Gemini */}
+          <section aria-labelledby="key-modal-gemini-title" className={`tray p-4 space-y-3 ${apiKey ? 'opacity-70' : ''}`}>
+            <div className="flex items-center justify-between gap-3">
+              <h3 id="key-modal-gemini-title" className="text-sm font-medium text-ink">Gemini API key</h3>
+              {apiKey
+                ? <span className="badge-ok"><Check size={11} aria-hidden="true" /> Set</span>
+                : <span className="badge-warn"><AlertTriangle size={11} aria-hidden="true" /> Missing</span>}
+            </div>
             {!apiKey && (
               <>
-                <ol className="text-xs text-muted space-y-1 list-decimal list-inside">
-                  <li>Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-brass underline">aistudio.google.com/app/apikey</a></li>
+                <ol className="text-xs text-muted space-y-1 list-decimal pl-4 leading-relaxed">
+                  <li>Open <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-cobalt underline underline-offset-2 hover:text-ink">aistudio.google.com/app/apikey</a></li>
                   <li>Sign in with your Google account</li>
-                  <li>Click "Create API Key"</li>
+                  <li>Choose "Create API key"</li>
                   <li>Copy the key and paste it below</li>
                 </ol>
+                <label htmlFor="key-modal-gemini" className="sr-only">Gemini API key</label>
                 <input
+                  id="key-modal-gemini"
                   type="text"
-                  placeholder="Paste your Gemini API key here..."
-                  className="input-field"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Paste your Gemini API key, then press Enter"
+                  className="input-field font-mono"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && e.target.value.trim()) {
                       setApiKey(e.target.value.trim());
@@ -2552,29 +2640,35 @@ function App() {
                 />
               </>
             )}
-          </div>
+          </section>
 
-          {/* Upload-Post block */}
-          <div className={`rounded-input p-4 space-y-2 border ${!uploadPostKey ? 'border-rule2' : 'border-rule opacity-70'}`}>
-            <p className="text-xs font-medium text-ink flex items-center gap-2">
-              {uploadPostKey ? <Check size={12} className="text-ok" /> : <AlertTriangle size={12} className="text-warn" />}
-              Upload-Post API Key {uploadPostKey && <span className="text-ok">— set</span>}
-            </p>
+          {/* Upload-Post */}
+          <section aria-labelledby="key-modal-upload-post-title" className={`tray p-4 space-y-3 ${uploadPostKey ? 'opacity-70' : ''}`}>
+            <div className="flex items-center justify-between gap-3">
+              <h3 id="key-modal-upload-post-title" className="text-sm font-medium text-ink">Upload-Post API key</h3>
+              {uploadPostKey
+                ? <span className="badge-ok"><Check size={11} aria-hidden="true" /> Set</span>
+                : <span className="badge-warn"><AlertTriangle size={11} aria-hidden="true" /> Missing</span>}
+            </div>
             {!uploadPostKey && (
               <>
-                <p className="text-xs text-muted">
-                  Required to publish your clips to TikTok, Instagram Reels, and YouTube Shorts. Free tier available, no credit card needed.
+                <p className="text-xs text-muted leading-relaxed">
+                  Publishes your clips to TikTok, Instagram Reels and YouTube Shorts. Free tier, no credit card needed.
                 </p>
-                <ol className="text-xs text-muted space-y-1 list-decimal list-inside">
-                  <li>Register at <a href="https://app.upload-post.com/login" target="_blank" rel="noopener noreferrer" className="text-brass underline">app.upload-post.com</a></li>
-                  <li>Connect your TikTok, Instagram, or YouTube accounts</li>
-                  <li>Go to <a href="https://app.upload-post.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-brass underline">API Keys</a> and generate one</li>
+                <ol className="text-xs text-muted space-y-1 list-decimal pl-4 leading-relaxed">
+                  <li>Register at <a href="https://app.upload-post.com/login" target="_blank" rel="noopener noreferrer" className="text-cobalt underline underline-offset-2 hover:text-ink">app.upload-post.com</a></li>
+                  <li>Connect your TikTok, Instagram or YouTube accounts</li>
+                  <li>Open <a href="https://app.upload-post.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-cobalt underline underline-offset-2 hover:text-ink">API keys</a> and generate one</li>
                   <li>Paste it below</li>
                 </ol>
+                <label htmlFor="key-modal-upload-post" className="sr-only">Upload-Post API key</label>
                 <input
+                  id="key-modal-upload-post"
                   type="text"
-                  placeholder="Paste your Upload-Post API key here..."
-                  className="input-field"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Paste your Upload-Post API key, then press Enter"
+                  className="input-field font-mono"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && e.target.value.trim()) {
                       setUploadPostKey(e.target.value.trim());
@@ -2583,7 +2677,7 @@ function App() {
                 />
               </>
             )}
-          </div>
+          </section>
         </div>
       </Modal>
 
@@ -2618,24 +2712,35 @@ function App() {
 
       {/* Pre-flight quality gate */}
       {qualityGate && (
-        <Modal isOpen={true} onClose={() => setQualityGate(null)} size="md" eyebrow="HEADS UP" title="low source quality">
+        <Modal isOpen={true} onClose={() => setQualityGate(null)} size="md" eyebrow="Heads up" title="This source is below HD">
           <div className="space-y-4">
-            <p className="text-sm text-ink2">
-              YouTube only offers <span className="text-brass font-semibold">{qualityGate.info.max_height}p</span> for this video
-              (below the {qualityGate.info.min_height}p we recommend). Processing anyway will produce lower-quality clips.
+            {/* The numbers, read at a glance: what YouTube offers vs what we recommend. */}
+            <dl className="grid grid-cols-2 gap-px rounded-card overflow-hidden border border-rule bg-paper3">
+              <div className="bg-paper2 px-4 py-3">
+                <dt className="readout">Available</dt>
+                <dd className="font-quote text-3xl text-ink mt-1">{qualityGate.info.max_height}p</dd>
+              </div>
+              <div className="bg-paper2 px-4 py-3">
+                <dt className="readout">Recommended</dt>
+                <dd className="font-quote text-3xl text-muted mt-1">{qualityGate.info.min_height}p</dd>
+              </div>
+            </dl>
+            <p className="text-sm text-ink2 leading-relaxed">
+              YouTube only offers {qualityGate.info.max_height}p for this video. Processing anyway will produce lower-quality clips.
             </p>
             {qualityGate.info.cookies_invalid && (
-              <p className="text-xs text-muted">
-                Your YouTube cookies look expired — refreshing them (export again from an incognito window) often unlocks HD.
+              <p className="tray px-3.5 py-3 text-xs text-muted leading-relaxed">
+                Your YouTube cookies look expired. Refreshing them (export again from an incognito window) often unlocks HD.
               </p>
             )}
-            <div className="flex gap-2 justify-end pt-2">
-              <button onClick={() => setQualityGate(null)} className="btn-ghost">cancel</button>
+            <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-2">
+              <button type="button" onClick={() => setQualityGate(null)} className="btn-ghost">Cancel</button>
               <button
+                type="button"
                 onClick={() => { const d = qualityGate.data; setQualityGate(null); handleProcess(d, true); }}
                 className="btn-primary"
               >
-                process anyway
+                Process anyway
               </button>
             </div>
           </div>

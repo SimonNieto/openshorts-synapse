@@ -1,13 +1,26 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Link2, Upload, FileVideo, X, Info, Loader2, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect, useRef, useId } from 'react';
+import { Link2, Upload, FileVideo, X, Info, Loader2, ChevronDown, AlertTriangle } from 'lucide-react';
 import { getApiUrl } from '../config';
 import AutoPublishOption from './AutoPublishOption';
+import SegmentedControl from './ui/SegmentedControl';
 import { loadAutoPublish, saveAutoPublish } from '../lib/autoPublish';
 
 const SUPPORTED_PLATFORMS = [
     'YouTube', 'Vimeo', 'TikTok', 'X / Twitter', 'Twitch',
     'Facebook', 'Instagram', 'Dailymotion', 'Reddit', 'Streamable',
 ];
+
+const FORMATS = [
+    { value: 'vertical', label: '9:16', hint: 'Shorts · Reels · TikTok', w: 13, h: 23 },
+    { value: 'square', label: '1:1', hint: 'Feed posts', w: 20, h: 20 },
+    { value: 'horizontal', label: '16:9', hint: 'Keep landscape · YouTube', w: 26, h: 15 },
+];
+
+const formatSize = (bytes) => {
+    if (!Number.isFinite(bytes)) return '';
+    const mb = bytes / 1048576;
+    return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb >= 10 ? Math.round(mb) : mb.toFixed(1)} MB`;
+};
 
 export default function MediaInput({ onProcess, isProcessing, publishProfiles = [], defaultProfile = '', canAutoPublish = false, plusProfile = null }) {
     const [youtubeUrlEnabled, setYoutubeUrlEnabled] = useState(true);
@@ -41,6 +54,24 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
     // Publish the best clips on Upload-Post as soon as the job ends.
     const [autoPublish, setAutoPublish] = useState(loadAutoPublish);
     const infoRef = useRef(null);
+    // Purely visual: lights the drop zone while a file is dragged over it.
+    const [dragOver, setDragOver] = useState(false);
+    const uid = useId();
+    const ids = {
+        source: `${uid}-source`,
+        url: `${uid}-url`,
+        urlHint: `${uid}-url-hint`,
+        platforms: `${uid}-platforms`,
+        file: `${uid}-file`,
+        fileHint: `${uid}-file-hint`,
+        format: `${uid}-format`,
+        advanced: `${uid}-advanced`,
+        target: `${uid}-target`,
+        min: `${uid}-min`,
+        max: `${uid}-max`,
+        layout: `${uid}-layout`,
+        submitHint: `${uid}-submit-hint`,
+    };
 
     // Close the compatibility popover on any outside click.
     useEffect(() => {
@@ -93,7 +124,7 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                 ? { ...autoPublish, profile: autoPublish.profile || defaultProfile || publishProfiles[0]?.username || '' }
                 : null,
         };
-        // Clip Generator++: the profile carries the recipe (the server reads it
+        // Synapse Cut: the profile carries the recipe (the server reads it
         // by id) and its own auto-publish settings.
         if (plusProfile) {
             // Count, lengths and hook come from the profile: the (now hidden)
@@ -133,64 +164,65 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
         }
     };
 
+    const hasSource = (mode === 'url' && !!url) || (mode === 'file' && !!file);
+    const notVideo = mode === 'file' && file && file.type && !file.type.startsWith('video/');
+    const advancedEdited = !!(targetClips || clipMinSeconds || clipMaxSeconds || !autoHook);
+
+    const sourceOptions = [
+        { value: 'file', label: 'Upload a file', icon: <Upload size={16} /> },
+        ...(youtubeUrlEnabled ? [{ value: 'url', label: 'Paste a link', icon: <Link2 size={16} /> }] : []),
+    ];
+
     return (
-        <div className="card p-4 sm:p-6 animate-fade">
-            <div className="flex gap-4 sm:gap-6 mb-6 border-b border-rule" data-tutorial="source-tabs">
-                <button
-                    onClick={() => setMode('file')}
-                    className={`flex items-center gap-2 pb-3 px-1 -mb-px border-b-2 text-sm lowercase whitespace-nowrap transition-colors ${mode === 'file'
-                        ? 'text-ink border-brass'
-                        : 'text-muted border-transparent hover:text-ink2'
-                        }`}
-                >
-                    <Upload size={16} className={`hidden sm:block ${mode === 'file' ? 'text-brass' : ''}`} />
-                    Upload File
-                </button>
-                {youtubeUrlEnabled && (
-                    <button
-                        onClick={() => setMode('url')}
-                        className={`flex items-center gap-2 pb-3 px-1 -mb-px border-b-2 text-sm lowercase whitespace-nowrap transition-colors ${mode === 'url'
-                            ? 'text-ink border-brass'
-                            : 'text-muted border-transparent hover:text-ink2'
-                            }`}
-                    >
-                        <Link2 size={16} className={`hidden sm:block ${mode === 'url' ? 'text-brass' : ''}`} />
-                        Video URL
-                    </button>
-                )}
+        <div className="card-print p-4 sm:p-6 text-left animate-fade">
+            {/* Where the video comes from */}
+            <div className="mb-5" data-tutorial="source-tabs" role="group" aria-labelledby={ids.source}>
+                <p id={ids.source} className="readout mb-2">Source</p>
+                <SegmentedControl
+                    options={sourceOptions}
+                    value={mode}
+                    onChange={setMode}
+                    columns={sourceOptions.length}
+                    size="sm"
+                />
             </div>
 
             <form onSubmit={handleSubmit}>
                 {mode === 'url' ? (
-                    <div className="space-y-4" data-tutorial="drop-zone">
+                    <div className="space-y-2" data-tutorial="drop-zone">
+                        <label htmlFor={ids.url} className="block text-sm font-medium text-ink">Video link</label>
                         <div className="relative">
                             <input
+                                id={ids.url}
                                 type="url"
                                 value={url}
                                 onChange={(e) => setUrl(e.target.value)}
-                                placeholder="https://... paste a video link"
-                                className="input-field pr-11"
+                                placeholder="https://… paste a video link"
+                                className="input-field pr-12"
+                                aria-describedby={ids.urlHint}
                                 required
                             />
-                            <div className="absolute inset-y-0 right-2 flex items-center" ref={infoRef}>
+                            <div className="absolute inset-y-0 right-1.5 flex items-center" ref={infoRef}>
                                 <button
                                     type="button"
                                     onClick={() => setShowInfo((v) => !v)}
                                     aria-label="Supported platforms"
-                                    className="p-1.5 text-muted hover:text-brass transition-colors"
+                                    aria-expanded={showInfo}
+                                    aria-controls={ids.platforms}
+                                    className="h-9 w-9 inline-flex items-center justify-center rounded-input text-muted hover:text-ink hover:bg-paper3 transition-colors"
                                 >
-                                    <Info size={16} />
+                                    <Info size={16} aria-hidden="true" />
                                 </button>
                                 {showInfo && (
-                                    <div className="absolute right-0 top-full mt-2 w-64 z-20 card p-4 text-left animate-fade">
-                                        <p className="eyebrow mb-2">Paste a link from</p>
-                                        <div className="flex flex-wrap gap-1.5">
+                                    <div id={ids.platforms} className="absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-3rem)] z-20 card p-4 text-left animate-fade">
+                                        <p className="readout mb-2">Paste a link from</p>
+                                        <ul className="flex flex-wrap gap-1.5">
                                             {SUPPORTED_PLATFORMS.map((p) => (
-                                                <span key={p} className="text-xs px-2 py-0.5 rounded-full bg-paper3 text-ink2">
+                                                <li key={p} className="text-xs px-2 py-0.5 rounded-[4px] border border-rule bg-paper3 text-ink2">
                                                     {p}
-                                                </span>
+                                                </li>
                                             ))}
-                                        </div>
+                                        </ul>
                                         <p className="text-xs text-muted mt-2.5 leading-relaxed">
                                             …and 1,000+ more sites. If a link has a public video, we can usually fetch it.
                                         </p>
@@ -198,115 +230,131 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                                 )}
                             </div>
                         </div>
+                        <p id={ids.urlHint} className="text-xs text-muted">
+                            A public video on YouTube, TikTok, Instagram, Vimeo and many more.
+                        </p>
                     </div>
                 ) : (
                     <div
                         data-tutorial="drop-zone"
-                        className={`border-2 border-dashed rounded-card p-6 sm:p-8 text-center transition-colors ${file ? 'border-brass' : 'border-rule2 hover:border-brass'
-                            }`}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={handleDrop}
+                        className={`rounded-card border border-dashed transition-colors duration-200
+                            has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[color:var(--color-focus)]
+                            ${dragOver
+                                ? 'border-vermilion bg-vermilionsoft'
+                                : file
+                                    ? 'border-rule2 bg-paper3'
+                                    : 'border-rule2 hover:border-ink/40 hover:bg-paper3'}`}
+                        onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
+                        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); }}
+                        onDrop={(e) => { setDragOver(false); handleDrop(e); }}
                     >
                         {file ? (
-                            <div className="flex items-center justify-center gap-3 text-ok min-w-0">
-                                <FileVideo size={18} className="shrink-0" />
-                                <span className="font-medium truncate">{file.name}</span>
+                            <div className="flex items-center gap-3 p-3 sm:p-4 min-w-0">
+                                <span aria-hidden="true" className="h-10 w-10 shrink-0 rounded-input border border-rule2 bg-paper2 flex items-center justify-center text-ink">
+                                    <FileVideo size={18} />
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-medium text-ink truncate" title={file.name}>{file.name}</p>
+                                    <p className="readout mt-0.5">{formatSize(file.size)} · Ready to go</p>
+                                </div>
                                 <button
                                     type="button"
                                     onClick={() => setFile(null)}
-                                    className="p-1 text-muted hover:text-ink hover:bg-paper3 rounded-full transition-colors"
+                                    aria-label={`Remove ${file.name}`}
+                                    className="h-11 w-11 sm:h-9 sm:w-9 shrink-0 inline-flex items-center justify-center rounded-input text-muted hover:text-ink hover:bg-paper2 transition-colors"
                                 >
-                                    <X size={16} />
+                                    <X size={16} aria-hidden="true" />
                                 </button>
                             </div>
                         ) : (
-                            <label className="cursor-pointer block">
+                            <label htmlFor={ids.file} className="flex flex-col items-center justify-center gap-2 px-4 py-8 sm:py-10 text-center cursor-pointer">
                                 <input
+                                    id={ids.file}
                                     type="file"
                                     accept="video/*"
                                     onChange={(e) => setFile(e.target.files?.[0] || null)}
-                                    className="hidden"
+                                    aria-describedby={ids.fileHint}
+                                    className="sr-only"
                                 />
-                                <Upload className="mx-auto mb-3 text-muted" size={18} />
-                                <p className="text-ink2 lowercase">Click to upload or drag and drop</p>
-                                <p className="readout mt-2">MP4, MOV up to 500MB</p>
+                                <span aria-hidden="true" className={`mb-1 h-11 w-11 rounded-full border flex items-center justify-center transition-colors ${dragOver ? 'border-vermilion text-vermilion' : 'border-rule2 text-ink2'}`}>
+                                    <Upload size={18} />
+                                </span>
+                                <span className="text-sm font-medium text-ink">
+                                    {dragOver ? 'Drop to add this video' : 'Drop a video here, or choose a file'}
+                                </span>
+                                <span id={ids.fileHint} className="readout">MP4, MOV · up to 500 MB</span>
                             </label>
                         )}
                     </div>
                 )}
 
+                {notVideo && (
+                    <p role="alert" className="mt-2 flex items-start gap-2 text-sm text-warn">
+                        <AlertTriangle size={15} aria-hidden="true" className="shrink-0 mt-0.5" />
+                        This file doesn’t look like a video. Clip Generator needs an MP4, MOV or another video file.
+                    </p>
+                )}
+
                 {/* Output format selector */}
-                <div className="mt-5" data-tutorial="output-format">
-                    <p className="eyebrow mb-2">Output format</p>
-                    <div className="grid grid-cols-3 gap-2">
-                        {[
-                            { value: 'vertical', label: '9:16', hint: 'Shorts · Reels · TikTok', w: 18, h: 32 },
-                            { value: 'square', label: '1:1', hint: 'Feed posts', w: 28, h: 28 },
-                            { value: 'horizontal', label: '16:9', hint: 'Keep landscape · YouTube', w: 36, h: 20 },
-                        ].map((f) => {
-                            const active = outputFormat === f.value;
-                            return (
-                                <button
-                                    key={f.value}
-                                    type="button"
-                                    onClick={() => setOutputFormat(f.value)}
-                                    className={`py-3 px-2 rounded-input border flex flex-col items-center gap-2 transition-colors
-                                        ${active ? 'border-[color:var(--color-accent)] text-ink' : 'border-rule2 text-muted hover:border-[color:var(--color-accent)]'}`}
-                                >
-                                    {/* Aspect-ratio glyph */}
-                                    <span
-                                        className="rounded-[3px] border-2 transition-colors"
-                                        style={{
-                                            width: `${f.w}px`,
-                                            height: `${f.h}px`,
-                                            borderColor: active ? 'var(--color-accent)' : 'var(--color-rule-2)',
-                                            backgroundColor: active ? 'color-mix(in srgb, var(--color-accent) 22%, transparent)' : 'transparent',
-                                        }}
-                                    />
-                                    <span className="block font-mono text-sm leading-none">{f.label}</span>
-                                    <span className="block text-[11px] sm:text-[10px] leading-tight text-center text-muted">{f.hint}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
+                <div className="mt-6" data-tutorial="output-format" role="group" aria-labelledby={ids.format}>
+                    <p id={ids.format} className="readout mb-2">Output format</p>
+                    <SegmentedControl
+                        options={FORMATS.map((f) => ({
+                            value: f.value,
+                            label: f.label,
+                            hint: f.hint,
+                            // aspect-ratio glyph, drawn in the button's own colour
+                            icon: (
+                                <span
+                                    className="block rounded-[3px] border-[1.5px] border-current"
+                                    style={{ width: `${f.w}px`, height: `${f.h}px` }}
+                                />
+                            ),
+                        }))}
+                        value={outputFormat}
+                        onChange={setOutputFormat}
+                        columns={3}
+                    />
                 </div>
 
                 {/* Advanced generation controls — collapsed by default; blank = AI decides */}
-                <div className="mt-4">
+                <div className="mt-5 pt-1 border-t border-rule">
                     <button
                         type="button"
                         onClick={() => setShowAdvanced((v) => !v)}
-                        className="flex items-center gap-1.5 text-xs text-muted hover:text-ink2 lowercase transition-colors"
+                        aria-expanded={showAdvanced}
+                        aria-controls={ids.advanced}
+                        className="mt-2 inline-flex items-center gap-2 min-h-[40px] [@media(pointer:coarse)]:min-h-[44px] text-sm text-ink2 hover:text-ink transition-colors"
                     >
-                        <ChevronDown size={14} className={`transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
-                        advanced options
-                        {(targetClips || clipMinSeconds || clipMaxSeconds || !autoHook) && (
-                            <span className="text-brass">·</span>
-                        )}
+                        <ChevronDown size={16} aria-hidden="true" className={`transition-transform duration-200 ${showAdvanced ? 'rotate-180' : ''}`} />
+                        Advanced options
+                        {advancedEdited && <span className="readout">· Edited</span>}
                     </button>
                     {showAdvanced && (
                         /* Stacked on a phone: three number fields side by side leaves
                            ~100px each, which crushes both label and value. */
-                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-2 animate-fade">
+                        <div id={ids.advanced} className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-3 animate-fade">
                             {plusProfile ? (
-                                <p className="col-span-1 sm:col-span-3 text-[11px] leading-relaxed text-muted">
+                                <p className="col-span-1 sm:col-span-3 text-xs leading-relaxed text-muted">
                                     Clip count, clip lengths and hook titles come from the selected
-                                    Clip Generator++ profile (edit them there).
+                                    Synapse Cut profile (edit them there).
                                 </p>
                             ) : (<>
                             <div>
-                                <p className="eyebrow mb-1.5">clips to aim for</p>
+                                <label htmlFor={ids.target} className="block text-xs font-medium text-ink2 mb-1.5">Clips to aim for</label>
                                 <input
+                                    id={ids.target}
                                     type="number" min="1" max="15" step="1"
                                     value={targetClips}
                                     onChange={(e) => setTargetClips(e.target.value)}
-                                    placeholder="auto"
+                                    placeholder="Auto"
                                     className="input-field"
                                 />
                             </div>
                             <div>
-                                <p className="eyebrow mb-1.5">min length (s)</p>
+                                <label htmlFor={ids.min} className="block text-xs font-medium text-ink2 mb-1.5">Min length (s)</label>
                                 <input
+                                    id={ids.min}
                                     type="number" min="5" max="175" step="1"
                                     value={clipMinSeconds}
                                     onChange={(e) => setClipMinSeconds(e.target.value)}
@@ -315,8 +363,9 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                                 />
                             </div>
                             <div>
-                                <p className="eyebrow mb-1.5">max length (s)</p>
+                                <label htmlFor={ids.max} className="block text-xs font-medium text-ink2 mb-1.5">Max length (s)</label>
                                 <input
+                                    id={ids.max}
                                     type="number" min="10" max="180" step="1"
                                     value={clipMaxSeconds}
                                     onChange={(e) => setClipMaxSeconds(e.target.value)}
@@ -324,18 +373,18 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                                     className="input-field"
                                 />
                             </div>
-                            <p className="col-span-1 sm:col-span-3 text-[11px] leading-relaxed text-muted">
+                            <p className="col-span-1 sm:col-span-3 text-xs leading-relaxed text-muted">
                                 Targets, not guarantees: the AI returns fewer clips when the
                                 material doesn't hold them. Leave blank to let it decide.
                             </p>
                             </>)}
-                            <div className="col-span-1 sm:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-3 sm:pt-1 border-t border-rule">
-                                <span className="text-xs text-ink2">vertical layout</span>
+                            <div className="col-span-1 sm:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-rule">
+                                <label htmlFor={ids.layout} className="text-sm text-ink2">Vertical layout</label>
                                 <select
+                                    id={ids.layout}
                                     value={layout}
                                     onChange={(e) => setLayout(e.target.value)}
-                                    className="input-field !w-auto text-xs py-1.5"
-                                    aria-label="vertical layout"
+                                    className="input-field !w-auto text-sm py-2"
                                 >
                                     <option value="auto">Auto (AI picks per video)</option>
                                     <option value="split">Two speakers stacked</option>
@@ -344,21 +393,22 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                                 </select>
                             </div>
                             {!plusProfile && (
-                            <div className="col-span-1 sm:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-3 sm:pt-1 border-t border-rule">
-                                <label className="flex items-center gap-2 text-xs text-ink2 cursor-pointer select-none">
+                            <div className="col-span-1 sm:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-rule">
+                                <label className="flex items-center gap-2.5 min-h-[40px] text-sm text-ink2 cursor-pointer select-none">
                                     <input
                                         type="checkbox"
                                         checked={autoHook}
                                         onChange={(e) => setAutoHook(e.target.checked)}
                                         className="w-4 h-4 shrink-0 accent-[var(--color-accent)] cursor-pointer"
                                     />
-                                    auto hook titles on clips
+                                    Auto hook titles on clips
                                 </label>
                                 {autoHook && (
                                     <select
                                         value={autoHookStyle}
                                         onChange={(e) => setAutoHookStyle(e.target.value)}
-                                        className="input-field !w-auto text-xs py-1.5"
+                                        aria-label="Hook title style"
+                                        className="input-field !w-auto text-sm py-2"
                                     >
                                         <option value="classic">Classic</option>
                                         <option value="dark">Dark</option>
@@ -384,7 +434,7 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                     />
                 )}
 
-                <label className="flex items-start gap-2.5 mt-5 text-left text-[13px] sm:text-xs leading-relaxed text-muted cursor-pointer select-none">
+                <label className="flex items-start gap-3 mt-5 text-left text-[13px] leading-relaxed text-muted cursor-pointer select-none">
                     <input
                         type="checkbox"
                         checked={acknowledged}
@@ -392,7 +442,7 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                         className="mt-0.5 w-4 h-4 shrink-0 accent-[var(--color-accent)] cursor-pointer"
                     />
                     <span>
-                        I confirm I own this content or have the rights to process it. I am responsible for any content I submit. See our <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-ink2 underline underline-offset-2 hover:text-brass transition-colors" onClick={(e) => e.stopPropagation()}>Terms</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-ink2 underline underline-offset-2 hover:text-brass transition-colors" onClick={(e) => e.stopPropagation()}>Privacy Policy</a>.
+                        I confirm I own this content or have the rights to process it. I am responsible for any content I submit. See our <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-ink2 underline underline-offset-2 hover:text-ink transition-colors" onClick={(e) => e.stopPropagation()}>Terms</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-ink2 underline underline-offset-2 hover:text-ink transition-colors" onClick={(e) => e.stopPropagation()}>Privacy Policy</a>.
                     </span>
                 </label>
 
@@ -400,21 +450,29 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                     type="submit"
                     data-tutorial="generate"
                     disabled={isProcessing || !acknowledged || (mode === 'url' && !url) || (mode === 'file' && !file)}
-                    className="w-full btn-primary mt-4"
+                    aria-describedby={!isProcessing && (!hasSource || !acknowledged) ? ids.submitHint : undefined}
+                    className="w-full btn-accent mt-4"
                 >
                     {isProcessing ? (
                         <>
-                            <Loader2 size={16} className="animate-spin" />
-                            Processing Video...
+                            <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                            Processing video…
                         </>
                     ) : (
                         <>
                             {plusProfile
                                 ? `Generate with “${plusProfile.name}”`
-                                : (canAutoPublish && autoPublish.enabled ? 'Generate & publish the 3 best' : 'Generate Clips')}
+                                : (canAutoPublish && autoPublish.enabled ? 'Generate & publish the 3 best' : 'Generate clips')}
                         </>
                     )}
                 </button>
+                {!isProcessing && (!hasSource || !acknowledged) && (
+                    <p id={ids.submitHint} className="mt-2 text-xs text-muted text-center">
+                        {!hasSource
+                            ? (mode === 'url' ? 'Paste a video link to start.' : 'Add a video to start.')
+                            : 'Confirm you have the rights to this video to start.'}
+                    </p>
+                )}
             </form>
         </div>
     );
