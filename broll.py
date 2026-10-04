@@ -3502,7 +3502,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
 
     _comfy_enter()
     try:
-        if mixed and cfg.get("chain") == "spec":
+        if mixed and cfg.get("chain") in ("spec", "dessin"):
             # v20 « la fiche »: the editor's shot specs, the prompt written by the code, a blind check per batch
             # (broll_v20). No Gemini fallback: without Claude, no B-roll — a wrong picture is worse than none.
             if not claude_ready():
@@ -3529,12 +3529,19 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                         gpu[0] += time.time() - t0
                 return None, None
 
-            cands, moments = broll_v20.run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail,
-                                           gap_min, block, dur_range, tmp, render, ideas=bool(cfg.get("ideas")),
-                                           reserve_mode=str(cfg.get("reserves") or "none"),
-                                           prose=bool(cfg.get("prose")), judge=cfg.get("judge") or None,
-                                           shown=(os.path.join(os.path.dirname(os.path.abspath(clip_path)), "_broll_shown.json")
-                                                  if cfg.get("shown") else None))
+            if cfg.get("chain") == "dessin":
+                # v26 « dessin » (4-oct-2026): the art director in the episode's style charter, a safety verifier, one
+                # render per moment — no judge, no render loop (broll_draw)
+                import broll_draw
+                cands, moments = broll_draw.run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail,
+                                                gap_min, block, dur_range, tmp, render)
+            else:
+                cands, moments = broll_v20.run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail,
+                                               gap_min, block, dur_range, tmp, render, ideas=bool(cfg.get("ideas")),
+                                               reserve_mode=str(cfg.get("reserves") or "none"),
+                                               prose=bool(cfg.get("prose")), judge=cfg.get("judge") or None,
+                                               shown=(os.path.join(os.path.dirname(os.path.abspath(clip_path)), "_broll_shown.json")
+                                                      if cfg.get("shown") else None))
             planner = "claude"
             if not cands:
                 print("   ℹ️ B-roll v20: no picture kept for this clip.")

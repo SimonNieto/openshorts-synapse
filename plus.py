@@ -101,7 +101,9 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          # check (broll_v20) — the art director above is the old chain's, kept for the bench only.
          # v21 « idées » (4-oct-2026): the round of ideas in text before the rendering (broll_ideas: art director,
          # verifier, viewer on the channel's own text), the hero chosen among the ideas kept.
-         "chain": "spec", "ideas": True}
+         # v26 « dessin » (4-oct-2026, validated by the user as the final version): every picture drawn in the
+         # episode's style charter by the art director, a safety verifier, one render per moment (broll_draw).
+         "chain": "dessin", "ideas": True}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set

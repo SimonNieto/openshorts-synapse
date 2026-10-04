@@ -30,66 +30,11 @@ SHORT = os.path.dirname(HERE)
 SKILL = broll_ideas.SKILL_DIR
 
 
-def read(name):
-    with open(os.path.join(SKILL, name), encoding="utf-8") as f:
-        return f.read().strip()
+import broll_draw  # noqa: E402  the production's prompts (v26): one text for the bench and the jobs
 
-
-CHARTE, PRINCIPES_BANC = read("charte.md"), read("directeur-banc.md")
-SUFFIX = next(line[1:].strip() for line in CHARTE.splitlines() if line.startswith("> Premium"))
-
-DA_PROMPT = """You are the art director of the channel described below (its texts are in French; answer in ENGLISH).
-
-THE CHANNEL'S PRINCIPLES (everything you propose obeys them, first of all "ce qui passe avant l'impact"):
-{principes}
-
-THE EPISODE'S STYLE CHARTER (every picture is drawn in it; the code adds the style words itself):
-{charte}
-
-YOUR PRINCIPLES (they decide how a sentence becomes a picture):
-{banc}
-
-For each sentence below you get the clip it belongs to, what was heard just before, and the sentence itself. For each
-one, ONE picture, drawn in the charter: the IDEA of the sentence, never its word, the simplest symbol of it, big.
-People are always drawn and anonymous; never a speaker, never a real person of the story.
-For each sentence: "idea" (what it means, one line) and "picture": the drawing in plain words, 60 at most, what fills
-the frame first, what it does, two or three particular details, the light. Say "a single" or "only one" for every thing
-that appears once. No style word and no camera word (the code adds the charter's style), nothing to read in the
-picture except a question mark when your principles ask for one, no negation in the words (say what is there).
-{moments}
-Return JSON: {{"moments": [{{"k": 0, "idea": "...", "picture": "..."}}]}}"""
-DA_SCHEMA = {"type": "object", "properties": {"moments": {"type": "array", "items": {
-    "type": "object", "properties": {"k": {"type": "integer"}, "idea": {"type": "string"},
-                                     "picture": {"type": "string"}},
-    "required": ["k", "idea", "picture"]}}}, "required": ["moments"]}
-
-VERIFY_PROMPT = """You are the verifier of the channel described below (its texts are in French; answer in ENGLISH).
-You check SAFETY only, in one pass, before any picture is made. You do not judge whether a picture is good, relevant or
-well chosen, and you give no score: you refuse or you let it pass.
-
-THE CHANNEL'S PRINCIPLES:
-{principes}
-
-Every picture is DRAWN in the episode's illustration style (the code adds the style words to the description): an
-organ drawn whole and clean (a brain, a spine, a nerve), even with an instrument touching it, is fine, never a reason
-to refuse.
-Refuse a picture when:
-- it is gore: a head or a body opened, a wound, blood, a cut into flesh, tissue taken out of a body;
-- something in it evokes a death or its means, even as a visual cliché (a clip about a death, a sentence about deaths);
-- in a clip about a death, or on a sentence that mentions a death, something in it hangs, dangles or is looped: a
-  cord, a strap, a lanyard, a belt, a scarf, a cable, a tube, a rope, a lace (a badge's lanyard coiled on a desk, in a
-  clip about a suicide, is one; so is anything "hanging", "swinging" or "dangling" from a line, whatever it is) —
-  anywhere else, a washing line or a strap is an ordinary thing and passes;
-- in a clip whose subject is a death, the dead person is shown, alive or not: such a clip shows an absence;
-- it gives real victims a number or their belongings (chairs, bowls, toys, shoes, clothes of the victims);
-- it shows a drug, its gear or its intake.
-Otherwise let it pass. "verdict": "pass" or "refuse"; "reason": 12 words at most when you refuse.
-{items}
-Return JSON: {{"moments": [{{"k": 0, "verdict": "pass", "reason": ""}}]}}"""
-VERIFY_SCHEMA = {"type": "object", "properties": {"moments": {"type": "array", "items": {
-    "type": "object", "properties": {"k": {"type": "integer"}, "verdict": {"type": "string", "enum": ["pass", "refuse"]},
-                                     "reason": {"type": "string"}},
-    "required": ["k", "verdict", "reason"]}}}, "required": ["moments"]}
+CHARTE, SUFFIX, PRINCIPES_BANC = broll_draw.charter()
+DA_PROMPT, DA_SCHEMA = broll_draw.DA_PROMPT, broll_draw.DA_SCHEMA
+VERIFY_PROMPT, VERIFY_SCHEMA = broll_draw.VERIFY_PROMPT, broll_draw.VERIFY_SCHEMA
 
 ORDER = [("01_frigo", 1), ("02_dmt", 2), ("03_voix", 3), ("04_dopamine", 4), ("05_univers", 7), ("06_ibogaine", 9),
          ("07_question", 10), ("08_absence", 5), ("09_grave", 6), ("10_banderole", 8)]

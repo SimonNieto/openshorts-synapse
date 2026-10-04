@@ -157,7 +157,8 @@ def test_a_picture_nobody_checked_is_not_kept(monkeypatch, tmp_path):
 
 def test_add_broll_branches_on_the_chain():
     src = open(os.path.join(os.path.dirname(broll.__file__), "broll.py"), encoding="utf-8").read()
-    assert 'cfg.get("chain") == "spec"' in src and "broll_v20.run(" in src and "raw=True" in src
+    assert 'cfg.get("chain") in ("spec", "dessin")' in src and "broll_v20.run(" in src and "raw=True" in src
+    assert 'cfg.get("chain") == "dessin"' in src and "broll_draw.run(" in src   # v26 « dessin »
     assert 'ideas=bool(cfg.get("ideas"))' in src               # v21: the profile's switch reaches the chain
     assert 'reserve_mode=str(cfg.get("reserves") or "none")' in src      # the reserves' too; saying nothing is "none"
 
