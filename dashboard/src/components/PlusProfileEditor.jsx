@@ -198,10 +198,17 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
                         )}
                     </div>
                     <div role="group" aria-labelledby="pp-count" className="mt-5">
-                        <p id="pp-count" className="readout mb-2">How many</p>
+                        <p id="pp-count" className="readout mb-2">Number of clips per video</p>
                         <SegmentedControl size="sm" columns={counts.length + 1} value={p.target_clips ? String(p.target_clips) : 'ai'}
                             onChange={(v) => set({ target_clips: v === 'ai' ? null : Number(v) })}
-                            options={[{ value: 'ai', label: 'AI decides' }, ...counts.map((n) => ({ value: String(n), label: String(n) }))]} />
+                            options={[{ value: 'ai', label: 'AI decides' }, ...counts.map((n) => ({ value: String(n), label: `Exactly ${n}` }))]} />
+                        {/* plus.job_env: a number fixes the count (CLIP_TARGET_MIN = MAX); "AI decides" keeps the format's floor. */}
+                        <p className="text-xs text-muted leading-relaxed mt-2" aria-live="polite">
+                            {p.target_clips
+                                ? `The AI picks exactly ${p.target_clips} clip${Number(p.target_clips) === 1 ? '' : 's'}, the best ones of the video.`
+                                : `At least ${fmt?.min_clips ?? 2}, more when the video has more good moments.`}
+                            {picked.length > 0 && p.selection?.niche_only && ' Fewer when some fall outside the channel’s topics.'}
+                        </p>
                     </div>
                     <div className="mt-3">
                         <Toggle checked={p.fresh} onChange={(v) => set({ fresh: v })}
