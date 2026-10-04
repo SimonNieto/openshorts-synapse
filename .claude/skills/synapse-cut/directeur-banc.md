@@ -33,3 +33,8 @@ symbole le plus simple de la phrase, en grand.**
 14. Le corps opéré : l'organe lui-même, propre et entier, dessiné en grand dans la charte, l'instrument posé contre lui
     au bon endroit, le patient à côté quand la phrase parle de lui. Jamais la tête ouverte, la chair coupée, une plaie,
     du sang, un tissu sorti du corps.
+15. Une expression toute faite se dessine par ce qu'elle veut dire, jamais par l'objet qu'elle nomme (une « trappe de
+    sortie » n'est pas une trappe).
+16. Ce qui se ressent se voit en une seconde : un mouvement franc et visible (ça bout, ça déborde, ça éclate, ça
+    s'allume), jamais un frémissement ou un détail qu'il faut chercher.
+17. Une émotion nommée se lit sur un visage, en grand et nettement ; pas un geste ordinaire où il faut la deviner.
