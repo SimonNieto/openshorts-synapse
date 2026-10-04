@@ -94,7 +94,7 @@ def test_update_rewrites_drops_and_refuses_unknowns(tmp_path, ask):
 
 
 def test_the_director_reads_them_only_when_switched_on(monkeypatch):
-    assert plus.BROLL["lessons"] is False, "off until the owner validates it"
+    assert plus.BROLL["lessons"] is True, "validated by the owner in prod on 4-oct-2026"
     assert broll_draw.DA_PROMPT.count("{lessons}") == 1
     assert "\n\n{lessons}For each sentence below" in broll_draw.DA_PROMPT
     seen = []
