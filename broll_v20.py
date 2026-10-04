@@ -244,7 +244,8 @@ def _settle(cands, words, render, tmp):
                                     "look": g["look_score"], "viewer": (g["check"] or {}).get("score"),
                                     "seen": (g["check"] or {}).get("sees"),
                                     "links": (g["check"] or {}).get("links"), "answers": (g["check"] or {}).get("answers"),
-                                    "prompt": g["m"].get("prompt")})
+                                    "prompt": g["m"].get("prompt"), "seed": g.get("seed"),
+                                    "why": (broll_check.LAST_WHY if verdict != "keep" else "") if g is c else ""})
             if verdict == "keep":
                 c["score"] = 5
                 kept.append(c)
@@ -312,6 +313,7 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
                                                    block=block, judge=judge, shown=shown)
         if not moments:
             print("   ℹ️ B-roll v21: no idea above the face alone — no picture for this clip.")
+            trace(clip_path, clip, tmp, [], ideas)     # the ideas refused, all of them
             return [], []
     base = visual_mood.base([visual_mood.clean(m.get("mood")) for m in moments],
                             visual_mood.episode_levels(ai_brain.EPISODE_BIBLE))
@@ -378,4 +380,55 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
             a["m"]["dur"] = round(max(lo, room), 2)
     print(f"   🔎 B-roll v20: {len(kept)} kept of {len(moments)} moments — "
           + ", ".join(f'{c["m"].get("anchor")}: {c["verdict"]} (look {c["look_score"]})' for c in kept))
+    trace(clip_path, clip, tmp, kept, ideas)
     return kept, moments
+
+
+TRACE_DIR = "_broll_trace"     # output/_broll_trace/<date>_<job8>/<clip>/: every picture a job made, kept or refused
+
+
+def trace(clip_path, clip, tmp, kept, ideas=False):
+    """The clip's trace (4-oct-2026, the user: « qu'on ait toujours les traces des images refusées »): every picture
+    the clip made — kept, refused, the hero's other take — copied with its prompt, its seed, the check's answers and
+    the verdict with its reason (trace.json), plus the round of ideas (the ideas refused before any picture). Under
+    output/_broll_trace (a ``.keep`` keeps it out of the job clean-up). Changes nothing the job shows; never raises;
+    BROLL_TRACE=0 switches it off."""
+    if os.environ.get("BROLL_TRACE", "1") == "0":
+        return None
+    if not LAST_CHECKS:
+        try:
+            import broll_ideas
+            if not (ideas and broll_ideas.LAST_IDEAS):
+                return None
+        except Exception:
+            return None
+    import json
+    import shutil
+    import time
+    try:
+        job_dir = os.path.dirname(os.path.abspath(clip_path))
+        root = os.path.join(os.path.dirname(job_dir), TRACE_DIR)
+        folder = os.path.join(root, f"{time.strftime('%Y-%m-%d')}_{os.path.basename(job_dir)[:8]}",
+                              os.path.splitext(os.path.basename(clip_path))[0])
+        os.makedirs(folder, exist_ok=True)
+        open(os.path.join(root, ".keep"), "a").close()
+        kept_files = {os.path.basename(c["file"]) for c in kept}
+        pictures = []
+        for e in LAST_CHECKS:
+            src = os.path.join(tmp, e["file"])
+            if os.path.exists(src):
+                shutil.copyfile(src, os.path.join(folder, e["file"]))
+            pictures.append({**e, "kept": e["file"] in kept_files})
+        rounds = []
+        if ideas:
+            import broll_ideas
+            rounds = [dict(r) for r in broll_ideas.LAST_IDEAS]
+        with open(os.path.join(folder, "trace.json"), "w", encoding="utf-8") as f:
+            json.dump({"clip": str(clip.get("video_title_for_youtube_short") or ""), "made": time.strftime("%Y-%m-%d %H:%M"),
+                       "pictures": pictures, "ideas": rounds}, f, ensure_ascii=False, indent=1, default=str)
+        refused = sum(1 for p in pictures if not p["kept"])
+        print(f"   🗃️ B-roll trace: {len(pictures)} picture(s), {refused} not kept -> {folder}")
+        return folder
+    except Exception as e:
+        print(f"   ⚠️ B-roll trace not written ({str(e)[:120]}).")
+        return None

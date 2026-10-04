@@ -984,3 +984,36 @@ def test_with_ideas_the_reserve_of_the_round_is_made_only_in_the_modes_that_ask_
                                 reserve_mode=mode)
     assert [m[0] for m in made] == ["broll_0.jpg"] + (["broll_1r.jpg"] if reserve_made else [])
     assert len(kept) == len(pictured) == (2 if reserve_made else 1)
+
+
+# --- the trace of every picture a job made (4-oct-2026) ---------------------------------------------------------------
+def test_the_trace_keeps_every_picture_with_its_verdict(tmp_path, monkeypatch):
+    import json as _json
+    monkeypatch.delenv("BROLL_TRACE", raising=False)
+    job = tmp_path / "output" / "abcdef12-job"
+    job.mkdir(parents=True)
+    tmp = tmp_path / "tmp"
+    tmp.mkdir()
+    for name in ("broll_0.jpg", "broll_0_alt.jpg"):
+        (tmp / name).write_bytes(b"jpg")
+    broll_v20.LAST_CHECKS[:] = [
+        {"file": "broll_0.jpg", "k": 0, "verdict": "alt", "why": "pulls attention away", "prompt": "a fridge", "seed": 7},
+        {"file": "broll_0_alt.jpg", "k": 0, "verdict": "keep", "why": "", "prompt": "a man", "seed": 8}]
+    kept = [{"file": str(tmp / "broll_0_alt.jpg")}]
+    folder = broll_v20.trace(str(job / "x_clip_3.mp4"), {"video_title_for_youtube_short": "T"}, str(tmp), kept)
+    assert folder and "_broll_trace" in folder and folder.endswith("x_clip_3")
+    assert (tmp_path / "output" / "_broll_trace" / ".keep").exists()
+    data = _json.loads(open(os.path.join(folder, "trace.json"), encoding="utf-8").read())
+    assert [(p["file"], p["kept"], p["why"], p["seed"]) for p in data["pictures"]] == [
+        ("broll_0.jpg", False, "pulls attention away", 7), ("broll_0_alt.jpg", True, "", 8)]
+    assert os.path.exists(os.path.join(folder, "broll_0.jpg")) and data["clip"] == "T"
+    broll_v20.LAST_CHECKS[:] = []
+
+
+def test_the_trace_can_be_switched_off_and_never_breaks_a_job(tmp_path, monkeypatch):
+    broll_v20.LAST_CHECKS[:] = [{"file": "broll_0.jpg", "k": 0, "verdict": "keep"}]
+    monkeypatch.setenv("BROLL_TRACE", "0")
+    assert broll_v20.trace(str(tmp_path / "j" / "c.mp4"), {}, str(tmp_path), []) is None
+    monkeypatch.setenv("BROLL_TRACE", "1")
+    assert broll_v20.trace("\0bad", {}, str(tmp_path), []) is None        # an unwritable place: a warning, no error
+    broll_v20.LAST_CHECKS[:] = []

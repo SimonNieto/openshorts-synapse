@@ -10,3 +10,4 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # the suite's behavior would depend on the developer's personal .env.
 os.environ["BILLING_ENABLED"] = "0"
 os.environ["BROLL_LESSONS"] = "0"          # the tests never write the real lessons journal (broll_lessons)
+os.environ["BROLL_TRACE"] = "0"           # nor a trace of B-roll pictures (broll_v20.trace)

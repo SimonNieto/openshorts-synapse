@@ -132,6 +132,7 @@ def main():
     ap.add_argument("--clip", default="")
     ap.add_argument("--only", default="", help="bench moments by name (05_univers,...): a folder of their own")
     ap.add_argument("--moments", default="", help="clip mode: render only these moments (1-based, e.g. 3,4)")
+    ap.add_argument("--no-refused", action="store_true", help="do not make the refused ideas (their trace)")
     args = ap.parse_args()
     if args.clip:
         moments, tag = clip_moments(args.clip)
@@ -173,10 +174,18 @@ def main():
             prompt = f"{picture} {SUFFIX}"
             seed, made = None, False
             wanted = not args.moments or (k + 1) in {int(x) for x in args.moments.split(",") if x.strip()}
+            refused_file = None
             if picture and v.get("verdict") == "pass" and wanted:
                 _g, seed = render(prompt, os.path.join(folder, name + ".jpg"), "card")
                 made = bool(_g)
-            entry = {"file": name + ".jpg" if made else None, "moment": label, "clip": title, "heard_before": before,
+            elif picture and wanted and not args.no_refused:
+                # the trace of a refused idea (the user: « qu'on ait toujours les traces des images refusées »): made
+                # anyway into refused/, never used, to see what the verifier stopped
+                os.makedirs(os.path.join(folder, "refused"), exist_ok=True)
+                _g, seed = render(prompt, os.path.join(folder, "refused", name + ".jpg"), "card")
+                refused_file = f"refused/{name}.jpg" if _g else None
+            entry = {"file": name + ".jpg" if made else None, "refused_file": refused_file, "moment": label,
+                     "clip": title, "heard_before": before,
                      "sentence": said, "idea": m.get("idea"), "picture": picture, "prompt": prompt, "seed": seed,
                      "verifier": v.get("verdict"), "verifier_reason": v.get("reason") or "", "layout": "card",
                      "style": "simplified" if simple else "charte",
@@ -199,11 +208,21 @@ def main():
     print("DONE")
 
 
-def _cell(sheet, d, path, x, y, TW, TH, refused, font):
+def _cell(sheet, d, path, x, y, TW, TH, refused, font, refused_path=None):
     if path and os.path.exists(path):
         im = Image.open(path).convert("RGB")
         im.thumbnail((TW, TH))
         sheet.paste(im, (x, y))
+    elif refused_path and os.path.exists(refused_path):
+        # the refused picture, greyed, under a red band with the verifier's reason: never used, kept to learn from
+        from PIL import ImageEnhance
+        im = Image.open(refused_path).convert("RGB")
+        im.thumbnail((TW, TH))
+        im = ImageEnhance.Color(im).enhance(0.25)
+        sheet.paste(im, (x, y))
+        d.rectangle([x, y, x + im.width, y + 56], fill=(150, 30, 30))
+        for i, line in enumerate(bb._wrap(f"REFUSÉE — {refused}", font, im.width - 20)[:2]):
+            d.text((x + 10, y + 6 + i * 22), line, fill=(255, 255, 255), font=font)
     else:
         d.rectangle([x, y, x + TW, y + TH], outline=(140, 140, 140), width=2)
         for i, line in enumerate(bb._wrap(refused or "pas d'image", font, TW - 20)[:4]):
@@ -256,7 +275,8 @@ def sheet_clip(index, folder, tag):
     for j, e in enumerate(index):
         x, y = 20 + (j % 2) * (TW + 20), 70 + (j // 2) * ROW
         _cell(sheet, d, os.path.join(folder, e["file"]) if e["file"] else None, x, y, TW, TH,
-              f"refusée par le vérificateur : {e['verifier_reason']}" if e["verifier"] == "refuse" else "", fs)
+              e["verifier_reason"] if e["verifier"] == "refuse" else "", fs,
+              refused_path=os.path.join(folder, e["refused_file"]) if e.get("refused_file") else None)
         yy = y + TH + 8
         d.text((x, yy), f"{j + 1}. à {e['moment']}" + ("   — dessin simplifié (gore)" if e.get("style") == "simplified"
                                                         else ""), fill=(255, 216, 77), font=fb)
