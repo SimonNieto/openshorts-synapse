@@ -25,10 +25,9 @@ Une négation se dessine : la chose niée, dessinée, barrée de deux traits rou
 d'interdiction. Jamais « une croix » : le modèle d'image en fait un crucifix, et dans un clip sur une mort c'est une croix
 de tombe.
 
-## Le corps ouvert : le dessin simplifié
+## Le corps opéré
 
-Décidé par l'utilisatrice le 4 octobre : quand une image montrerait du gore (un corps ouvert, une plaie, une coupe
-dans la chair, un tissu sorti du corps, un os qu'on soulève), elle n'est pas refusée : elle est dessinée plus simple,
-pour que le gore disparaisse. Le suffixe de ces images-là, à la place de celui de la charte :
-
-> Simplified flat illustration: clean bold outlines, flat soft colours, simple clean shapes, dry and calm, no texture, readable at a glance.
+Une opération se dessine dans la charte, comme le reste : l'organe lui-même, propre et entier (le cerveau, la colonne,
+la moelle), en grand, avec l'instrument posé contre lui au bon endroit, et le patient à côté quand la phrase parle de
+lui. Jamais la tête ouverte, la chair coupée, une plaie, du sang, un tissu sorti du corps. (Le 4 octobre, le dessin
+simplifié essayé pour le gore a fait perdre le sens et la qualité : abandonné.)

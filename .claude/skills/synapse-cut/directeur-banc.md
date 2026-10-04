@@ -30,3 +30,6 @@ symbole le plus simple de la phrase, en grand.**
     voit d'un tableau à l'autre. (Retenu par l'utilisatrice le 4 octobre : c'est la logique qu'elle veut garder.)
 13. Aucune comparaison dans la description de l'image (« fin comme une feuille » donne une feuille) : le modèle dessine
     chaque mot. Une ressemblance se montre en mettant les deux choses côte à côte, jamais en l'écrivant.
+14. Le corps opéré : l'organe lui-même, propre et entier, dessiné en grand dans la charte, l'instrument posé contre lui
+    au bon endroit, le patient à côté quand la phrase parle de lui. Jamais la tête ouverte, la chair coupée, une plaie,
+    du sang, un tissu sorti du corps.
