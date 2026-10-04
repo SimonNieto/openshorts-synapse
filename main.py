@@ -3030,6 +3030,17 @@ if __name__ == '__main__':
             except NoAudioError as e:
                 print(f"🔇 {e} — switching to visual analysis.")
 
+        # Whisper sometimes opens a segment with a name nobody says ("Trevor
+        # Burrus That's not TRT"): the brief took them for the guests and the
+        # credit line of every description named them. Cleaned on every source
+        # (checkpoint, ai_cache, fresh run).
+        if transcript is not None:
+            import transcript_clean
+            removed = transcript_clean.strip_speaker_labels(transcript, playbook.episode_title(input_video))
+            if removed:
+                print("🧹 Whisper speaker labels removed: "
+                      + ", ".join(f"{name} ×{n}" for name, n in removed.items()))
+
         # Music-only or wordless footage transcribes to a handful of words.
         # Clip it by what is on screen instead, like a video with no audio.
         if transcript is not None and speech_is_sparse(transcript, duration):
@@ -3098,14 +3109,17 @@ if __name__ == '__main__':
             playbook_tokens = None
             if playbook.enabled():
                 show = (os.environ.get("PLAYBOOK_SHOW") or "").strip()
+                # The credit names a guest the title doesn't only if they are said.
+                spoken = (" ".join(sg.get("text") or "" for sg in transcript["segments"])
+                          if transcript else None)
                 playbook_tokens = playbook.prepare(clips_data['shorts'], clips_data['source_video'],
-                                                   episode_brief, show)
+                                                   episode_brief, show, spoken=spoken)
                 if playbook.title_variety_enabled():
                     retitle_repeats(clips_data['shorts'], transcript, playbook_tokens)
                 if playbook.hook_check_enabled():
                     retry_unclear_hooks(clips_data['shorts'], transcript)
                 clips_data['playbook'] = {
-                    "credit": playbook.credit_line(clips_data['source_video'], episode_brief, show),
+                    "credit": playbook.credit_line(clips_data['source_video'], episode_brief, show, spoken),
                     "name_tokens": playbook_tokens,
                 }
                 print(f"   📝 Playbook credit: {clips_data['playbook']['credit']}")

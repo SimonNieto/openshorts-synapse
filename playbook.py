@@ -167,13 +167,22 @@ def speaker_names(brief) -> list:
     return out
 
 
-def credit_line(source_video: str, brief=None, show: str = "") -> str:
+def _spoken(name: str, spoken: str) -> bool:
+    last = name.split()[-1]
+    return bool(re.search(r"(?<![A-Za-z])" + re.escape(last) + r"(?![A-Za-z])", spoken, re.I))
+
+
+def credit_line(source_video: str, brief=None, show: str = "", spoken=None) -> str:
     """'Clip from Joe Rogan Experience, Ep. 2553 - Andrew Huberman. All rights
-    to the original creators.' Guests the title does not name are added."""
+    to the original creators.' Guests the title does not name are added —
+    when ``spoken`` (the transcript text) is given, only if their name is
+    actually said: a published credit must never name someone the brief
+    guessed wrong."""
     title = episode_title(source_video)
     show, rest = split_show(title, show)
     head = f"{show}, {rest}" if show and rest else (show or rest)
-    missing = [n for n in speaker_names(brief) if n.lower() not in head.lower()]
+    missing = [n for n in speaker_names(brief) if n.lower() not in head.lower()
+               and (spoken is None or _spoken(n, spoken))]
     if missing:
         head += (", " if head else "") + "with " + " & ".join(missing)
     head = _no_hash(head).strip().rstrip(".")
@@ -726,11 +735,11 @@ def moment_id(source_video: str, start, end) -> str:
     return "m_" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
 
 
-def prepare(shorts, source_video, brief=None, show="", series_name=""):
+def prepare(shorts, source_video, brief=None, show="", series_name="", spoken=None):
     """After selection, before rendering: credit line in both descriptions,
     moment id, bucket clean-up and a first name check. Returns the name
     tokens (the render re-checks the title once hook grounding had its say)."""
-    credit = credit_line(source_video, brief, show)
+    credit = credit_line(source_video, brief, show, spoken)
     tokens = name_tokens(source_video, brief, show, (series_name,))
     for c in shorts:
         for k in ("video_description_for_tiktok", "video_description_for_instagram"):
