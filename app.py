@@ -7101,6 +7101,13 @@ async def story_config():
             "cast": [{"id": k, "name": v["name"]} for k, v in story.CAST.items()]}
 
 
+# The cover of a posted clip (4-oct-2026, the user: « la couverture, c'est toujours le truc écrit, le hook »): the
+# frame at 1.5 s, the hook's title fully on screen (hooks.DOCLINE: in by 0.65 s, out at 3.3 s; captions and B-roll
+# keep clear of it). TikTok: cover_timestamp, Instagram Reels: thumb_offset, both in ms. YouTube does not let an
+# API set a Short's thumbnail (Upload-Post's thumbnail fields are for standard videos only).
+UPLOAD_POST_COVER_MS = 1500
+
+
 def _upload_post_send(upload_key: str, post_user: str, job_id: str, clip_index: int, file_path: str,
                       platforms: List[str], captions: dict, scheduled_date: Optional[str],
                       timezone: Optional[str]):
@@ -7124,9 +7131,11 @@ def _upload_post_send(upload_key: str, post_user: str, job_id: str, clip_index: 
     if "tiktok" in platforms:
         data_payload["tiktok_title"] = captions["tiktok"]
         data_payload["post_mode"] = TIKTOK_POST_MODE
+        data_payload["cover_timestamp"] = str(UPLOAD_POST_COVER_MS)
     if "instagram" in platforms:
         data_payload["instagram_title"] = captions["instagram"]
         data_payload["media_type"] = "REELS"
+        data_payload["thumb_offset"] = str(UPLOAD_POST_COVER_MS)
     if "youtube" in platforms:
         data_payload["youtube_title"] = captions["youtube_title"]
         data_payload["youtube_description"] = captions["youtube_description"]
