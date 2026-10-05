@@ -29,6 +29,9 @@ TOPIC_BUCKETS = ("brain_danger", "substances", "psychosis_mental_illness", "crim
 # (récit report, JRE #2553). An order of preference for the model's ranking, never a filter; exported in
 # <clip>_playbook.json to read the views by nature. Anything else is stored as "other".
 MOMENT_NATURES = ("threat_to_you", "person_at_stake", "your_mind", "debate", "other")
+# What the first ~5 s heard must do (5-oct-2026, lot Sélection; the jury's criteria of the same names,
+# hook_jury.py): the clip-choice call lists the ones its opening fails in ``opening_misses``.
+OPENING_CRITERIA = ("stands_alone", "topic_named", "tension")
 # The Synapse Cut's own niche, the brain and the mind (the profile's topics of 1-oct-2026): the profile screen
 # shows the other buckets as off niche (4-oct-2026).
 NICHE_CORE = ("brain_danger", "substances", "psychosis_mental_illness", "crime_dark", "medical_mystery",
@@ -754,6 +757,8 @@ def prepare(shorts, source_video, brief=None, show="", series_name="", spoken=No
             c["topic_bucket"] = "other"
         if c.get("moment_nature") not in MOMENT_NATURES:
             c["moment_nature"] = "other"
+        if "opening_misses" in c:
+            c["opening_misses"] = [m for m in c.get("opening_misses") or [] if m in OPENING_CRITERIA]
         if check_title(c, tokens):
             print(f"   ⚠️ Playbook: a name is in the title of the clip at {float(c.get('start', 0)):.0f}s "
                   f"({', '.join(c['title_names'])}): {c.get('video_title_for_youtube_short')}")
@@ -874,6 +879,15 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         # their look — for the views <-> B-roll stats.
         "broll": broll_summary(clip),
         "score": clip.get("predicted_score"),
+        # The opening (5-oct-2026, main.rank_by_opening): the score above weighs the moment (moment_score, the
+        # model's own) and its opening (opening_score, judged in the clip-choice call; opening_misses: which of
+        # stands_alone / topic_named / tension it fails; opening_flags: what the code found in the final cut).
+        "moment_score": clip.get("moment_score", clip.get("predicted_score")),
+        "opening_score": clip.get("opening_score"),
+        "opening_misses": [m for m in clip.get("opening_misses") or [] if m in OPENING_CRITERIA],
+        "opening_flags": clip.get("opening_flags") or [],
+        # A bigger channel posted this moment in the last 30 days (already_clipped.py; off by default).
+        "already_clipped": clip.get("already_clipped") or None,
         # Outside the profile's niche_topics: the score above lost the niche
         # weight, score_raw is what the model gave (apply_niche).
         "off_niche": bool(clip.get("off_niche")),

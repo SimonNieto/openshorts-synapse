@@ -1844,8 +1844,59 @@ def _is_boundary(words, i):
     return i + 1 < len(words) and _pause_after(words, i) >= _PAUSE_BOUNDARY
 
 
+# A sentence start Whisper did not punctuate (5-oct-2026, lot Sélection): long runs come back without a full
+# stop (JRE #2515-001: 373 words in a row) and many sentence breaks are shorter than _PAUSE_BOUNDARY — "...and
+# a few others | Was interested in what they do" (0.63 s), "I wrote that book | It was gnarly" (0.28 s). The
+# capital is still there: a capitalised COMMON word after a pause of CAPITAL_PAUSE s or more opens a sentence.
+# Common = one of _CAPITAL_COMMON, an "-ly" adverb, or a word the transcript also writes in lower case; never
+# "I", a name or an acronym ("AI", "DMT", "OpenAI", "Michelle"). Used for the starts only, never for the ends.
+CAPITAL_PAUSE = 0.25
+_CAPITAL_COMMON = set("""a an the and but so or if when while because then now just there here this that these
+those they he she it we you my your his her our their what why how who which one some every no yes yeah well
+was is are were did do does had have has can could would will should maybe even never always it's that's
+there's what's here's let's don't""".split())
+_LOWER_SEEN = {"key": None, "words": frozenset()}
+
+
+def _lower_seen(words):
+    """The bare words the transcript writes in lower case at least once (cached per word list)."""
+    key = (id(words), len(words), words[0]["s"] if words else 0, words[-1]["e"] if words else 0)
+    if _LOWER_SEEN["key"] != key:
+        _LOWER_SEEN["key"] = key
+        _LOWER_SEEN["words"] = frozenset(re.sub(r"[^a-z']", "", w.get("w", "").strip().lower())
+                                         for w in words if w.get("w", "").strip()[:1].islower())
+    return _LOWER_SEEN["words"]
+
+
+def _capital_start(words, i):
+    """Word ``i`` opens a sentence Whisper left unpunctuated (see CAPITAL_PAUSE)."""
+    if i <= 0 or i >= len(words) or _pause_after(words, i - 1) < CAPITAL_PAUSE:
+        return False
+    raw = (words[i].get("w") or "").strip().lstrip("\"'“‘(")
+    letters = re.sub(r"[^A-Za-z']", "", raw)
+    if len(letters) < 2 or not letters[0].isupper() or letters[1:].replace("'", "").isupper():
+        return False   # "I", "AI", "DMT", "BMJ"
+    bare = letters.lower()
+    if bare.startswith("i'"):
+        return False   # "I'm", "I've"
+    return bare in _CAPITAL_COMMON or bare.endswith("ly") or bare in _lower_seen(words)
+
+
+# ...and a pause alone is no sentence start when the next word, in lower case, carries the sentence on
+# ("...actually a part of a cell | that's in another being", JRE #2515-001: a 1.4 s pause mid-sentence).
+_CARRIES_ON = set("""in on at of to for with from by about into onto than as that that's which who whom whose
+where is are was were be been being 's""".split())
+
+
 def _opens_sentence(words, i):
-    return i == 0 or _is_boundary(words, i - 1)
+    if i == 0 or _capital_start(words, i):
+        return True
+    if not _is_boundary(words, i - 1):
+        return False
+    if _ends_sentence(words, i - 1):
+        return True
+    raw = (words[i].get("w") or "").strip().lstrip("\"'“‘(")
+    return not (raw[:1].islower() and re.sub(r"[^a-z']", "", raw.lower()) in _CARRIES_ON)
 
 
 _FILLER_PAIRS = {("i", "mean"), ("you", "know")}
@@ -2008,7 +2059,10 @@ def land_payoff(clip, words, min_secs, max_secs, pauses=False):
 # A sentence that opens on what came before it cannot open a clip: "the
 # second thing was they pushed my head back" (picked on JRE #2515, 1-oct-2026)
 # points at a first thing the viewer never heard.
-_OPENS_ON_BEFORE = re.compile(r"^(?:and\s+)?(?:then|also|after that|another|the (?:second|third|next|other|last)\b)")
+# 5-oct-2026 (lot Sélection): an answer to a question nobody heard ("Because they can't patent it.") and a
+# conclusion of what came before ("Which is why...", "That's why...") point back as well.
+_OPENS_ON_BEFORE = re.compile(r"^(?:and\s+)?(?:then|also|after that|another|the (?:second|third|next|other|last)\b"
+                              r"|because\b(?!\s+of\b)|which\b|(?:that['’]s|that is|this is) why\b)")
 # ...but a lone "Also," / "Plus," in front of a sentence that stands is
 # stepped over (JRE #2553 c08, 4-oct-2026: "Also, now people aren't afraid
 # of needles." opens on "now people...").
@@ -2134,6 +2188,157 @@ def _playbook_start(clip, words, start, end, min_secs, max_secs):
             # Already on a sentence end: CLEAN_END must not push it past max.
             clip["end_fit_for_hook"] = True
     return start, end
+
+
+# --- the opening, chosen among real sentence starts and scored (5-oct-2026, lot Sélection) -------
+# The user: « il faut que le texte soit choisi intelligemment au début comme à la fin ». Her numbers
+# (output/_stepup/donnees/rapport.md): the share of viewers who do not swipe in the first seconds decides a
+# short (>= 63 % -> 5 of 8 left the first test audience; < 63 % -> 1 of 15); the same passage went from 47.7 %
+# to 77.8 % with another opening; predicted_score followed it badly (Spearman 0.34, 12 published shorts):
+# it judged the moment, not its opening. So the clip choice opens ON a sentence start the code found
+# (marked_text), scores that opening in the same call (opening_score: no call more), the code checks the
+# final cut (check_opening) and the ranking weighs both (rank_by_opening). A preference, never a filter.
+OPENING_WEIGHT = 0.5            # share of predicted_score carried by the opening
+OPENING_TOPIC_SECONDS = 5.0     # the subject of the title or the hook is said within this
+# Points the opening loses for what the code finds in the final cut (a flag ×1 each).
+OPENING_PENALTY = {"mid_sentence": 25, "points_back": 15, "request": 15, "pronoun": 8, "topic_late": 8}
+# A first word pointing at someone or something the viewer has not met ("They have side effects.", JRE
+# #2553 c04; "Those are the ones..."): flagged, never moved — the on-screen hook may name them.
+_OPENS_ON_PRONOUN = re.compile(r"^(?:they|them|he|she|him|her|those|these|that['’]s|that was|that is)\b")
+_PERSONAL = {"they", "them", "he", "she", "him", "her"}
+
+
+def _opening_start(words, k):
+    """(word index a clip opening on the sentence at ``k`` really opens on, verdict): its filler stepped
+    over (up to 3 words, as align_hook_and_punchline does), then _opening."""
+    skipped = 0
+    while k < len(words) - 1 and skipped < 3:
+        n = _playbook_filler(words, k)
+        if not n or k + n >= len(words):
+            break
+        k += n
+        skipped += n
+    return _opening(words, k)
+
+
+def marked_text(words, lo, hi):
+    """The words said in [lo, hi] with "[<seconds>]" in front of each sentence a clip may open on: a
+    sentence start (_opens_sentence: a full stop, a pause, a capital), stepped over its filler, never one
+    that points back nor a request to someone in the room. What the clip-choice prompt reads in place of
+    the plain window text: the model opens its clips on one of these marks."""
+    idx = [i for i, w in enumerate(words) if lo - 0.05 <= w["s"] <= hi]
+    marks = set()
+    for i in idx:
+        if _opens_sentence(words, i):
+            k, verdict = _opening_start(words, i)
+            if not verdict and words[k]["s"] <= hi:
+                marks.add(k)
+    out = []
+    for i in idx:
+        if i in marks:
+            out.append(f"[{words[i]['s']:.1f}]")
+        out.append((words[i].get("w") or "").strip())
+    return " ".join(t for t in out if t)
+
+
+def _stem(word):
+    return word[:5] if len(word) >= 5 else word
+
+
+def check_opening(clip, words, seconds=None):
+    """What the code can tell of the final cut's first seconds, without AI: ``opening_flags`` =
+    mid_sentence (no sentence start there), points_back / request (_OPENS_ON_BEFORE / _OPENS_ON_REQUEST),
+    pronoun (_OPENS_ON_PRONOUN; a personal one is fine when the hook names a person), topic_late (no
+    significant word of the title or the on-screen hook said in the first OPENING_TOPIC_SECONDS s).
+    Returns the flags."""
+    seconds = OPENING_TOPIC_SECONDS if seconds is None else seconds
+    start = float(clip.get("start", 0))
+    k0 = next((j for j, w in enumerate(words) if w["s"] >= start - 0.05), None)
+    flags = []
+    if k0 is not None:
+        k, verdict = _opening_start(words, k0)
+        if clip.get("start_mid_sentence") or not (_opens_sentence(words, k0) or _opens_sentence(words, k)):
+            flags.append("mid_sentence")
+        if verdict == "before" or clip.get("opens_on_before"):
+            flags.append("points_back")
+        if verdict == "request" or clip.get("opens_on_request"):
+            flags.append("request")
+        text = _sentence_text(words, k).lower().lstrip("\"'“‘(")
+        m = _OPENS_ON_PRONOUN.match(text)
+        if m:
+            hook = [playbook._singular(w) for w in playbook._hook_words(clip.get("viral_hook_text"))]
+            if not (m.group(0) in _PERSONAL and any(w in playbook._HOOK_PERSONS for w in hook)):
+                flags.append("pronoun")
+        topic = {_stem(w) for w in playbook._sig_words(f"{clip.get('video_title_for_youtube_short') or ''} "
+                                                       f"{clip.get('viral_hook_text') or ''}")}
+        said = " ".join(w["w"] for w in words[k0:] if w["s"] < start + seconds)
+        if topic and not topic & {_stem(w) for w in playbook._sig_words(said)}:
+            flags.append("topic_late")
+    clip["opening_flags"] = flags
+    return flags
+
+
+def _score(v):
+    try:
+        return None if v is None or isinstance(v, bool) else max(0.0, min(100.0, float(v)))
+    except (TypeError, ValueError):
+        return None
+
+
+def rank_by_opening(clip):
+    """predicted_score — what ranks the clips everywhere after (trim_to_best, the dedupe, the auto-publish,
+    the line-up) — from the moment AND its opening: (1 - OPENING_WEIGHT) x the moment (the model's own
+    predicted_score, kept once in ``moment_score``) + OPENING_WEIGHT x the opening (the model's
+    ``opening_score``, the moment's when it gave none, minus OPENING_PENALTY for each of ``opening_flags``).
+    A clip another channel already posted loses already_clipped.PENALTY. An off-niche clip keeps the cut
+    apply_niche gave it. Safe to call again: it starts from ``moment_score``. Returns the new score."""
+    import already_clipped
+    if "moment_score" not in clip:
+        clip["moment_score"] = clip.get("predicted_score")
+    moment = _score(clip.get("moment_score"))
+    if moment is None:
+        return clip.get("predicted_score")
+    opening = _score(clip.get("opening_score"))
+    base = moment if opening is None else opening
+    base = max(0.0, base - sum(OPENING_PENALTY.get(f, 0) for f in clip.get("opening_flags") or []))
+    score = (1 - OPENING_WEIGHT) * moment + OPENING_WEIGHT * base
+    if clip.get("already_clipped"):
+        score -= already_clipped.PENALTY
+    score = int(round(max(0.0, score)))
+    niche_cut = 0
+    if clip.get("off_niche") and _score(clip.get("predicted_score_raw")) is not None:
+        niche_cut = max(0, int(clip["predicted_score_raw"]) - int(clip.get("predicted_score") or 0))
+        clip["predicted_score_raw"] = score
+    clip["predicted_score"] = max(0, score - niche_cut)
+    return clip["predicted_score"]
+
+
+def rank_openings(shorts, words):
+    """Once the cuts are final: check_opening on each clip, the already-clipped search (when switched on,
+    already_clipped.py), rank_by_opening, and what was found in the log."""
+    import already_clipped
+    for s in shorts:
+        check_opening(s, words)
+    try:
+        n = already_clipped.check(shorts, (os.environ.get("PLAYBOOK_SHOW") or "").strip())
+        if n:
+            print(f"   📺 Already clipped: {n} clip(s) posted by a bigger channel in the last "
+                  f"{already_clipped.WINDOW_DAYS} days (-{already_clipped.PENALTY} points each).")
+    except Exception as e:
+        print(f"   ⚠️ Already-clipped check skipped ({type(e).__name__}: {str(e)[:120]})")
+    for s in shorts:
+        before = s.get("predicted_score")
+        rank_by_opening(s)
+        flags = s.get("opening_flags") or []
+        if flags or s.get("opening_score") is not None:
+            k0 = next((j for j, w in enumerate(words) if w["s"] >= float(s["start"]) - 0.05), None)
+            heard = _sentence_text(words, k0, 14)[:80] if k0 is not None else ""
+            print(f"      🎬 {float(s['start']):.0f}s: opening {s.get('opening_score', '?')}"
+                  f"{' (' + ', '.join(flags) + ')' if flags else ''}, moment {s.get('moment_score')}, "
+                  f"score {before} -> {s['predicted_score']}: \"{heard}\"")
+    clean = sum(not s.get("opening_flags") for s in shorts)
+    print(f"   🎬 Openings: {clean}/{len(shorts)} clip(s) open clean (sentence start, stands alone, subject said "
+          f"within {OPENING_TOPIC_SECONDS:g}s); the ranking weighs the opening at {OPENING_WEIGHT:.0%}.")
 
 
 def align_hook_and_punchline(clip, words, min_secs, max_secs, punchline=True, playbook=False):
@@ -2428,7 +2633,8 @@ def shorten_to_target(shorts, words, min_secs, target, language="en", ask=None):
         picks = {}
         for p in answer.get("clips") or []:
             try:
-                picks[int(p.get("id"))] = (int(p.get("open_on")), str(p.get("viral_hook_text") or "").strip())
+                picks[int(p.get("id"))] = (int(p.get("open_on")), str(p.get("viral_hook_text") or "").strip(),
+                                           _score(p.get("opening_score")))
             except (AttributeError, TypeError, ValueError):
                 continue
     except Exception as e:
@@ -2456,6 +2662,10 @@ def shorten_to_target(shorts, words, min_secs, target, language="en", ask=None):
         if pick[1] and pick[1] != (c.get("viral_hook_text") or "").strip():
             c["hook_before_open_later"] = c.get("viral_hook_text") or ""
             c["viral_hook_text"] = re.sub(r"\s+", " ", pick[1])
+        if pick[2] is not None:
+            # 5-oct-2026: the new opening's own score, from this same call (rank_by_opening).
+            c["opening_score"] = int(round(pick[2]))
+            c.pop("opening_misses", None)
         moved += 1
         print(f"      ✂️ {old_start:.0f}s: {before:.0f}s -> {c['end'] - c['start']:.0f}s "
               f"(opens later, on \"{text[:70]}\"){' + new hook' if pick[1] else ''}.")
@@ -2953,6 +3163,10 @@ def get_viral_clips(transcript_result, video_duration, video_path=None):
                 for w in out:
                     p = pre.get(w["id"]) or {}
                     w["prescore"], w["prescore_reason"] = p.get("score"), p.get("reason") or ""
+            if playbook_on and words:
+                # 5-oct-2026: the sentence starts a clip may open on, marked in the text (marked_text).
+                for w in out:
+                    w["text"] = marked_text(words, w["start"], w["end"])
             return out
 
         def _detail_prompt(ws):
@@ -2985,6 +3199,10 @@ def get_viral_clips(transcript_result, video_duration, video_path=None):
                   f"{', Synapse Cut playbook' if playbook_on else ''}")
         shorts = _run_stage_split(client, model_name, shortlist, _detail_prompt,
                                   detail_schema, "shorts", costs, "detail")
+        if playbook_on:
+            # 5-oct-2026: the opening weighs in the ranking from here on (rank_by_opening).
+            for s in shorts:
+                rank_by_opening(s)
         if judge:
             print(f"   ⚖️ Final judge kept {len(shorts)} clip(s) from {len(shortlist)} pre-scored window(s):")
             for s in shorts:
@@ -3132,6 +3350,8 @@ def get_viral_clips(transcript_result, video_duration, video_path=None):
                           f"dropped ({x['reason']}).")
             print(f"   ✂️  Cut-outs for the montage: {kept} passage(s) kept on "
                   f"{sum(bool(s.get('cut_out')) for s in shorts)} clip(s), {dropped} dropped.")
+            # 5-oct-2026: the final cut's opening checked in code, the ranking weighed again.
+            rank_openings(shorts, words)
         if dedupe:
             shorts = _dedupe(shorts, "final cuts")
         print(f"   ⏱️ Clip lengths: {clip_selection.duration_summary(shorts, target_secs)}")
