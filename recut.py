@@ -28,8 +28,10 @@ from ffmpeg_utils import (METADATA_SCRUB, QUALITY_FAST, audio_encode_args,
                           video_encode_args)
 
 # EDL limits. Deliberately generous — the editor is for humans fixing cuts,
-# not for stitching feature films.
-MAX_SEGMENTS = 12
+# not for stitching feature films. 40 since 5-oct-2026: a clip the montage
+# re-cut (montage.py: every pause tightened) holds up to ~20 pieces, and its
+# recipe must stay a valid EDL.
+MAX_SEGMENTS = 40
 MIN_SEGMENT_SECONDS = 0.5
 MAX_TOTAL_SECONDS = 180.0
 
@@ -104,6 +106,43 @@ def rebase_segments(segments, range_start, range_end=None):
             end = min(end, float(range_end) - float(range_start))
         rebased.append({"start": round(start, 3), "end": round(end, 3)})
     return rebased
+
+
+def clip_to_source(segments, t):
+    """The source second shown at clip time ``t`` of the clip ``segments``
+    make back to back (past the end: the last segment's end)."""
+    offset = 0.0
+    for seg in segments:
+        length = float(seg["end"]) - float(seg["start"])
+        if t < offset + length:
+            return float(seg["start"]) + max(0.0, t - offset)
+        offset += length
+    return float(segments[-1]["end"]) if segments else float(t)
+
+
+def source_to_clip(segments, s):
+    """The clip time at which source second ``s`` is shown, or None when the
+    cut left it out."""
+    offset = 0.0
+    for seg in segments:
+        start, end = float(seg["start"]), float(seg["end"])
+        if start <= s < end:
+            return offset + (s - start)
+        offset += end - start
+    return None
+
+
+def source_range_to_clip(segments, a, b):
+    """Clip-time stretches showing the source range [a, b] (one per segment
+    it overlaps), as [(from, to)]."""
+    out, offset = [], 0.0
+    for seg in segments:
+        start, end = float(seg["start"]), float(seg["end"])
+        lo, hi = max(a, start), min(b, end)
+        if hi > lo:
+            out.append((round(offset + lo - start, 3), round(offset + hi - start, 3)))
+        offset += end - start
+    return out
 
 
 def snap_segments(segments, transcript, source_duration):

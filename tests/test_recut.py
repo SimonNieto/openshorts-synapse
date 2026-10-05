@@ -91,6 +91,30 @@ class TestRangeMath:
         assert rebased == [_seg(5.0, 15.0), _seg(20.0, 25.0)]
 
 
+class TestTimeMaps:
+    # The montage's EDL (montage.py): two stretches of the source back to back.
+    SEGS = [_seg(100.0, 102.0), _seg(103.0, 110.0)]
+
+    def test_clip_to_source(self):
+        assert recut.clip_to_source(self.SEGS, 0.0) == 100.0
+        assert recut.clip_to_source(self.SEGS, 1.5) == 101.5
+        assert recut.clip_to_source(self.SEGS, 2.0) == 103.0
+        assert recut.clip_to_source(self.SEGS, 50.0) == 110.0
+
+    def test_source_to_clip_and_what_was_cut(self):
+        assert recut.source_to_clip(self.SEGS, 101.0) == 1.0
+        assert recut.source_to_clip(self.SEGS, 104.0) == 3.0
+        assert recut.source_to_clip(self.SEGS, 102.5) is None
+
+    def test_a_source_range_across_a_cut(self):
+        assert recut.source_range_to_clip(self.SEGS, 101.0, 104.0) == [(1.0, 2.0), (2.0, 3.0)]
+        assert recut.source_range_to_clip(self.SEGS, 102.2, 102.8) == []
+
+    def test_a_montage_edl_is_a_valid_edl(self):
+        segs = [_seg(100 + 2 * k, 101 + 2 * k) for k in range(20)]
+        assert len(recut.normalize_segments(segs)) == 20
+
+
 class TestTranscriptWords:
     def test_flattens_and_sorts(self):
         transcript = {

@@ -3387,11 +3387,13 @@ class ComfyDown(RuntimeError):
 
 
 def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=None, keep_dir=None, keep_prefix="",
-              ground_hook=False):
+              ground_hook=False, block=()):
     """Cut up to cfg["max"] (1-10) images into ``clip_path``. Returns a report dict
     ({items, credits, planner, sources}) or None when nothing was added.
     ``keep_dir``: keep each image there (``<keep_prefix>broll_<k>.jpg``, named
-    in its item as ``image``) so a restyle can re-apply them."""
+    in its item as ``image``) so a restyle can re-apply them. ``block``: more
+    (from, to) clip stretches no image may start in (the montage, 5-oct-2026:
+    the reactions and the tight frames hiding its joins, montage.broll_block)."""
     import viral_fx
     # "manual" review: the images are kept next to the clip and listed, but
     # nothing is cut in until the user approves them (app.py .../broll/apply).
@@ -3401,7 +3403,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     LAST_GEN[:] = []
     # The picture the source itself showed (screen_inset): one of the cards, placed by the source, not planned.
     screen = screen_item(clip.get("screen_inset"), keep_dir)
-    block = _block_of(screen)
+    block = _block_of(screen) + [(float(a), float(b)) for a, b in (block or ())]
 
     def screen_only():
         return add_screen_only(clip_path, out_path, clip.get("screen_inset"), keep_dir, manual)

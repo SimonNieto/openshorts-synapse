@@ -27,6 +27,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 
 FPS = 5
 WIDTH = 480
@@ -37,6 +38,11 @@ SMOOTH = os.environ.get("SMOOTH_CAMERA", "0") == "1"
 REACT_LEN = 1.2 if SMOOTH else 0.9   # s: length of one cutaway
 REACT_FADE = 0.13       # s: dissolve in and out, smooth camera only
 FACE_MIN_H = 0.18       # dominant face height (fraction of frame) — a close shot
+# With the montage (5-oct-2026, decision 4: never 6 s without a change; the image study's idea 1): up to 3
+# reactions a clip, one per 10 s, 7 s apart — placed in the holes between the other changes.
+SMOOTH_MAX_N = 3
+SMOOTH_EVERY = 10
+SMOOTH_GAP = 7
 
 
 def _encode_args():
@@ -211,14 +217,22 @@ def find_reactions(src, clip_start, clip_end, words_abs, pad=60.0, log=print):
     return out, size, shots, ref
 
 
-def insertion_points(words_rel, duration, punchline_time=None, max_n=None):
-    """Clip-relative times just after a line lands."""
+def insertion_points(words_rel, duration, punchline_time=None, max_n=None, events=None):
+    """Clip-relative times just after a line lands.
+
+    ``events`` (Clip Generator++ montage, 5-oct-2026): the other changes on screen already known, (in,
+    out) in clip seconds (the source's camera cuts, the tight frames hiding the montage's joins). Given,
+    the reactions go in the holes: up to SMOOTH_MAX_N (one per SMOOTH_EVERY s), SMOOTH_GAP s apart, each
+    at the punch_in.spaced distance from every other change, the emptiest stretches first."""
     from viral_fx import keyword_score
     if SMOOTH:
-        max_n = max_n or max(1, min(2, int(duration // 18)))
+        if events is not None:
+            max_n = max_n or max(1, min(SMOOTH_MAX_N, int(duration // SMOOTH_EVERY)))
+        else:
+            max_n = max_n or max(1, min(2, int(duration // 18)))
     else:
         max_n = max_n or max(1, min(3, int(duration // 12)))
-    gap = 12 if SMOOTH else 6
+    gap = (SMOOTH_GAP if events is not None else 12) if SMOOTH else 6
     ends = []
     sent = []
     for w in words_rel:
@@ -227,6 +241,30 @@ def insertion_points(words_rel, duration, punchline_time=None, max_n=None):
             strength = max(keyword_score(x["text"]) for x in sent)
             ends.append((w["end"], strength))
             sent = []
+    if events is not None:
+        import punch_in
+        evs = [(float(a), float(b)) for a, b in events]
+
+        def fits(t, picks):
+            return (2.0 <= t <= duration - 1.5 - REACT_LEN and all(abs(t - q) >= gap for q in picks)
+                    and punch_in.spaced(t + 0.08, t + 0.08 + REACT_LEN,
+                                        evs + [(q + 0.08, q + 0.08 + REACT_LEN) for q in picks]))
+
+        def room(t, picks):
+            marks = [0.0, duration] + [x for a, b in evs for x in (a, b)] + [q + 0.08 for q in picks]
+            return min(abs(t - m) for m in marks)
+
+        picks = []
+        if punchline_time is not None:
+            after = [t for t, _ in ends if t >= punchline_time]
+            if after and fits(after[0], picks):
+                picks.append(after[0])
+        while len(picks) < max_n:
+            options = [(s + 0.15 * min(room(t, picks), 8.0), t) for t, s in ends if fits(t, picks)]
+            if not options:
+                break
+            picks.append(max(options)[1])
+        return sorted(p + 0.08 for p in picks)[:max_n]
     picks = []
     if punchline_time is not None:
         after = [t for t, _ in ends if t >= punchline_time]
@@ -240,20 +278,58 @@ def insertion_points(words_rel, duration, punchline_time=None, max_n=None):
     return sorted(p + 0.08 for p in picks if 2.0 <= p <= duration - 1.5 - REACT_LEN)[:max_n]
 
 
+# The listener's seconds already shown by a clip of this job (5-oct-2026, the image study: the same nod
+# of Joe's at second 671 was in three clips, the one at 1348.5 in two). Clips render in parallel
+# (main.CLIP_WORKERS), so choosing a moment and taking it happen under one lock. One job per process.
+_JOB_USED = []
+_JOB_LOCK = threading.Lock()
+
+
+def _overlaps_used(c, used):
+    return any(c["start"] < b and a < c["start"] + c["dur"] for a, b in used)
+
+
+def reset_job():
+    """Forget the moments taken (a new job in the same process: the bench)."""
+    with _JOB_LOCK:
+        _JOB_USED.clear()
+
+
 def add_reactions(src, clip_path, clip_start, clip_end, transcript, out_path,
-                  punchline_time=None, log=print, avoid=()):
+                  punchline_time=None, log=print, avoid=(), segments=None, events=None):
     """Insert reaction cutaways into ``clip_path`` (vertical render of
     [clip_start, clip_end] of ``src``). Returns the report, or None when the
     source offers no usable reaction (nothing written then). ``avoid``:
     (from, to) source seconds no cutaway may be taken from — the seconds a
     picture is composited on the feed (screen_inset), which every camera of
-    the programme shows and the clip's own cut has hidden."""
+    the programme shows and the clip's own cut has hidden.
+
+    ``segments`` (the montage's EDL, recut.py's format): the clip is these
+    stretches of the source back to back, not [clip_start, clip_end]; its
+    words and "what is on screen at clip time t" go through that map.
+    ``events``: the other changes on screen, see insertion_points. Either
+    way, a listener moment another clip of this job already showed is never
+    taken again (_JOB_USED)."""
     words_abs = [{"text": (w.get("word") or "").strip(), "start": float(w["start"]), "end": float(w["end"])}
                  for sg in (transcript or {}).get("segments", []) for w in sg.get("words") or []]
-    words_rel = [{"text": w["text"], "start": w["start"] - clip_start, "end": w["end"] - clip_start}
-                 for w in words_abs if clip_start <= w["start"] < clip_end]
-    duration = clip_end - clip_start
-    points = insertion_points(words_rel, duration, punchline_time)
+    if segments:
+        import recut
+        clip_start = min(float(s["start"]) for s in segments)
+        clip_end = max(float(s["end"]) for s in segments)
+        duration = recut.total_duration(segments)
+        words_rel = [{"text": (w.get("word") or "").strip(), "start": float(w["start"]), "end": float(w["end"])}
+                     for sg in recut.virtual_transcript(transcript, segments)["segments"] for w in sg["words"]]
+
+        def to_source(t):
+            return recut.clip_to_source(segments, t)
+    else:
+        words_rel = [{"text": w["text"], "start": w["start"] - clip_start, "end": w["end"] - clip_start}
+                     for w in words_abs if clip_start <= w["start"] < clip_end]
+        duration = clip_end - clip_start
+
+        def to_source(t):
+            return clip_start + t
+    points = insertion_points(words_rel, duration, punchline_time, events=events)
     if not points:
         log("   👀 Reactions: no sentence end to hang a reaction on — skipped.")
         return None
@@ -277,20 +353,22 @@ def add_reactions(src, clip_path, clip_start, clip_end, transcript, out_path,
     # already the listener (or anyone who looks like the reaction), a
     # "reaction" would change nothing on screen.
     pairs, used = [], []
-    for t in points:
-        on_screen = covering(clip_start + t)
-        for c in cands:
-            if c in used:
-                continue
-            if on_screen is not None:
-                if ref and on_screen["talk"] <= 0.45 * ref:
-                    break           # the clip already shows a listener here
-                if (on_screen["look"] is not None and c["look"] is not None and
-                        cv2.compareHist(on_screen["look"], c["look"], cv2.HISTCMP_BHATTACHARYYA) < 0.35):
-                    continue        # same person as on screen: pick another
-            used.append(c)
-            pairs.append((t, c))
-            break
+    with _JOB_LOCK:
+        for t in points:
+            on_screen = covering(to_source(t))
+            for c in cands:
+                if c in used or _overlaps_used(c, _JOB_USED):
+                    continue        # already shown here, or by another clip of the job
+                if on_screen is not None:
+                    if ref and on_screen["talk"] <= 0.45 * ref:
+                        break           # the clip already shows a listener here
+                    if (on_screen["look"] is not None and c["look"] is not None and
+                            cv2.compareHist(on_screen["look"], c["look"], cv2.HISTCMP_BHATTACHARYYA) < 0.35):
+                        continue        # same person as on screen: pick another
+                used.append(c)
+                pairs.append((t, c))
+                break
+        _JOB_USED.extend((c["start"], c["start"] + c["dur"]) for _, c in pairs)
     if not pairs:
         log("   👀 Reactions: no usable listener shot for this clip (single camera, or the clip "
             "already shows the listener) — skipped.")
@@ -339,7 +417,8 @@ def add_reactions(src, clip_path, clip_start, clip_end, transcript, out_path,
     finally:
         import shutil
         shutil.rmtree(tmp, ignore_errors=True)
-    report = [{"at": round(t, 2), "from": c["start"], "shot": c["shot"]} for t, c in zip(points, chosen)]
+    report = [{"at": round(t, 2), "from": c["start"], "shot": c["shot"], "dur": c["dur"]}
+              for t, c in zip(points, chosen)]
     at = ", ".join(f"{r['at']}s" for r in report)
     log(f"   👀 Reactions inserted: {at}")
     return report
