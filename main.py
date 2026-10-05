@@ -1852,19 +1852,209 @@ _FILLER_PAIRS = {("i", "mean"), ("you", "know")}
 
 
 def _playbook_filler(words, k):
-    """How many words of filler open at ``k`` (0, 1, or 2 for a pair)."""
+    """How many words of filler open at ``k`` (0, 1, or 2 for a pair). The
+    second half of a pair whose first half was cut off ("you | know
+    patients...", JRE #2553 c03, 4-oct-2026) is a filler of one word."""
     def bare(j):
         return re.sub(r"[^a-z']", "", words[j]["w"].lower()) if j < len(words) else ""
     if (bare(k), bare(k + 1)) in _FILLER_PAIRS:
         return 2
+    if k > 0 and (bare(k - 1), bare(k)) in _FILLER_PAIRS and not _ends_sentence(words, k - 1):
+        return 1
     return 1 if bare(k) in _OPENING_FILLERS - {"i", "you", "know", "mean"} else 0
 
 
-def _cut_from(words, i, end, min_secs, max_secs):
+def _start_at(words, k):
+    """Where a clip opening on word ``k`` starts: 0.08 s before it, but never
+    inside the word before. JRE #2553 (4-oct-2026): with Whisper's touching
+    timestamps the 0.08 s reached into the previous word and two clips opened
+    on an orphan "know" ("...you know patients calling them") and "Like"."""
+    t = words[k]["s"] - 0.08
+    if k > 0:
+        t = max(t, min(words[k - 1]["e"], words[k]["s"]))
+    return max(0.0, t)
+
+
+# --- the payoff is always in the clip, and the clip ends on it (5-oct-2026) ---------------
+# Decided by the user (« la chute toujours dans le clip ; finir sur la chute »), after JRE
+# #2553-004 (b8e46c24): c09 lost its answer to a clean ending that stepped back to the
+# previous full stop, c11 ended 35 s before its payoff, and 5 clips of 12 ran on 4-15 s
+# after it. A clip may run PAYOFF_LEEWAY s over the max to keep its payoff (the leeway
+# end_on_sentence already had); past that it is flagged ``payoff_outside`` and the
+# auto-publish leaves it out (app._auto_publish_best).
+PAYOFF_LEEWAY = 3.0
+# How far after the payoff's last word the full stop that closes its sentence may be;
+# beyond, the payoff's own last word ends the clip (an unpunctuated transcript).
+PAYOFF_REACH = 3.0
+# What may follow the payoff: a short reaction ("Whoa.", "That's crazy.", a laugh, the
+# speaker's own echo "It's the plunger."), whole sentences, the clip then ending at most
+# REACTION_MAX_SECONDS after the payoff (the tail after the payoff stays under 2 s: JRE
+# #2553 c02's "Whoa." said 1.5 s after "251,000 deaths a year." is left out).
+REACTION_MAX_SECONDS = 2.0
+# A sentence of 4+ words is a reaction only with one of these in it (3 words or
+# fewer always are: "Yeah.", "No way.", "It's the plunger.").
+_REACTION_WORDS = {"whoa", "woah", "wow", "damn", "jesus", "god", "crazy", "insane", "nuts", "wild", "holy",
+                   "incredible", "unbelievable", "amazing", "ha", "haha", "hahaha", "laughter", "laughs",
+                   "laughing", "geez", "jeez"}
+
+
+def _ptoks(text):
+    """Tokens for matching quoted lines against Whisper's words: lower case,
+    letters and digits only (an apostrophe written ’ or ' matches either)."""
+    return [t for t in (re.sub(r"[^a-z0-9]", "", w.lower()) for w in str(text or "").split()) if t]
+
+
+def _word_toks(words):
+    return [re.sub(r"[^a-z0-9]", "", (w.get("w") or "").lower()) for w in words]
+
+
+def _payoff_span(words, punchline, lo, hi, wt=None):
+    """(first, last) word indices of the punchline the model quoted, the first
+    place it is said starting in [lo, hi]: matched on its first 4 words, its
+    last word found by its last 3 words (a quote a word longer or shorter
+    than what Whisper heard still lands on the right one). None when the
+    quote is not found."""
+    toks = _ptoks(punchline)
+    if len(toks) < 2:
+        return None
+    wt = wt or _word_toks(words)
+    head = toks[:4]
+    tail = toks[-3:] if len(toks) > 4 else None
+    for i, w in enumerate(words):
+        if w["s"] < lo:
+            continue
+        if w["s"] > hi:
+            break
+        if wt[i:i + len(head)] != head:
+            continue
+        last = i + len(toks) - 1
+        if tail:
+            want = i + len(toks) - len(tail)
+            for j in sorted(range(max(i + 1, want - 4), min(len(words), want + 7)), key=lambda j: abs(j - want)):
+                if wt[j:j + len(tail)] == tail:
+                    last = j + len(tail) - 1
+                    break
+        return i, min(len(words) - 1, last)
+    return None
+
+
+def _closes(words, k, pauses):
+    """Word ``k`` ends a sentence: a full stop, or (``pauses``) a real pause."""
+    return _ends_sentence(words, k) or (pauses and k + 1 < len(words)
+                                        and _pause_after(words, k) >= _PAUSE_BOUNDARY)
+
+
+def _payoff_close(words, last, pauses):
+    """The word that closes the payoff's sentence: the first sentence end at
+    or after its last word within PAYOFF_REACH s, else that last word itself
+    (the payoff ends a thought even when Whisper wrote no full stop)."""
+    for k in range(last, len(words)):
+        if words[k]["e"] - words[last]["e"] > PAYOFF_REACH:
+            break
+        if _closes(words, k, pauses):
+            return k
+    return last
+
+
+def _is_reaction(sentence):
+    toks = _ptoks(" ".join(w["w"] for w in sentence))
+    return bool(toks) and (len(toks) <= 3 or any(t in _REACTION_WORDS for t in toks))
+
+
+def _reaction_after(words, k):
+    """The last word of the short reaction said right after word ``k`` (the
+    payoff's sentence end), ``k`` itself when there is none: whole sentences
+    with a full stop, each a reaction (_is_reaction), the cut after them
+    falling at most REACTION_MAX_SECONDS after word ``k``."""
+    end = k
+    j = k + 1
+    while j < len(words):
+        m = next((x for x in range(j, min(len(words), j + 8)) if _is_boundary(words, x)), None)
+        if m is None or not _ends_sentence(words, m) or not _is_reaction(words[j:m + 1]):
+            break
+        if _tail(words, m) - words[k]["e"] > REACTION_MAX_SECONDS:
+            break
+        end, j = m, m + 1
+    return end
+
+
+def land_payoff(clip, words, min_secs, max_secs, pauses=False):
+    """The payoff (``punchline``) always in the clip. When it is said past the
+    end, the end runs on to the sentence end that closes it, as long as the
+    clip stays within max_secs + PAYOFF_LEEWAY (``clean_end = "payoff"``);
+    else the clip is flagged ``payoff_outside`` (the reason, in words).
+    Returns the payoff's (first, last) word indices when the clip holds it,
+    None when it is outside or the quote is not found in the words."""
+    start, end = float(clip["start"]), float(clip["end"])
+    span = _payoff_span(words, clip.get("punchline"), start - 0.05, start + 2 * max_secs)
+    if span is None:
+        return None
+    first, last = span
+    if words[last]["e"] <= end + 0.05:
+        clip.pop("payoff_outside", None)
+        return span
+    t = _tail(words, _payoff_close(words, last, pauses))
+    if t - start <= max_secs + PAYOFF_LEEWAY:
+        clip["end"] = round(t, 3)
+        clip["clean_end"] = "payoff"
+        clip["end_to_payoff"] = True
+        clip.pop("payoff_outside", None)
+        return span
+    clip["payoff_outside"] = (f"said {max(0.0, words[first]['s'] - end):.0f}s after the end: holding it, "
+                              f"the clip would last {t - start:.0f}s (max {max_secs + PAYOFF_LEEWAY:g}s)")
+    return None
+
+
+# A sentence that opens on what came before it cannot open a clip: "the
+# second thing was they pushed my head back" (picked on JRE #2515, 1-oct-2026)
+# points at a first thing the viewer never heard.
+_OPENS_ON_BEFORE = re.compile(r"^(?:and\s+)?(?:then|also|after that|another|the (?:second|third|next|other|last)\b)")
+# ...but a lone "Also," / "Plus," in front of a sentence that stands is
+# stepped over (JRE #2553 c08, 4-oct-2026: "Also, now people aren't afraid
+# of needles." opens on "now people...").
+_DROPPABLE_BEFORE = re.compile(r"^(?:and\s+)?(?:also|plus)\b[,;:]?\s+\S")
+# A line said to someone in the room is not said to the viewer (JRE #2553
+# c02: "Can you put that into Perplexity and see what leading cause of
+# death?"). Flagged, not moved: what follows such a request is most often the
+# screen being read aloud, a worse opening still.
+_OPENS_ON_REQUEST = re.compile(
+    r"^(?:(?:hey\s+)?jamie\b|(?:can|could|would|will)\s+you\s+(?:please\s+)?"
+    r"(?:put|pull|look|search|google|type|bring|find|check|show|play|throw|grab)\b"
+    r"|(?:please\s+)?(?:pull|bring|look|throw|put|type|google|search)\s+(?:that|it|this|those|them|up)\b)")
+
+
+def _sentence_text(words, k, max_words=25):
+    out = []
+    for j in range(k, min(len(words), k + max_words)):
+        out.append(words[j]["w"].strip())
+        if _is_boundary(words, j):
+            break
+    return " ".join(out)
+
+
+def _opening(words, k):
+    """(word index to open on, verdict) for a clip opening on the sentence at
+    ``k``: a lone "Also," in front is stepped over; verdict "before" when the
+    sentence points at what came before (_OPENS_ON_BEFORE), "request" when it
+    is said to someone in the room (_OPENS_ON_REQUEST), else ""."""
+    text = _sentence_text(words, k).lower().lstrip("\"'“‘(")
+    if _DROPPABLE_BEFORE.match(text):
+        n = len(re.match(r"^(?:and\s+)?(?:also|plus)\b", text).group(0).split())
+        if k + n < len(words):
+            return _opening(words, k + n)
+    if _OPENS_ON_BEFORE.match(text):
+        return k, "before"
+    if _OPENS_ON_REQUEST.match(text):
+        return k, "request"
+    return k, ""
+
+
+def _cut_from(words, i, end, min_secs, max_secs, payoff_end=None):
     """(start, end, end_moved) for a clip opening on word ``i``: when that
     makes it longer than ``max_secs``, the end moves EARLIER onto the last
-    sentence end that fits. None when no sentence end fits the band."""
-    start = max(0.0, words[i]["s"] - 0.08)
+    sentence end that fits — never before ``payoff_end`` (5-oct-2026: the
+    payoff is never cut to open on the hook). None when nothing fits."""
+    start = _start_at(words, i)
     if end - start < min_secs:
         return None
     if end - start <= max_secs:
@@ -1873,6 +2063,8 @@ def _cut_from(words, i, end, min_secs, max_secs):
     for k in range(i, len(words)):
         if words[k]["e"] > end + 0.05:
             break
+        if payoff_end is not None and words[k]["e"] < payoff_end - 0.01:
+            continue
         if _is_boundary(words, k):
             t = _tail(words, k)
             if min_secs <= t - start <= max_secs:
@@ -1884,23 +2076,57 @@ def _playbook_start(clip, words, start, end, min_secs, max_secs):
     """Synapse Cut playbook: the clip opens on its hook_line, looked for up to
     PLAYBOOK_HOOK_LOOKBACK s before the model's start; else at least on the
     start of a sentence (the one it cut into, else the next one). Never keeps
-    a mid-sentence start silently: flags ``start_mid_sentence`` instead."""
+    a mid-sentence start silently: flags ``start_mid_sentence`` instead.
+
+    5-oct-2026: a hook that points at what came before ("Also, ..." is only
+    stepped over; "then", "the second thing" are refused) gives way to the
+    next sentence start that stands, else is kept and flagged
+    ``opens_on_before``; a request to someone in the room is flagged
+    ``opens_on_request``; and the end never moves before the payoff."""
     clip["hook_aligned"] = False
+    span = _payoff_span(words, clip.get("punchline"), start - PLAYBOOK_HOOK_LOOKBACK, end + max_secs)
+    payoff_end = words[span[1]]["e"] if span else None
+    payoff_start = words[span[0]]["s"] if span else float("inf")
     i = _find_line(words, clip.get("hook_line"), start - PLAYBOOK_HOOK_LOOKBACK, start + 12)
-    cut = _cut_from(words, i, end, min_secs, max_secs) if i is not None else None
+    refused, stepped = None, 0
+    if i is not None:
+        found = i
+        i, verdict = _opening(words, i)
+        stepped = i - found
+        if verdict == "before":
+            refused, i = found, None
+        elif verdict == "request":
+            clip["opens_on_request"] = True
+    cut = _cut_from(words, i, end, min_secs, max_secs, payoff_end) if i is not None else None
     if cut:
         clip["hook_aligned"] = True
+        if stepped:
+            # "Also, now people..." -> the hook line the clip really opens on.
+            clip["hook_line"] = " ".join(str(clip.get("hook_line") or "").split()[stepped:])
     else:
         k0 = next((j for j, w in enumerate(words) if w["s"] >= start - 0.05), None)
-        if k0 is not None and not _opens_sentence(words, k0):
-            back = [j for j in range(k0 - 1, -1, -1) if words[j]["s"] >= start - PLAYBOOK_HOOK_LOOKBACK]
-            ahead = [j for j in range(k0 + 1, len(words)) if words[j]["s"] <= start + 12]
+        if k0 is not None and (refused is not None or not _opens_sentence(words, k0)):
+            if refused is not None:
+                # A hook pointing back: the next sentence start that stands.
+                back, ahead = [], [j for j in range(refused + 1, len(words)) if words[j]["s"] <= start + 12]
+            else:
+                back = [j for j in range(k0 - 1, -1, -1) if words[j]["s"] >= start - PLAYBOOK_HOOK_LOOKBACK]
+                ahead = [j for j in range(k0 + 1, len(words)) if words[j]["s"] <= start + 12]
             for j in back + ahead:
-                if _opens_sentence(words, j):
-                    cut = _cut_from(words, j, end, min_secs, max_secs)
-                    if cut:
-                        break
-            if not cut:
+                if not _opens_sentence(words, j) or words[j]["s"] >= payoff_start:
+                    continue
+                j, verdict = _opening(words, j)
+                if verdict:
+                    continue
+                cut = _cut_from(words, j, end, min_secs, max_secs, payoff_end)
+                if cut:
+                    break
+            if not cut and refused is not None:
+                cut = _cut_from(words, refused, end, min_secs, max_secs, payoff_end)
+                if cut:
+                    clip["hook_aligned"] = True
+                    clip["opens_on_before"] = True
+            if not cut and not _opens_sentence(words, k0):
                 clip["start_mid_sentence"] = True
     if cut:
         start, end, moved = cut
@@ -1943,7 +2169,7 @@ def align_hook_and_punchline(clip, words, min_secs, max_secs, punchline=True, pl
         k += 1
         skipped += 1
     if skipped:
-        start = max(0.0, words[k]["s"] - 0.08)
+        start = _start_at(words, k) if playbook else max(0.0, words[k]["s"] - 0.08)
     j = _find_line(words, clip.get("punchline"), start, end + 2) if punchline else None
     if j is not None:
         n = len(_tokens(clip.get("punchline")))
@@ -1970,7 +2196,18 @@ def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.
     ended on "...he's also been into". There, a pause of _PAUSE_BOUNDARY s
     after a word ends a sentence too, then a shorter breath (_SOFT_PAUSE);
     a cut that still stops mid-thought is flagged ``end_mid_sentence``
-    instead of passing silently."""
+    instead of passing silently.
+
+    The payoff (5-oct-2026, « la chute toujours dans le clip »): the end
+    never steps back before the ``punchline`` the model quoted (JRE #2553
+    c09 lost its answer to the full stop just before it); a payoff said past
+    the end is reached first (land_payoff: ``clean_end = "payoff"``, or
+    ``payoff_outside`` when it would break max_secs + PAYOFF_LEEWAY)."""
+    before = clip["end"]
+    span = land_payoff(clip, words, min_secs, max_secs, pauses)
+    if clip["end"] != before:
+        return  # ran on to the sentence end that closes the payoff
+    floor = span[1] if span else -1
     start, end = float(clip["start"]), float(clip["end"])
     inside = [i for i, w in enumerate(words) if w["s"] >= start - 0.05 and w["e"] <= end + 0.05]
     if not inside:
@@ -1986,7 +2223,7 @@ def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.
         if ends_sentence(last):
             return True
         for i in reversed(inside[:-1]):
-            if end - words[i]["e"] > max_trim:
+            if end - words[i]["e"] > max_trim or i < floor:
                 break
             if ends_sentence(i):
                 if tail(i) - start >= min_secs:
@@ -2005,7 +2242,7 @@ def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.
                 break
         # Last resort: a longer run-on sentence — go back up to twice as far.
         for i in reversed(inside[:-1]):
-            if end - words[i]["e"] > 2 * max_trim:
+            if end - words[i]["e"] > 2 * max_trim or i < floor:
                 break
             if ends_sentence(i) and tail(i) - start >= min_secs:
                 clip["end"] = round(tail(i), 3)
@@ -2033,47 +2270,74 @@ def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.
     clip["end_mid_sentence"] = True
 
 
-def trim_to_target(clip, words, min_secs, target, pauses=False):
-    """A clip longer than the target length (clip_selection.clip_target_bounds)
-    ends on the first sentence end at or after its payoff — the ``punchline``
-    the model quoted — that leaves it at least as long as the target's low
-    end: what follows the payoff is what made it long. True when the end moved.
+def trim_to_target(clip, words, min_secs, target=None, pauses=False, max_secs=None):
+    """Every clip ends on its payoff (5-oct-2026, the user: « finir sur la
+    chute » — before, only a clip over the target was cut back, and never
+    under the target's low end): on the sentence end that closes the
+    ``punchline`` the model quoted (_payoff_close), plus a short reaction said
+    right after it ("Whoa.", _reaction_after), as long as the clip keeps
+    ``min_secs`` (the format's minimum; else the next sentence ends). With
+    ``max_secs``, a payoff said past the end is reached first (land_payoff).
+    Sets ``end_on_payoff`` (CLEAN_END leaves the end alone) and
+    ``payoff_reaction`` when a reaction was kept. True when the end moved.
 
-    Never cuts blind: when the payoff cannot be found in the words, or no
-    sentence ends between it and the current end, the clip keeps its length
-    and says why in ``over_target``. ``pauses``: a pause of _PAUSE_BOUNDARY s
-    ends a sentence too (unpunctuated transcripts, playbook)."""
-    lo, hi = target
+    Never cuts blind: when the payoff cannot be found in the words, or (not
+    ``pauses``) no full stop closes it, the clip keeps its end. With a
+    ``target``, a clip still longer says why in ``over_target`` (playbook:
+    shorten_to_target then opens it later). ``pauses``: a pause of
+    _PAUSE_BOUNDARY s ends a sentence too, and the payoff's own last word
+    when nothing closes it within PAYOFF_REACH s (unpunctuated transcripts)."""
     start, end = float(clip["start"]), float(clip["end"])
-    if end - start <= hi:
+    was_over = target is not None and end - start > target[1]
+
+    def over(why):
+        if target is not None and float(clip["end"]) - start > target[1]:
+            clip["over_target"] = why
+        else:
+            clip.pop("over_target", None)
+
+    if max_secs is not None:
+        span = land_payoff(clip, words, min_secs, max_secs, pauses)
+        end = float(clip["end"])
+    else:
+        span = _payoff_span(words, clip.get("punchline"), start - 0.05, end + 2)
+        if span and words[span[1]]["e"] > end + 0.05:
+            span = None
+    if span is None:
+        over("payoff outside the clip" if clip.get("payoff_outside") else "payoff not located")
         return False
-    j = _find_line(words, clip.get("punchline"), start, end + 2)
-    if j is None:
-        clip["over_target"] = "payoff not located"
+    limit = (start + max_secs + PAYOFF_LEEWAY) if max_secs is not None else end + 0.05
+    close = _payoff_close(words, span[1], pauses)
+    if _tail(words, close) > limit:
+        close = span[1]
+    if not pauses and not _ends_sentence(words, close):
+        over("payoff needs the length")
         return False
-    last = min(len(words) - 1, j + len(_tokens(clip.get("punchline"))) - 1)
-    for k in range(last, len(words)):
-        if words[k]["e"] > end + 0.05:
+    k = None
+    for x in range(close, len(words)):
+        if x > close and words[x]["e"] > end + 0.05:
             break
-        if not (_ends_sentence(words, k) or (pauses and _pause_after(words, k) >= _PAUSE_BOUNDARY)):
-            continue
-        t = _tail(words, k)
-        if t - start < max(min_secs, lo):
-            continue
-        if t > end - 1.0:
-            break  # the clip already stops there
+        if (x == close or _closes(words, x, pauses)) and _tail(words, x) - start >= min_secs:
+            k = x
+            break
+    if k is None:
+        over("payoff needs the length")
+        return False
+    r = _reaction_after(words, k)
+    if r != k and _tail(words, r) > limit:
+        r = k
+    t = _tail(words, r)
+    moved = abs(t - end) > 0.05
+    if moved:
         clip["end"] = round(t, 3)
-        clip["end_fit_for_target"] = True
-        clip.pop("over_target", None)
-        return True
-    clip["over_target"] = "payoff needs the length"
-    return False
-
-
-# A sentence that opens on what came before it cannot open a clip: "the
-# second thing was they pushed my head back" (picked on JRE #2515, 1-oct-2026)
-# points at a first thing the viewer never heard.
-_OPENS_ON_BEFORE = re.compile(r"^(?:and\s+)?(?:then|also|after that|another|the (?:second|third|next|other|last)\b)")
+        if was_over and t < end:
+            clip["end_fit_for_target"] = True
+    clip["end_on_payoff"] = True
+    clip["clean_end"] = "payoff"
+    if r != k:
+        clip["payoff_reaction"] = True
+    over("payoff needs the length")
+    return moved
 
 
 def open_later_candidates(clip, words, min_secs, target, max_words=25):
@@ -2081,21 +2345,25 @@ def open_later_candidates(clip, words, min_secs, target, max_words=25):
     [(word index, seconds left to the end, the sentence)], only those that
     leave the clip inside the target band (and at least ``min_secs``). A
     start is a full stop or a _PAUSE_BOUNDARY pause before it (_opens_sentence),
-    stepped over its filler ("so", "I mean"...)."""
+    stepped over its filler ("so", "I mean"...). Never one that points at
+    what came before, nor a request to someone in the room, nor one at or
+    after the start of the payoff (5-oct-2026)."""
     lo, hi = target
     start, end = float(clip["start"]), float(clip["end"])
+    span = _payoff_span(words, clip.get("punchline"), start - 0.05, end + 0.05)
+    stop = min(end, words[span[0]]["s"]) if span else end
     out, seen = [], set()
     for k, w in enumerate(words):
         if w["s"] <= start + 0.5:
             continue
-        if w["s"] >= end:
+        if w["s"] >= stop:
             break
         if not _opens_sentence(words, k):
             continue
         k += _playbook_filler(words, k)
         if k >= len(words) or k in seen:
             continue
-        left = end - max(0.0, words[k]["s"] - 0.08)
+        left = end - _start_at(words, k)
         if left > hi or left < max(lo, min_secs):
             continue
         seen.add(k)
@@ -2107,7 +2375,8 @@ def open_later_candidates(clip, words, min_secs, target, max_words=25):
             if _is_boundary(words, j):
                 break
         line = " ".join(text)
-        if _OPENS_ON_BEFORE.match(line.lower().lstrip("\"'“‘(")):
+        bare = line.lower().lstrip("\"'“‘(")
+        if _OPENS_ON_BEFORE.match(bare) or _OPENS_ON_REQUEST.match(bare):
             continue
         out.append((k, round(left, 1), line))
     return out
@@ -2176,7 +2445,7 @@ def shorten_to_target(shorts, words, min_secs, target, language="en", ask=None):
             continue
         k, left, text = cands[pick[0] - 1]
         old_start, before = float(c["start"]), float(c["end"]) - float(c["start"])
-        c["start"] = round(max(0.0, words[k]["s"] - 0.08), 3)
+        c["start"] = round(_start_at(words, k), 3)
         c["hook_line"] = text
         c["hook_aligned"] = True
         c["start_fit_for_target"] = True
@@ -2192,6 +2461,116 @@ def shorten_to_target(shorts, words, min_secs, target, language="en", ask=None):
               f"(opens later, on \"{text[:70]}\"){' + new hook' if pick[1] else ''}.")
     print(f"   🎯 Open later: {moved}/{len(todo)} clip(s) over the target now open on a later sentence.")
     return moved
+
+
+# --- cut_out: the passages a tight edit takes out of a clip (5-oct-2026) -------------------
+# The model names them (gemini_worker.PLAYBOOK_DETAIL_ADDENDUM), the montage cuts them
+# (lot L3); here each one is checked against the words of the final clip. Interface:
+# clip["cut_out"] = [{"from": <first words, verbatim>, "to": <last words, verbatim>,
+# "why": aside|screen_reading|hesitation|digression}], 0 to CUT_OUT_MAX of them.
+CUT_OUT_WHY = ("aside", "screen_reading", "hesitation", "digression")
+CUT_OUT_MAX = 3
+# A longer "passage" is a second clip, or two quotes matched far apart.
+CUT_OUT_MAX_SECONDS = 30.0
+# Never cut a negation nor a nuance (the user, 5-oct-2026): taking out "it's not going to
+# cure breast cancer" makes the clip claim the opposite. A passage holding one of these
+# words stays in the clip.
+_NUANCE_WORDS = {"not", "no", "never", "nobody", "nothing", "none", "nor", "neither", "without", "cannot",
+                 "but", "however", "although", "though", "except", "unless", "only", "maybe", "perhaps",
+                 "necessarily", "barely", "hardly",
+                 # "don't", "isn't"... as _ptoks leaves them (no apostrophe)
+                 "dont", "doesnt", "didnt", "isnt", "arent", "wasnt", "werent", "hasnt", "havent", "hadnt",
+                 "wont", "wouldnt", "couldnt", "shouldnt", "cant", "mustnt", "neednt", "mightnt", "aint"}
+
+
+def _has_nuance(toks):
+    return any(t in _NUANCE_WORDS for t in toks)
+
+
+def check_cut_out(clip, words, min_secs):
+    """Keep, of the model's ``cut_out``, the passages the montage can take out
+    without changing what the clip says: the first and last words found
+    verbatim, in that order, inside the clip, after its opening sentence
+    (the hook) and clear of the payoff, no negation nor nuance in them, not
+    overlapping another one; at most CUT_OUT_MAX, and what is left lasts at
+    least ``min_secs``. Rewrites ``cut_out`` in the interface format (the
+    words as Whisper wrote them) and lists what was dropped, with why, in
+    ``cut_out_dropped``. Returns (kept, dropped)."""
+    raw = clip.get("cut_out")
+    raw = raw if isinstance(raw, list) else []
+    start, end = float(clip["start"]), float(clip["end"])
+    inside = [i for i, w in enumerate(words) if w["s"] >= start - 0.05 and w["e"] <= end + 0.05]
+    kept, dropped = [], []
+    if inside:
+        a, b = inside[0], inside[-1]
+        wt = _word_toks(words)
+        # The opening sentence (the hook): never cut.
+        hook_last = next((x for x in range(a, b + 1) if _is_boundary(words, x)), b)
+        if clip.get("hook_aligned") and clip.get("hook_line"):
+            hook_last = max(hook_last, min(b, a + len(_ptoks(clip["hook_line"])) - 1))
+        span = _payoff_span(words, clip.get("punchline"), start - 0.05, end + 0.05, wt)
+        if span and words[span[1]]["e"] > end + 0.05:
+            span = None
+        taken = []
+        for item in raw[:CUT_OUT_MAX * 2]:
+            if not isinstance(item, dict):
+                continue
+            first = str(item.get("from") or item.get("first_words") or "").strip()
+            last = str(item.get("to") or item.get("last_words") or "").strip()
+            why = re.sub(r"[\s-]+", "_", str(item.get("why") or "").strip().lower())
+            entry = {"from": first, "to": last, "why": why}
+
+            def drop(reason):
+                dropped.append({**entry, "reason": reason})
+
+            ft, tt = _ptoks(first), _ptoks(last)
+            if why not in CUT_OUT_WHY:
+                drop("unknown reason")
+                continue
+            if len(ft) < 2 or not tt:
+                drop("too short to find")
+                continue
+            f = next((x for x in range(hook_last + 1, b - len(ft) + 2) if wt[x:x + len(ft)] == ft), None)
+            if f is None:
+                drop("first words not found in the clip after its opening sentence")
+                continue
+            t = next((x for x in range(f, b - len(tt) + 2) if wt[x:x + len(tt)] == tt), None)
+            if t is None:
+                drop("last words not found after the first ones")
+                continue
+            z = t + len(tt) - 1
+            if words[z]["e"] - words[f]["s"] > CUT_OUT_MAX_SECONDS:
+                drop(f"longer than {CUT_OUT_MAX_SECONDS:g}s")
+                continue
+            if span and not (z < span[0] or f > span[1]):
+                drop("touches the payoff")
+                continue
+            if _has_nuance(wt[f:z + 1]):
+                drop("holds a negation or a nuance")
+                continue
+            if any(not (z < p or f > q) for p, q in taken):
+                drop("overlaps another passage")
+                continue
+            if len(kept) >= CUT_OUT_MAX:
+                drop(f"more than {CUT_OUT_MAX}")
+                continue
+            taken.append((f, z))
+            kept.append({"from": " ".join(words[x]["w"].strip() for x in range(f, f + len(ft))),
+                         "to": " ".join(words[x]["w"].strip() for x in range(t, z + 1)), "why": why})
+        # What is left must still make a clip.
+        while kept and end - start - sum(words[q]["e"] - words[p]["s"] for p, q in taken) < min_secs:
+            taken.pop()
+            dropped.append({**kept.pop(), "reason": f"would leave the clip under {min_secs:g}s"})
+    else:
+        dropped = [{"from": str((i or {}).get("from") or ""), "to": str((i or {}).get("to") or ""),
+                    "why": str((i or {}).get("why") or ""), "reason": "no words in the clip"}
+                   for i in raw if isinstance(i, dict)]
+    clip["cut_out"] = kept
+    if dropped:
+        clip["cut_out_dropped"] = dropped
+    else:
+        clip.pop("cut_out_dropped", None)
+    return len(kept), len(dropped)
 
 
 def target_length_rules(target, min_secs, max_secs, payoff=False):
@@ -2696,25 +3075,42 @@ def get_viral_clips(transcript_result, video_duration, video_path=None):
                     if s.get("start_mid_sentence"):
                         print(f"      ⚠️ {s['start']:.0f}s: starts MID-SENTENCE — no hook or sentence start "
                               f"fits the {min_secs:g}-{max_secs:g}s band (hook_aligned=false).")
-        if target_secs:
-            cut = 0
+                    if s.get("opens_on_request"):
+                        print(f"      ⚠️ {s['start']:.0f}s: opens on a request to someone in the room "
+                              f"(\"{str(s.get('hook_line') or '')[:60]}\") — the viewer is not the one asked.")
+                    if s.get("opens_on_before"):
+                        print(f"      ⚠️ {s['start']:.0f}s: opens on a line that points back "
+                              f"(\"{str(s.get('hook_line') or '')[:60]}\") — no later sentence start fits.")
+        if target_secs or playbook_on:
+            # 5-oct-2026 (the user: « la chute toujours dans le clip ; finir sur la
+            # chute »): every clip ends on its payoff, not only the ones over the target.
+            cut = ran_on = located = 0
             for s in shorts:
-                before = float(s["end"])
-                if trim_to_target(s, words, min_secs, target_secs, pauses=playbook_on):
+                before = float(s["end"]) - float(s["start"])
+                moved = trim_to_target(s, words, min_secs, target_secs, pauses=playbook_on, max_secs=max_secs)
+                located += bool(s.get("end_on_payoff"))
+                length = float(s["end"]) - float(s["start"])
+                if s.get("end_to_payoff"):
+                    ran_on += 1
+                    print(f"      ➡️ {s['start']:.0f}s: {before:.0f}s -> {length:.0f}s (runs on to its payoff, "
+                          f"\"...{str(s.get('punchline') or '')[-50:]}\").")
+                elif moved and length < before:
                     cut += 1
-                    print(f"      ✂️ {s['start']:.0f}s: {before - s['start']:.0f}s -> {s['end'] - s['start']:.0f}s "
-                          f"(ends on the sentence of its payoff, target {target_secs[1]:g}s).")
-                elif s.get("over_target"):
-                    print(f"      ⏱️ {s['start']:.0f}s: stays {s['end'] - s['start']:.0f}s, over the target "
-                          f"({s['over_target']}).")
-            print(f"   🎯 Target length: {cut}/{len(shorts)} clip(s) cut back after their payoff.")
-            if playbook_on and any(s.get("over_target") for s in shorts):
+                    print(f"      ✂️ {s['start']:.0f}s: {before:.0f}s -> {length:.0f}s (ends on its payoff"
+                          f"{' + a short reaction' if s.get('payoff_reaction') else ''}).")
+                if s.get("over_target"):
+                    print(f"      ⏱️ {s['start']:.0f}s: stays {length:.0f}s, over the target ({s['over_target']}).")
+            outside = sum(bool(s.get("payoff_outside")) for s in shorts)
+            print(f"   🎯 Payoff ending: {located}/{len(shorts)} clip(s) end on their payoff ({cut} cut right "
+                  f"after it, {ran_on} run on to it), {outside} with the payoff outside, "
+                  f"{len(shorts) - located - outside} where it is not found in the words.")
+            if playbook_on and target_secs and any(s.get("over_target") for s in shorts):
                 shorten_to_target(shorts, words, min_secs, target_secs, language)
         if os.environ.get("CLEAN_END") == "1":
             fixed = 0
             for s in shorts:
-                if s.get("end_fit_for_hook") or s.get("end_fit_for_target"):
-                    continue  # already on a sentence end, placed to stay under max
+                if s.get("end_fit_for_hook") or s.get("end_fit_for_target") or s.get("end_on_payoff"):
+                    continue  # already on a sentence end: placed to stay under max, or on the payoff
                 end_on_sentence(s, words, min_secs, max_secs, pauses=playbook_on)
                 fixed += bool(s.get("clean_end"))
             print(f"   ✂️  Clean endings: {fixed}/{len(shorts)} clip(s) moved to a full stop.")
@@ -2722,6 +3118,20 @@ def get_viral_clips(transcript_result, video_duration, video_path=None):
                 if s.get("end_mid_sentence"):
                     print(f"      ⚠️ {s['start']:.0f}s: ends MID-SENTENCE at {s['end']:.1f}s — no full stop nor "
                           f"pause within reach (unpunctuated transcript).")
+        for s in shorts:
+            if s.get("payoff_outside"):
+                print(f"      ⚠️ {s['start']:.0f}s: the PAYOFF IS OUTSIDE the clip ({s['payoff_outside']}) — "
+                      f"kept, but left out of the auto-publish: \"{str(s.get('punchline') or '')[:70]}\"")
+        if playbook_on:
+            kept = dropped = 0
+            for s in shorts:
+                k, d = check_cut_out(s, words, min_secs)
+                kept, dropped = kept + k, dropped + d
+                for x in s.get("cut_out_dropped") or []:
+                    print(f"      🚫 {s['start']:.0f}s: cut-out \"{x['from'][:30]}...{x['to'][-30:]}\" "
+                          f"dropped ({x['reason']}).")
+            print(f"   ✂️  Cut-outs for the montage: {kept} passage(s) kept on "
+                  f"{sum(bool(s.get('cut_out')) for s in shorts)} clip(s), {dropped} dropped.")
         if dedupe:
             shorts = _dedupe(shorts, "final cuts")
         print(f"   ⏱️ Clip lengths: {clip_selection.duration_summary(shorts, target_secs)}")
