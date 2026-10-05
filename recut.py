@@ -188,14 +188,32 @@ def virtual_transcript(transcript, segments):
     slicing "words between clip_start and clip_end" exactly as before, against
     this transcript with clip_start=0.
     """
+    all_words = transcript_words(transcript)
+
+    def overlap(w, seg):
+        return min(w["e"], float(seg["end"])) - max(w["s"], float(seg["start"]))
+
+    # A word that straddles a cut (Whisper stretches words over the pauses
+    # the montage tightens, 5-oct-2026) is captioned ONCE, in the piece that
+    # holds most of it — it showed twice ("BUT BUT THE") on both sides of
+    # the join. A word wholly inside a piece always belongs to it (a range
+    # reused twice repeats its words, an editing move).
+    home = {}
+    for k, w in enumerate(all_words):
+        best = max(range(len(segments)), key=lambda n: overlap(w, segments[n]), default=None)
+        if best is not None:
+            home[k] = best
     out_segments = []
     offset = 0.0
-    for seg in segments:
+    for n, seg in enumerate(segments):
         seg_start, seg_end = float(seg["start"]), float(seg["end"])
         seg_duration = seg_end - seg_start
         words = []
-        for w in transcript_words(transcript):
+        for k, w in enumerate(all_words):
             if w["e"] <= seg_start or w["s"] >= seg_end:
+                continue
+            whole = w["s"] >= seg_start - 1e-6 and w["e"] <= seg_end + 1e-6
+            if not whole and home.get(k) != n:
                 continue
             words.append({
                 # Leading space = Whisper's word-boundary convention.

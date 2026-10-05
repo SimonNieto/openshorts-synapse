@@ -619,9 +619,10 @@ def head_region(box, w, h):
 
 
 def crop_region(box, w, h):
-    """What the vertical clip will show around the face: a 9:16 band of the frame's height (a hand or a
-    paper coming in there shows as much as the head does)."""
-    cw = min(w, int(round(h * 9 / 16)))
+    """What the vertical clip will show around the face: a 9:16 band of the frame's height, 15 % wider
+    (the framing puts the face off centre for look-room) — a hand or a paper coming in there shows as much
+    as the head does."""
+    cw = min(w, int(round(h * 9 / 16 * 1.15)))
     cx = (box[0] + box[2] / 2.0) if box else w / 2.0
     return (int(min(max(cx - cw / 2.0, 0), w - cw)), 0, cw, h)
 

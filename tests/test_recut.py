@@ -169,6 +169,19 @@ class TestVirtualTranscript:
         assert word["start"] == 0.0
         assert word["end"] == 0.2
 
+    def test_a_word_across_a_cut_is_captioned_once(self):
+        # "hello" 12.0-12.5 cut at 12.1-12.2 (a tightened pause inside Whisper's stretched word): it shows
+        # once, in the piece holding most of it, not "hello hello" on both sides of the join.
+        v = recut.virtual_transcript(TRANSCRIPT, [_seg(10, 12.1), _seg(12.2, 21)])
+        words = [w["word"] for sg in v["segments"] for w in sg["words"]]
+        assert words == [" hello", " world"]
+        assert v["segments"][0]["words"] == []
+        assert v["segments"][1]["words"][0]["start"] == 2.1
+
+    def test_a_range_used_twice_repeats_its_words(self):
+        v = recut.virtual_transcript(TRANSCRIPT, [_seg(11, 13), _seg(11, 13)])
+        assert [w["word"] for sg in v["segments"] for w in sg["words"]] == [" hello", " hello"]
+
     def test_words_outside_every_segment_are_dropped(self):
         v = recut.virtual_transcript(TRANSCRIPT, [_seg(30, 40)])
         assert v["segments"][0]["words"] == []

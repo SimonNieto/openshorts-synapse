@@ -173,7 +173,8 @@ class TestPlan:
             src = next(w for w in WORDS if w["w"] == name)
             t = recut.source_to_clip(segs, src["s"])
             assert abs(vw[name]["start"] - t) < 2e-3, name
-        assert len(vw) == len(WORDS)               # no caption vanished
+        said = [w["word"].strip() for sg in vt["segments"] for w in sg["words"]]
+        assert said == [w["w"] for w in WORDS]      # every word once: none vanished, none doubled at a join
         assert abs(recut.total_duration(segs) - (p["end"] - p["start"] - sum(r["b"] - r["a"] for r in p["removals"]))) < 1e-3
 
     def test_a_word_whisper_put_in_the_silence_is_never_swallowed(self):

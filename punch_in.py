@@ -296,10 +296,12 @@ def plan_tight(duration, changes, words=(), punch=None, hook_end=None):
             ideal = g0 + (k + 1) * length / (n + 1) - TIGHT_DUR / 2
             last_ok = (g1 if nxt is None else g1 - MIN_REST) - TIGHT_MIN
             lo = g0 + (MIN_REST if g0 > 0 else 0.5)
-            cands = [i for i, w in enumerate(words) if lo <= w["start"] - 0.05 <= last_ok]
+            # On a word that opens a phrase first; anywhere in the stretch (every quarter second) else.
+            cands = [(words[i]["start"] - 0.05, i) for i, w in enumerate(words) if lo <= w["start"] - 0.05 <= last_ok]
+            steps = int(max(0.0, last_ok - lo) / 0.25)
+            cands += [(lo + 0.25 * s, None) for s in range(steps + 1)]
             best = None
-            for i in cands or [None]:
-                a = words[i]["start"] - 0.05 if i is not None else min(max(ideal, lo), last_ok)
+            for a, i in cands:
                 ends = [w["end"] for w in words if a + TIGHT_MIN <= w["end"] <= a + TIGHT_MAX]
                 b = min(ends, key=lambda e: abs(e - (a + TIGHT_DUR))) if ends else a + TIGHT_DUR
                 if nxt is None:
@@ -436,8 +438,11 @@ def finish(clip_path, out_path, clip, words=(), montage_report=None, hook_end=No
                     a = max(a, d)
         if b - a > 0.3:
             windows.append({"a": round(a, 4), "b": round(b, 4), "why": "join"})
-    seen = changes_on_screen(clip_path)
-    changes = covers + seen + [(w["a"], w["b"]) for w in windows]
+    known = covers + [(w["a"], w["b"]) for w in windows]
+    # What the picture shows changing that is not one of those (the source's camera cuts): the edges of a
+    # reaction or a picture are seen too, and must not count as changes of their own.
+    seen = [s for s in changes_on_screen(clip_path) if not any(a - 0.3 <= s[0] <= b + 0.3 for a, b in known)]
+    changes = known + seen
     for a, b in plan_tight(duration, changes, words, punch=rep.get("punch"), hook_end=hook_end):
         windows.append({"a": a, "b": b, "why": "static"})
     if not windows:

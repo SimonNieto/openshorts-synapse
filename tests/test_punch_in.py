@@ -164,6 +164,12 @@ class TestPlanTight:
         marks = sorted([5.0, 25.0] + [x for w in out for x in w if 5.0 <= x <= 25.0])
         assert max(b - a for a, b in zip(marks, marks[1:])) <= punch_in.STATIC_MAX + 1.0
 
+    def test_found_even_where_no_word_opens_in_time(self):
+        # A reaction 15.7-16.9 then a tight frame at 25.5: the only room is 20.9-21.5, where no word starts.
+        words = [w for w in self.WORDS if not (20.5 <= w["start"] <= 21.8)]
+        out = punch_in.plan_tight(35.0, [(15.7, 16.9), (25.5, 28.0)], words)
+        assert any(16.9 < a and b < 25.5 for a, b in out)
+
     def test_a_short_stretch_is_left_alone(self):
         assert punch_in.plan_tight(12.0, [(5.0, 5.0), (10.0, 10.0)], self.WORDS) == []
 
