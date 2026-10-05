@@ -4157,15 +4157,18 @@ _SFX_RMS = {}
 
 def sfx_gain(clip_path, t):
     """The whoosh's gain (dB) for a picture at ``t`` s of ``clip_path`` (5-oct-2026, decision 3): the whoosh plays
-    SFX_UNDER_VOICE_DB under the voice heard around it (its own window, 0.25 s wider on each side — the measure of the
-    sound study of 4-oct-2026), within SFX_GAIN_RANGE; SFX_GAIN_DB when either sound cannot be read."""
+    SFX_UNDER_VOICE_DB under the voice heard as it passes — the quieter of its own window (the measure of the sound
+    study of 4-oct-2026) and that window 0.25 s wider on each side, so it is never louder than that (on the demo of
+    clip 1 the wider window alone left it 8 dB under) — within SFX_GAIN_RANGE; SFX_GAIN_DB when nothing can be read."""
     own = _SFX_RMS.get(SFX_PATH)
     if own is None:
         own = _rms_db(SFX_PATH)
         if own is not None:
             _SFX_RMS[SFX_PATH] = own
-    t0 = float(t) - SFX_LEAD - 0.25
-    voice = _rms_db(clip_path, max(0.0, t0), 0.55 + 0.5 + min(0.0, t0))
+    w0 = float(t) - SFX_LEAD
+    levels = [v for v in (_rms_db(clip_path, max(0.0, w0), 0.55 + min(0.0, w0)),
+                          _rms_db(clip_path, max(0.0, w0 - 0.25), 1.05 + min(0.0, w0 - 0.25))) if v is not None]
+    voice = min(levels) if levels else None
     if own is None or voice is None:
         return SFX_GAIN_DB
     lo, hi = SFX_GAIN_RANGE

@@ -643,6 +643,10 @@ class TestSfx:
         assert broll.sfx_gain("c.mp4", 2.0) == broll.SFX_GAIN_RANGE[1]
         monkeypatch.setattr(broll, "_rms_db", lambda path, t0=None, dur=None: None)
         assert broll.sfx_gain("c.mp4", 2.0) == broll.SFX_GAIN_DB
+        # the voice is quieter in the whoosh's own window than around it: the quieter one sets the level (never louder)
+        monkeypatch.setattr(broll, "_rms_db", lambda path, t0=None, dur=None:
+                            -20.4 if path == broll.SFX_PATH else (-18.0 if dur < 0.6 else -15.0))
+        assert broll.sfx_gain("c.mp4", 2.0) == -9.6
 
     def test_no_normalisation_when_the_job_switches_it_off(self, monkeypatch):
         monkeypatch.setenv("AUDIO_NORMALIZE", "0")
