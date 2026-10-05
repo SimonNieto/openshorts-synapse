@@ -5,8 +5,8 @@ import { getApiUrl } from '../config';
 import SegmentedControl from './ui/SegmentedControl';
 import ProjectNicheBar from './ProjectNicheBar';
 import TikTokDraftNotice from './TikTokDraftNotice';
-import { SLOT_OPTIONS, buildSlots, slotStatusOn, userTimezone, scheduledDateFor, slotLabel } from '../lib/postSlots';
-import { profileForNiche } from '../lib/nicheHistory';
+import { SLOT_OPTIONS, buildSlots, slotStatusOn, userTimezone, slotLabel } from '../lib/postSlots';
+import { loadSchedulePrefs as loadPrefs, saveSchedulePrefs as savePrefs, savedNicheChoice as savedChoice, socialPostBody } from '../lib/schedulePost';
 
 const PLATFORM_OPTIONS = [
     { value: 'tiktok', label: 'TikTok', icon: <Video size={14} /> },
@@ -24,18 +24,8 @@ const DAY_OPTIONS = [
 ];
 const ALL_TIMES = SLOT_OPTIONS.map((s) => s.value);
 
-// Last-used platforms/slots, so a repeat session is: open, click, done.
-const PREFS_KEY = 'openshorts_schedule_prefs_v1';
-function loadPrefs() {
-    try { return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') || {}; } catch { return {}; }
-}
-function savePrefs(p) {
-    try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch { /* ignore */ }
-}
-
-const savedChoice = (project, fallbackProfile) => (project?.niche
-    ? { niche: project.niche, profile: project.upload_profile || profileForNiche(project.niche) || fallbackProfile }
-    : null);
+// Last-used platforms/slots (loadPrefs/savePrefs) and the project's saved niche + account (savedChoice)
+// live in lib/schedulePost.js, shared with the Line-up so both send the same request (5-oct-2026).
 
 /**
  * THE scheduling form — used by the Clip Generator's "schedule clips" window
@@ -190,19 +180,19 @@ export default function ScheduleComposer({
                 const res = await apiFetch('/api/social/post', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        job_id: project.job_id,
-                        clip_index: item.index,
-                        api_key: uploadPostKey,
-                        user_id: activeProfile, // this niche's own accounts
+                    // No title/description: the server builds one caption
+                    // per platform (niche-generator hashtags only).
+                    // null for the "now" choice → published right away.
+                    body: JSON.stringify(socialPostBody({
+                        jobId: project.job_id,
+                        clipIndex: item.index,
+                        uploadPostKey,
+                        profile: activeProfile, // this niche's own accounts
                         platforms,
-                        // No title/description: the server builds one caption
-                        // per platform (niche-generator hashtags only).
-                        // null for the "now" choice → published right away.
-                        scheduled_date: scheduledDateFor(item.slot),
+                        slot: item.slot,
+                        niche: nicheChoice?.niche,
                         timezone,
-                        niche: nicheChoice?.niche || null,
-                    }),
+                    })),
                 });
                 if (!res.ok) throw new Error(await res.text());
                 setResults((prev) => ({ ...prev, [item.index]: { ok: true } }));
