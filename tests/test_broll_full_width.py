@@ -89,6 +89,7 @@ def run(monkeypatch, tmp_path):
         if screen:
             Image.new("RGB", (640, 360), (200, 200, 200)).save(keep / "screen.jpg")
             c["screen_inset"] = {**screen, "image": "screen.jpg"}
+        go.clip = c
         tr = _transcript(TEXT)
         conf = {**plus.BROLL, "enabled": True, "planner": "claude", **(cfg or {})}
         rep = broll.add_broll(str(keep / "c_clip_1.mp4"), str(tmp_path / "out.mp4"), c, tr, 0.0, 40.0, conf,
@@ -192,8 +193,9 @@ class TestOpening:
 
     def test_off_in_the_recipe_nothing_changes(self, run, monkeypatch):
         seen = self._choose(monkeypatch)
-        rep, *_ = run([_moment(6.0, "soldiers"), _moment(12.0, "drill")], ["A.", "B."])
+        rep, *_ = run([_moment(6.0, "soldiers"), _moment(12.0, "drill")], ["A.", "B."], clip={"opening_image": "old.jpg"})
         assert all(it["t"] >= broll.HEAD_FREE for it in rep["items"]) and not seen
+        assert "opening_image" not in run.clip
 
     def test_on_the_clearest_drawing_opens_the_clip_under_the_hook(self, run, monkeypatch):
         seen = self._choose(monkeypatch, pick=1)
@@ -206,6 +208,7 @@ class TestOpening:
         # its own copy of the picture: the review and a restyle find every item by its file
         assert op["image"] == "c_clip_1_broll_open.jpg" and (keep / op["image"]).exists()
         assert op["image"] != items[2]["image"]
+        assert run.clip["opening_image"] == op["image"], "lot L5 reads it for the A/B test's statistics"
         assert not op.get("sfx") and items[1].get("sfx"), "the whoosh stays on the first drawing that cuts in"
         assert [it["t"] for it in items[1:]] == [6.0, 12.0, 20.0], "the body keeps its pictures, the hook's seconds"
         assert cut[0] == items and rep["sources"][0] == "local"

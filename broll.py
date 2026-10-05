@@ -4067,6 +4067,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # first one leaves a little early
             for a, b in zip(items, items[1:]):
                 a["dur"] = round(max(1.0, min(a["dur"], b["t"] - a["t"] - 0.25)), 2)
+        clip.pop("opening_image", None)
         if full and cfg.get("opening"):
             # The opening drawing (5-oct-2026, decision 8; OFF in the recipe until the A/B test): the one exception to
             # HEAD_FREE, set after the planning — the other pictures keep the hook's seconds free.
@@ -4074,6 +4075,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             if op:
                 items.insert(0, op)
                 sources.insert(0, op["source"])
+                # the clip opens on a drawing (lot L5, the A/B test's statistics): the picture's file, else its anchor
+                clip["opening_image"] = op.get("image") or op.get("anchor") or True
         if not manual:
             overlay_items(clip_path, out_path, items)
         for it in items:
