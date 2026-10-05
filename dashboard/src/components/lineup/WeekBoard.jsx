@@ -168,11 +168,15 @@ export default function WeekBoard({
     ...planAlerts.map((a, i) => ({ ...a, _k: `plan-${a.kind}-${a.date || ''}-${i}` }))];
   const litRefs = new Set((allAlerts.find((a) => a._k === lit)?.refs) || []);
 
+  // (5-oct-2026) The strip shows what is still to go out: posts already published stay off it, at the user's request
+  // (they keep their place in the clip list below, with their real numbers). The engine's alerts and mix still count
+  // them — what just went out decides what should come next.
+  const upcoming = timeline.filter((t) => t.status !== 'published');
   const byDay = Object.fromEntries(days.map((d) => [d, []]));
-  for (const t of timeline) if (byDay[t.date]) byDay[t.date].push({ item: t, kind: t.status === 'published' ? 'published' : 'scheduled' });
+  for (const t of upcoming) if (byDay[t.date]) byDay[t.date].push({ item: t, kind: 'scheduled' });
   proposed.forEach((p, i) => { if (byDay[p.date]) byDay[p.date].push({ item: p, kind: 'proposed', index: i }); });
   for (const d of days) byDay[d].sort((a, b) => (a.item.time || '').localeCompare(b.item.time || ''));
-  const postCount = timeline.length;
+  const postCount = upcoming.length;
 
   const mix = week?.mix || {};
   const sumOf = (o) => Object.values(o || {}).reduce((s, n) => s + (Number(n) || 0), 0);
