@@ -356,6 +356,11 @@ def add_reactions(src, clip_path, clip_start, clip_end, transcript, out_path,
     with _JOB_LOCK:
         for t in points:
             on_screen = covering(to_source(t))
+            if on_screen is None:
+                # No face read on screen there (the speaker from behind, a wide shot): who is talking
+                # cannot be checked, and c02 showed the speaker himself "listening" to his own voice
+                # (the image study's idea 4, 5-oct-2026). No cutaway there.
+                continue
             for c in cands:
                 if c in used or _overlaps_used(c, _JOB_USED):
                     continue        # already shown here, or by another clip of the job
