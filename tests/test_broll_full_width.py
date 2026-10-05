@@ -99,7 +99,9 @@ def run(monkeypatch, tmp_path):
 
 def test_the_recipe_draws_full_width_with_the_opening_off():
     assert plus.BROLL["chain"] == "dessin" and plus.BROLL["full_width"] is True
+    assert plus.BROLL["opening"] is False, "decision 8: coded, OFF until the A/B test is good"
     assert plus.BROLL["sfx"] is True
+    assert broll.OPENING_SECONDS == 1.2 and broll.HEAD_FREE == 4.3
 
 
 class TestFullWidth:
@@ -173,6 +175,88 @@ class TestDrawRun:
         assert made == [(f"{suffix} A fridge.", "hero"), (f"{suffix} A dish.", "hero")]
         assert [c["layout"] for c in cands] == ["hero", "hero"]
         assert broll_v20._layout({"hero": False}, True) == "hero" and broll_v20._layout({"hero": False}) == "card"
+
+
+class TestOpening:
+    def _choose(self, monkeypatch, pick=0, why="one big clear subject", fail=False):
+        seen = {}
+
+        def fake(prompt, schema, timeout=240, attach=None, stage=None, effort=None, model=None, **kw):
+            seen.update(prompt=prompt, attach=list(attach or []), stage=stage, model=model,
+                        sizes=[Image.open(p).size for p in attach or []])
+            if fail:
+                raise RuntimeError("quota")
+            return {"pick": pick, "why": why}
+        monkeypatch.setattr(broll, "claude_json", fake)
+        return seen
+
+    def test_off_in_the_recipe_nothing_changes(self, run, monkeypatch):
+        seen = self._choose(monkeypatch)
+        rep, *_ = run([_moment(6.0, "soldiers"), _moment(12.0, "drill")], ["A.", "B."])
+        assert all(it["t"] >= broll.HEAD_FREE for it in rep["items"]) and not seen
+
+    def test_on_the_clearest_drawing_opens_the_clip_under_the_hook(self, run, monkeypatch):
+        seen = self._choose(monkeypatch, pick=1)
+        rep, _made, cut, keep = run([_moment(6.0, "soldiers"), _moment(12.0, "drill"), _moment(20.0, "sergeant")],
+                                    ["A.", "B.", "C."], cfg={"opening": True})
+        items = rep["items"]
+        op = items[0]
+        assert (op["t"], op["dur"], op["layout"], op["opening"]) == (0.0, broll.OPENING_SECONDS, "hero", True)
+        assert op["anchor"] == "drill" and op["opening_why"] == "one big clear subject"
+        # its own copy of the picture: the review and a restyle find every item by its file
+        assert op["image"] == "c_clip_1_broll_open.jpg" and (keep / op["image"]).exists()
+        assert op["image"] != items[2]["image"]
+        assert not op.get("sfx") and items[1].get("sfx"), "the whoosh stays on the first drawing that cuts in"
+        assert [it["t"] for it in items[1:]] == [6.0, 12.0, 20.0], "the body keeps its pictures, the hook's seconds"
+        assert cut[0] == items and rep["sources"][0] == "local"
+        # the chooser SEES the drawings at a phone's size, with the hook and the title
+        assert seen["stage"] == "broll_opening" and seen["model"] == "sonnet" and len(seen["attach"]) == 3
+        assert all(w <= broll.OPENING_PX[0] and h <= broll.OPENING_PX[1] for w, h in seen["sizes"])
+        assert "Soldiers marched all night" in seen["prompt"] and "Can you march all night?" in seen["prompt"]
+        assert "a death" in seen["prompt"] and "real, recognisable person" in seen["prompt"]
+
+    def test_no_opening_when_none_qualifies_or_the_call_fails(self, run, monkeypatch):
+        for kw in ({"pick": -1, "why": "nothing reads"}, {"fail": True}, {"pick": 7}):
+            self._choose(monkeypatch, **kw)
+            rep, *_ = run([_moment(6.0, "soldiers")], ["A."], cfg={"opening": True})
+            assert [it["t"] for it in rep["items"]] == [6.0], kw
+
+    def test_never_a_drawing_of_a_death_or_a_serious_illness(self, run, monkeypatch):
+        seen = self._choose(monkeypatch)
+        # a clip about a death opens on the face: no call at all
+        rep, *_ = run([_moment(6.0, "soldiers", gravity="grave")], ["A."], cfg={"opening": True})
+        assert [it["t"] for it in rep["items"]] == [6.0] and not seen
+        # a sentence that mentions a death, words of a serious illness: never shown to the chooser
+        rep, *_ = run([_moment(6.0, "soldiers", death_near=True), _moment(12.0, "drill"), _moment(20.0, "sergeant")],
+                      ["A.", "A man asleep in a hospital bed, a drip at his side.", "A camp at sunrise."],
+                      cfg={"opening": True})
+        assert len(seen["attach"]) == 1 and "A camp at sunrise." in seen["prompt"]
+        assert rep["items"][0]["opening"] and rep["items"][0]["anchor"] == "sergeant"
+        assert broll.OPENING_NO_RE.search("a tumour scan") and broll.OPENING_NO_RE.search("he was dying")
+        assert not broll.OPENING_NO_RE.search("two bold red diagonal strokes across a car key, a skilled hand")
+
+    def test_never_over_the_source_s_own_picture(self, run, monkeypatch):
+        seen = self._choose(monkeypatch)
+        rep, *_ = run([_moment(14.0, "drill")], ["A."], cfg={"opening": True}, screen={"t0": 0.5, "t1": 3.0})
+        assert not any(it.get("opening") for it in rep["items"]) and not seen
+
+    def test_a_fallback_card_never_opens_the_clip(self, run, monkeypatch):
+        seen = self._choose(monkeypatch)
+        rep, *_ = run([_moment(6.0, "soldiers")], ["A."], cfg={"opening": True}, fail_hero=True)
+        assert [it["layout"] for it in rep["items"]] == ["card"] and not seen
+
+    def test_a_restyle_puts_the_opening_back_under_the_hook(self, monkeypatch, tmp_path):
+        import viral_fx
+        monkeypatch.setattr(viral_fx, "_probe", lambda p: {"w": 108, "h": 192, "fps": 10, "duration": 8.0})
+        cmds = []
+        monkeypatch.setattr(broll.subprocess, "run", lambda cmd, *a, **k: cmds.append(list(cmd)))
+        Image.new("RGB", (224, 400), (90, 60, 30)).save(tmp_path / "c_broll_open.jpg")
+        Image.new("RGB", (224, 400), (30, 60, 90)).save(tmp_path / "c_broll_0.jpg")
+        items = [{"t": 0.0, "dur": 1.2, "layout": "hero", "opening": True, "image": "c_broll_open.jpg"},
+                 {"t": 5.0, "dur": 2.4, "layout": "hero", "image": "c_broll_0.jpg"}]
+        broll.overlay_items("clip.mp4", str(tmp_path / "o.mp4"), items, img_dir=str(tmp_path))
+        graph = cmds[-1][cmds[-1].index("-filter_complex") + 1]
+        assert "between(t,0.000,1.200)" in graph and "between(t,5.000,7.400)" in graph and "boxblur" not in graph
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")

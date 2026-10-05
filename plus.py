@@ -99,7 +99,10 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          # 2.0-2.5 s, hard cut in and out, no push-in — never a card on the head (decision 5; the source's own
          # picture stays a card); the whoosh on the first drawing only, ~12 dB under the voice (decision 3,
          # "sfx" above).
-         "full_width": True}
+         "full_width": True,
+         # The opening drawing, 0-1.2 s under the hook (decision 8): coded, OFF until the A/B test (6 clips with /
+         # 6 without, published 5-8 oct) is good at 48 h.
+         "opening": False}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set

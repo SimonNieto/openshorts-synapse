@@ -144,6 +144,10 @@ HERO_DUR_MIN, HERO_DUR_MAX = 2.0, 2.5
 # The « dessin » chain in full width (plus.BROLL "full_width"): a drawing never covers the punchline — it leaves
 # PUNCH_CLEAR s before it is said, and a moment that cannot stay HERO_DUR_MIN s that way gets no picture.
 PUNCH_CLEAR = 0.2
+# The opening drawing (5-oct-2026, decision 8, plus.BROLL "opening", OFF until the A/B test says otherwise): the
+# clip's clearest drawing full screen from 0 to OPENING_SECONDS, then a hard cut to the face — under the hook and the
+# captions (the B-roll layer is under both). The one exception to HEAD_FREE.
+OPENING_SECONDS = 1.2
 
 
 def _knob(name, default):
@@ -3418,6 +3422,112 @@ def add_screen_only(clip_path, out_path, inset, img_dir=None, manual=False):
     return {"items": [item], "credits": [], "planner": "screen", "sources": ["screen"], "pending": manual}
 
 
+# --- the opening drawing (5-oct-2026, decision 8; plus.BROLL "opening", OFF until the A/B test) ---------------------
+# Never on the opening: a drawing whose words evoke a death or a serious illness (the code's net, before any call;
+# the chooser is told the same and also refuses a real, recognisable person). A clip about a death opens on the face.
+OPENING_NO_RE = re.compile(
+    r"\b(dead|deaths?|die[sd]?|dying|kill\w*|suicid\w*|overdos\w*|funeral\w*|coffins?|graves?|graveyards?|"
+    r"gravestones?|corpses?|morgue|autops\w*|cemeter\w*|tombs?\w*|skulls?|skeletons?|cancer\w*|tumou?rs?|chemo\w*|"
+    r"terminal(?:ly)? ill\w*|hospital beds?|icu|intensive care|life support|ventilators?|coma|heart attacks?|"
+    r"seizures?|drips?|iv bags?|blood\w*|wounds?|bleed\w*)\b", re.I)
+OPENING_PX = (270, 480)      # the chooser sees each drawing at about a phone's size: what reads there reads in the feed
+OPENING_PROMPT = """A short vertical video opens on ONE of the drawings attached, full screen, for its first {secs:g}
+seconds, under its hook (the line written on top of it): "{hook}". The video's title: "{title}".
+That first second decides whether someone scrolling stops. Pick the ONE drawing that reads in one glance on a phone —
+one big clear subject, few small details — and shows what the hook is about.
+Never pick a drawing that evokes a death or its means, a serious illness (a sick or dying person, a hospital bed, a
+drip, a tumour), or a real, recognisable person. When no drawing qualifies, answer -1: the video then opens on the
+speaker's face, which is fine.
+{lines}
+Return JSON: {{"pick": <the drawing's number, or -1>, "why": "<12 words at most>"}}"""
+OPENING_SCHEMA = {"type": "object", "properties": {"pick": {"type": "integer"}, "why": {"type": "string"}},
+                  "required": ["pick", "why"]}
+
+
+def opening_candidates(drawn):
+    """The (item, cand) pairs that may open the clip: full-screen drawings only (not a card, not the source's own
+    picture), not in a clip about a death, not on a sentence that mentions one, nothing in their words that evokes a
+    death or a serious illness (OPENING_NO_RE)."""
+    if any((c.get("m") or {}).get("clip_gravity") == "grave" for _it, c in drawn):
+        return []
+    out = []
+    for it, c in drawn:
+        m = c.get("m") or {}
+        spec = m.get("spec") or {}
+        if it.get("layout") != "hero" or it.get("source") == "screen" or spec.get("death_near"):
+            continue
+        # the director's own picture (the charter's style sentence left out), else the prompt
+        text = " ".join(str(x or "") for x in (m.get("picture") or it.get("prompt"), m.get("idea_text"), it.get("idea"),
+                                                it.get("subject"), m.get("said"), it.get("anchor")))
+        if OPENING_NO_RE.search(text):
+            filter_hit("opening: death or illness in its words", f'Picture "{it.get("anchor")}" never opens the clip.')
+            continue
+        out.append((it, c))
+    return out
+
+
+def choose_opening(cands, clip, tmp):
+    """(index in ``cands``, why) of the drawing that opens the clip, or (None, why). One Claude call that SEES the
+    drawings at a phone's size with the hook and the title (no Claude, a failed call or -1: no opening — a weak or
+    wrong opening is worse than the face)."""
+    if not cands:
+        return None, "no full-screen drawing may open this clip"
+    if not claude_ready():
+        return None, "Claude is not available"
+    thumbs, lines = [], []
+    for k, (it, c) in enumerate(cands):
+        path = os.path.join(tmp, f"opening_{k}.jpg")
+        try:
+            im = Image.open(it["_img"]).convert("RGB")
+            im.thumbnail(OPENING_PX, Image.LANCZOS)
+            im.save(path, quality=88)
+        except Exception as e:
+            return None, f"drawing unreadable ({str(e)[:60]})"
+        thumbs.append(path)
+        what = (c.get("m") or {}).get("idea_text") or it.get("idea") or it.get("subject") or it.get("anchor")
+        lines.append(f'drawing {k} (image "opening_{k}.jpg", shown at {float(it["t"]):.1f}s on "{it.get("anchor")}"): '
+                     f'{str(what)[:160]}')
+    prompt = OPENING_PROMPT.format(secs=OPENING_SECONDS, hook=str(clip.get("viral_hook_text") or "")[:120],
+                                   title=str(clip.get("video_title_for_youtube_short") or "")[:120],
+                                   lines="\n".join(lines))
+    try:
+        import broll_ideas
+        data = claude_json(prompt, OPENING_SCHEMA, timeout=180, attach=thumbs, stage="broll_opening",
+                           model=broll_ideas._model("broll_verify", "sonnet"), effort="low") or {}
+    except Exception as e:
+        return None, f"the choice failed ({str(e)[:80]})"
+    try:
+        k = int(data.get("pick"))
+    except (TypeError, ValueError):
+        return None, "no answer"
+    why = re.sub(r"\s+", " ", str(data.get("why") or "")).strip()[:120]
+    return (k, why) if 0 <= k < len(cands) else (None, why or "none qualifies")
+
+
+def opening_item(items, drawn, clip, tmp, keep_dir=None, keep_prefix=""):
+    """The opening's B-roll item — the chosen drawing full screen from 0 to OPENING_SECONDS, a hard cut, no sound —
+    or None. Its own copy of the picture (``<keep_prefix>broll_open.jpg``): the manual review and a restyle find each
+    item by its file. Never over the source's own picture or a picture already up in the first seconds."""
+    first = min((float(it["t"]) for it in items), default=None)
+    if first is not None and first < OPENING_SECONDS + 0.25:
+        print("   ℹ️ Opening drawing: a picture is already up in the first seconds — none.")
+        return None
+    cands = opening_candidates(drawn)
+    k, why = choose_opening(cands, clip, tmp)
+    if k is None:
+        print(f"   ℹ️ Opening drawing: none ({why}) — the clip opens on the face.")
+        return None
+    it = cands[k][0]
+    op = {key: v for key, v in it.items() if key not in ("sfx", "image", "_img")}
+    op.update(t=0.0, dur=OPENING_SECONDS, layout="hero", opening=True, opening_why=why, _img=it["_img"])
+    if keep_dir:
+        name = f"{keep_prefix}broll_open.jpg"
+        shutil.copy2(it["_img"], os.path.join(keep_dir, name))
+        op["image"] = name
+    print(f'   🎬 Opening drawing (0-{OPENING_SECONDS:g} s, under the hook): "{it.get("anchor")}" — {why}')
+    return op
+
+
 class ComfyDown(RuntimeError):
     """The local GPU (ComfyUI) is off or stopped answering: B-roll images are
     made only there, so the whole job stops instead of shipping clips without
@@ -3836,6 +3946,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     print(f"   ⚠️ B-roll review via Claude failed ({str(e)[:160]}) — images kept unchecked.")
 
         items, credits, sources = [], [], []
+        drawn = []       # (item, cand) of every picture made for this clip, for the opening drawing
         for c in cands:
             m = c["m"]
             # A real photo (a place, a flag) is shown BIG: a small card shows a tower or a flag badly. Big
@@ -3925,6 +4036,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 shutil.copy2(c["file"], os.path.join(keep_dir, name))
                 item["image"] = name
             items.append(item)
+            drawn.append((item, c))
             sources.append(c["source"])
             if c["credit"]:
                 credits.append(c["credit"])
@@ -3955,6 +4067,13 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # first one leaves a little early
             for a, b in zip(items, items[1:]):
                 a["dur"] = round(max(1.0, min(a["dur"], b["t"] - a["t"] - 0.25)), 2)
+        if full and cfg.get("opening"):
+            # The opening drawing (5-oct-2026, decision 8; OFF in the recipe until the A/B test): the one exception to
+            # HEAD_FREE, set after the planning — the other pictures keep the hook's seconds free.
+            op = opening_item(items, drawn, clip, tmp, keep_dir, keep_prefix)
+            if op:
+                items.insert(0, op)
+                sources.insert(0, op["source"])
         if not manual:
             overlay_items(clip_path, out_path, items)
         for it in items:
