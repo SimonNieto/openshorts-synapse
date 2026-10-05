@@ -8,6 +8,8 @@
   4. one render per moment (the hero full screen, the others as cards). No viewer, no judge, no render loop.
      5-oct-2026 (decision 5, plus.BROLL "full_width"): EVERY picture is made 9:16 and shown alone, full screen, never
      as a card on the speaker's head — the ideas and the prompts do not change, only the shape (run(..., full=True)).
+  5. 5-oct-2026, dressed bodies: a person in the picture -> the code adds DRESSED to its text; every picture rendered
+     is looked at (dress_check, one yes/no question on a small image): a bare body is drawn once more, then dropped.
 
 The pictures are drawn and keep their own palette: no mood grade, no signature. Every picture made, and every idea the
 verifier refused (rendered anyway, never used), goes to the clip's trace (broll_v20.trace). broll_dessin.py (the bench)
@@ -94,10 +96,88 @@ VERIFY_SCHEMA = {"type": "object", "properties": {"moments": {"type": "array", "
     "required": ["k", "verdict", "reason"]}}}, "required": ["moments"]}
 
 
-def picture_text(suffix, picture):
+# Dressed bodies (5-oct-2026, the user: « et pour ce qui est des corps presque nus ? faut faire quelque chose »).
+# Z-Image undresses a person as soon as something must be shown "inside" the body — on job b8e46c24: a woman in
+# underwear in a scanner, a man under a sheet, a bare shoulder for a needle — though no prompt asked for it. Safety,
+# not the invention of the ideas: whenever the picture has a person in it, the code adds a dressing sentence after the
+# director's picture (the charter's style sentence stays first, word for word) — DRESSED_PATIENT when someone lies
+# down or the inside of a body is shown (on the demo, "everyday clothes" turned such a patient into a crop top or
+# underwear, the closed gown dressed them), DRESSED otherwise (a gown there moved a needle scene to a clinic and added
+# people). Every picture rendered is then looked at (dress_check: one yes/no question on a small image) and drawn
+# once more with DRESSED_MORE added and another seed when a body is bare — then dropped if it still is.
+DRESSED = ("Anyone in this scene is fully dressed in everyday clothes that cover them from the neck to the knees; for an "
+           "injection only one sleeve is rolled up to the elbow; anything inside a body is drawn through the clothes.")
+DRESSED_PATIENT = ("Anyone in this scene is fully dressed: a patient wears a closed long-sleeved hospital gown from the "
+                   "neck to the knees, anyone else their usual clothes; anything inside a body is drawn through the "
+                   "gown.")
+DRESSED_MORE = "The clothes stay closed from the neck to the knees; a glow inside a body shows as light on the fabric."
+LYING_RE = re.compile(r"\b(lies|lying|lay|laid|patients?|scanner|scan|mri|x-ray|stretcher|gurney|hospital beds?|"
+                      r"operating table|exam(?:ination)? table|abdomen|bell(?:y|ies)|stomach|organs?|"
+                      r"inside (?:the|her|his|a|their) bod(?:y|ies))\b", re.I)
+PERSON_RE = re.compile(
+    r"\b(persons?|people|man|men|woman|women|child|children|kids?|boys?|girls?|bab(?:y|ies)|toddlers?|teen\w*|"
+    r"adults?|patients?|doctors?|nurses?|surgeons?|athletes?|figures?|someone|somebody|anyone|crowd|audience|"
+    r"players?|swimmers?|runners?|fighters?|soldiers?|workers?|students?|mothers?|fathers?|parents?|"
+    r"bod(?:y|ies)|torsos?|chests?|bell(?:y|ies)|abdomen|stomach|shoulders?|arms?|he|she|him|his|her|hers)\b", re.I)
+
+
+def has_person(picture):
+    """The director's picture puts a person (or a body) in the scene."""
+    return bool(PERSON_RE.search(picture or ""))
+
+
+def picture_text(suffix, picture, more=False):
     """The text the image model gets: the charter's style first (4-oct-2026, the user: a drawn man in a photographed
-    room, sometimes all photographed — the model reads the medium before the scene), then the director's picture."""
-    return f"{suffix} {picture}"
+    room, sometimes all photographed — the model reads the medium before the scene), then the director's picture,
+    then — a person in it — the dressing sentence (5-oct-2026: DRESSED_PATIENT for someone lying or a body seen inside,
+    else DRESSED; ``more``: DRESSED_MORE added, the redraw of a bare body)."""
+    text = f"{suffix} {picture}"
+    if more or has_person(picture):
+        text += " " + (DRESSED_PATIENT if LYING_RE.search(picture or "") else DRESSED)
+        if more:
+            text += " " + DRESSED_MORE
+    return text
+
+
+DRESS_PROMPT = """Look at this drawing. Answer true ONLY if a person in it is undressed: naked, in underwear, a bra, a
+swimsuit or a crop top that leaves the belly bare, lying with nothing on under a sheet, or with bare skin on the chest,
+the belly, the back or the top of the shoulders. Anyone wearing a top (a T-shirt, scrubs, a sweater, a shirt with an
+open collar, a hospital gown) is dressed, even with a sleeve rolled up, and even when a glow, a light or an organ is
+drawn over or through the clothes: that is not skin. Hands, arms, the neck, the face and the legs do not count.
+Nobody in it: false.
+Return JSON: {"bare": true or false, "what": "<8 words at most: who is bare and where, else empty>"}"""
+DRESS_SCHEMA = {"type": "object", "properties": {"bare": {"type": "boolean"}, "what": {"type": "string"}},
+                "required": ["bare", "what"]}
+DRESS_PX = 512        # the drawing's longer side as the check sees it: a body reads at that size, and it costs little
+
+
+def dress_check(path, tmp):
+    """(bare, what) for a rendered picture: True / False, or None when no answer came. One small image, one yes/no
+    question, Sonnet at low effort (Haiku if Sonnet fails). Measured (5-oct-2026, output/_stepup/chantier/L2) on 62
+    labelled drawings — job b8e46c24's 34, its 3 bare originals, 25 redraws of the hard cases: every bare body found
+    (8/8), 3 dressed patients out of 47 called bare (a glow drawn on a gown read as skin: one redraw for nothing),
+    ~980 tokens an image. Haiku, before the question said what a top is, flagged 6 dressed people out of 31; at 768 px
+    instead of 512 Sonnet did no better."""
+    import broll
+    from PIL import Image
+    thumb = os.path.join(tmp, "dress_" + os.path.basename(path))
+    try:
+        im = Image.open(path).convert("RGB")
+        im.thumbnail((DRESS_PX, DRESS_PX), Image.LANCZOS)
+        im.save(thumb, quality=88)
+    except Exception as e:
+        return None, f"unreadable ({str(e)[:60]})"
+    model = broll_ideas._model("broll_dress", "sonnet")
+    for m in dict.fromkeys((model, "haiku")):
+        try:
+            data = broll.claude_json(DRESS_PROMPT, DRESS_SCHEMA, timeout=120, attach=[thumb], stage="broll_dress",
+                                     model=m, effort="low") or {}
+        except Exception as e:
+            print(f"   ⚠️ Dress check on {m} failed ({str(e)[:100]}).")
+            continue
+        if isinstance(data.get("bare"), bool):
+            return data["bare"], re.sub(r"\s+", " ", str(data.get("what") or "")).strip()[:80]
+    return None, "no answer"
 
 
 def direct_and_verify(sentences, title=None):
@@ -130,6 +210,42 @@ def direct_and_verify(sentences, title=None):
             if ideas[k]["picture"] and verdicts[k]["reason"] == "no picture":
                 verdicts[k] = {"verdict": "refuse", "reason": "not answered by the verifier"}
     return ideas, verdicts, suffix
+
+
+def _dressed(k, got, seed, text, suffix, picture, layout, entry, tmp, render):
+    """The dress check of a picture about to be kept (5-oct-2026) -> (path, seed, text, how). Nobody bare: kept as is.
+    A bare body: drawn once more with DRESSED_MORE and another seed, kept if that one is dressed, else (None, ...): no
+    picture. No answer from the check: kept only when the picture names nobody. Every picture set aside goes to the
+    clip's trace, refused, with why."""
+    import broll
+    import broll_v20
+
+    def refuse(path, s, why, prompt=None):
+        broll_v20.LAST_CHECKS.append({**entry, "prompt": prompt or entry.get("prompt"), "file": os.path.basename(path),
+                                      "verdict": "refused", "why": why, "seed": s})
+
+    bare, what = dress_check(got, tmp)
+    if bare is False:
+        return got, seed, text, "ok"
+    if bare is None:
+        if not has_person(picture):
+            return got, seed, text, f"not checked ({what}), nobody named"
+        broll.filter_hit("v26: dress not checked, a person in it — dropped")
+        refuse(got, seed, f"dress not checked ({what})")
+        return None, None, text, "not checked"
+    broll.filter_hit("v26: bare body, drawn again dressed", f"Picture {k}: {what}.")
+    refuse(got, seed, f"bare body: {what} (drawn again)")
+    text2 = picture_text(suffix, picture, more=True)
+    got2, seed2 = render(text2, os.path.join(tmp, f"broll_{k}_dressed.jpg"), layout)
+    if got2:
+        bare2, what2 = dress_check(got2, tmp)
+        if bare2 is False:
+            print(f"   👕 B-roll: picture {k} drawn again, dressed (the first one: {what}).")
+            return got2, seed2, text2, f"ok on the second drawing (the first: {what})"
+        refuse(got2, seed2, f"bare body again: {what2}" if bare2 else f"dress not checked ({what2})", text2)
+    broll.filter_hit("v26: bare body, dropped")
+    print(f"   🚫 B-roll: picture {k} dropped — a bare body ({what}), drawn twice.")
+    return None, None, text, "bare"
 
 
 def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, gap_min, block, dur_range, tmp, render,
@@ -191,6 +307,10 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
             if not got:
                 broll.filter_hit("v26: not made (ComfyUI)")
                 continue
+            got, seed, text, dressed = _dressed(k, got, seed, text, suffix, idea["picture"], layout, entry, tmp, render)
+            if not got:
+                continue
+            entry.update(prompt=text, dress=dressed)
             m2 = broll_v20._moment_for(m, m["spec"], text)
             # drawn in the charter: its own palette (no mood grade, no signature), never the episode's drawing
             m2.update(mood=None, inside_body=False, idea_text=idea["idea"], picture=idea["picture"])

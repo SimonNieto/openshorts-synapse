@@ -81,6 +81,7 @@ def run(monkeypatch, tmp_path):
         monkeypatch.setattr(broll, "overlay_items", lambda clip_, out, items, img_dir=None: cut.append(list(items)))
         monkeypatch.setattr(broll_spec, "plan_specs", lambda *a, **kw: ([dict(m) for m in moments], []))
         monkeypatch.setattr(broll_ideas, "_call", Calls(pictures, verdicts))
+        monkeypatch.setattr(broll_draw, "dress_check", lambda path, tmp: (False, ""))   # everybody dressed
         monkeypatch.setattr(broll_v20, "trace", lambda *a, **kw: None)
         keep = tmp_path / "job"
         keep.mkdir(exist_ok=True)
@@ -160,6 +161,7 @@ class TestDrawRun:
 
     def test_every_render_is_full_screen_with_the_same_prompt(self, monkeypatch, tmp_path):
         monkeypatch.setattr(broll_ideas, "_call", Calls(["A fridge.", "A dish."]))
+        monkeypatch.setattr(broll_draw, "dress_check", lambda path, tmp: (False, ""))
         monkeypatch.setattr(broll, "_frame_sheets", lambda path, tmp: [])
         monkeypatch.setattr(broll_spec, "plan_specs", lambda *a, **kw: ([_moment(6.0, hero=True), _moment(12.0)], []))
         monkeypatch.setattr(broll_v20, "trace", lambda *a, **kw: None)
