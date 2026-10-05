@@ -115,6 +115,12 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
 # (playbook.title_set_problems). All with the Synapse Cut playbook on.
 SELECTION = {"dedupe_overlap": 0.2, "dedupe_seconds": 8.0, "hook_check": True, "audio_signals": True,
              "title_variety": True, "playbook": True}
+# The spectator (5-oct-2026, the user: « Brancher tout de suite », before any calibration): at the end of the job
+# every rendered clip's first 3 seconds are judged once by a blind viewer (hook_jury.py: frames of the final clip,
+# the words as edited, the hook; 1 vote, Sonnet) — a 0-100 chance to stay, stop yes/maybe/no, a verdict, a fix,
+# kept in output/_jury/results/ for the Line-up dashboard. Never fails nor holds the job (at most
+# hook_jury.SPECTATOR_BUDGET seconds, then no score). Not yet checked against the real "Stayed to watch".
+SPECTATOR = True
 
 # A channel's clip length (4-oct-2026: three formats instead of six numbers). clip_min / clip_max = the hard limits;
 # clip_target = the length to AIM for, asked for in the prompt (a clip over it is cut back to the sentence of its
@@ -303,6 +309,8 @@ def job_env(profile):
         "HOOK_CHECK": "1",
         "AUDIO_SIGNALS": "1",
         "TITLE_VARIETY": "1",
+        # Read by main.spectate_clips once every clip is rendered (SPECTATOR above).
+        "PLUS_SPECTATOR": "1" if SPECTATOR else "0",
         # --- the channel's own facts ---
         "CLIP_MIN_SECONDS": str(fmt["clip_min"]),
         "CLIP_MAX_SECONDS": str(fmt["clip_max"]),

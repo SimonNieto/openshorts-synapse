@@ -1,21 +1,24 @@
 """The hook jury: would a scrolling viewer still be watching at 3 seconds? (5-oct-2026)
 
-(5-oct-2026) Not wired yet: kept for later at the user's request (the Line-up dashboard comes first). Nothing in
-the app calls this module, and no calibration was run: a first pass was stopped half-way and its files are kept
-in output/_jury/ (results/ for 12 clips, calibration_clips/ for 2 published shorts, transcripts/ for the 11
-published shorts — all valid, never paid twice). How to turn it on:
+(5-oct-2026) Wired at the end of every Clip Generator++ job, before any calibration (the user: « Brancher tout de
+suite »). What runs, and what does not yet:
 
-1. The rule (the user's: "on n'utilise pas deux fois les tokens"): the jury judges each clip ONCE, ideally at the
-   end of the generator's job (main.py / app.py, once the clips are rendered:
-   ``run_many(output_dir, [(job_id, i) for i in range(n_clips)])``), and its result is kept in
-   output/_jury/results/<job_id>_c<NN>.json (C1). ``run_one`` / ``run_many`` never ask again while that result is
-   up to date — whatever the number of votes or the jury version; only a new rendered mp4 (another name or mtime,
-   checked by ``load_result``) or ``force=True`` re-judges. The dashboard only READS (``load_result``,
-   ``load_calibration``); it never judges on opening.
-2. Calibrate before trusting the number (in the backend container, from the app folder):
+1. ONE note per rendered clip, kept (the user's rule: "on n'utilise pas deux fois les tokens"). plus.SPECTATOR ->
+   job_env PLUS_SPECTATOR=1 -> main.spectate_clips, right after the job's final metadata write ->
+   ``spectate_job``: every rendered clip through run_one, SPECTATOR_WORKERS at a time, 1 vote (APP_VOTES), one
+   "👁️ Spectator cNN: <score> (<stop>) — <verdict>" line each in the job log. The result is kept in
+   output/_jury/results/<job_id>_c<NN>.json (C1) and never asked again while it is up to date — whatever the
+   number of votes or the jury version; only a new rendered mp4 (another name or mtime, ``load_result``) or
+   ``force=True`` re-judges. A lock file per clip keeps two runs from paying for the same clip. An AI error never
+   fails the job, and the job waits at most SPECTATOR_BUDGET seconds (then: no score for the clips left). The
+   dashboard only READS (``load_result``, ``load_calibration``); it never judges on opening.
+2. NOT done yet (the user declined it for now): the calibration — the score is not yet checked against the real
+   "Stayed to watch". To run it (backend container, app folder; the 11 published shorts are already transcribed
+   in output/_jury/transcripts/):
        python hook_jury.py --output /app/output published    # the 11 published shorts of output/_jury/published/
-       python hook_jury.py --output /app/output run e9e44926:10 88a7e7c1:2 88a7e7c1:3 82509f9b:1 e9e44926:8 \
-           e9e44926:7 88a7e7c1:4 e9e44926:6 e9e44926:1 e9e44926:9 e9e44926:4 e9e44926:5 --votes 3
+       python hook_jury.py --output /app/output run e9e44926:10 88a7e7c1:2 88a7e7c1:3 82509f9b:1 e9e44926:8
+           e9e44926:7 88a7e7c1:4 e9e44926:6 e9e44926:1 e9e44926:9 e9e44926:4 e9e44926:5      (one line; the
+           clips already judged cost nothing: the calibration measures the very notes the app keeps)
                                                             # the 12 local clips of shorts_23.json (local_tag)
        python hook_jury.py --output /app/output rank         # optional: the ranking check (groups of 4)
        python hook_jury.py --output /app/output calibrate    # -> output/_jury/calibration.json
@@ -23,12 +26,10 @@ published shorts — all valid, never paid twice). How to turn it on:
    for publication). e9e44926_c04 and _c05 had their figure read < 48 h after publication: the age rule leaves
    them out (n = 21) and the sensitivity block puts them back. Then write the reading in
    output/_lineup/jury/calibration.md and set APP_VOTES / SCORE_MODE from the numbers (``score_mode_suggested``).
-3. The out-of-sample test: ``python hook_jury.py --output /app/output preregister <job>`` on a job whose figures
-   are not visible yet (b8e46c24's arrive after 10-oct; once seen, freezing its scores proves nothing), then
-   compare after 48 h with a Studio export dropped in stats/.
-Measured on the stopped pass (14 clips, Claude Sonnet through the subscription): one viewer vote = ~4.2k tokens
-read + ~0.2k written, ~3-4 s; the editor check ~1.2k tokens; a clip with 3 votes ~14k tokens, ~15 s; with 1 vote
-~5.5k tokens, ~7 s.
+3. The out-of-sample test: b8e46c24's scores frozen on 5-oct in output/_jury/preregistered_b8e46c24.json (its
+   figures come after 10-oct); compare after 48 h with a Studio export dropped in stats/.
+Measured (Claude Sonnet through the subscription): one viewer vote = ~4.2k tokens read + ~0.2k written, 3-4 s;
+the editor check ~1.2k tokens; a clip with 1 vote ~5.5k tokens, ~7 s; with 3 votes ~14k tokens, ~15 s.
 
 Why: on this channel ONE number separates the shorts YouTube pushes from the ones it drops after the test pool:
 "Stayed to watch" / « Ont continué de regarder » (output/_stepup/donnees/rapport.md, C1: rank correlation 0.72
@@ -87,7 +88,16 @@ from datetime import datetime, timedelta, timezone
 # --- what the jury is -----------------------------------------------------------------------------------------
 VERSION = "jury-v1"
 MODEL = "sonnet"                      # the Claude model; ai_brain falls back to Gemini when Claude cannot run
-STAGE = "hook jury"
+STAGE = "spectator"                   # the dashboard's "🧠 [Claude · sonnet] spectator" line during a job
+CALL_TIMEOUT = 120                    # one call never holds a job's end longer (the measured call: 3-8 s)
+# At the end of a Clip Generator++ job (main.spectate_clips, plus.SPECTATOR): clips judged SPECTATOR_WORKERS at a
+# time, and the job waits at most SPECTATOR_BUDGET seconds for them — a clip still being judged then is left
+# without a score (the dashboard can judge it later), never a failed or late job.
+SPECTATOR_WORKERS = 4
+SPECTATOR_BUDGET = 150
+# A clip being judged holds a lock file next to its result: another run (the dashboard's background pass, a
+# second process) skips it instead of paying for the same clip twice. Older than this, a lock is a crashed run's.
+LOCK_STALE = 15 * 60
 # The viewer is not an editor: ai_brain's default system prompt ("a senior short-form video editor") would
 # frame every answer as a professional's (5-oct-2026).
 SYSTEM_VIEWER = ("You play the viewer described in the request, honestly, without politeness. The images are "
@@ -100,9 +110,10 @@ PHONE_WIDTH = 390
 WORD_WINDOWS = ((0.0, 3.0), (3.0, 6.0))
 # Votes per clip in the app. Provisional (5-oct-2026), from the 14 clips judged 3 times before the pass was
 # stopped: one vote ranks the clips like another vote does (test-retest Spearman 0.94), a vote is 2.5 points from
-# the median on average (median spread 4, worst 23): 1 vote, 2.6 times cheaper. 3 on the calibration, to re-measure.
+# the median on average (median spread 4, worst 23): 1 vote, 2.6 times cheaper (``--votes 3`` re-measures it).
 APP_VOTES = 1
-CALIBRATION_VOTES = 3
+# The calibration measures what the app shows: the same number of votes.
+CALIBRATION_VOTES = APP_VOTES
 # The ranking check: groups of RANK_GROUP openings (RANK_FRAMES each, fewer than alone so a group costs about one
 # solo call), every clip in RANK_ROUNDS groups with other opponents -> (RANK_GROUP - 1) * RANK_ROUNDS games.
 RANK_GROUP = 4
@@ -511,16 +522,18 @@ def _gemini_fallback(prompt, schema, attach):
 
 
 def _ask(prompt, schema, attach=None, system=None):
-    """One jury call -> (answer, who, cost {"seconds", "input_tokens", "output_tokens", "calls"})."""
+    """One jury call -> (answer, who, cost {"seconds", "input_tokens", "output_tokens", "calls"}). The tokens are
+    ai_brain's count of this call (LAST_USAGE): exact one clip at a time, approximate when clips are judged in
+    parallel threads (spectate_job) — the job's own total (ai_brain.USAGE) stays exact."""
     import ai_brain
-    before = dict(ai_brain.USAGE)
     t0 = time.time()
+    ai_brain.LAST_USAGE = None
     fallback = _gemini_fallback(prompt, schema, attach) if os.environ.get("GEMINI_API_KEY") else None
     data, who = ai_brain.think(STAGE, prompt, schema, fallback=fallback, attach=attach, route_key="hook",
-                               brain=MODEL, system=system)
-    cost = {"seconds": round(time.time() - t0, 1),
-            **{k: int(ai_brain.USAGE.get(k, 0)) - int(before.get(k, 0))
-               for k in ("input_tokens", "output_tokens", "calls")}}
+                               brain=MODEL, system=system, timeout=CALL_TIMEOUT)
+    used = ai_brain.LAST_USAGE or {}
+    cost = {"seconds": round(time.time() - t0, 1), "input_tokens": int(used.get("input_tokens") or 0),
+            "output_tokens": int(used.get("output_tokens") or 0), "calls": 1}
     return data, (MODEL if who == "claude" else "gemini"), cost
 
 
@@ -723,14 +736,56 @@ def run_one(output_dir, job_id, clip_index, force=False, votes=None):
     old = load_result(output_dir, subject["job_id"], clip_index)
     if old and not force:
         return old
-    fields = judge(subject, votes=votes)
-    rank_check = (old or {}).get("rank_check") if old else None       # same mp4: the ranking still holds
-    result = {"job_id": subject["job_id"], "clip_index": int(clip_index), "ref": subject["ref"],
-              "clip_file": os.path.basename(subject["video"]), "clip_mtime": _mtime(subject["video"]),
-              "version": VERSION, "model": fields.pop("model"), "at": _now(),
-              "score": final_score(fields["score_solo"], rank_check), **fields, "rank_check": rank_check}
-    _write_json(result_path(output_dir, subject["job_id"], clip_index), result)
+    path = result_path(output_dir, subject["job_id"], clip_index)
+    with _clip_lock(path, subject["ref"]):
+        fresh = None if force else load_result(output_dir, subject["job_id"], clip_index)
+        if fresh:
+            return fresh                              # another run judged it in the meantime
+        fields = judge(subject, votes=votes)
+        rank_check = (old or {}).get("rank_check") if old else None   # same mp4: the ranking still holds
+        result = {"job_id": subject["job_id"], "clip_index": int(clip_index), "ref": subject["ref"],
+                  "clip_file": os.path.basename(subject["video"]), "clip_mtime": _mtime(subject["video"]),
+                  "version": VERSION, "model": fields.pop("model"), "at": _now(),
+                  "score": final_score(fields["score_solo"], rank_check), **fields, "rank_check": rank_check}
+        _write_json(path, result)
     return result
+
+
+class JuryBusy(RuntimeError):
+    """Another run is judging this clip right now."""
+
+
+class _clip_lock:
+    """``<result>.lock``, created exclusively: a second run on the same clip raises JuryBusy (a lock older than
+    LOCK_STALE is a crashed run's and is taken over)."""
+
+    def __init__(self, result_file, ref):
+        self.path, self.ref = result_file + ".lock", ref
+
+    def __enter__(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        for _ in range(2):
+            try:
+                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, f"{os.getpid()} {_now()}".encode())
+                os.close(fd)
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - os.path.getmtime(self.path) > LOCK_STALE:
+                        os.remove(self.path)
+                        continue
+                except OSError:
+                    continue
+                raise JuryBusy(f"{self.ref} is being judged by another run")
+        raise JuryBusy(f"{self.ref}: could not take the lock")
+
+    def __exit__(self, *exc):
+        try:
+            os.remove(self.path)
+        except OSError:
+            pass
+        return False
 
 
 def run_many(output_dir, clips, progress=None, force=False, votes=None):
@@ -751,6 +806,67 @@ def run_many(output_dir, clips, progress=None, force=False, votes=None):
             except Exception:                                      # noqa: BLE001
                 pass
     return out
+
+
+def spectate_line(result):
+    """The job log's line for one clip: "👁️ Spectator c03: 52 (maybe) — <verdict>"."""
+    num = f"c{int(result.get('clip_index', 0)) + 1:02d}"
+    if result.get("error"):
+        return f"   👁️ Spectator {num}: no score ({result['error'][:160]})"
+    verdict = result.get("verdict") or ""
+    flag = " ⚠️ hook not true to the clip" if result.get("hook_true") is False else ""
+    return f"   👁️ Spectator {num}: {result.get('score')} ({result.get('stop') or '?'}) — {verdict}{flag}"
+
+
+def spectate_job(job_dir, workers=SPECTATOR_WORKERS, budget=SPECTATOR_BUDGET, log=print):
+    """The spectator at the end of a generator job (main.spectate_clips): every rendered clip of ``job_dir``
+    judged once (run_one: a clip with an up-to-date result costs nothing), ``workers`` at a time, one log line
+    each. The job waits at most ``budget`` seconds: the threads are daemons, so a clip still being judged then is
+    simply left without a score. Never raises. Returns [result or {"ref", "error"}]."""
+    t0 = time.time()
+    try:
+        output_dir, job_id = os.path.dirname(os.path.abspath(job_dir)), os.path.basename(os.path.abspath(job_dir))
+        _p, meta = _metadata(job_dir)
+        todo = [(job_id, i) for i in range(len((meta or {}).get("shorts") or []))
+                if clip_video_path(output_dir, job_id, i)]
+    except Exception as e:                                         # noqa: BLE001
+        log(f"   👁️ Spectator: skipped ({str(e)[:160]})")
+        return []
+    if not todo:
+        return []
+    import queue
+    import threading
+    pending, done = queue.Queue(), []
+    for item in todo:
+        pending.put(item)
+    lock = threading.Lock()
+
+    def worker():
+        while True:
+            try:
+                jid, i = pending.get_nowait()
+            except queue.Empty:
+                return
+            res = run_many(output_dir, [(jid, i)])[0]
+            with lock:
+                done.append(res)
+                log(spectate_line(res))
+
+    threads = [threading.Thread(target=worker, daemon=True, name=f"spectator-{k}")
+               for k in range(max(1, min(int(workers), len(todo))))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(max(0.0, budget - (time.time() - t0)))
+    with lock:
+        results = list(done)
+    scored = [r for r in results if not r.get("error")]
+    left = len(todo) - len(results)
+    msg = f"   👁️ Spectator: {len(scored)}/{len(todo)} clips scored in {time.time() - t0:.0f}s"
+    if left:
+        msg += f" — stopped waiting after {budget}s, {left} left without a score (the dashboard can judge them)"
+    log(msg)
+    return results
 
 
 def run_published(output_dir, video_id, force=False, votes=CALIBRATION_VOTES, transcribe=None):

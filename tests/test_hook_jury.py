@@ -351,3 +351,86 @@ def test_calibrate_end_to_end_on_fake_data(tmp_path, monkeypatch):
     assert any(e["ref"] == young and "48" in e["why"] for e in cal["excluded"])
     assert {"ref", "score", "stayed"} <= set(cal["rows"][0])
     assert hj.load_calibration(str(out))["n"] == 9
+
+
+# --- the end of a generator job --------------------------------------------------------------------------------
+
+def test_spectate_job_judges_each_rendered_clip_once_with_a_log_line(tmp_path, monkeypatch):
+    shorts = [{"start": 100.0, "end": 108.0, "auto_hook": {"text": "A tumor changed him"}},
+              {"start": 100.0, "end": 108.0}]                          # clip 2 never rendered
+    out, job = make_job(tmp_path, shorts, files=[f"{BASE}_clip_1.mp4"])
+    fake_frames(monkeypatch)
+    calls = fake_ask(monkeypatch, scores=(52,))
+    lines = []
+    res = hj.spectate_job(str(job), log=lines.append)
+    assert [r["ref"] for r in res] == ["abcd1234_c01"] and res[0]["votes"] == [52]   # 1 vote: APP_VOTES
+    assert any(ln.strip().startswith("👁️ Spectator c01: 52 (yes) — verdict 52") for ln in lines)
+    assert "1/1 clips scored" in lines[-1]
+    n = len(calls)
+    hj.spectate_job(str(job), log=lines.append)                          # the job re-run: kept, no call
+    assert len(calls) == n
+
+
+def test_spectate_job_never_raises_and_logs_the_error(tmp_path, monkeypatch):
+    out, job = make_job(tmp_path, files=[f"{BASE}_clip_1.mp4"])
+    fake_frames(monkeypatch)
+
+    def boom(*a, **k):
+        raise RuntimeError("claude: usage limit")
+    monkeypatch.setattr(hj, "_ask", boom)
+    lines = []
+    res = hj.spectate_job(str(job), log=lines.append)
+    assert res[0]["error"].startswith("claude: usage limit")
+    assert any("Spectator c01: no score" in ln for ln in lines)
+    assert hj.load_result(out, JOB, 0) is None
+    assert not os.path.exists(hj.result_path(out, JOB, 0) + ".lock")     # the lock is released
+    assert hj.spectate_job(str(tmp_path / "nowhere"), log=lines.append) == []
+
+
+def test_spectate_job_stops_waiting_after_its_budget(tmp_path, monkeypatch):
+    import threading
+    out, job = make_job(tmp_path, files=[f"{BASE}_clip_1.mp4"])
+    fake_frames(monkeypatch)
+    release = threading.Event()
+
+    def slow(*a, **k):
+        release.wait(5)
+        raise RuntimeError("late")
+    monkeypatch.setattr(hj, "_ask", slow)
+    lines = []
+    try:
+        res = hj.spectate_job(str(job), budget=0.2, log=lines.append)
+    finally:
+        release.set()
+    assert res == [] and "left without a score" in lines[-1]
+
+
+def test_a_clip_being_judged_elsewhere_is_not_paid_twice(tmp_path, monkeypatch):
+    out, _job = make_job(tmp_path, files=[f"{BASE}_clip_1.mp4"])
+    fake_frames(monkeypatch)
+    calls = fake_ask(monkeypatch)
+    lock = hj.result_path(out, JOB, 0) + ".lock"
+    os.makedirs(os.path.dirname(lock), exist_ok=True)
+    open(lock, "w").close()
+    res = hj.run_many(out, [(JOB, 0)])
+    assert "being judged" in res[0]["error"] and calls == []
+    os.utime(lock, (1, 1))                                                # a crashed run's lock
+    assert hj.run_one(out, JOB, 0)["score"] == 60
+    assert not os.path.exists(lock)
+
+
+def test_main_spectate_clips_follows_the_recipe_switch(monkeypatch, tmp_path):
+    import types
+    import main
+    seen = []
+    monkeypatch.setitem(sys.modules, "hook_jury", types.SimpleNamespace(
+        spectate_job=lambda d, log=None: seen.append(d) or ["ok"]))
+    monkeypatch.delenv("PLUS_SPECTATOR", raising=False)
+    assert main.spectate_clips(str(tmp_path)) is None and seen == []
+    monkeypatch.setenv("PLUS_SPECTATOR", "1")
+    assert main.spectate_clips(str(tmp_path)) == ["ok"] and seen == [str(tmp_path)]
+
+    def boom(d, log=None):
+        raise OSError("disk")
+    monkeypatch.setitem(sys.modules, "hook_jury", types.SimpleNamespace(spectate_job=boom))
+    assert main.spectate_clips(str(tmp_path)) is None                    # the job goes on

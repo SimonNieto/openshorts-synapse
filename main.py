@@ -2596,6 +2596,22 @@ def _ask_hook_retry(prompt):
     return data
 
 
+def spectate_clips(output_dir):
+    """Clip Generator++ (PLUS_SPECTATOR=1, plus.SPECTATOR, 5-oct-2026): the spectator judges the first seconds of
+    every rendered clip of this job once (hook_jury.spectate_job: results in output/_jury/results/, one
+    "👁️ Spectator cNN" line each). Whatever happens there, the job goes on: no score at worst."""
+    if os.environ.get("PLUS_SPECTATOR") != "1":
+        return None
+    try:
+        import hook_jury
+        print("\n👁️ Spectator: judging the first seconds of every clip (once per rendered clip)…", flush=True)
+        return hook_jury.spectate_job(output_dir, log=lambda line: print(line, flush=True))
+    except Exception as e:
+        print(f"   ⚠️ Spectator skipped ({type(e).__name__}: {str(e)[:200]}) — the clips are not affected.",
+              flush=True)
+        return None
+
+
 def retry_unclear_hooks(shorts, transcript, ask=None):
     """Synapse Cut playbook + HOOK_CHECK=1: the on-screen hooks that fail
     playbook.hook_issues (an image, a "he" nobody has met, no concrete word,
@@ -3823,6 +3839,8 @@ if __name__ == '__main__':
                    or 'recipe' in c for c in shorts):
                 with open(metadata_file, 'w') as f:
                     json.dump(clips_data, f, indent=2)
+            # After the final metadata (the montage's recipe is in it: the words as edited).
+            spectate_clips(output_dir)
 
     # Clean up original if requested
     if args.url and not args.keep_original and os.path.exists(input_video):

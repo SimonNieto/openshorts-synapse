@@ -57,6 +57,8 @@ class TestJobEnv:
             assert env["SMOOTH_CAMERA"] == env["PLUS_REACTIONS"] == env["PLUS_HQ_CHAIN"] == "1"
             assert env["SYNAPSE_PLAYBOOK"] == env["HOOK_CHECK"] == env["AUDIO_SIGNALS"] == env["TITLE_VARIETY"] == "1"
             assert (env["CLIP_DEDUPE_OVERLAP"], env["CLIP_DEDUPE_SECONDS"]) == ("0.2", "8")
+            # The spectator (5-oct-2026, « Brancher tout de suite »): every clip's first seconds judged once.
+            assert plus.SPECTATOR is True and env["PLUS_SPECTATOR"] == "1"
             assert "PLUS_MUSIC_ON" not in env
             # The montage (5-oct-2026, validated): silences, cut_out, hidden joins, tight frames — all on.
             assert json.loads(env["PLUS_MONTAGE_JSON"]) == {"enabled": True, "silences": True, "cut_out": True,
