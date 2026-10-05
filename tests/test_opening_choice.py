@@ -62,6 +62,20 @@ class TestSentenceStarts:
         w2 = mk("we did it all. " + "then nothing happened at all. " + FILL)
         assert main._opens_sentence(w2, first(w2, "then"))         # a full stop still opens anything
 
+    def test_a_pause_alone_opens_a_sentence_only_before_a_capital(self):
+        # Bench transcripts: 104 + 142 pauses before a lower-case word, nearly all mid-sentence
+        # ("it's about | how I want to be perceived").
+        w = mk("it is all about how I want to be perceived by them " + FILL * 2)
+        k = first(w, "how")
+        gap_before(w, k, 0.9)
+        assert main._is_boundary(w, k - 1) and not main._opens_sentence(w, k)
+        for word, ok in (("They", True), ("Barely", True), ("i", True), ("I'm", True), ("251,000", True),
+                         ("nobody", False), ("AI", False), ("Michelle", False)):
+            w2 = mk(f"it was over {word} came back to it " + FILL)
+            k2 = first(w2, word)
+            gap_before(w2, k2, 0.9)
+            assert main._opens_sentence(w2, k2) is ok, word
+
     @pytest.mark.parametrize("line", ["Because they can't patent it.", "Which is why nobody tests it.",
                                       "That's why they hate it.", "and that’s why it fails", "this is why"])
     def test_lines_that_point_back(self, line):
@@ -140,6 +154,20 @@ class TestCheckOpening:
         c2 = self.clip(w, "and", start_mid_sentence=True)
         assert "mid_sentence" in main.check_opening(c2, w)
 
+    def test_a_start_right_after_a_filler_is_on_a_sentence(self):
+        w = mk("The end. So, you can bet your liver pays for every pill. " + FILL * 6)
+        assert "mid_sentence" not in main.check_opening(self.clip(w, "you"), w)
+
+    def test_the_word_that_ends_at_the_cut_is_not_heard(self):
+        # Whisper's touching timestamps: "like" ends where "The" starts, the cut is there (_start_at).
+        w = [{"w": "it's", "s": 0.0, "e": 0.3}, {"w": "true.", "s": 0.35, "e": 0.7}, {"w": "like", "s": 1.6, "e": 1.9},
+             {"w": "The", "s": 1.9, "e": 2.1}]
+        w += [{"w": x, "s": 2.2 + i * 0.5, "e": 2.6 + i * 0.5} for i, x in enumerate(("liver pays. " + FILL * 6).split())]
+        c = {"start": 1.9, "end": 30.0, "video_title_for_youtube_short": "Does your liver pay?",
+             "viral_hook_text": "Liver"}
+        assert main._first_heard(w, 1.9) == 3
+        assert "mid_sentence" not in main.check_opening(c, w)
+
     def test_points_back_and_request(self):
         w = mk("The liver. Because they can't patent it, your liver pays. " + FILL * 6)
         assert "points_back" in main.check_opening(self.clip(w, "Because"), w)
@@ -210,6 +238,43 @@ class TestRank:
         assert moved == 1 and c["opening_score"] == 77 and "opening_misses" not in c
         assert "opening_score" in gw.OPEN_LATER_SCHEMA["properties"]["clips"]["items"]["properties"]
         assert "names the subject and sets the tension" in " ".join(gw.OPEN_LATER_PROMPT.split())
+
+
+class TestOpenLaterGuard:
+    W = mk("Your liver pays for every pill you take. " + FILL * 2 + "and then it was all about how the liver "
+           "works. " + FILL * 6 + "So it ends badly.")
+
+    def clip(self):
+        return {"start": 0.0, "end": self.W[-1]["e"] + 0.2, "over_target": "payoff needs the length",
+                "punchline": "So it ends badly.", "opening_score": 80, "viral_hook_text": "x",
+                "video_title_for_youtube_short": "t"}
+
+    def test_the_model_sees_the_current_opening(self):
+        seen = {}
+        c = self.clip()
+
+        def ask(prompt):
+            seen["p"] = prompt
+            return {"clips": [{"id": 0, "open_on": 0, "opening_score": 0}]}
+        assert main.shorten_to_target([c], self.W, 15, (25, 40), ask=ask) == 0
+        assert "Your liver pays for every pill you take." in seen["p"]
+        assert '"current_opening_score": 80' in seen["p"]
+        assert c["start"] == 0.0 and "no usable later opening" in c["over_target"]
+        assert "answer `open_on` 0" in " ".join(gw.OPEN_LATER_PROMPT.split())
+
+    def test_a_worse_later_opening_is_refused(self):
+        c = self.clip()
+        moved = main.shorten_to_target([c], self.W, 15, (25, 40), ask=lambda p: {"clips": [
+            {"id": 0, "open_on": 1, "opening_score": 80 - main.OPEN_LATER_MARGIN - 1}]})
+        assert moved == 0 and c["start"] == 0.0 and "the later openings are worse" in c["over_target"]
+        c2 = self.clip()
+        moved = main.shorten_to_target([c2], self.W, 15, (25, 40), ask=lambda p: {"clips": [
+            {"id": 0, "open_on": 1, "opening_score": 80 - main.OPEN_LATER_MARGIN}]})
+        assert moved == 1 and c2["start"] > 0
+
+    def test_no_candidate_mid_sentence(self):
+        cands = main.open_later_candidates(self.clip(), self.W, 15, (25, 40))
+        assert cands and all(not t.lower().startswith(("how", "and then", "then")) for _, _, t in cands), cands
 
 
 # --- the one-minute ceiling ----------------------------------------------------------------------------

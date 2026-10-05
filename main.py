@@ -1882,10 +1882,12 @@ def _capital_start(words, i):
     return bare in _CAPITAL_COMMON or bare.endswith("ly") or bare in _lower_seen(words)
 
 
-# ...and a pause alone is no sentence start when the next word, in lower case, carries the sentence on
-# ("...actually a part of a cell | that's in another being", JRE #2515-001: a 1.4 s pause mid-sentence).
-_CARRIES_ON = set("""in on at of to for with from by about into onto than as that that's which who whom whose
-where is are was were be been being 's""".split())
+# ...and a pause alone (no full stop) opens a sentence only before a capitalised common word
+# (_capital_start), "I" or a number: on the two bench transcripts 104 and 142 pauses of _PAUSE_BOUNDARY s fall
+# before a lower-case word, nearly all inside a sentence ("...actually a part of a cell | that's in another
+# being", "it's about | how I want to be perceived"), and a name or an acronym after a pause is most often
+# mid-sentence too ("they used | AI and other tools"). Starts only: the pause still ends a clip (_is_boundary).
+_I_FORMS = {"i", "i'm", "i've", "i'd", "i'll"}
 
 
 def _opens_sentence(words, i):
@@ -1896,7 +1898,7 @@ def _opens_sentence(words, i):
     if _ends_sentence(words, i - 1):
         return True
     raw = (words[i].get("w") or "").strip().lstrip("\"'“‘(")
-    return not (raw[:1].islower() and re.sub(r"[^a-z']", "", raw.lower()) in _CARRIES_ON)
+    return raw[:1].isdigit() or re.sub(r"[^a-z']", "", raw.lower().replace("’", "'")) in _I_FORMS
 
 
 _FILLER_PAIRS = {("i", "mean"), ("you", "know")}
@@ -2259,6 +2261,12 @@ def _stem(word):
     return word[:5] if len(word) >= 5 else word
 
 
+def _first_heard(words, start):
+    """Index of the first word heard in a clip starting at ``start``: a word that ends at the cut (Whisper's
+    touching timestamps, _start_at) is not heard."""
+    return next((j for j, w in enumerate(words) if w["s"] >= start - 0.05 and w["e"] > start + 0.05), None)
+
+
 def check_opening(clip, words, seconds=None):
     """What the code can tell of the final cut's first seconds, without AI: ``opening_flags`` =
     mid_sentence (no sentence start there), points_back / request (_OPENS_ON_BEFORE / _OPENS_ON_REQUEST),
@@ -2267,11 +2275,14 @@ def check_opening(clip, words, seconds=None):
     Returns the flags."""
     seconds = OPENING_TOPIC_SECONDS if seconds is None else seconds
     start = float(clip.get("start", 0))
-    k0 = next((j for j, w in enumerate(words) if w["s"] >= start - 0.05), None)
+    k0 = _first_heard(words, start)
     flags = []
     if k0 is not None:
         k, verdict = _opening_start(words, k0)
-        if clip.get("start_mid_sentence") or not (_opens_sentence(words, k0) or _opens_sentence(words, k)):
+        # A start on a sentence, or right after the filler that opens one ("So, | you can bet...").
+        on_start = any(_opens_sentence(words, j) and _opening_start(words, j)[0] == k0
+                       for j in range(max(0, k0 - 3), k0 + 1))
+        if clip.get("start_mid_sentence") or not on_start:
             flags.append("mid_sentence")
         if verdict == "before" or clip.get("opens_on_before"):
             flags.append("points_back")
@@ -2345,7 +2356,7 @@ def rank_openings(shorts, words):
         rank_by_opening(s)
         flags = s.get("opening_flags") or []
         if flags or s.get("opening_score") is not None:
-            k0 = next((j for j, w in enumerate(words) if w["s"] >= float(s["start"]) - 0.05), None)
+            k0 = _first_heard(words, float(s["start"]))
             heard = _sentence_text(words, k0, 14)[:80] if k0 is not None else ""
             print(f"      🎬 {float(s['start']):.0f}s: opening {s.get('opening_score', '?')}"
                   f"{' (' + ', '.join(flags) + ')' if flags else ''}, moment {s.get('moment_score')}, "
@@ -2579,8 +2590,9 @@ def open_later_candidates(clip, words, min_secs, target, max_words=25):
             break
         if not _opens_sentence(words, k):
             continue
-        k += _playbook_filler(words, k)
-        if k >= len(words) or k in seen:
+        # 5-oct-2026: every filler stepped over ("You know, and | you have..."), as the clip choice does.
+        k, verdict = _opening_start(words, k)
+        if verdict or k >= len(words) or k in seen:
             continue
         left = end - _start_at(words, k)
         if left > hi or left < max(lo, min_secs):
@@ -2614,6 +2626,18 @@ def _ask_open_later(prompt):
     return data
 
 
+# A later opening is taken only when it scores at most this much under the current one (5-oct-2026, lot
+# Sélection): on JRE #2515-001 the open-later pass traded 7 clean openings of 50-80 for "how I want to be
+# perceived," and the like. The length matters far less than the opening (her numbers: the share of viewers who
+# stay decides, the length hardly); the model may also answer 0 = keep the clip as it is.
+OPEN_LATER_MARGIN = 5
+
+
+def _current_opening(clip, words):
+    k = _first_heard(words, float(clip.get("start", 0)))
+    return _sentence_text(words, k) if k is not None else ""
+
+
 def shorten_to_target(shorts, words, min_secs, target, language="en", ask=None):
     """Clip Generator++ (selection.clip_target, playbook): the clips still
     over the target after trim_to_target (``over_target`` set) are sent to
@@ -2621,7 +2645,10 @@ def shorten_to_target(shorts, words, min_secs, target, language="en", ask=None):
     that would leave lo-hi s to the end (open_later_candidates). The pick
     becomes the new start (and hook_line); a new on-screen hook is taken when
     the model wrote one (the hook check runs on it later). Returns how many
-    clips moved. Never raises — a long clip must never cost the clip."""
+    clips moved. Never raises — a long clip must never cost the clip.
+    5-oct-2026: the model sees the current opening and its score, may keep
+    the clip (open_on 0), and a pick scoring more than OPEN_LATER_MARGIN under
+    the current opening is refused (the clip stays long, ``over_target``)."""
     lo, hi = target
     todo = []
     for i, c in enumerate(shorts):
@@ -2637,6 +2664,9 @@ def shorten_to_target(shorts, words, min_secs, target, language="en", ask=None):
     items = [{"id": i, "title": shorts[i].get("video_title_for_youtube_short") or "",
               "payoff": str(shorts[i].get("punchline") or "").strip(),
               "hook": shorts[i].get("viral_hook_text") or "",
+              # 5-oct-2026: what a later opening must beat (OPEN_LATER_PROMPT, OPEN_LATER_MARGIN).
+              "current_opening": _current_opening(shorts[i], words),
+              "current_opening_score": shorts[i].get("opening_score"),
               "openings": [{"n": n + 1, "seconds_left": left, "text": text}
                            for n, (k, left, text) in enumerate(cands)]} for i, cands in todo]
     prompt = gemini_worker.OPEN_LATER_PROMPT.format(
@@ -2662,6 +2692,13 @@ def shorten_to_target(shorts, words, min_secs, target, language="en", ask=None):
         if not pick or not 1 <= pick[0] <= len(cands):
             c["over_target"] += "; no usable later opening picked"
             print(f"      ⏱️ {c['start']:.0f}s: stays {c['end'] - c['start']:.0f}s (no usable later opening picked).")
+            continue
+        now = _score(c.get("opening_score"))
+        if pick[2] is not None and now is not None and pick[2] < now - OPEN_LATER_MARGIN:
+            # 5-oct-2026: a shorter clip is not worth a worse opening (the length matters far less).
+            c["over_target"] += f"; the later openings are worse ({pick[2]:.0f} against {now:.0f})"
+            print(f"      ⏱️ {c['start']:.0f}s: stays {c['end'] - c['start']:.0f}s (the best later opening scores "
+                  f"{pick[2]:.0f}, the current one {now:.0f}).")
             continue
         k, left, text = cands[pick[0] - 1]
         old_start, before = float(c["start"]), float(c["end"]) - float(c["start"])

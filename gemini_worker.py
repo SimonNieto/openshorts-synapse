@@ -159,7 +159,11 @@ clip inside the target: choose for quality). Pick, per clip, the opening that:
 - names the subject and sets the tension within ~5 seconds: the concrete
   thing (the drug, the illness, the person, the number) and what is at stake
   are SAID early — in the action, not a run-up.
-Return `open_on`, the number of the chosen candidate, and `opening_score`:
+The opening decides whether viewers stay; the length hardly does. Each clip
+also gives its `current_opening` and its `current_opening_score`: when no
+candidate opens at least as well, answer `open_on` 0 and the clip keeps its
+length — never trade a clean opening for a sentence that starts mid-thought.
+Return `open_on`, the number of the chosen candidate (or 0), and `opening_score`:
 0-100, how many cold viewers keep watching after hearing the first ~5 seconds
 of that opening (the words only, no picture), judged on the points above. If
 the current hook no longer fits the new opening, write a new one in
