@@ -115,6 +115,13 @@ class TestFullWidth:
         assert all(it["t"] >= broll.HEAD_FREE for it in items), "the hook's seconds stay on the face"
         assert cut and cut[0] == items
 
+    def test_the_whoosh_marks_the_first_drawing_only(self, run):
+        rep, _made, _cut, _keep = run([_moment(6.0, "soldiers"), _moment(12.0, "drill"), _moment(20.0, "sergeant")],
+                                      ["A.", "B.", "C."])
+        assert [bool(it.get("sfx")) for it in rep["items"]] == [True, False, False]
+        rep, *_ = run([_moment(6.0, "soldiers"), _moment(12.0, "drill")], ["A.", "B."], cfg={"sfx": False})
+        assert not any(it.get("sfx") for it in rep["items"])
+
     def test_a_failed_vertical_render_gives_the_old_card(self, run):
         rep, made, _cut, _keep = run([_moment(6.0, "soldiers")], ["A."], fail_hero=True)
         assert made == [broll.HERO_GEN["std"]] * 2 + [broll.CARD_GEN]      # two tries in 9:16, then the card
@@ -166,3 +173,25 @@ class TestDrawRun:
         assert made == [(f"{suffix} A fridge.", "hero"), (f"{suffix} A dish.", "hero")]
         assert [c["layout"] for c in cands] == ["hero", "hero"]
         assert broll_v20._layout({"hero": False}, True) == "hero" and broll_v20._layout({"hero": False}) == "card"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_the_real_mix_is_normalised_48k_and_under_minus_1_dbtp(tmp_path):
+    """The whoosh mixed by ffmpeg for real: the graph runs, the sound comes out at 48 kHz, true peak <= -1 dBTP."""
+    clip = str(tmp_path / "c.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=108x192:r=10:d=4",
+                    "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=48000:d=4", "-af", "volume=-12dB",
+                    "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", clip], check=True)
+    img = str(tmp_path / "h.jpg")
+    Image.new("RGB", (224, 400), (90, 60, 30)).save(img)
+    out = str(tmp_path / "o.mp4")
+    broll.overlay_items(clip, out, [{"t": 1.5, "dur": 2.0, "layout": "hero", "_img": img, "sfx": True}])
+    probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=sample_rate",
+                            "-of", "csv=p=0", out], capture_output=True, text=True, check=True).stdout.strip()
+    assert probe == "48000"
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", out, "-af", "ebur128=peak=true", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    peak = float(r.stderr.rsplit("Peak:", 1)[1].split("dBFS")[0])
+    assert peak <= -1.0
+    lo, hi = broll.SFX_GAIN_RANGE
+    assert lo <= broll.sfx_gain(clip, 1.5) <= hi and broll._rms_db(clip, 1.0, 1.0) is not None   # read on the real sound

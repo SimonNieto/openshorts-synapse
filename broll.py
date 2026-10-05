@@ -37,7 +37,7 @@ from typing import List, Optional
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageStat
 
 import visual_mood
-from ffmpeg_utils import layer_encode_args
+from ffmpeg_utils import LOUDNORM_FILTER, layer_encode_args
 
 STYLES = {
     "photo": "Realistic documentary photograph, natural light, shallow depth of field, rich but true colours.",
@@ -197,10 +197,16 @@ MIXED_TAIL = 2.0
 SCREEN_DUR_MIN, SCREEN_DUR_MAX = 1.5, 12.0
 SCREEN_ASPECT_MIN = 0.5    # a side-by-side picture is wider than the generated cards (CARD_GEN is 0.625)
 SCREEN_CARD_SIZE = 86      # % of the width: the viewer must READ this one (labels, two halves); it still fits the band
-# A sound when the hero arrives (profile broll.sfx): a soft whoosh made by assets/sfx/make_sfx.py (ours, no
-# licence), mixed under the voice. -18 dB on a -6 dBFS peak: heard as air moving, never as an effect.
+# A sound when the FIRST full-screen drawing of the clip arrives (plus.BROLL "sfx"): a soft whoosh made by
+# assets/sfx/make_sfx.py (ours, no licence), mixed under the voice; the other pictures come in silent.
+# 5-oct-2026 (decision 3 « whoosh audible »): it was mixed at -18 dB and measured 21-26 dB under the voice, inaudible on a
+# phone; it is now set SFX_UNDER_VOICE_DB under the voice measured around it (its gain kept in SFX_GAIN_RANGE;
+# SFX_GAIN_DB when the voice cannot be read), and the mix is normalised again (ffmpeg_utils.LOUDNORM_FILTER, true peak
+# -2 dBTP) as background_music.py does.
 SFX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "sfx", "whoosh_soft.wav")
-SFX_GAIN_DB = _knob("BROLL_SFX_DB", -18.0)
+SFX_GAIN_DB = _knob("BROLL_SFX_DB", -6.5)
+SFX_UNDER_VOICE_DB = _knob("BROLL_SFX_UNDER", 12.0)
+SFX_GAIN_RANGE = (-14.0, -2.0)
 SFX_LEAD = 0.12       # s before the picture: the sound announces it
 HERO_RULE = """HERO IMAGE: one image of the set MAY be shown FULL SCREEN for about 3 s: the clip's poster, the frame a cold
 viewer stops on. A hero is a real scene the speaker names or a story of the brief tells — a thing at its real scale,
@@ -3879,8 +3885,6 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     if gaps:
                         filter_hit("pixels: gap the grade cannot close",
                                    f'Picture "{m["anchor"]}": {"; ".join(gaps)} — the grade cannot close it.')
-                if hero and cfg.get("sfx"):
-                    item["sfx"] = True               # the whoosh, on the hero only
             if m.get("sheet") and not m.get("notion"):
                 item["sheet"] = m["sheet"]      # kept: a manual redo keeps the clip's look
             if m.get("art"):
@@ -3924,6 +3928,12 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             sources.append(c["source"])
             if c["credit"]:
                 credits.append(c["credit"])
+        if mixed and cfg.get("sfx"):
+            # The whoosh (5-oct-2026, decision 3): on the first full-screen picture of the clip only, the others
+            # come in silent.
+            first = min((it for it in items if it["layout"] == "hero"), key=lambda it: float(it["t"]), default=None)
+            if first is not None:
+                first["sfx"] = True
         if not items:
             print("   ℹ️ B-roll: no image good enough for this clip's moments — clip left without.")
             return screen_only()
@@ -3995,6 +4005,49 @@ def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, 
                            drawing=drawing or ""), "local", None
     finally:
         comfy_release()
+
+
+def _rms_db(path, t0=None, dur=None):
+    """RMS level (dBFS) of ``path``'s sound, mixed to mono — from ``t0`` for ``dur`` s, else the whole file. None
+    when it cannot be read or is silent."""
+    import math
+    import numpy as np
+    cmd = ["ffmpeg", "-v", "error"]
+    if t0 is not None:
+        cmd += ["-ss", f"{max(0.0, float(t0)):.3f}"]
+    cmd += ["-i", path]
+    if dur:
+        cmd += ["-t", f"{float(dur):.3f}"]
+    cmd += ["-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, check=True, timeout=60)
+        a = np.frombuffer(r.stdout, dtype=np.float32).astype(np.float64)
+    except Exception:
+        return None
+    if a.size < 800:          # under 50 ms: nothing to measure
+        return None
+    ms = float(np.mean(a * a))
+    return 10.0 * math.log10(ms) if ms > 1e-10 else None
+
+
+_SFX_RMS = {}
+
+
+def sfx_gain(clip_path, t):
+    """The whoosh's gain (dB) for a picture at ``t`` s of ``clip_path`` (5-oct-2026, decision 3): the whoosh plays
+    SFX_UNDER_VOICE_DB under the voice heard around it (its own window, 0.25 s wider on each side — the measure of the
+    sound study of 4-oct-2026), within SFX_GAIN_RANGE; SFX_GAIN_DB when either sound cannot be read."""
+    own = _SFX_RMS.get(SFX_PATH)
+    if own is None:
+        own = _rms_db(SFX_PATH)
+        if own is not None:
+            _SFX_RMS[SFX_PATH] = own
+    t0 = float(t) - SFX_LEAD - 0.25
+    voice = _rms_db(clip_path, max(0.0, t0), 0.55 + 0.5 + min(0.0, t0))
+    if own is None or voice is None:
+        return SFX_GAIN_DB
+    lo, hi = SFX_GAIN_RANGE
+    return round(max(lo, min(hi, voice - SFX_UNDER_VOICE_DB - own)), 1)
 
 
 def overlay_items(clip_path, out_path, items, img_dir=None):
@@ -4075,8 +4128,10 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
         graph[-1] = graph[-1][:graph[-1].rfind("[")] + "[v]"
         # An intermediate layer: the hook and the captions re-encode it (ffmpeg_utils.layer_encode_args).
         enc = layer_encode_args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "19"])
-        # The whoosh of a hero (item "sfx"): mixed into the clip's own track at SFX_GAIN_DB, which means
-        # re-encoding the audio (AAC) in this pass only; without it the audio is copied as always.
+        # The whoosh of the first full-screen drawing (item "sfx"): mixed into the clip's own track
+        # SFX_UNDER_VOICE_DB under the voice around it (sfx_gain), then the mix is normalised again
+        # (LOUDNORM_FILTER: -14 LUFS, true peak -2 dBTP, as background_music.py; 5-oct-2026) — the audio is
+        # re-encoded (AAC, 48 kHz) in this pass only; without a whoosh it is copied as always.
         sfx_at = [float(it["t"]) for it in items if it.get("sfx") and it.get("layout") == "hero"
                   and any(ly.get("hero") and abs(ly["t"] - float(it["t"])) < 1e-6 for ly in layers)]
         audio_in, audio_graph = [], []
@@ -4084,15 +4139,18 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
             for j, t in enumerate(sfx_at):
                 audio_in += ["-i", SFX_PATH]
                 ms = max(0, int(round((t - SFX_LEAD) * 1000)))
-                audio_graph.append(f"[{1 + len(layers) + j}:a]adelay={ms}|{ms},volume={SFX_GAIN_DB:g}dB[sx{j}]")
+                audio_graph.append(f"[{1 + len(layers) + j}:a]adelay={ms}|{ms},"
+                                   f"volume={sfx_gain(clip_path, t):g}dB[sx{j}]")
+            norm = (f",{LOUDNORM_FILTER},aresample=48000"
+                    if os.environ.get("AUDIO_NORMALIZE", "1").strip() != "0" else "")
             audio_graph.append(f"[0:a]{''.join(f'[sx{j}]' for j in range(len(sfx_at)))}"
-                               f"amix=inputs={len(sfx_at) + 1}:duration=first:normalize=0[a]")
+                               f"amix=inputs={len(sfx_at) + 1}:duration=first:normalize=0{norm}[a]")
 
         def cut(with_sfx):
             if with_sfx:
                 cmd = ["ffmpeg", "-y", "-v", "error", "-i", clip_path, *inputs, *audio_in,
                        "-filter_complex", ";".join(graph + audio_graph), "-map", "[v]", "-map", "[a]", *enc,
-                       "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out_path]
+                       "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", out_path]
             else:
                 cmd = ["ffmpeg", "-y", "-v", "error", "-i", clip_path, *inputs, "-filter_complex", ";".join(graph),
                        "-map", "[v]", "-map", "0:a?", *enc, "-c:a", "copy", "-movflags", "+faststart", out_path]
