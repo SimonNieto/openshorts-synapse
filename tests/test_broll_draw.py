@@ -190,3 +190,11 @@ def test_the_dress_check_is_one_small_yes_no_question(monkeypatch, tmp_path):
     assert broll_draw.dress_check(src, str(tmp_path)) == (None, "no answer")
     for word in ("underwear", "swimsuit", "sheet", "chest", "belly", "back", "shoulders", "scrubs", "hospital gown"):
         assert word in broll_draw.DRESS_PROMPT
+
+def test_nobody_in_the_picture_no_dress_check(chain):
+    # 5-oct-2026, the user: « pourquoi consommer plus » — the Claude look only when someone is drawn
+    asked = []
+    cands, _m, made, _calls = chain([_moment(2.0), _moment(9.0)], ["A woman at a desk.", "A glass jar on a table."],
+                                    ["pass"] * 2, dress=lambda path: asked.append(os.path.basename(path)) or (False, ""))
+    assert [c["k"] for c in cands] == [0, 1] and len(made) == 2
+    assert asked == ["broll_0.jpg"], asked

@@ -224,6 +224,10 @@ def _dressed(k, got, seed, text, suffix, picture, layout, entry, tmp, render):
         broll_v20.LAST_CHECKS.append({**entry, "prompt": prompt or entry.get("prompt"), "file": os.path.basename(path),
                                       "verdict": "refused", "why": why, "seed": s})
 
+    if not has_person(picture):
+        # Nobody in the director's picture (an object, a jar, crates): no check, no Claude call (the user,
+        # 5-oct-2026: « pourquoi consommer plus » — about half the drawings of a job have nobody in them).
+        return got, seed, text, "not checked: nobody in the picture"
     bare, what = dress_check(got, tmp)
     if bare is False:
         return got, seed, text, "ok"
