@@ -7291,8 +7291,14 @@ async def _auto_publish_best(job_id: str) -> None:
         from zoneinfo import ZoneInfo
         tz = ZoneInfo("UTC")
 
+    # A clip whose payoff is outside it (main.land_payoff, 5-oct-2026) is never
+    # published on its own: it stays in the project, to be looked at by hand.
+    held = [i for i, c in enumerate(clips) if not c.get("published") and c.get("payoff_outside")]
+    for i in held:
+        log.append(f"⏸️ Auto-publish: clip {i + 1} left out — its payoff is outside the clip "
+                   f"({clips[i]['payoff_outside']}).")
     ranked = sorted(
-        [(i, c) for i, c in enumerate(clips) if not c.get("published")],
+        [(i, c) for i, c in enumerate(clips) if not c.get("published") and not c.get("payoff_outside")],
         key=lambda ic: ic[1].get("predicted_score") if isinstance(ic[1].get("predicted_score"), (int, float)) else -1,
         reverse=True,
     )[:cfg["count"]]
