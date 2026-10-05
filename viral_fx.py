@@ -7,7 +7,9 @@ Two presets, the same words in two faces:
   no glow, no shake; a light grade and a soft vignette on the picture.
 * ``premium`` — natural set in Montserrat ExtraBold, the geometric extra-bold
   the big podcast channels caption in, a little lower (under the mouth of
-  the premium framing) and lit word by word as it is said. The house style.
+  the premium framing), lit word by word as it is said, and since 5-oct-2026
+  big with a solid black edge (read with the sound off, on a phone, over a
+  bright drawing). The house style.
 
 The frame itself never moves here: the reframe (framing.py) holds the
 speaker's head where an editor would. The jump zooms, shake, dips, glow,
@@ -84,8 +86,24 @@ PRESETS = {
 #   frame every 0.5 s; 5 % with the old framing). At 1275: 0 %, still inside
 #   the band every app leaves free (26-68 % of the height);
 # * "lit": the spoken word lights up (_lit_word) instead of the plain fade.
-PRESETS["premium"] = {**PRESETS["natural"], "font": "Montserrat ExtraBold", "bold": 0, "spacing": 0, "size": 72,
-                      "caption_y": 1275, "lit": True}
+# Since 5-oct-2026 (decision 1 of the "step up", the image study's C1/idea 2):
+# captions read with the sound off, on a phone, even over a bright full-screen
+# drawing. At 72 the capitals measured 32 px (11.6 px on a 390 px phone), 20 %
+# less than the published shorts (39-40 px), and over a bright picture 12 of
+# 23 captions fell under a 3:1 contrast. Now:
+# * size 100 (capitals ~44 px, 16 px on a phone) and at most 14 characters a
+#   caption (~2.2 words), so a caption stays inside the safe width (6-84 % of
+#   the frame, the Shorts buttons on the right: ``safe_x``) — _fit_scale sets
+#   the rare wider one a little smaller instead of under the buttons;
+# * a thick, almost solid black edge (5 px, alpha 0x20) and a 3 px shadow:
+#   the word holds on a white coat or a white MRI sheet;
+# * the words not said yet at 70 % (LIT_DIM) instead of 42 %.
+# Same place (caption_y 1275), same face, same yellow, same lit word.
+# ``outline`` / ``shadow`` / ``edge_alpha`` / ``shadow_alpha``: the calm
+# style's edge, read by build_ass (natural keeps 2 / 2 / 0x70 / 0x99).
+PRESETS["premium"] = {**PRESETS["natural"], "font": "Montserrat ExtraBold", "bold": 0, "spacing": 0, "size": 100,
+                      "max_chars": 14, "caption_y": 1275, "lit": True, "safe_x": (0.06, 0.84),
+                      "outline": 5, "shadow": 3, "edge_alpha": 0x20, "shadow_alpha": 0x60}
 
 
 # --- words ---------------------------------------------------------------------
@@ -186,14 +204,52 @@ def _esc(text):
 # eye reads ahead and follows the voice. The fill, the edge and the shadow are
 # dimmed together through their own alphas (\1a \3a \4a), never \alpha, which
 # would leave the edge and the shadow solid once the word is lit.
-LIT_DIM = 0.42                                   # opacity of a word not said yet
+# 5-oct-2026: LIT_DIM 0.42 -> 0.70 (at 42 % a word not said yet vanished on a
+# bright picture: the A of "IDENTIFIED A" over the MRI sheet), and the alphas
+# follow the premium style's new solid edge (0x70 / 0x99 -> 0x20 / 0x60).
+LIT_DIM = 0.70                                   # opacity of a word not said yet
 LIT_RISE = 60                                    # ms from dim to full
-LIT_ALPHAS = (0x00, 0x70, 0x99)                  # the calm style's fill / edge / shadow alphas
+LIT_ALPHAS = (0x00, 0x20, 0x60)                  # the premium style's fill / edge / shadow alphas
 
 
 def _dimmed(alpha, k):
     """The ASS alpha of a component whose own alpha is ``alpha``, shown at opacity ``k``."""
     return int(round(255 - (255 - alpha) * k))
+
+
+# The safe width (5-oct-2026). A preset's ``safe_x`` = (left, right) of the
+# frame's width its captions' ink (edge and shadow included) stays inside.
+# At size 100 / 14 characters the 611 captions of job b8e46c24 measured 722 px
+# at most against 734 (centred in 6-84 %), but group_words lets a run of short
+# words reach max_chars + 4 ("AND THE WORKHOUSE": 806 px) and never splits a
+# long word: _fit_scale sets those few smaller, both axes alike.
+# The faces it can measure: (file in fonts/, the em libass draws per unit of
+# font size — 0.645 for Montserrat ExtraBold, measured with the ass filter on
+# 13 strings, about 1 % wide of the real ink, never narrow).
+CAPTION_FACES = {"Montserrat ExtraBold": ("Montserrat-ExtraBold.ttf", 0.645)}
+_face_cache = {}
+
+
+def _fit_scale(text, p, width=1080):
+    """Percent (``\\fscx``/``\\fscy``) a caption is set at so its ink stays
+    inside the preset's ``safe_x``: 100 when it fits, for a preset without
+    one, or when the face cannot be measured (no PIL, no file)."""
+    face = CAPTION_FACES.get(p.get("font"))
+    if not p.get("safe_x") or not face:
+        return 100
+    try:
+        if face[0] not in _face_cache:
+            from PIL import ImageFont
+            _face_cache[face[0]] = ImageFont.truetype(os.path.join(FONT_DIR, face[0]), 1000)
+        glyphs = _face_cache[face[0]].getlength(text) / 1000 * face[1] * p["size"]
+    except (ImportError, OSError):
+        return 100
+    lo, hi = p["safe_x"]
+    room = 2 * min(0.5 - lo, hi - 0.5) * width
+    edge = 2 * p.get("outline", 2) + p.get("shadow", 2) + 3       # both edges, the shadow, the blur
+    if glyphs + edge <= room or glyphs <= 0:
+        return 100
+    return max(50, int((room - edge) / glyphs * 100))
 
 
 def _lit_word(text, at, accent=None):
@@ -238,7 +294,9 @@ def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None
         s, e = _ass_time(start), _ass_time(end)
         if p.get("calm"):
             # No pop: an 80 ms fade-in reads as calm, not as an effect.
-            lines.append(f"Dialogue: 1,{s},{e},Main,,0,0,0,,{{\\an5\\pos({x},{y})\\fad(80,0)}}{' '.join(parts_text)}")
+            k = _fit_scale(" ".join(_esc(w["text"].upper()) for w in g), p, width)
+            fit = f"\\fscx{k}\\fscy{k}" if k < 100 else ""
+            lines.append(f"Dialogue: 1,{s},{e},Main,,0,0,0,,{{\\an5\\pos({x},{y})\\fad(80,0){fit}}}{' '.join(parts_text)}")
         else:
             pop = "\\fscx106\\fscy106\\t(0,80,\\fscx100\\fscy100)"
             lines.append(f"Dialogue: 1,{s},{e},Main,,0,0,0,,{{\\an5\\pos({x},{y}){pop}}}{' '.join(parts_text)}")
@@ -248,10 +306,13 @@ def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None
     size = p["size"]
     font = p.get("font", FONT)          # the preset's face; Liberation Sans for the presets that name none
     if p.get("calm"):
-        # Plain white, thin dark edge + soft drop shadow: readable on any
-        # background without looking "designed".
-        styles = [f"Style: Main,{font},{size},&H00FFFFFF,&H00FFFFFF,&H70000000,&H99000000,{p.get('bold', 1)},0,0,0,100,100,"
-                  f"{p.get('spacing', 0.5)},0,1,2,2,5,0,0,0,1"]
+        # Plain white, a dark edge + soft drop shadow: readable on any
+        # background without looking "designed" (thin for natural, thick and
+        # almost solid for premium since 5-oct-2026, see PRESETS).
+        edge, shade = p.get("edge_alpha", 0x70), p.get("shadow_alpha", 0x99)
+        styles = [f"Style: Main,{font},{size},&H00FFFFFF,&H00FFFFFF,&H{edge:02X}000000,&H{shade:02X}000000,"
+                  f"{p.get('bold', 1)},0,0,0,100,100,{p.get('spacing', 0.5)},0,1,{p.get('outline', 2)},"
+                  f"{p.get('shadow', 2)},5,0,0,0,1"]
         lines = [ln.replace(",Main,,0,0,0,,{", ",Main,,0,0,0,,{\\blur0.8") for ln in lines]
     else:
         styles = [f"Style: Main,{FONT},{size},&H00FFFFFF,&H00FFFFFF,&H80000000,&H90000000,1,0,0,0,100,100,0.5,0,1,3,2,5,0,0,0,1"]

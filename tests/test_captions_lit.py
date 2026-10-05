@@ -42,7 +42,8 @@ class TestPlace:
 
     def test_the_watermark_follows_the_caption(self):
         ass, _ = _build("premium")
-        assert all("\\pos(540,1343)" in l for l in _lines(ass, "Mark"))
+        # 0.95 x the size under the caption: 1275 + 95 since the size is 100 (5-oct-2026)
+        assert all("\\pos(540,1370)" in l for l in _lines(ass, "Mark"))
 
 
 class TestLit:
@@ -60,14 +61,18 @@ class TestLit:
         ass, _ = _build("premium")
         for line in _lines(ass, "Main"):
             for blk, _ in _blocks(line):
-                assert blk.startswith("\\c&HFFFFFF&\\1a&H94&\\3a&HC3&\\4a&HD4&\\t(")
-                assert "\\1a&H00&\\3a&H70&\\4a&H99&" in blk.split("\\t(", 1)[1]
+                # at 70 % (5-oct-2026), the solid edge included
+                assert blk.startswith("\\c&HFFFFFF&\\1a&H4C&\\3a&H63&\\4a&H90&\\t(")
+                assert "\\1a&H00&\\3a&H20&\\4a&H60&" in blk.split("\\t(", 1)[1]
         # \alpha would leave the edge and the shadow solid once the word is lit.
         assert "\\alpha" not in ass
 
-    def test_only_the_key_word_turns_to_the_accent_and_only_when_said(self):
-        ass, _ = _build("premium")
-        nat, _ = _build("natural")
+    def test_only_the_key_word_turns_to_the_accent_and_only_when_said(self, monkeypatch):
+        ass, groups = _build("premium")
+        # natural on the same groups (premium caps them at 14 characters since 5-oct-2026)
+        monkeypatch.setitem(viral_fx.PRESETS["natural"], "max_chars", viral_fx.PRESETS["premium"]["max_chars"])
+        nat, nat_groups = _build("natural")
+        assert nat_groups == groups
         coloured = 0
         for line, nline in zip(_lines(ass, "Main"), _lines(nat, "Main")):
             words = _text(nline).split("}", 1)[1].split(" ")     # past the line's own override block
@@ -86,7 +91,7 @@ class TestLit:
         assert all("\\pos(540,1180)" in l for l in _lines(nat, "Main"))
 
     def test_the_dimmed_alphas(self):
-        assert [viral_fx._dimmed(a, viral_fx.LIT_DIM) for a in viral_fx.LIT_ALPHAS] == [0x94, 0xC3, 0xD4]
+        assert [viral_fx._dimmed(a, viral_fx.LIT_DIM) for a in viral_fx.LIT_ALPHAS] == [0x4C, 0x63, 0x90]
         assert all(viral_fx._dimmed(a, 1.0) == a for a in viral_fx.LIT_ALPHAS)
         assert all(viral_fx._dimmed(a, 0.0) == 255 for a in viral_fx.LIT_ALPHAS)
 

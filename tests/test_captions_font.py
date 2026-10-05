@@ -27,9 +27,11 @@ class TestPresetFont:
     def test_premium_sets_the_same_groups_in_the_bundled_face_lower_and_lit(self):
         ass, groups = viral_fx.build_ass(WORDS, "premium", watermark="@thesynapsecut")
         main = _style(ass, "Main")
-        assert main.startswith("Style: Main,Montserrat ExtraBold,72,")
-        # the face is already extra bold (no synthetic bold) and wide (no extra spacing)
-        assert main.endswith(",&H70000000,&H99000000,0,0,0,0,100,100,0,0,1,2,2,5,0,0,0,1")
+        # 100 since 5-oct-2026 (72 before): read with the sound off, on a phone
+        assert main.startswith("Style: Main,Montserrat ExtraBold,100,")
+        # the face is already extra bold (no synthetic bold) and wide (no extra
+        # spacing); a 5 px almost solid black edge and a 3 px shadow (5-oct-2026)
+        assert main.endswith(",&H20000000,&H60000000,0,0,0,0,100,100,0,0,1,5,3,5,0,0,0,1")
         assert _style(ass, "Mark").startswith("Style: Mark,Montserrat ExtraBold,")
         nat, nat_groups = viral_fx.build_ass(WORDS, "natural", watermark="@thesynapsecut")
         assert len(groups) == len(nat_groups)
@@ -59,7 +61,11 @@ class TestPresetFont:
         assert "edit_style" not in plus.sanitize({"edit_style": "punchy"})
         top, bottom = broll._caption_band(1920, "premium", True)
         nt, nb = broll._caption_band(1920, "natural", True)
-        # premium sits 95 px lower (1275 instead of 1180), the watermark included,
-        # and stays clear of the apps' bottom bar (from ~83 % of the height).
-        assert 80 <= top - nt <= 100 and 90 <= bottom - nb <= 110
-        assert bottom < 1920 * 0.72
+        # premium sits lower (1275 instead of 1180) and, since 5-oct-2026, is
+        # bigger (100 instead of 72): its band starts lower and ends lower than
+        # natural's, the watermark included, and stays inside the band the
+        # apps leave free (above 75 % of the height; their bar from ~83 %).
+        assert (top, bottom) == (1200, 1385)
+        assert top > nt and bottom > nb
+        assert bottom < 1920 * 0.75
+        # That it holds the ink libass really draws: tests/test_captions_readable.py.
