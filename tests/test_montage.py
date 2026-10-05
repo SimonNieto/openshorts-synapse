@@ -290,9 +290,9 @@ class TestClipRecord:
         assert (moved["src_t0"], moved["src_t1"]) == (104.0, 106.0)
         assert montage.inset_on_clip({"t0": 2.2, "t1": 2.8}, self.REPORT) is None
 
-    def test_no_picture_over_a_reaction_or_a_hiding_tight_frame(self):
+    def test_no_picture_over_a_reaction_but_pictures_may_cover_joins(self):
         block = montage.broll_block({"reactions": [{"at": 8.0, "dur": 1.2}]}, self.REPORT)
-        assert (7.7, 9.5) in block and (1.7, 4.8) in block
+        assert block == [(7.7, 9.5)], "a drawing over a join hides it: the join's tight frame is then dropped"
 
     def test_the_switch_reaches_the_job_from_the_recipe(self, monkeypatch):
         monkeypatch.setenv("PLUS_MONTAGE_JSON", json.dumps({"enabled": True, "silences": True}))

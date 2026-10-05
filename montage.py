@@ -943,13 +943,13 @@ def inset_on_clip(found, report):
 def broll_block(clip, report=None, margin=0.3):
     """(from, to) clip seconds no picture may cover (broll.add_broll's ``block``: none starts inside, one
     starting before is shortened to leave first): the reactions (the image study found two hidden under
-    the hero) and the tight frames hiding the joins."""
+    the hero). Not the joins' tight frames (5-oct-2026): a full-screen drawing hides a join as well as a
+    tight frame does, and punch_in.finish drops the tight frame of a join a picture covers — blocking them
+    halved the drawings of a job (34 -> 16 on JRE #2553-004, two clips with none)."""
     out = []
     for r in clip.get("reactions") or []:
         a = float(r["at"])
         out.append((round(a - margin, 2), round(a + float(r.get("dur") or 1.2) + margin, 2)))
-    for a, b in (report or {}).get("hide_windows") or []:
-        out.append((round(a - margin, 2), round(b + margin, 2)))
     return out
 
 
