@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, BarChart3, Loader2, AlertCircle } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, Pencil, BarChart3, Loader2, AlertCircle, Upload } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
 import MediaInput from './MediaInput';
 import PlusProfileEditor from './PlusProfileEditor';
@@ -40,10 +40,121 @@ function StatsTable({ title, rows }) {
     );
 }
 
+const pct = (v) => (v == null ? '—' : `${Number(v).toLocaleString('en-US', { maximumFractionDigits: 1 })} %`);
+
+// "Stayed to watch" (YouTube Studio: viewers who did not swipe away) by what the app knows of each clip.
+// The number that separates the shorts that took off, so it comes first (decision 7, 5-oct-2026).
+const STAYED_GROUPS = [
+    ['opening_image', 'Drawn opening image'],
+    ['duration', 'By length'],
+    ['title_form', 'By title shape'],
+    ['topic_bucket', 'By topic'],
+    ['moment_nature', 'By kind of moment'],
+    ['hook_aligned', 'Opens on its hook sentence'],
+];
+
+function StayedTable({ title, rows }) {
+    if (!rows?.length) return null;
+    const max = Math.max(...rows.map((r) => r.stayed_median || 0), 1);
+    return (
+        <figure className="min-w-0">
+            <figcaption className="readout mb-2">{title}</figcaption>
+            <ul className="space-y-1.5">
+                {rows.map((r) => (
+                    <li key={r.key} className="grid grid-cols-[minmax(0,7rem)_1fr_auto] items-center gap-2.5 text-xs"
+                        title={r.few ? 'Fewer than 3 shorts with a number: too few to conclude' : undefined}>
+                        <span className={`truncate ${r.few ? 'text-muted' : 'text-ink2'}`} title={r.key}>{r.key}</span>
+                        <span className="h-1.5 rounded-full bg-paper3 overflow-hidden" aria-hidden="true">
+                            <span className={`block h-full rounded-full ${r.few ? 'bg-rule2' : 'bg-ink2'}`}
+                                style={{ width: `${((r.stayed_median || 0) / max) * 100}%` }} />
+                        </span>
+                        <span className="font-mono text-[11px] text-ink2 text-right tabular-nums">
+                            {pct(r.stayed_median)} <span className="text-muted">· {r.n}{r.few ? ' · too few' : ''}</span>
+                        </span>
+                    </li>
+                ))}
+            </ul>
+        </figure>
+    );
+}
+
+// The drawn-opening A/B test (decision 8): said as plainly as its size allows.
+function OpeningTest({ ab }) {
+    if (!ab) return null;
+    const a = ab.with;
+    const b = ab.without;
+    const chance = ab.p_value == null ? '' : `${Math.round(ab.p_value * 100)} times in 100`;
+    const verdict = {
+        no_data: 'No numbers to compare yet.',
+        too_few: `Too few shorts to compare (${a.n} vs ${b.n}, at least 3 each).`,
+        chance: `A gap this size comes out by chance ${chance}: no conclusion at ${a.n} vs ${b.n}.`,
+        signal: `A gap this size comes out by chance only ${chance}: encouraging at ${a.n} vs ${b.n}, not proof yet.`,
+    }[ab.verdict];
+    return (
+        <div className="tray px-4 py-3 text-xs space-y-1">
+            <p className="readout">Opening image test · stayed to watch</p>
+            <p className="text-ink2 tabular-nums">
+                With: {a.n} · {pct(a.stayed_median)} — without{ab.control === 'same job' ? ' (same video)' : ''}: {b.n} · {pct(b.stayed_median)}
+                {ab.gap != null && ` · gap ${ab.gap > 0 ? '+' : ''}${ab.gap} pts`}
+            </p>
+            <p className="text-muted">
+                {verdict}
+                {ab.pending?.length > 0 && ` Not in the export yet: ${ab.pending.join(', ')}.`}
+                {(a.young + b.young) > 0 && ab.verdict !== 'no_data' && ' Some are under 48 h old: export again later.'}
+            </p>
+        </div>
+    );
+}
+
+function StudioStats({ studio }) {
+    if (studio.problem) {
+        return (
+            <p role="alert" className="text-sm text-danger flex items-start gap-2 break-words">
+                <AlertCircle size={15} className="mt-0.5 shrink-0" aria-hidden="true" /> Could not read {studio.file}: {studio.problem}
+            </p>
+        );
+    }
+    const g = studio.groups || {};
+    return (
+        <div className="space-y-6">
+            <p className="text-xs text-muted">
+                YouTube Studio export of {studio.exported} · {studio.rows} shorts, {studio.linked_clip} linked to their clip
+                {studio.linked_plan > 0 && `, ${studio.linked_plan} found in the publish plan`}.
+                {' '}Median “stayed to watch” · number of shorts after the dot.
+            </p>
+            {studio.with_stayed === 0 && (
+                <p className="text-sm text-warn">This export has no “Stayed to watch” column: add it in Studio before exporting.</p>
+            )}
+            <OpeningTest ab={studio.ab_opening} />
+            <div className="grid md:grid-cols-2 gap-x-8 gap-y-6">
+                {STAYED_GROUPS.map(([key, label]) => <StayedTable key={key} title={label} rows={g[key]} />)}
+            </div>
+            <div className="border-t border-rule pt-4">
+                <p className="readout mb-2">Your shorts by stayed to watch · views</p>
+                <ol className="space-y-1.5">
+                    {(studio.posts || []).slice(0, 10).map((p) => (
+                        <li key={p.video_id || p.title} className="flex items-center gap-3 text-xs">
+                            <span className="font-mono text-[11px] w-14 text-right tabular-nums text-ink shrink-0">{pct(p.stayed)}</span>
+                            <span className="font-mono text-[11px] w-12 text-right tabular-nums text-muted shrink-0">{p.views == null ? '—' : Math.round(p.views).toLocaleString('en-US')}</span>
+                            <span className="flex-1 min-w-0 truncate text-ink2" title={p.title}>{p.title}</span>
+                            <span className="font-mono text-[11px] text-muted shrink-0 hidden min-[420px]:inline"
+                                title={p.how === 'date+duration' ? 'Linked by publication day and length: check it' : undefined}>
+                                {p.ref || ''}{p.how === 'date+duration' ? ' ?' : ''}
+                            </span>
+                        </li>
+                    ))}
+                </ol>
+            </div>
+        </div>
+    );
+}
+
 function PlusStats({ uploadPostKey, accounts }) {
     const [data, setData] = useState(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    const [notice, setNotice] = useState('');
+    const fileRef = useRef(null);
     const load = async () => {
         setBusy(true);
         setError('');
@@ -51,13 +162,37 @@ function PlusStats({ uploadPostKey, accounts }) {
             const res = await apiFetch(`/api/plus/stats?days=60&users=${encodeURIComponent(accounts.join(','))}`, {
                 headers: uploadPostKey ? { 'X-Upload-Post-Key': uploadPostKey } : {},
             });
-            if (!res.ok) throw new Error((await res.text()).slice(0, 200));
+            if (!res.ok) {
+                const text = await res.text();
+                let detail = text;
+                try { detail = JSON.parse(text).detail || text; } catch { /* plain text */ }
+                throw new Error(String(detail).slice(0, 200));
+            }
             setData(await res.json());
         } catch (e) {
             setError(String(e.message || e));
         } finally {
             setBusy(false);
         }
+    };
+    const importStudio = async (event) => {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file) return;
+        setBusy(true);
+        setError('');
+        setNotice('');
+        try {
+            const body = new FormData();
+            body.append('file', file);
+            const d = await apiJson('/api/plus/stats/studio', { method: 'POST', body });
+            setNotice(`${d.rows} shorts imported from ${file.name}.`);
+        } catch (e) {
+            setError(String(e.detail || e.message || e));
+            setBusy(false);
+            return;
+        }
+        await load();
     };
     const g = data?.groups || {};
     return (
@@ -67,28 +202,50 @@ function PlusStats({ uploadPostKey, accounts }) {
                     <h3 id="plus-stats-title" className="font-display text-lg text-ink flex items-center gap-2">
                         <BarChart3 size={16} className="text-muted" aria-hidden="true" /> What works on your channels
                     </h3>
-                    <p className="readout mt-1">Last 60 days · from Upload-Post</p>
+                    <p className="readout mt-1">YouTube Studio export · Upload-Post, last 60 days</p>
                 </div>
-                <button type="button" onClick={load} disabled={busy || !uploadPostKey || !accounts.length}
-                    className="btn-quiet px-3 py-2 text-xs">
-                    {busy && <Loader2 size={13} className="animate-spin" aria-hidden="true" />} {data ? 'Refresh' : 'Load my stats'}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                    <input ref={fileRef} type="file" accept=".csv,.zip,.json,.tsv" className="sr-only" tabIndex={-1}
+                        aria-hidden="true" onChange={importStudio} />
+                    <button type="button" onClick={() => fileRef.current?.click()} disabled={busy}
+                        className="btn-quiet px-3 py-2 text-xs">
+                        <Upload size={13} aria-hidden="true" /> Import Studio export
+                    </button>
+                    <button type="button" onClick={load} disabled={busy} className="btn-quiet px-3 py-2 text-xs">
+                        {busy && <Loader2 size={13} className="animate-spin" aria-hidden="true" />} {data ? 'Refresh' : 'Load my stats'}
+                    </button>
+                </div>
             </div>
-            {!uploadPostKey && <p className="text-sm text-muted">Needs your Upload-Post key (Settings).</p>}
+            <details className="text-xs text-muted mb-4">
+                <summary className="cursor-pointer hover:text-ink2">How to export from YouTube Studio</summary>
+                <p className="mt-2 leading-relaxed">
+                    Studio › Analytics › Advanced mode › Content, filter Shorts, period Lifetime. Add the metrics
+                    “Stayed to watch” and “Engaged views”, then Export current view › Comma-separated values. Import
+                    the ZIP (or the “Table data” CSV inside it) here. French or English, both work.
+                </p>
+            </details>
+            {notice && <p role="status" className="text-sm text-ok mb-3">{notice}</p>}
             {error && (
-                <p role="alert" className="text-sm text-danger flex items-start gap-2 break-words">
+                <p role="alert" className="text-sm text-danger flex items-start gap-2 break-words mb-3">
                     <AlertCircle size={15} className="mt-0.5 shrink-0" aria-hidden="true" /> {error}
                 </p>
             )}
-            {data && data.total_posts === 0 && (
-                <p className="text-sm text-muted">
-                    No published short of yours found yet ({data.rows} posts read from Upload-Post, {data.unmatched} not made with Synapse AI).
+            {data?.studio && <StudioStats studio={data.studio} />}
+            {data && !data.studio && (
+                <p className="text-sm text-muted">No YouTube Studio export yet: import one to see “stayed to watch”.</p>
+            )}
+            {data?.upload_post_error && (
+                <p className="text-sm text-muted mt-4">Upload-Post did not answer: {data.upload_post_error}</p>
+            )}
+            {data && uploadPostKey && !data.upload_post_error && data.total_posts === 0 && (
+                <p className="text-sm text-muted mt-4">
+                    Upload-Post: no published short of yours found yet ({data.rows} posts read, {data.unmatched} not made with Synapse AI).
                     Views appear a day or two after posting.
                 </p>
             )}
             {data && data.total_posts > 0 && (
-                <div className="space-y-6">
-                    <p className="text-xs text-muted">Average views per short · number of shorts after the dot.</p>
+                <div className={`space-y-6 ${data.studio ? 'border-t border-rule pt-6 mt-6' : ''}`}>
+                    <p className="text-xs text-muted">Upload-Post · average views per short · number of shorts after the dot.</p>
                     <div className="grid md:grid-cols-2 gap-x-8 gap-y-6">
                         <StatsTable title="By profile" rows={g.profile} />
                         <StatsTable title="By length" rows={g.duration} />
@@ -101,7 +258,7 @@ function PlusStats({ uploadPostKey, accounts }) {
                         <StatsTable title="Opens on its hook sentence" rows={g.hook_aligned} />
                     </div>
                     <div className="border-t border-rule pt-4">
-                        <p className="readout mb-2">Your best shorts</p>
+                        <p className="readout mb-2">Most viewed</p>
                         <ol className="space-y-1.5">
                             {data.posts.slice(0, 8).map((p) => (
                                 <li key={p.key} className="flex items-center gap-3 text-xs">
