@@ -90,6 +90,11 @@ class DetailClipModelPlaybook(DetailClipModelV2):
     moment_nature: str = ""
     # 0 to 3 passages to take out (CutOutModel).
     cut_out: List[CutOutModel] = Field(default_factory=list)
+    # The opening, judged in the same call (5-oct-2026, no call more): how many cold viewers keep watching
+    # after the first ~5 s heard, 0-100 (None = not given), and which of stands_alone / topic_named / tension
+    # it misses (playbook.OPENING_CRITERIA). main.rank_by_opening weighs it into predicted_score.
+    opening_score: Optional[int] = None
+    opening_misses: List[str] = Field(default_factory=list)
 
 
 class DetailResponsePlaybook(BaseModel):
@@ -151,15 +156,25 @@ clip inside the target: choose for quality). Pick, per clip, the opening that:
 - hooks: a claim, a stake, a number, a question in the air; never a filler
   nor an aside;
 - keeps the clip's point: the payoff must still land from there.
-Return `open_on`, the number of the chosen candidate. If the current hook no
-longer fits the new opening, write a new one in `viral_hook_text` (max
-{hook_words} words, in {language}: a statement, concrete, understood cold, no
-name, it teases the payoff and never tells it); else leave it "".
+- names the subject and sets the tension within ~5 seconds: the concrete
+  thing (the drug, the illness, the person, the number) and what is at stake
+  are SAID early — in the action, not a run-up.
+The opening decides whether viewers stay; the length hardly does. Each clip
+also gives its `current_opening` and its `current_opening_score`: when no
+candidate opens at least as well, answer `open_on` 0 and the clip keeps its
+length — never trade a clean opening for a sentence that starts mid-thought.
+Return `open_on`, the number of the chosen candidate (or 0), and `opening_score`:
+0-100, how many cold viewers keep watching after hearing the first ~5 seconds
+of that opening (the words only, no picture), judged on the points above. If
+the current hook no longer fits the new opening, write a new one in
+`viral_hook_text` (max {hook_words} words, in {language}: a statement,
+concrete, understood cold, no name, it teases the payoff and never tells it);
+else leave it "".
 
 CLIPS_JSON:
 {clips}
 
-Return only: {{"clips": [{{"id": <clip id>, "open_on": <candidate number>, "viral_hook_text": ""}}]}}
+Return only: {{"clips": [{{"id": <clip id>, "open_on": <candidate number>, "opening_score": <0-100>, "viral_hook_text": ""}}]}}
 """
 
 OPEN_LATER_SCHEMA = {
@@ -167,6 +182,7 @@ OPEN_LATER_SCHEMA = {
     "properties": {"clips": {"type": "array", "items": {
         "type": "object",
         "properties": {"id": {"type": "integer"}, "open_on": {"type": "integer"},
+                       "opening_score": {"type": "integer"},
                        "viral_hook_text": {"type": "string"}},
         "required": ["id", "open_on"]}}},
     "required": ["clips"],
@@ -241,7 +257,10 @@ SYNAPSE CUT PLAYBOOK — TITLE AND HOOK (strict, wins over any other title or ho
 - NAME THE SUBJECT: the title says what the clip is about in plain words —
   never "this show", "one show", "this guy", "he", "they". "How did this show
   sell out Madison Square Garden twice?" is wrong; "Can a small comedy show
-  really sell out Madison Square Garden?" is right.
+  really sell out Madison Square Garden?" is right. When the thing has a name
+  people search for (a substance, a drug, a condition, a device: "kratom",
+  "lidocaine", "ibogaine"), use that name, not a category ("a common drug"):
+  such shorts keep getting views from search for months.
 - THE QUESTION NEVER CONTAINS ITS OWN ANSWER: "Why does frustration mean your
   brain is learning?" gives the answer away (frustration = learning); "Is
   frustration a sign you should quit?" keeps it for the clip.
@@ -346,6 +365,11 @@ NICHE_DETAIL_WEIGHT = ("Strongly prefer clips on that niche. A moment outside it
 # The order of preference (threat, person at stake, your mind, debate) ranks
 # and scores the moments, it is NOT a filter (the user's reserve: « ne ferme
 # pas la sélection sur les menaces »): the HOW MANY rule stays as it is.
+# 5-oct-2026 (lot Sélection, the user: « le texte choisi intelligemment au début comme à la fin »): the
+# clip opens on a "[seconds]" mark — a sentence start the code found in the words (main.marked_text) — and
+# its opening is scored in this same call (opening_score, opening_misses: no call more, the user's rule on
+# tokens); main.rank_by_opening weighs it into predicted_score, which judged the moment alone (Spearman
+# 0.34 with the share of viewers who stayed, 12 published shorts). The angles are read as a set.
 PLAYBOOK_DETAIL_ADDENDUM = """
 SYNAPSE CUT PLAYBOOK — CUT, DESCRIPTIONS, TOPIC:
 - THE OPENING LINE IS THE HOOK: the clip starts EXACTLY on a sentence that works
@@ -356,6 +380,33 @@ SYNAPSE CUT PLAYBOOK — CUT, DESCRIPTIONS, TOPIC:
   thing"); never on a request to someone in the room ("can you put that into
   Perplexity", "pull that up"): the viewer is not the one asked. Return that
   sentence VERBATIM (exact transcript words) in `hook_line`.
+- THE FIRST 5 SECONDS DECIDE: on this channel the share of viewers who do not
+  swipe away in the first seconds decides whether a short ever leaves its
+  first test audience — the same passage went from 48% to 78% of viewers
+  staying, and 6 times the views, with nothing changed but its opening. In
+  each window, "[<seconds>]" marks a sentence a clip may open on. Open ON one
+  of these marks: `start` is its number, `hook_line` the sentence after it.
+  For each moment, weigh the marks around the start you have in mind — two or
+  three before, two or three after — and keep the one whose first ~5 seconds
+  heard:
+  1. stand alone: a cold viewer follows with nothing said before — never the
+     middle of a sentence, no "they", "he", "that" nobody has met, no answer
+     to a question nobody heard;
+  2. name the subject: the concrete thing (the drug, the illness, the person,
+     the number) is SAID within ~5 seconds;
+  3. set the tension: a stake, a danger, a question in the air within ~5
+     seconds — in the action (the man, the tower, the rifle), never a run-up
+     ("this is such an amazing case").
+  A later mark that does all three beats an earlier one that adds context.
+- `opening_score`: 0-100, how many cold viewers keep watching after the first
+  ~5 seconds of the opening you chose, from the words alone (no picture, no
+  on-screen text). Be strict: "So that's the other thing about it." is about
+  10, "Can you put that into Perplexity and see what...?" about 25, "This is
+  such an amazing case." about 30, "If you take this pill every day for ten
+  years, here is what it does to your liver." about 85. `opening_misses`:
+  which of stands_alone, topic_named, tension that opening fails ([] when
+  none). `predicted_score` rates the MOMENT itself (the story, the payoff, who
+  is at stake), not its opening: the two are combined in code.
 - `start` IS THE MOMENT `hook_line` BEGINS — never after it (a start placed after
   the hook opens the clip mid-sentence). If the clip then runs over
   {max_secs}s, NEVER end before the payoff: open on a later sentence that
@@ -364,7 +415,13 @@ SYNAPSE CUT PLAYBOOK — CUT, DESCRIPTIONS, TOPIC:
   exists for, the answer to its question — VERBATIM (exact transcript words)
   in `punchline`. `punchline` must lie between `start` and `end`, and `end`
   comes right after it. A clip that stops before its payoff, or on a question
-  whose answer is cut off, is not a clip.
+  whose answer is cut off, is not a clip. The payoff answers the tension the
+  opening set; when it also calls back the opening's words, the clip loops
+  into its own start — welcome, never forced.
+- THE CLIPS AS A SET: they are posted on one channel in the same week. Vary the
+  angle: when several moments make the same broad point (say, "doctors get it
+  wrong"), the two strongest on that point keep their score and the others
+  score lower — never a reason to leave out a strong moment on another point.
 - WHAT THIS CHANNEL'S VIEWERS STAY FOR — an order of preference to RANK the
   moments and set `predicted_score`, NEVER a reason to leave a good moment out
   (the HOW MANY rule above stands: work through every window):
