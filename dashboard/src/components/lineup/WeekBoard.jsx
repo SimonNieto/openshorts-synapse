@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, Clock, CalendarPlus, ChevronUp, ChevronDown, X, CheckCircle2 } from 'lucide-react';
 import ClipThumb from './ClipThumb';
 import TopicTag, { TopicSwatch } from './TopicTag';
@@ -148,7 +148,16 @@ export default function WeekBoard({
   week, today, clipsByRef, plan, planEdited, onOpenClip, onSwap, onRemove,
 }) {
   const [lit, setLit] = useState(null);
+  const stripRef = useRef(null);
   const days = daysBetween(week?.from || today, week?.to);
+  // A new suggestion on a phone: slide the strip (which scrolls on its own) to the first suggested day.
+  const firstProposed = (plan?.plan || [])[0]?.date || '';
+  useEffect(() => {
+    const strip = stripRef.current;
+    const col = firstProposed && strip?.querySelector(`[data-day="${firstProposed}"]`);
+    if (!strip || !col || strip.scrollWidth <= strip.clientWidth) return;
+    strip.scrollTo({ left: Math.max(0, col.offsetLeft - 16), behavior: 'smooth' });
+  }, [firstProposed]);
   const timeline = week?.timeline || [];
   const proposed = plan?.plan || [];
 
@@ -196,13 +205,13 @@ export default function WeekBoard({
       </div>
 
       {/* The strip: seven columns; on a narrow screen it scrolls sideways by itself. */}
-      <div className="overflow-x-auto custom-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0 pb-1" role="region" aria-label="The week, day by day" tabIndex={0}>
+      <div ref={stripRef} className="overflow-x-auto custom-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0 pb-1 relative" role="region" aria-label="The week, day by day" tabIndex={0}>
         <ol className="grid grid-cols-7 gap-2 min-w-[68rem] xl:min-w-0">
           {days.map((d) => {
             const items = byDay[d];
             const isToday = d === today;
             return (
-              <li key={d} className={`min-w-0 rounded-input p-1.5 ${isToday ? 'bg-paper3/60' : ''}`} aria-label={`${dayLabel(d, today)} ${fmtDay(d)}: ${items.length} post${items.length === 1 ? '' : 's'}`}>
+              <li key={d} data-day={d} className={`min-w-0 rounded-input p-1.5 ${isToday ? 'bg-paper3/60' : ''}`} aria-label={`${dayLabel(d, today)} ${fmtDay(d)}: ${items.length} post${items.length === 1 ? '' : 's'}`}>
                 <div className="px-1 pb-2 mb-2 border-b border-rule">
                   <p className={`text-xs font-medium ${isToday ? 'text-ink' : 'text-ink2'}`}>{dayLabel(d, today)}</p>
                   <p className="readout">{fmtDay(d, { day: 'numeric', month: 'short' })} · {items.length}</p>
