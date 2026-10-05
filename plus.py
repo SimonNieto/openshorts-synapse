@@ -70,6 +70,12 @@ HOOK_STYLE, HOOK_SECONDS = "docline", 3.3
 # strong line (reactions.py); every layer before the captions encoded
 # near-lossless (ffmpeg_utils.layer_encode_args).
 FX = {"smart_framing": True, "smooth_camera": True, "reactions": True, "hq_chain": True}
+# The montage (5-oct-2026, the user's decisions 2, 4 and 6 and her reservation 9, « go pour tout »): the clip
+# re-cut from the source — every silence over 0.35 s down to a breath, the clip choice's cut_out passages
+# taken out, the clip opening on the voice (montage.py); a dry cut to a 1.2x tighter frame past 6 s without a
+# change on screen (punch_in.py); up to 3 reactions in the holes, never under a picture, never the same second
+# twice in a job (reactions.py). No join that shows: a jump is hidden by a frame switch, or the pause is kept.
+MONTAGE = {"enabled": True, "silences": True, "cut_out": True, "hide_joins": True, "tight_frames": True}
 # B-roll when the profile wants images: made on this PC (ComfyUI, Z-Image
 # Turbo), "mixed" ideas (the thing named first), one hero + three wide cards,
 # each picture's look read from what is said (visual_mood: its mood's words for
@@ -276,6 +282,8 @@ def job_env(profile):
         "SMOOTH_CAMERA": "1",
         # Read by ffmpeg_utils.layer_encode_args at every layer of the clip's render chain.
         "PLUS_HQ_CHAIN": "1",
+        # Read by montage.config (main._process_one_clip): the re-cut, the tight frames, the reactions' holes.
+        "PLUS_MONTAGE_JSON": json.dumps(MONTAGE),
         # Every clip ends on a full stop (main.end_on_sentence): a clip
         # stopping on a dangling "cause..." is never wanted.
         "CLEAN_END": "1",
