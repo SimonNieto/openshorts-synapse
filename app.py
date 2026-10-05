@@ -3234,6 +3234,140 @@ async def update_schedule_entry(entry_id: str, req: ScheduleUpdateRequest):
     raise HTTPException(status_code=404, detail="Entry not found")
 
 
+# --- Line-up: every clip on one board, and the week's variety (5-oct-2026, lineup.py) ---
+#
+# The clips still on disk (published ones included), their topic (corrected by hand if need be), where they
+# stand on the publish plan above, their real Studio numbers and their hook jury note; the week's mix and its
+# variety alerts; a proposed order. It publishes NOTHING: the Line-up tab schedules through /api/social/post,
+# one request per clip, exactly like the Publish plan. Self-host only, same as /api/local-projects.
+
+class LineupCategoryRequest(BaseModel):
+    job_id: str
+    clip_index: int
+    category: Optional[str] = None                   # None = back to the AI's topic_bucket
+
+
+class LineupPlanRequest(BaseModel):
+    clips: List[List[Any]] = []                      # [[job_id, clip_index], …]
+    slots: Optional[List[Dict[str, Any]]] = None     # [{date, time}, …]; none = the week's free Publish-plan times
+    tz: Optional[str] = None                         # the browser's IANA time zone (the plan's dates are local)
+
+
+class LineupJuryRequest(BaseModel):
+    clips: Optional[List[List[Any]]] = None          # None = every clip without an up-to-date jury note
+    force: bool = False                              # accepted (contract C2), ignored: one note per rendered mp4
+
+
+def _lineup_view(tz: Optional[str] = None) -> dict:
+    import lineup
+    return lineup.build(OUTPUT_DIR, _load_schedule(), stats_dir=STUDIO_STATS_DIR,
+                        retention_seconds=JOB_RETENTION_SECONDS, tz=tz)
+
+
+def _lineup_pairs(raw) -> list:
+    import lineup
+    pairs = []
+    for pair in raw or []:
+        try:
+            job_id, index = str(pair[0]), int(pair[1])
+        except (TypeError, ValueError, IndexError, KeyError):
+            raise HTTPException(status_code=400, detail="clips: [[job_id, clip_index], …]")
+        if not lineup.safe_job_id(job_id) or index < 0:
+            raise HTTPException(status_code=400, detail=f"Not a clip: {pair}")
+        pairs.append((job_id, index))
+    return pairs
+
+
+@app.get("/api/lineup")
+async def lineup_board(tz: Optional[str] = None):
+    """Contract C2: the catalogue, the categories, the week (timeline, mix, alerts), the rules, the jury's
+    calibration and background run. ``tz``: the browser's time zone ("today", the published times)."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    return await asyncio.to_thread(_lineup_view, tz)
+
+
+@app.post("/api/lineup/category")
+async def lineup_category(req: LineupCategoryRequest, tz: Optional[str] = None):
+    """Correct a clip's topic by hand (``category`` null: back to the AI's). metadata.json keeps its mtime (the
+    project's date and its age for the retention sweep); the in-memory job follows. -> the clip, as in C2."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import lineup
+    try:
+        category = lineup.set_category(OUTPUT_DIR, req.job_id, req.clip_index, req.category)
+    except lineup.LineupError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    mem_clips = ((jobs.get(req.job_id) or {}).get('result') or {}).get('clips') or []
+    if 0 <= req.clip_index < len(mem_clips):
+        if category:
+            mem_clips[req.clip_index]['category_manual'] = category
+        else:
+            mem_clips[req.clip_index].pop('category_manual', None)
+    view = await asyncio.to_thread(_lineup_view, tz)
+    clip = lineup.find_clip(view, req.job_id, req.clip_index)
+    if clip is None:                                 # saved, but the clip has no rendered file to show
+        raise HTTPException(status_code=404, detail="Clip not found")
+    return clip
+
+
+@app.post("/api/lineup/plan")
+async def lineup_plan(req: LineupPlanRequest):
+    """A proposed order for the chosen clips over the chosen slots (best hook that keeps the week's mix).
+    Publishes nothing."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import lineup
+    clips = _lineup_pairs(req.clips)
+    return await asyncio.to_thread(lambda: lineup.plan(
+        OUTPUT_DIR, _load_schedule(), clips, req.slots, retention_seconds=JOB_RETENTION_SECONDS, tz=req.tz))
+
+
+@app.post("/api/lineup/jury")
+async def lineup_jury(req: LineupJuryRequest):
+    """Run the hook jury (hook_jury.run_many) in the background over the given clips, or every clip without an
+    up-to-date note. One run at a time; a clip whose rendered mp4 has not changed is never judged twice (``force``
+    is accepted and ignored: the user's rule, a clip's tokens are spent once). -> the run's state
+    (GET /api/lineup/jury/status). With lineup.JURY_ENABLED off: nothing runs, the state says ``disabled``."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import lineup
+    if not lineup.JURY_ENABLED:
+        return lineup.jury_state()
+    if req.clips is None:
+        clips = await asyncio.to_thread(lineup.clips_to_judge, OUTPUT_DIR)
+    else:
+        clips = _lineup_pairs(req.clips)
+    try:
+        return await asyncio.to_thread(lineup.start_jury, OUTPUT_DIR, clips)
+    except lineup.LineupError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+@app.get("/api/lineup/jury/status")
+async def lineup_jury_status():
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import lineup
+    return lineup.jury_state()
+
+
+@app.get("/api/lineup/thumb/{job_id}/{clip_index}")
+async def lineup_thumb(job_id: str, clip_index: int):
+    """A still of the rendered clip at ~1.5 s (JPEG), cached in output/_lineup/thumbs/."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import lineup
+    try:
+        path = await asyncio.to_thread(lineup.thumbnail, OUTPUT_DIR, job_id, clip_index)
+    except lineup.LineupError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    if not path:
+        raise HTTPException(status_code=404, detail="No rendered clip")
+    # Short cache: the URL stays the same when the clip is re-rendered (the file name changes on disk).
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=300"})
+
+
 class ProjectNicheRequest(BaseModel):
     niche: Optional[str] = None
     # The Upload-Post profile (the niche's own TikTok/IG/YouTube accounts)
