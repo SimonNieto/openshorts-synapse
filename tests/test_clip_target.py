@@ -229,8 +229,8 @@ class TestPayoffInTheClip:
         c = {"start": 0.0, "end": 50.0, "punchline": PAYOFF}
         main.trim_to_target(c, w, 15, (25, 40), max_secs=60)
         last = max(i for i, x in enumerate(w) if x["e"] <= c["end"])
-        assert last == 44 and w[last]["w"] == "plunger.", "the first echo; the second ends 2.5 s after the payoff"
-        assert c["payoff_reaction"] and c["end"] - 21.4 <= 2.0
+        assert last == 47 and w[last]["w"] == "plunger.", "both echoes: the second ends 2.5 s after the payoff (≤ 4 s)"
+        assert c["payoff_reaction"] and c["end"] - 21.4 <= main.REACTION_MAX_SECONDS
         fast = [dict(x) for x in w]                       # said at c08's real pace: both echoes fit
         for x, (s, e) in zip(fast[43:48], ((21.62, 21.85), (21.85, 22.12), (22.34, 22.5), (22.5, 22.6),
                                            (22.6, 22.82))):
@@ -238,18 +238,27 @@ class TestPayoffInTheClip:
         c = {"start": 0.0, "end": 50.0, "punchline": PAYOFF}
         main.trim_to_target(c, fast, 15, (25, 40), max_secs=60)
         last = max(i for i, x in enumerate(fast) if x["e"] <= c["end"])
-        assert last == 47 and c["end"] - 21.4 <= 2.0, c
+        assert last == 47 and c["end"] - 21.4 <= main.REACTION_MAX_SECONDS, c
         # a long sentence after the payoff is a new thought: cut
         w = mk(FILL * 4 + PAYOFF + " So I am excited and I have to say it. " + FILL * 6)
         c = {"start": 0.0, "end": 50.0, "punchline": PAYOFF}
         main.trim_to_target(c, w, 15, (25, 40), max_secs=60)
         assert 21.4 < c["end"] <= 21.5 and "payoff_reaction" not in c
-        # a reaction past 2 s after the payoff: cut (c02's "Whoa." 1.5 s later)
+        # the other one's reaction up to 4 s after the payoff is kept (c02's "Whoa.", 5-oct-2026) ...
         w = mk(FILL * 4 + PAYOFF + " " + FILL * 6)
         w.insert(43, {"w": "Whoa.", "s": 23.6, "e": 24.0})
         for x in w[44:]:
             x["s"] += 3.0
             x["e"] += 3.0
+        c = {"start": 0.0, "end": 50.0, "punchline": PAYOFF}
+        main.trim_to_target(c, w, 15, (25, 40), max_secs=60)
+        assert 24.0 <= c["end"] <= 24.5, c
+        # ... and cut past 4 s
+        w = mk(FILL * 4 + PAYOFF + " " + FILL * 6)
+        w.insert(43, {"w": "Whoa.", "s": 25.8, "e": 26.2})
+        for x in w[44:]:
+            x["s"] += 5.0
+            x["e"] += 5.0
         c = {"start": 0.0, "end": 50.0, "punchline": PAYOFF}
         main.trim_to_target(c, w, 15, (25, 40), max_secs=60)
         assert 21.4 < c["end"] <= 21.9, c

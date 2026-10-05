@@ -353,7 +353,7 @@ def test_job_b8e46c24_replayed(job_b8e46c24):
         pe = _payoff_end(words, s)
         assert pe is not None and pe <= s["end"] + 0.05, s
         tails[round(s["start"])] = round(s["end"] - pe, 2)
-        assert s["end"] - pe <= 2.0, ("tail after the payoff", s["start"], s["end"] - pe)
+        assert s["end"] - pe <= main.REACTION_MAX_SECONDS + 0.5, ("tail after the payoff", s["start"], s["end"] - pe)
         assert s["end"] - s["start"] >= 15
     assert len(tails) == 11
     c08 = _clip(shorts, 273.0)
@@ -362,4 +362,6 @@ def test_job_b8e46c24_replayed(job_b8e46c24):
     assert c03["start"] >= 612.18, "the orphan 'know' is not heard"
     c02 = _clip(shorts, 749.3)
     assert c02.get("opens_on_request"), "the Perplexity request is flagged"
+    c02_end = " ".join(w["w"] for w in words if c02["end"] - 2.5 <= w["s"] < c02["end"])
+    assert "whoa" in c02_end.lower(), ("Joe's reaction after the payoff is kept (4 s)", c02_end)
     assert "PAYOFF IS OUTSIDE the clip" in out and "Payoff ending: 11/12" in out

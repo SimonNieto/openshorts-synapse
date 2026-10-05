@@ -1890,7 +1890,7 @@ PAYOFF_REACH = 3.0
 # speaker's own echo "It's the plunger."), whole sentences, the clip then ending at most
 # REACTION_MAX_SECONDS after the payoff (the tail after the payoff stays under 2 s: JRE
 # #2553 c02's "Whoa." said 1.5 s after "251,000 deaths a year." is left out).
-REACTION_MAX_SECONDS = 2.0
+REACTION_MAX_SECONDS = 4.0   # the user, 5-oct-2026: keep the other one's reaction or joke (« Whoa. That's crazy. »)
 # A sentence of 4+ words is a reaction only with one of these in it (3 words or
 # fewer always are: "Yeah.", "No way.", "It's the plunger.").
 _REACTION_WORDS = {"whoa", "woah", "wow", "damn", "jesus", "god", "crazy", "insane", "nuts", "wild", "holy",
