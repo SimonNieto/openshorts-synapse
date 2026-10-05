@@ -21,7 +21,7 @@ export const SLOT_OPTIONS = [
 
 // Too-close slots are skipped: Upload-Post needs a little lead time and a
 // post "scheduled" two minutes from now reads as a mistake to the user.
-const MIN_LEAD_MS = 15 * 60 * 1000;
+export const MIN_LEAD_MS = 15 * 60 * 1000;
 
 const pad = (n) => String(n).padStart(2, '0');
 

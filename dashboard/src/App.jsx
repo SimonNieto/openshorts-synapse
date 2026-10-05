@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Square, Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Smartphone, ExternalLink, Copy, CheckCircle2, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket, Images, Compass } from 'lucide-react';
+import { Square, Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Smartphone, ExternalLink, Copy, CheckCircle2, Loader2, Download, Menu, Lock, Eraser, Hash, Flame, Clapperboard, Rocket, Images, Compass, ListOrdered } from 'lucide-react';
 import KeyInput from './components/KeyInput';
 import MediaInput from './components/MediaInput';
 import ResultCard from './components/ResultCard';
@@ -26,6 +26,7 @@ import AdvancedBanner from './components/AdvancedBanner';
 import HistoryTab from './components/HistoryTab';
 import ReworkerTab from './components/ReworkerTab';
 import PublishPlanTab from './components/PublishPlanTab';
+import LineupTab from './components/LineupTab';
 import ViralFinderTab from './components/ViralFinderTab';
 import NichesTab from './components/NichesTab';
 import StoryTab from './components/StoryTab';
@@ -1223,6 +1224,9 @@ function App() {
       desc: 'Find the videos that are taking off in your niche.' }] : []),
     { id: 'reworker', group: 'grow', icon: Eraser, label: 'Viral clip reworker', short: 'Reworker', byok: true,
       desc: 'Take a viral clip and make it yours.' },
+    // Line-up (5-oct-2026): every clip at a glance, by topic, to vary what goes out — self-host only, like the plan.
+    ...(!billingEnabled ? [{ id: 'lineup', group: 'grow', icon: ListOrdered, label: 'Line-up', short: 'Line-up',
+      desc: 'Every clip by topic: this week, what comes next, a varied order to schedule.' }] : []),
     ...(!billingEnabled ? [{ id: 'publish-plan', group: 'grow', icon: Calendar, label: 'Publish plan', short: 'Plan',
       desc: 'Plan and schedule your posts across platforms.' }] : []),
     { id: 'settings', group: 'system', icon: Settings, label: 'Settings', short: 'Settings',
@@ -2020,6 +2024,20 @@ function App() {
           {activeTab === 'broll-gallery' && !billingEnabled && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
               <BrollGallery />
+            </div>
+          )}
+
+          {/* View: Line-up */}
+          {activeTab === 'lineup' && !billingEnabled && (
+            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
+              <div className="max-w-7xl mx-auto px-4 py-6 sm:p-8">
+                <LineupTab
+                  uploadPostKey={uploadPostKey}
+                  uploadUserId={uploadUserId}
+                  isManaged={isManaged}
+                  onOpenPlan={() => goToTab('publish-plan')}
+                />
+              </div>
             </div>
           )}
 
