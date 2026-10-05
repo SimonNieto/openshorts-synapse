@@ -37,7 +37,7 @@ from typing import List, Optional
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageStat
 
 import visual_mood
-from ffmpeg_utils import layer_encode_args
+from ffmpeg_utils import LOUDNORM_FILTER, layer_encode_args
 
 STYLES = {
     "photo": "Realistic documentary photograph, natural light, shallow depth of field, rich but true colours.",
@@ -138,7 +138,16 @@ KEY_LEAD = 0.12   # s the image comes up before its key word is said (the pop-in
 # 9:16 at the biggest size the GPU gives in ~20 s (measured on an RTX 3060 with
 # Z-Image Turbo: 896x1600 in 16 s, 1024x1792 in 23 s; profile broll.hero_res).
 HERO_GEN = {"std": (896, 1600), "high": (1024, 1792)}
-HERO_DUR_MIN, HERO_DUR_MAX = 2.5, 3.5   # s on screen: long enough to read as a shot, short enough to come back to the face
+# s on screen (5-oct-2026, decision 5 « dessins en pleine largeur »: every drawing is a full-screen shot, so it stays
+# 2.0-2.5 s and the face comes back; was 2.5-3.5 for the one hero of a clip)
+HERO_DUR_MIN, HERO_DUR_MAX = 2.0, 2.5
+# The « dessin » chain in full width (plus.BROLL "full_width"): a drawing never covers the punchline — it leaves
+# PUNCH_CLEAR s before it is said, and a moment that cannot stay HERO_DUR_MIN s that way gets no picture.
+PUNCH_CLEAR = 0.2
+# The opening drawing (5-oct-2026, decision 8, plus.BROLL "opening", OFF until the A/B test says otherwise): the
+# clip's clearest drawing full screen from 0 to OPENING_SECONDS, then a hard cut to the face — under the hook and the
+# captions (the B-roll layer is under both). The one exception to HEAD_FREE.
+OPENING_SECONDS = 1.2
 
 
 def _knob(name, default):
@@ -149,8 +158,10 @@ def _knob(name, default):
         return default
 
 
-HERO_FADE = _knob("BROLL_HERO_FADE", 0.35)          # s: crossfade in and out (a pop reads as a sticker, a dissolve as a cut)
-HERO_PUSH = _knob("BROLL_HERO_PUSH", 1.06)          # push-in over the time on screen: 6 % is felt, not seen
+# Camera fixed (5-oct-2026, decision 5, her rule « caméra fixe »): the full-screen drawing comes in and leaves on a hard
+# cut, like a cut between two cameras, and does not move. Was a 0.35 s crossfade and a 6 % push-in.
+HERO_FADE = _knob("BROLL_HERO_FADE", 0.0)           # s: crossfade in and out; 0 = a hard cut
+HERO_PUSH = _knob("BROLL_HERO_PUSH", 1.0)           # push-in over the time on screen; 1.0 = none
 HERO_VIGNETTE = _knob("BROLL_HERO_VIGNETTE", 0.30)  # darkening at the corners (0-1): keeps the eye in the middle
 HERO_GRADIENT = _knob("BROLL_HERO_GRADIENT", 0.45)  # darkening at the very bottom (0-1): the captions stay readable on a bright picture
 HERO_GRAIN = _knob("BROLL_HERO_GRAIN", 5.0)         # film grain, sigma in 8-bit levels: hides the upscale and the AI smoothness
@@ -190,10 +201,16 @@ MIXED_TAIL = 2.0
 SCREEN_DUR_MIN, SCREEN_DUR_MAX = 1.5, 12.0
 SCREEN_ASPECT_MIN = 0.5    # a side-by-side picture is wider than the generated cards (CARD_GEN is 0.625)
 SCREEN_CARD_SIZE = 86      # % of the width: the viewer must READ this one (labels, two halves); it still fits the band
-# A sound when the hero arrives (profile broll.sfx): a soft whoosh made by assets/sfx/make_sfx.py (ours, no
-# licence), mixed under the voice. -18 dB on a -6 dBFS peak: heard as air moving, never as an effect.
+# A sound when the FIRST full-screen drawing of the clip arrives (plus.BROLL "sfx"): a soft whoosh made by
+# assets/sfx/make_sfx.py (ours, no licence), mixed under the voice; the other pictures come in silent.
+# 5-oct-2026 (decision 3 « whoosh audible »): it was mixed at -18 dB and measured 21-26 dB under the voice, inaudible on a
+# phone; it is now set SFX_UNDER_VOICE_DB under the voice measured around it (its gain kept in SFX_GAIN_RANGE;
+# SFX_GAIN_DB when the voice cannot be read), and the mix is normalised again (ffmpeg_utils.LOUDNORM_FILTER, true peak
+# -2 dBTP) as background_music.py does.
 SFX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "sfx", "whoosh_soft.wav")
-SFX_GAIN_DB = _knob("BROLL_SFX_DB", -18.0)
+SFX_GAIN_DB = _knob("BROLL_SFX_DB", -6.5)
+SFX_UNDER_VOICE_DB = _knob("BROLL_SFX_UNDER", 12.0)
+SFX_GAIN_RANGE = (-14.0, -2.0)
 SFX_LEAD = 0.12       # s before the picture: the sound announces it
 HERO_RULE = """HERO IMAGE: one image of the set MAY be shown FULL SCREEN for about 3 s: the clip's poster, the frame a cold
 viewer stops on. A hero is a real scene the speaker names or a story of the brief tells — a thing at its real scale,
@@ -815,6 +832,22 @@ HERO_MIN_SCORE = 2.5   # a plain photo of a concept fills the screen only as a m
 def hero_dur(m):
     """Time on screen of the hero: its sentence (``dur``) plus the crossfade, within HERO_DUR_MIN..MAX."""
     return round(min(HERO_DUR_MAX, max(HERO_DUR_MIN, float(m.get("dur") or 0) + HERO_FADE)), 2)
+
+
+def full_dur(m, avoid=()):
+    """Time on screen of a full-width drawing (the « dessin » chain, 5-oct-2026): hero_dur, ended PUNCH_CLEAR s before
+    a punchline (``avoid``) said while it would be up — the face says the punchline. Under HERO_DUR_MIN: no room, the
+    moment gets no picture (full_room)."""
+    t, d = float(m["t"]), hero_dur(m)
+    for a in avoid or ():
+        if t < float(a) < t + d + PUNCH_CLEAR:
+            d = min(d, float(a) - PUNCH_CLEAR - t)
+    return round(d, 2)
+
+
+def full_room(m, avoid=()):
+    """A full-width drawing fits this moment: HERO_DUR_MIN s at least before the punchline."""
+    return full_dur(m, avoid) >= HERO_DUR_MIN - 1e-6
 
 
 def hero_fits(m, duration, avoid, head=HEAD_FREE, block=()):
@@ -3293,6 +3326,9 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None):
     grain that changes every frame finish it. ``grade``: the picture's grade
     (a visual_mood grade, or an older clip's GRADES name) in place of the
     historical contrast / colour touch-up.
+    Since 5-oct-2026 (« caméra fixe ») HERO_PUSH is 1.0 and HERO_FADE 0: a hard
+    cut in and out and no move — the picture is then resampled once, only the
+    grain changes from frame to frame.
     Returns the frame pattern."""
     import numpy as np
     img = Image.open(src).convert("RGB")
@@ -3318,6 +3354,7 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None):
     noise = rng.normal(0.0, HERO_GRAIN, (H, W, 1)).astype(np.float32) if HERO_GRAIN > 0 else None
     n = max(2, int(round(dur * fps)))
     fx_rng = np.random.default_rng(13)
+    still = None      # the picture never moves (no push, no effect): resampled once
     for f in range(n):
         t = f / fps
         z = 1.0 + (HERO_PUSH - 1.0) * _smooth(t / dur)
@@ -3328,16 +3365,22 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None):
         if fx == "tremble":
             dx, dy = _fx_shift(fx_rng, x0, y0, bw)
             x0, y0 = x0 + dx, y0 + dy
-        frame = img.resize((W, H), Image.LANCZOS, box=(x0, y0, x0 + bw, y0 + bh))
-        arr = np.asarray(frame, dtype=np.float32)
-        if fx == "double":
-            arr = _fx_double(arr, t)
-        arr = arr * shade
+        if still is not None:
+            arr = still.copy()
+        else:
+            frame = img.resize((W, H), Image.LANCZOS, box=(x0, y0, x0 + bw, y0 + bh))
+            arr = np.asarray(frame, dtype=np.float32)
+            if fx == "double":
+                arr = _fx_double(arr, t)
+            arr = arr * shade
+            if abs(HERO_PUSH - 1.0) < 1e-9 and fx is None:
+                still = arr.copy()
         if noise is not None:
             # The same grain field moved around: new grain every frame for the price of a copy.
             arr += np.roll(noise, (int(rng.integers(0, H)), int(rng.integers(0, W))), axis=(0, 1))
         out = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
-        alpha = min(_smooth(t / HERO_FADE), _smooth((dur - t) / HERO_FADE))
+        # A hard cut when HERO_FADE is 0 (5-oct-2026), else a crossfade in and out.
+        alpha = min(_smooth(t / HERO_FADE), _smooth((dur - t) / HERO_FADE)) if HERO_FADE > 0 else 1.0
         out.putalpha(int(round(255 * max(0.0, min(1.0, alpha)))))
         out.save(os.path.join(folder, f"c{f:03d}.png"), compress_level=1)
     return os.path.join(folder, "c%03d.png")
@@ -3377,6 +3420,112 @@ def add_screen_only(clip_path, out_path, inset, img_dir=None, manual=False):
     print(f"   🖼️ B-roll: the picture the source showed on screen, as a card from {item['t']:.1f}s for "
           f"{item['dur']:.1f} s" + (" (manual review: not cut in yet)" if manual else ""))
     return {"items": [item], "credits": [], "planner": "screen", "sources": ["screen"], "pending": manual}
+
+
+# --- the opening drawing (5-oct-2026, decision 8; plus.BROLL "opening", OFF until the A/B test) ---------------------
+# Never on the opening: a drawing whose words evoke a death or a serious illness (the code's net, before any call;
+# the chooser is told the same and also refuses a real, recognisable person). A clip about a death opens on the face.
+OPENING_NO_RE = re.compile(
+    r"\b(dead|deaths?|die[sd]?|dying|kill\w*|suicid\w*|overdos\w*|funeral\w*|coffins?|graves?|graveyards?|"
+    r"gravestones?|corpses?|morgue|autops\w*|cemeter\w*|tombs?\w*|skulls?|skeletons?|cancer\w*|tumou?rs?|chemo\w*|"
+    r"terminal(?:ly)? ill\w*|hospital beds?|icu|intensive care|life support|ventilators?|coma|heart attacks?|"
+    r"seizures?|drips?|iv bags?|blood\w*|wounds?|bleed\w*)\b", re.I)
+OPENING_PX = (270, 480)      # the chooser sees each drawing at about a phone's size: what reads there reads in the feed
+OPENING_PROMPT = """A short vertical video opens on ONE of the drawings attached, full screen, for its first {secs:g}
+seconds, under its hook (the line written on top of it): "{hook}". The video's title: "{title}".
+That first second decides whether someone scrolling stops. Pick the ONE drawing that reads in one glance on a phone —
+one big clear subject, few small details — and shows what the hook is about.
+Never pick a drawing that evokes a death or its means, a serious illness (a sick or dying person, a hospital bed, a
+drip, a tumour), or a real, recognisable person. When no drawing qualifies, answer -1: the video then opens on the
+speaker's face, which is fine.
+{lines}
+Return JSON: {{"pick": <the drawing's number, or -1>, "why": "<12 words at most>"}}"""
+OPENING_SCHEMA = {"type": "object", "properties": {"pick": {"type": "integer"}, "why": {"type": "string"}},
+                  "required": ["pick", "why"]}
+
+
+def opening_candidates(drawn):
+    """The (item, cand) pairs that may open the clip: full-screen drawings only (not a card, not the source's own
+    picture), not in a clip about a death, not on a sentence that mentions one, nothing in their words that evokes a
+    death or a serious illness (OPENING_NO_RE)."""
+    if any((c.get("m") or {}).get("clip_gravity") == "grave" for _it, c in drawn):
+        return []
+    out = []
+    for it, c in drawn:
+        m = c.get("m") or {}
+        spec = m.get("spec") or {}
+        if it.get("layout") != "hero" or it.get("source") == "screen" or spec.get("death_near"):
+            continue
+        # the director's own picture (the charter's style sentence left out), else the prompt
+        text = " ".join(str(x or "") for x in (m.get("picture") or it.get("prompt"), m.get("idea_text"), it.get("idea"),
+                                                it.get("subject"), m.get("said"), it.get("anchor")))
+        if OPENING_NO_RE.search(text):
+            filter_hit("opening: death or illness in its words", f'Picture "{it.get("anchor")}" never opens the clip.')
+            continue
+        out.append((it, c))
+    return out
+
+
+def choose_opening(cands, clip, tmp):
+    """(index in ``cands``, why) of the drawing that opens the clip, or (None, why). One Claude call that SEES the
+    drawings at a phone's size with the hook and the title (no Claude, a failed call or -1: no opening — a weak or
+    wrong opening is worse than the face)."""
+    if not cands:
+        return None, "no full-screen drawing may open this clip"
+    if not claude_ready():
+        return None, "Claude is not available"
+    thumbs, lines = [], []
+    for k, (it, c) in enumerate(cands):
+        path = os.path.join(tmp, f"opening_{k}.jpg")
+        try:
+            im = Image.open(it["_img"]).convert("RGB")
+            im.thumbnail(OPENING_PX, Image.LANCZOS)
+            im.save(path, quality=88)
+        except Exception as e:
+            return None, f"drawing unreadable ({str(e)[:60]})"
+        thumbs.append(path)
+        what = (c.get("m") or {}).get("idea_text") or it.get("idea") or it.get("subject") or it.get("anchor")
+        lines.append(f'drawing {k} (image "opening_{k}.jpg", shown at {float(it["t"]):.1f}s on "{it.get("anchor")}"): '
+                     f'{str(what)[:160]}')
+    prompt = OPENING_PROMPT.format(secs=OPENING_SECONDS, hook=str(clip.get("viral_hook_text") or "")[:120],
+                                   title=str(clip.get("video_title_for_youtube_short") or "")[:120],
+                                   lines="\n".join(lines))
+    try:
+        import broll_ideas
+        data = claude_json(prompt, OPENING_SCHEMA, timeout=180, attach=thumbs, stage="broll_opening",
+                           model=broll_ideas._model("broll_verify", "sonnet"), effort="low") or {}
+    except Exception as e:
+        return None, f"the choice failed ({str(e)[:80]})"
+    try:
+        k = int(data.get("pick"))
+    except (TypeError, ValueError):
+        return None, "no answer"
+    why = re.sub(r"\s+", " ", str(data.get("why") or "")).strip()[:120]
+    return (k, why) if 0 <= k < len(cands) else (None, why or "none qualifies")
+
+
+def opening_item(items, drawn, clip, tmp, keep_dir=None, keep_prefix=""):
+    """The opening's B-roll item — the chosen drawing full screen from 0 to OPENING_SECONDS, a hard cut, no sound —
+    or None. Its own copy of the picture (``<keep_prefix>broll_open.jpg``): the manual review and a restyle find each
+    item by its file. Never over the source's own picture or a picture already up in the first seconds."""
+    first = min((float(it["t"]) for it in items), default=None)
+    if first is not None and first < OPENING_SECONDS + 0.25:
+        print("   ℹ️ Opening drawing: a picture is already up in the first seconds — none.")
+        return None
+    cands = opening_candidates(drawn)
+    k, why = choose_opening(cands, clip, tmp)
+    if k is None:
+        print(f"   ℹ️ Opening drawing: none ({why}) — the clip opens on the face.")
+        return None
+    it = cands[k][0]
+    op = {key: v for key, v in it.items() if key not in ("sfx", "image", "_img")}
+    op.update(t=0.0, dur=OPENING_SECONDS, layout="hero", opening=True, opening_why=why, _img=it["_img"])
+    if keep_dir:
+        name = f"{keep_prefix}broll_open.jpg"
+        shutil.copy2(it["_img"], os.path.join(keep_dir, name))
+        op["image"] = name
+    print(f'   🎬 Opening drawing (0-{OPENING_SECONDS:g} s, under the hook): "{it.get("anchor")}" — {why}')
+    return op
 
 
 class ComfyDown(RuntimeError):
@@ -3440,7 +3589,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             return "hero" if m.get("hero") else "card"
         return "rise" if rise else "full"
 
-    dur_range = (CARD_DUR_MIN, CARD_DUR_MAX) if mixed else None
+    # The « dessin » chain in full width (5-oct-2026, decision 5): every drawing made 9:16 and shown alone, full screen,
+    # HERO_DUR_MIN..MAX s, hard cut in and out — never a card on the head (the source's own picture stays a card).
+    full = mixed and cfg.get("chain") == "dessin" and bool(cfg.get("full_width"))
+    dur_range = (HERO_DUR_MIN, HERO_DUR_MAX) if full else (CARD_DUR_MIN, CARD_DUR_MAX) if mixed else None
     # The pace of the mixed layout: MIXED_GAP between images, the last MIXED_TAIL s to the face, and a card above
     # the head never overlaps a hook longer than the usual head room.
     gap_min, tail, head = (MIXED_GAP, MIXED_TAIL, HEAD_FREE) if mixed else (0.0, None, HEAD_FREE)
@@ -3531,10 +3683,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
 
             if cfg.get("chain") == "dessin":
                 # v26 « dessin » (4-oct-2026): the art director in the episode's style charter, a safety verifier, one
-                # render per moment — no judge, no render loop (broll_draw)
+                # render per moment — no judge, no render loop (broll_draw); in full width (5-oct-2026) every one 9:16
                 import broll_draw
                 cands, moments = broll_draw.run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail,
-                                                gap_min, block, dur_range, tmp, render)
+                                                gap_min, block, dur_range, tmp, render, full=full)
             else:
                 cands, moments = broll_v20.run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail,
                                                gap_min, block, dur_range, tmp, render, ideas=bool(cfg.get("ideas")),
@@ -3794,6 +3946,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     print(f"   ⚠️ B-roll review via Claude failed ({str(e)[:160]}) — images kept unchecked.")
 
         items, credits, sources = [], [], []
+        drawn = []       # (item, cand) of every picture made for this clip, for the opening drawing
         for c in cands:
             m = c["m"]
             # A real photo (a place, a flag) is shown BIG: a small card shows a tower or a flag badly. Big
@@ -3802,7 +3955,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             big = (not rise and not mixed) or (c["source"] == "free" and not mixed)
             dur = m.get("dur") or (SEG_DUR if big else RISE_DUR)
             if hero:
-                dur = hero_dur(m)                          # its sentence plus the crossfades, 2.5-3.5 s
+                # its sentence, HERO_DUR_MIN..MAX s; in full width it also leaves before the punchline
+                dur = full_dur(m, avoid) if full else hero_dur(m)
             elif _hold(cfg.get("hold")) and not mixed:
                 dur = _hold(cfg.get("hold"))               # the user's own time on screen (a mixed card follows its sentence)
             elif big:
@@ -3842,8 +3996,6 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     if gaps:
                         filter_hit("pixels: gap the grade cannot close",
                                    f'Picture "{m["anchor"]}": {"; ".join(gaps)} — the grade cannot close it.')
-                if hero and cfg.get("sfx"):
-                    item["sfx"] = True               # the whoosh, on the hero only
             if m.get("sheet") and not m.get("notion"):
                 item["sheet"] = m["sheet"]      # kept: a manual redo keeps the clip's look
             if m.get("art"):
@@ -3884,9 +4036,16 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 shutil.copy2(c["file"], os.path.join(keep_dir, name))
                 item["image"] = name
             items.append(item)
+            drawn.append((item, c))
             sources.append(c["source"])
             if c["credit"]:
                 credits.append(c["credit"])
+        if mixed and cfg.get("sfx"):
+            # The whoosh (5-oct-2026, decision 3): on the first full-screen picture of the clip only, the others
+            # come in silent.
+            first = min((it for it in items if it["layout"] == "hero"), key=lambda it: float(it["t"]), default=None)
+            if first is not None:
+                first["sfx"] = True
         if not items:
             print("   ℹ️ B-roll: no image good enough for this clip's moments — clip left without.")
             return screen_only()
@@ -3908,6 +4067,16 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # first one leaves a little early
             for a, b in zip(items, items[1:]):
                 a["dur"] = round(max(1.0, min(a["dur"], b["t"] - a["t"] - 0.25)), 2)
+        clip.pop("opening_image", None)
+        if full and cfg.get("opening"):
+            # The opening drawing (5-oct-2026, decision 8; OFF in the recipe until the A/B test): the one exception to
+            # HEAD_FREE, set after the planning — the other pictures keep the hook's seconds free.
+            op = opening_item(items, drawn, clip, tmp, keep_dir, keep_prefix)
+            if op:
+                items.insert(0, op)
+                sources.insert(0, op["source"])
+                # the clip opens on a drawing (lot L5, the A/B test's statistics): the picture's file, else its anchor
+                clip["opening_image"] = op.get("image") or op.get("anchor") or True
         if not manual:
             overlay_items(clip_path, out_path, items)
         for it in items:
@@ -3958,6 +4127,52 @@ def regenerate_image(prompt, style, out_path, query="", cfg=None, api_key=None, 
                            drawing=drawing or ""), "local", None
     finally:
         comfy_release()
+
+
+def _rms_db(path, t0=None, dur=None):
+    """RMS level (dBFS) of ``path``'s sound, mixed to mono — from ``t0`` for ``dur`` s, else the whole file. None
+    when it cannot be read or is silent."""
+    import math
+    import numpy as np
+    cmd = ["ffmpeg", "-v", "error"]
+    if t0 is not None:
+        cmd += ["-ss", f"{max(0.0, float(t0)):.3f}"]
+    cmd += ["-i", path]
+    if dur:
+        cmd += ["-t", f"{float(dur):.3f}"]
+    cmd += ["-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, check=True, timeout=60)
+        a = np.frombuffer(r.stdout, dtype=np.float32).astype(np.float64)
+    except Exception:
+        return None
+    if a.size < 800:          # under 50 ms: nothing to measure
+        return None
+    ms = float(np.mean(a * a))
+    return 10.0 * math.log10(ms) if ms > 1e-10 else None
+
+
+_SFX_RMS = {}
+
+
+def sfx_gain(clip_path, t):
+    """The whoosh's gain (dB) for a picture at ``t`` s of ``clip_path`` (5-oct-2026, decision 3): the whoosh plays
+    SFX_UNDER_VOICE_DB under the voice heard as it passes — the quieter of its own window (the measure of the sound
+    study of 4-oct-2026) and that window 0.25 s wider on each side, so it is never louder than that (on the demo of
+    clip 1 the wider window alone left it 8 dB under) — within SFX_GAIN_RANGE; SFX_GAIN_DB when nothing can be read."""
+    own = _SFX_RMS.get(SFX_PATH)
+    if own is None:
+        own = _rms_db(SFX_PATH)
+        if own is not None:
+            _SFX_RMS[SFX_PATH] = own
+    w0 = float(t) - SFX_LEAD
+    levels = [v for v in (_rms_db(clip_path, max(0.0, w0), 0.55 + min(0.0, w0)),
+                          _rms_db(clip_path, max(0.0, w0 - 0.25), 1.05 + min(0.0, w0 - 0.25))) if v is not None]
+    voice = min(levels) if levels else None
+    if own is None or voice is None:
+        return SFX_GAIN_DB
+    lo, hi = SFX_GAIN_RANGE
+    return round(max(lo, min(hi, voice - SFX_UNDER_VOICE_DB - own)), 1)
 
 
 def overlay_items(clip_path, out_path, items, img_dir=None):
@@ -4038,8 +4253,10 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
         graph[-1] = graph[-1][:graph[-1].rfind("[")] + "[v]"
         # An intermediate layer: the hook and the captions re-encode it (ffmpeg_utils.layer_encode_args).
         enc = layer_encode_args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "19"])
-        # The whoosh of a hero (item "sfx"): mixed into the clip's own track at SFX_GAIN_DB, which means
-        # re-encoding the audio (AAC) in this pass only; without it the audio is copied as always.
+        # The whoosh of the first full-screen drawing (item "sfx"): mixed into the clip's own track
+        # SFX_UNDER_VOICE_DB under the voice around it (sfx_gain), then the mix is normalised again
+        # (LOUDNORM_FILTER: -14 LUFS, true peak -2 dBTP, as background_music.py; 5-oct-2026) — the audio is
+        # re-encoded (AAC, 48 kHz) in this pass only; without a whoosh it is copied as always.
         sfx_at = [float(it["t"]) for it in items if it.get("sfx") and it.get("layout") == "hero"
                   and any(ly.get("hero") and abs(ly["t"] - float(it["t"])) < 1e-6 for ly in layers)]
         audio_in, audio_graph = [], []
@@ -4047,15 +4264,18 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
             for j, t in enumerate(sfx_at):
                 audio_in += ["-i", SFX_PATH]
                 ms = max(0, int(round((t - SFX_LEAD) * 1000)))
-                audio_graph.append(f"[{1 + len(layers) + j}:a]adelay={ms}|{ms},volume={SFX_GAIN_DB:g}dB[sx{j}]")
+                audio_graph.append(f"[{1 + len(layers) + j}:a]adelay={ms}|{ms},"
+                                   f"volume={sfx_gain(clip_path, t):g}dB[sx{j}]")
+            norm = (f",{LOUDNORM_FILTER},aresample=48000"
+                    if os.environ.get("AUDIO_NORMALIZE", "1").strip() != "0" else "")
             audio_graph.append(f"[0:a]{''.join(f'[sx{j}]' for j in range(len(sfx_at)))}"
-                               f"amix=inputs={len(sfx_at) + 1}:duration=first:normalize=0[a]")
+                               f"amix=inputs={len(sfx_at) + 1}:duration=first:normalize=0{norm}[a]")
 
         def cut(with_sfx):
             if with_sfx:
                 cmd = ["ffmpeg", "-y", "-v", "error", "-i", clip_path, *inputs, *audio_in,
                        "-filter_complex", ";".join(graph + audio_graph), "-map", "[v]", "-map", "[a]", *enc,
-                       "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out_path]
+                       "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", out_path]
             else:
                 cmd = ["ffmpeg", "-y", "-v", "error", "-i", clip_path, *inputs, "-filter_complex", ";".join(graph),
                        "-map", "[v]", "-map", "0:a?", *enc, "-c:a", "copy", "-movflags", "+faststart", out_path]

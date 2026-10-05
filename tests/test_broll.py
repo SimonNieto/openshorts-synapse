@@ -117,9 +117,11 @@ class TestHero:
 
     def test_hero_duration_is_its_sentence_plus_the_fade_within_bounds(self):
         assert broll.hero_dur(_moment(10.0, dur=1.5)) == broll.HERO_DUR_MIN
-        assert broll.hero_dur(_moment(10.0, dur=3.0)) == round(min(broll.HERO_DUR_MAX, 3.0 + broll.HERO_FADE), 2)
+        assert broll.hero_dur(_moment(10.0, dur=2.2)) == round(min(broll.HERO_DUR_MAX, 2.2 + broll.HERO_FADE), 2)
         assert broll.hero_dur(_moment(10.0, dur=9.0)) == broll.HERO_DUR_MAX
-        assert broll.HERO_DUR_MIN >= 2.5 and broll.HERO_DUR_MAX <= 3.5
+        # 5-oct-2026 (decision 5): every drawing is a full-screen shot of 2.0-2.5 s, a hard cut in and out, no push-in
+        assert (broll.HERO_DUR_MIN, broll.HERO_DUR_MAX) == (2.0, 2.5)
+        assert broll.HERO_FADE == 0.0 and broll.HERO_PUSH == 1.0
 
 
 class TestNotionShapes:
@@ -154,7 +156,31 @@ class TestProfile:
 
 
 class TestHeroFrames:
-    def test_crossfade_push_in_and_bottom_gradient(self):
+    def test_a_hard_cut_no_move_and_the_bottom_gradient(self, monkeypatch):
+        # 5-oct-2026 (« caméra fixe »): opaque from the first frame to the last, and the picture never moves
+        monkeypatch.setattr(broll, "HERO_GRAIN", 0.0)
+        tmp = tempfile.mkdtemp(prefix="hero_")
+        src = os.path.join(tmp, "s.jpg")
+        im = Image.new("RGB", (224, 400), (140, 140, 140))
+        im.paste((20, 200, 60), (40, 60, 120, 200))           # something that would move under a push-in
+        im.save(src, quality=95)
+        folder = os.path.join(tmp, "f")
+        os.makedirs(folder)
+        fps, dur, W, H = 10, 1.0, 108, 192
+        pattern = broll._hero_frames(src, folder, fps, dur, W, H)
+        frames = sorted(f for f in os.listdir(folder) if f.endswith(".png"))
+        assert len(frames) == 10 and pattern.endswith("c%03d.png")
+        shots = [Image.open(os.path.join(folder, f)) for f in frames]
+        assert all(s.getchannel("A").getextrema() == (255, 255) for s in shots)
+        assert all(s.tobytes() == shots[0].tobytes() for s in shots)
+        rgb = shots[0].convert("RGB")
+        top = sum(rgb.crop((W // 4, H // 2 - 10, 3 * W // 4, H // 2)).convert("L").getdata()) / (W // 2 * 10)
+        bottom = sum(rgb.crop((W // 4, H - 10, 3 * W // 4, H)).convert("L").getdata()) / (W // 2 * 10)
+        assert bottom < top - 25                                             # the dark gradient for the captions
+
+    def test_the_old_crossfade_and_push_in_are_still_knobs(self, monkeypatch):
+        monkeypatch.setattr(broll, "HERO_FADE", 0.35)
+        monkeypatch.setattr(broll, "HERO_PUSH", 1.06)
         tmp = tempfile.mkdtemp(prefix="hero_")
         src = os.path.join(tmp, "s.jpg")
         Image.new("RGB", (224, 400), (140, 140, 140)).save(src, quality=95)
@@ -561,10 +587,14 @@ class TestPace:
 # --- chantier G: a sound when the hero arrives --------------------------------------------
 
 class TestSfx:
-    def _run(self, monkeypatch, items, fail_first=False):
+    def _run(self, monkeypatch, items, fail_first=False, levels=(None, None)):
         import subprocess
         import viral_fx
         monkeypatch.setattr(viral_fx, "_probe", lambda p: {"w": 108, "h": 192, "fps": 10, "duration": 8.0})
+        # the sound levels (whoosh file, voice around the picture): none read -> the fixed gain
+        sfx_db, voice_db = levels
+        monkeypatch.setattr(broll, "_SFX_RMS", {})
+        monkeypatch.setattr(broll, "_rms_db", lambda path, t0=None, dur=None: sfx_db if path == broll.SFX_PATH else voice_db)
         cmds = []
 
         def run(cmd, *a, **k):
@@ -594,8 +624,35 @@ class TestSfx:
         cmd = self._run(monkeypatch, [self._hero()])[-1]
         graph = cmd[cmd.index("-filter_complex") + 1]
         assert broll.SFX_PATH in cmd and "adelay=1880|1880" in graph and f"volume={broll.SFX_GAIN_DB:g}dB" in graph
-        assert "amix=inputs=2:duration=first:normalize=0[a]" in graph
-        assert cmd[cmd.index("-c:a") + 1] == "aac" and "[a]" in cmd
+        # 5-oct-2026: the mix is normalised again (-14 LUFS, true peak -2 dBTP), 48 kHz
+        assert f"amix=inputs=2:duration=first:normalize=0,{broll.LOUDNORM_FILTER},aresample=48000[a]" in graph
+        assert "TP=-2" in broll.LOUDNORM_FILTER
+        assert cmd[cmd.index("-c:a") + 1] == "aac" and "[a]" in cmd and cmd[cmd.index("-ar") + 1] == "48000"
+
+    def test_the_whoosh_sits_12_db_under_the_voice_around_it(self, monkeypatch):
+        # decision 3 (5-oct-2026): was -18 dB, measured 21-26 dB under the voice — inaudible
+        assert broll.SFX_UNDER_VOICE_DB == 12.0
+        graph = (lambda c: c[c.index("-filter_complex") + 1])(
+            self._run(monkeypatch, [self._hero()], levels=(-20.4, -15.0))[-1])
+        assert "volume=-6.6dB" in graph                 # -15 - 12 = -27 dBFS for a file at -20.4 dB RMS
+        assert broll.sfx_gain("c.mp4", 2.0) == -6.6
+        # a loud or a silent stretch: the gain stays in its range
+        monkeypatch.setattr(broll, "_rms_db", lambda path, t0=None, dur=None: -20.4 if path == broll.SFX_PATH else -60.0)
+        assert broll.sfx_gain("c.mp4", 2.0) == broll.SFX_GAIN_RANGE[0]
+        monkeypatch.setattr(broll, "_rms_db", lambda path, t0=None, dur=None: -20.4 if path == broll.SFX_PATH else 0.0)
+        assert broll.sfx_gain("c.mp4", 2.0) == broll.SFX_GAIN_RANGE[1]
+        monkeypatch.setattr(broll, "_rms_db", lambda path, t0=None, dur=None: None)
+        assert broll.sfx_gain("c.mp4", 2.0) == broll.SFX_GAIN_DB
+        # the voice is quieter in the whoosh's own window than around it: the quieter one sets the level (never louder)
+        monkeypatch.setattr(broll, "_rms_db", lambda path, t0=None, dur=None:
+                            -20.4 if path == broll.SFX_PATH else (-18.0 if dur < 0.6 else -15.0))
+        assert broll.sfx_gain("c.mp4", 2.0) == -9.6
+
+    def test_no_normalisation_when_the_job_switches_it_off(self, monkeypatch):
+        monkeypatch.setenv("AUDIO_NORMALIZE", "0")
+        cmd = self._run(monkeypatch, [self._hero()])[-1]
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        assert "loudnorm" not in graph and "amix=inputs=2:duration=first:normalize=0[a]" in graph
 
     def test_no_flag_or_no_file_means_the_audio_is_copied(self, monkeypatch):
         cmd = self._run(monkeypatch, [self._hero(sfx=False)])[-1]
