@@ -28,8 +28,10 @@ def _lesson(c, verdict, why):
                           "clip_title": LESSON_CTX.get("clip_title") or ""})
 
 
-def _layout(m):
-    return "hero" if m.get("hero") else "card"
+def _layout(m, full=False):
+    """The picture's family: the clip's one hero full screen, the others cards — or every one full screen (``full``,
+    the « dessin » chain in full width, 5-oct-2026: never a card on the head)."""
+    return "hero" if full or m.get("hero") else "card"
 
 
 def _text(spec, layout, prose=None):

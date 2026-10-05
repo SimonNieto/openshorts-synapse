@@ -74,6 +74,8 @@ FX = {"smart_framing": True, "smooth_camera": True, "reactions": True, "hq_chain
 # Turbo), "mixed" ideas (the thing named first), one hero + three wide cards,
 # each picture's look read from what is said (visual_mood: its mood's words for
 # the image model, its grade when it is cut in), a soft whoosh on the hero.
+# Since 5-oct-2026 the « dessin » chain draws them all full screen ("full_width"
+# below).
 BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed", "density": "normal",
          "review": "auto", "layout": "mixed", "hero_res": "std", "label": False, "max": 6, "sfx": True,
          # The channel's teal/amber stamp in every picture's grade (visual_mood.SIGNATURE): 0 = none, 1 = a full
@@ -92,7 +94,11 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          # verifier, viewer on the channel's own text), the hero chosen among the ideas kept.
          # v26 « dessin » (4-oct-2026, validated by the user as the final version): every picture drawn in the
          # episode's style charter by the art director, a safety verifier, one render per moment (broll_draw).
-         "chain": "dessin", "ideas": True}
+         "chain": "dessin", "ideas": True,
+         # Step up (5-oct-2026, validated by the user): every drawing made 9:16 and shown alone, full screen,
+         # 2.0-2.5 s, hard cut in and out, no push-in — never a card on the head (decision 5; the source's own
+         # picture stays a card).
+         "full_width": True}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set

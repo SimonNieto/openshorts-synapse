@@ -117,9 +117,11 @@ class TestHero:
 
     def test_hero_duration_is_its_sentence_plus_the_fade_within_bounds(self):
         assert broll.hero_dur(_moment(10.0, dur=1.5)) == broll.HERO_DUR_MIN
-        assert broll.hero_dur(_moment(10.0, dur=3.0)) == round(min(broll.HERO_DUR_MAX, 3.0 + broll.HERO_FADE), 2)
+        assert broll.hero_dur(_moment(10.0, dur=2.2)) == round(min(broll.HERO_DUR_MAX, 2.2 + broll.HERO_FADE), 2)
         assert broll.hero_dur(_moment(10.0, dur=9.0)) == broll.HERO_DUR_MAX
-        assert broll.HERO_DUR_MIN >= 2.5 and broll.HERO_DUR_MAX <= 3.5
+        # 5-oct-2026 (decision 5): every drawing is a full-screen shot of 2.0-2.5 s, a hard cut in and out, no push-in
+        assert (broll.HERO_DUR_MIN, broll.HERO_DUR_MAX) == (2.0, 2.5)
+        assert broll.HERO_FADE == 0.0 and broll.HERO_PUSH == 1.0
 
 
 class TestNotionShapes:
@@ -154,7 +156,31 @@ class TestProfile:
 
 
 class TestHeroFrames:
-    def test_crossfade_push_in_and_bottom_gradient(self):
+    def test_a_hard_cut_no_move_and_the_bottom_gradient(self, monkeypatch):
+        # 5-oct-2026 (« caméra fixe »): opaque from the first frame to the last, and the picture never moves
+        monkeypatch.setattr(broll, "HERO_GRAIN", 0.0)
+        tmp = tempfile.mkdtemp(prefix="hero_")
+        src = os.path.join(tmp, "s.jpg")
+        im = Image.new("RGB", (224, 400), (140, 140, 140))
+        im.paste((20, 200, 60), (40, 60, 120, 200))           # something that would move under a push-in
+        im.save(src, quality=95)
+        folder = os.path.join(tmp, "f")
+        os.makedirs(folder)
+        fps, dur, W, H = 10, 1.0, 108, 192
+        pattern = broll._hero_frames(src, folder, fps, dur, W, H)
+        frames = sorted(f for f in os.listdir(folder) if f.endswith(".png"))
+        assert len(frames) == 10 and pattern.endswith("c%03d.png")
+        shots = [Image.open(os.path.join(folder, f)) for f in frames]
+        assert all(s.getchannel("A").getextrema() == (255, 255) for s in shots)
+        assert all(s.tobytes() == shots[0].tobytes() for s in shots)
+        rgb = shots[0].convert("RGB")
+        top = sum(rgb.crop((W // 4, H // 2 - 10, 3 * W // 4, H // 2)).convert("L").getdata()) / (W // 2 * 10)
+        bottom = sum(rgb.crop((W // 4, H - 10, 3 * W // 4, H)).convert("L").getdata()) / (W // 2 * 10)
+        assert bottom < top - 25                                             # the dark gradient for the captions
+
+    def test_the_old_crossfade_and_push_in_are_still_knobs(self, monkeypatch):
+        monkeypatch.setattr(broll, "HERO_FADE", 0.35)
+        monkeypatch.setattr(broll, "HERO_PUSH", 1.06)
         tmp = tempfile.mkdtemp(prefix="hero_")
         src = os.path.join(tmp, "s.jpg")
         Image.new("RGB", (224, 400), (140, 140, 140)).save(src, quality=95)

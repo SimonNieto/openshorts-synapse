@@ -138,7 +138,12 @@ KEY_LEAD = 0.12   # s the image comes up before its key word is said (the pop-in
 # 9:16 at the biggest size the GPU gives in ~20 s (measured on an RTX 3060 with
 # Z-Image Turbo: 896x1600 in 16 s, 1024x1792 in 23 s; profile broll.hero_res).
 HERO_GEN = {"std": (896, 1600), "high": (1024, 1792)}
-HERO_DUR_MIN, HERO_DUR_MAX = 2.5, 3.5   # s on screen: long enough to read as a shot, short enough to come back to the face
+# s on screen (5-oct-2026, decision 5 « dessins en pleine largeur »: every drawing is a full-screen shot, so it stays
+# 2.0-2.5 s and the face comes back; was 2.5-3.5 for the one hero of a clip)
+HERO_DUR_MIN, HERO_DUR_MAX = 2.0, 2.5
+# The « dessin » chain in full width (plus.BROLL "full_width"): a drawing never covers the punchline — it leaves
+# PUNCH_CLEAR s before it is said, and a moment that cannot stay HERO_DUR_MIN s that way gets no picture.
+PUNCH_CLEAR = 0.2
 
 
 def _knob(name, default):
@@ -149,8 +154,10 @@ def _knob(name, default):
         return default
 
 
-HERO_FADE = _knob("BROLL_HERO_FADE", 0.35)          # s: crossfade in and out (a pop reads as a sticker, a dissolve as a cut)
-HERO_PUSH = _knob("BROLL_HERO_PUSH", 1.06)          # push-in over the time on screen: 6 % is felt, not seen
+# Camera fixed (5-oct-2026, decision 5, her rule « caméra fixe »): the full-screen drawing comes in and leaves on a hard
+# cut, like a cut between two cameras, and does not move. Was a 0.35 s crossfade and a 6 % push-in.
+HERO_FADE = _knob("BROLL_HERO_FADE", 0.0)           # s: crossfade in and out; 0 = a hard cut
+HERO_PUSH = _knob("BROLL_HERO_PUSH", 1.0)           # push-in over the time on screen; 1.0 = none
 HERO_VIGNETTE = _knob("BROLL_HERO_VIGNETTE", 0.30)  # darkening at the corners (0-1): keeps the eye in the middle
 HERO_GRADIENT = _knob("BROLL_HERO_GRADIENT", 0.45)  # darkening at the very bottom (0-1): the captions stay readable on a bright picture
 HERO_GRAIN = _knob("BROLL_HERO_GRAIN", 5.0)         # film grain, sigma in 8-bit levels: hides the upscale and the AI smoothness
@@ -815,6 +822,22 @@ HERO_MIN_SCORE = 2.5   # a plain photo of a concept fills the screen only as a m
 def hero_dur(m):
     """Time on screen of the hero: its sentence (``dur``) plus the crossfade, within HERO_DUR_MIN..MAX."""
     return round(min(HERO_DUR_MAX, max(HERO_DUR_MIN, float(m.get("dur") or 0) + HERO_FADE)), 2)
+
+
+def full_dur(m, avoid=()):
+    """Time on screen of a full-width drawing (the « dessin » chain, 5-oct-2026): hero_dur, ended PUNCH_CLEAR s before
+    a punchline (``avoid``) said while it would be up — the face says the punchline. Under HERO_DUR_MIN: no room, the
+    moment gets no picture (full_room)."""
+    t, d = float(m["t"]), hero_dur(m)
+    for a in avoid or ():
+        if t < float(a) < t + d + PUNCH_CLEAR:
+            d = min(d, float(a) - PUNCH_CLEAR - t)
+    return round(d, 2)
+
+
+def full_room(m, avoid=()):
+    """A full-width drawing fits this moment: HERO_DUR_MIN s at least before the punchline."""
+    return full_dur(m, avoid) >= HERO_DUR_MIN - 1e-6
 
 
 def hero_fits(m, duration, avoid, head=HEAD_FREE, block=()):
@@ -3293,6 +3316,9 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None):
     grain that changes every frame finish it. ``grade``: the picture's grade
     (a visual_mood grade, or an older clip's GRADES name) in place of the
     historical contrast / colour touch-up.
+    Since 5-oct-2026 (« caméra fixe ») HERO_PUSH is 1.0 and HERO_FADE 0: a hard
+    cut in and out and no move — the picture is then resampled once, only the
+    grain changes from frame to frame.
     Returns the frame pattern."""
     import numpy as np
     img = Image.open(src).convert("RGB")
@@ -3318,6 +3344,7 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None):
     noise = rng.normal(0.0, HERO_GRAIN, (H, W, 1)).astype(np.float32) if HERO_GRAIN > 0 else None
     n = max(2, int(round(dur * fps)))
     fx_rng = np.random.default_rng(13)
+    still = None      # the picture never moves (no push, no effect): resampled once
     for f in range(n):
         t = f / fps
         z = 1.0 + (HERO_PUSH - 1.0) * _smooth(t / dur)
@@ -3328,16 +3355,22 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None):
         if fx == "tremble":
             dx, dy = _fx_shift(fx_rng, x0, y0, bw)
             x0, y0 = x0 + dx, y0 + dy
-        frame = img.resize((W, H), Image.LANCZOS, box=(x0, y0, x0 + bw, y0 + bh))
-        arr = np.asarray(frame, dtype=np.float32)
-        if fx == "double":
-            arr = _fx_double(arr, t)
-        arr = arr * shade
+        if still is not None:
+            arr = still.copy()
+        else:
+            frame = img.resize((W, H), Image.LANCZOS, box=(x0, y0, x0 + bw, y0 + bh))
+            arr = np.asarray(frame, dtype=np.float32)
+            if fx == "double":
+                arr = _fx_double(arr, t)
+            arr = arr * shade
+            if abs(HERO_PUSH - 1.0) < 1e-9 and fx is None:
+                still = arr.copy()
         if noise is not None:
             # The same grain field moved around: new grain every frame for the price of a copy.
             arr += np.roll(noise, (int(rng.integers(0, H)), int(rng.integers(0, W))), axis=(0, 1))
         out = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
-        alpha = min(_smooth(t / HERO_FADE), _smooth((dur - t) / HERO_FADE))
+        # A hard cut when HERO_FADE is 0 (5-oct-2026), else a crossfade in and out.
+        alpha = min(_smooth(t / HERO_FADE), _smooth((dur - t) / HERO_FADE)) if HERO_FADE > 0 else 1.0
         out.putalpha(int(round(255 * max(0.0, min(1.0, alpha)))))
         out.save(os.path.join(folder, f"c{f:03d}.png"), compress_level=1)
     return os.path.join(folder, "c%03d.png")
@@ -3440,7 +3473,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             return "hero" if m.get("hero") else "card"
         return "rise" if rise else "full"
 
-    dur_range = (CARD_DUR_MIN, CARD_DUR_MAX) if mixed else None
+    # The « dessin » chain in full width (5-oct-2026, decision 5): every drawing made 9:16 and shown alone, full screen,
+    # HERO_DUR_MIN..MAX s, hard cut in and out — never a card on the head (the source's own picture stays a card).
+    full = mixed and cfg.get("chain") == "dessin" and bool(cfg.get("full_width"))
+    dur_range = (HERO_DUR_MIN, HERO_DUR_MAX) if full else (CARD_DUR_MIN, CARD_DUR_MAX) if mixed else None
     # The pace of the mixed layout: MIXED_GAP between images, the last MIXED_TAIL s to the face, and a card above
     # the head never overlaps a hook longer than the usual head room.
     gap_min, tail, head = (MIXED_GAP, MIXED_TAIL, HEAD_FREE) if mixed else (0.0, None, HEAD_FREE)
@@ -3531,10 +3567,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
 
             if cfg.get("chain") == "dessin":
                 # v26 « dessin » (4-oct-2026): the art director in the episode's style charter, a safety verifier, one
-                # render per moment — no judge, no render loop (broll_draw)
+                # render per moment — no judge, no render loop (broll_draw); in full width (5-oct-2026) every one 9:16
                 import broll_draw
                 cands, moments = broll_draw.run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail,
-                                                gap_min, block, dur_range, tmp, render)
+                                                gap_min, block, dur_range, tmp, render, full=full)
             else:
                 cands, moments = broll_v20.run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail,
                                                gap_min, block, dur_range, tmp, render, ideas=bool(cfg.get("ideas")),
@@ -3802,7 +3838,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             big = (not rise and not mixed) or (c["source"] == "free" and not mixed)
             dur = m.get("dur") or (SEG_DUR if big else RISE_DUR)
             if hero:
-                dur = hero_dur(m)                          # its sentence plus the crossfades, 2.5-3.5 s
+                # its sentence, HERO_DUR_MIN..MAX s; in full width it also leaves before the punchline
+                dur = full_dur(m, avoid) if full else hero_dur(m)
             elif _hold(cfg.get("hold")) and not mixed:
                 dur = _hold(cfg.get("hold"))               # the user's own time on screen (a mixed card follows its sentence)
             elif big:

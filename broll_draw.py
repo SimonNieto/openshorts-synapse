@@ -6,6 +6,8 @@
      sentence added word for word by the code, at the head of the picture's text (4-oct-2026);
   3. the verifier (Sonnet, ONE pass, before any picture) checks safety only: it refuses or lets pass, it gives no score;
   4. one render per moment (the hero full screen, the others as cards). No viewer, no judge, no render loop.
+     5-oct-2026 (decision 5, plus.BROLL "full_width"): EVERY picture is made 9:16 and shown alone, full screen, never
+     as a card on the speaker's head — the ideas and the prompts do not change, only the shape (run(..., full=True)).
 
 The pictures are drawn and keep their own palette: no mood grade, no signature. Every picture made, and every idea the
 verifier refused (rendered anyway, never used), goes to the clip's trace (broll_v20.trace). broll_dessin.py (the bench)
@@ -130,9 +132,14 @@ def direct_and_verify(sentences, title=None):
     return ideas, verdicts, suffix
 
 
-def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, gap_min, block, dur_range, tmp, render):
+def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, gap_min, block, dur_range, tmp, render,
+        full=False):
     """The v26 chain for one clip; ``render(text, out_path, layout) -> (path or None, seed)`` is add_broll's. Returns
-    (cands, moments) in broll_v20.run's shape — the kept pictures only."""
+    (cands, moments) in broll_v20.run's shape — the kept pictures only.
+    ``full`` (5-oct-2026, decision 5 « dessins en pleine largeur », plus.BROLL "full_width"): every picture is made in
+    the hero's 9:16 and shown alone, full screen — the same ideas and prompts, only the shape changes. A moment with no
+    room before the punchline (broll.full_room) is not rendered; a vertical render that fails is made again as the
+    old card (a card rather than nothing)."""
     import broll
     import broll_spec
     import broll_v20
@@ -161,15 +168,26 @@ def run(clip_path, clip, words, transcript, start, end, n, avoid, head, tail, ga
     kept = []
     for k, m in enumerate(moments):
         idea, v = ideas[k], verdicts[k]
-        layout = broll_v20._layout(m)
+        layout = broll_v20._layout(m, full)
         if not idea["picture"]:
             broll.filter_hit("v26: no idea from the art director")
             continue
         text = picture_text(suffix, idea["picture"])
         entry = {"k": k, "anchor": m.get("anchor"), "said": sentences[k][2], "idea": idea["idea"], "prompt": text,
                  "layout": layout}
+        if v["verdict"] == "pass" and full and not broll.full_room(m, avoid):
+            # full screen hides the face: the punchline is said on the face, so no room means no picture
+            broll.filter_hit("v26: no room before the punchline (full width)",
+                             f'Moment "{m.get("anchor")}" at {float(m["t"]):.1f} s: under {broll.HERO_DUR_MIN:g} s '
+                             f'before the punchline — no picture.')
+            continue
         if v["verdict"] == "pass":
             got, seed = render(text, os.path.join(tmp, f"broll_{k}.jpg"), layout)
+            if not got and layout == "hero" and full:
+                # the vertical render failed: the old card rather than nothing
+                broll.filter_hit("v26: vertical not made, card instead")
+                layout = entry["layout"] = "card"
+                got, seed = render(text, os.path.join(tmp, f"broll_{k}_card.jpg"), layout)
             if not got:
                 broll.filter_hit("v26: not made (ComfyUI)")
                 continue
