@@ -3092,14 +3092,34 @@ def _mark_clip_published(job_id: str, clip_index: int, via: Optional[str],
         print(f"⚠️ Could not update published state of {job_id}#{clip_index}: {e}")
 
 
-def _record_upload_post_in_plan(req, clip: dict, title: str, profile: Optional[str] = None) -> None:
+def _upload_post_ref(result) -> Optional[str]:
+    """Upload-Post's own id for a send: ``request_id`` (async upload) or ``job_id`` (scheduled post)."""
+    if not isinstance(result, dict):
+        return None
+    for key in ("request_id", "job_id", "id"):
+        value = result.get(key)
+        if isinstance(value, (str, int)) and str(value).strip():
+            return str(value).strip()
+    return None
+
+
+def _record_upload_post_in_plan(req, clip: dict, title: str, profile: Optional[str] = None,
+                                result: Optional[dict] = None) -> None:
     """Mirror a successful Upload-Post send into the Publish Plan, one entry
     per platform, flagged ``auto`` (Upload-Post publishes it — nothing to tick
     by hand). Without this the plan and the real schedule lived in two places
     and nothing stopped the same clip being scheduled twice. Never raises: the
     post already went out, a bookkeeping failure must not report it as failed.
+
+    ``result`` is Upload-Post's answer: its id for the send is kept, and the
+    YouTube video id when it is already in it (a synchronous upload; an async
+    or scheduled one gets it later, from /api/plus/stats) — what the YouTube
+    Studio export is joined on, whatever the title becomes (5-oct-2026).
     """
     try:
+        import stats_ingest
+        upload_ref = _upload_post_ref(result)
+        youtube_id = stats_ingest.youtube_id(result) if result else ""
         scheduled = bool(req.scheduled_date)
         if scheduled:
             # "YYYY-MM-DDTHH:MM[:SS]" in the user's own timezone (the
@@ -3115,7 +3135,7 @@ def _record_upload_post_in_plan(req, clip: dict, title: str, profile: Optional[s
             date_str, time_str = now.strftime("%Y-%m-%d"), now.strftime("%H:%M")
         entries = _load_schedule()
         for platform in req.platforms:
-            entries.append({
+            entry = {
                 "id": str(uuid.uuid4()),
                 "job_id": req.job_id,
                 "clip_index": req.clip_index,
@@ -3132,7 +3152,12 @@ def _record_upload_post_in_plan(req, clip: dict, title: str, profile: Optional[s
                 # The Upload-Post profile (= the niche's accounts) it went to:
                 # slots only collide within one account, never across them.
                 "profile": profile,
-            })
+            }
+            if upload_ref:
+                entry["upload_post_id"] = upload_ref
+            if youtube_id and platform == "youtube":
+                entry["youtube_id"] = youtube_id
+            entries.append(entry)
         _save_schedule(entries)
     except Exception as e:
         print(f"⚠️ Could not record Upload-Post send in the publish plan: {e}")
@@ -6959,41 +6984,133 @@ def _plus_clip_meta(cache, job_id, clip_index):
     }
 
 
-@app.get("/api/plus/stats")
-async def plus_stats(request: Request, users: Optional[str] = None, days: int = 60):
-    """Our own published shorts, with their real views (Upload-Post's post
-    analytics cache), joined to what made them: profile, edit style, length,
-    AI score, posting hour. The same analysis as the competitor study, on the
-    user's channels, so each new batch learns from the last ones."""
+# The YouTube Studio exports the dashboard is given (Analytics > Advanced mode > Content, Shorts, with "Stayed to
+# watch" added > Export): saved here, the newest one is read by /api/plus/stats. The channel's own data, so the
+# folder is git-ignored (5-oct-2026, decision 7: the stats import, repaired).
+STUDIO_STATS_DIR = "stats"
+STUDIO_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _plus_studio_stats() -> Optional[dict]:
+    """The newest Studio export joined to the clips on disk and to the publish plan
+    (stats_ingest.build_studio_report: "Stayed to watch" first, grouped by length, title shape, topic,
+    moment_nature, opening image; the opening-image A/B test). None when no export was imported yet."""
+    import stats_ingest
+    path = stats_ingest.latest_export(STUDIO_STATS_DIR)
+    if not path:
+        return None
+    exported = datetime.fromtimestamp(os.path.getmtime(path)).date()
+    base = {"file": os.path.basename(path), "exported": exported.isoformat()}
+    rows, problem = stats_ingest.read_views(path)
+    if problem:
+        return {**base, "problem": problem}
+    clips = stats_ingest.load_clips(OUTPUT_DIR, _load_schedule())
+    return {**base, **stats_ingest.build_studio_report(rows, clips, as_of=exported)}
+
+
+def _remember_youtube_ids(found: dict) -> int:
+    """Write the YouTube video ids Upload-Post reports ({(job_id, clip_index): id}) on the clips' YouTube
+    entries of the publish plan: the Studio export is then joined on the id, whatever the title became in
+    Studio. Returns how many entries changed. Never raises: it is bookkeeping."""
+    try:
+        entries = _load_schedule()
+        changed = 0
+        for e in entries:
+            yid = found.get((e.get("job_id"), e.get("clip_index")))
+            if yid and e.get("platform") == "youtube" and e.get("youtube_id") != yid:
+                e["youtube_id"] = yid
+                changed += 1
+        if changed:
+            _save_schedule(entries)
+        return changed
+    except Exception as e:
+        print(f"⚠️ Could not save the YouTube ids in the publish plan: {e}")
+        return 0
+
+
+@app.post("/api/plus/stats/studio")
+async def plus_stats_studio_upload(file: UploadFile = File(...)):
+    """Import a YouTube Studio export (its CSV, or the ZIP Studio downloads; French or English). Kept in
+    STUDIO_STATS_DIR only when it reads: a file without a views / "Stayed to watch" column nor a video id is
+    refused with what is missing."""
     if BILLING_ENABLED:
         raise HTTPException(status_code=404, detail="Not found")
     import stats_ingest
+    ext = os.path.splitext(os.path.basename(file.filename or ""))[1].lower()
+    if ext not in stats_ingest.STUDIO_EXTENSIONS:
+        raise HTTPException(status_code=400,
+                            detail="Send the file exported from YouTube Studio (the CSV, or the ZIP it downloads).")
+    data = await file.read(STUDIO_UPLOAD_MAX_BYTES + 1)
+    if len(data) > STUDIO_UPLOAD_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File too large for a Studio export (max 5 MB).")
+    os.makedirs(STUDIO_STATS_DIR, exist_ok=True)
+    # Checked under a hidden name (latest_export skips it), kept under a new one: a refused file never
+    # replaces an export already there.
+    tmp = os.path.join(STUDIO_STATS_DIR, f".upload-{uuid.uuid4().hex}{ext}")
+    with open(tmp, "wb") as f:
+        f.write(data)
+    rows, problem = stats_ingest.read_views(tmp)
+    if problem or not rows:
+        os.remove(tmp)
+        raise HTTPException(status_code=400, detail=f"Could not read this export: {problem or 'no video in it'}")
+    stem = f"studio_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    path = os.path.join(STUDIO_STATS_DIR, stem + ext)
+    n = 2
+    while os.path.exists(path):
+        path = os.path.join(STUDIO_STATS_DIR, f"{stem}-{n}{ext}")
+        n += 1
+    os.replace(tmp, path)
+    return {"file": os.path.basename(path), "rows": len(rows),
+            "with_stayed": sum(1 for r in rows if r.get("stayed") is not None)}
+
+
+@app.get("/api/plus/stats")
+async def plus_stats(request: Request, users: Optional[str] = None, days: int = 60):
+    """Our own published shorts, with their real numbers, joined to what made them.
+
+    Two sources, either one is enough: the YouTube Studio export imported on the dashboard (``studio``:
+    "Stayed to watch" first — the number that separates the shorts that took off — grouped by length, title
+    shape, topic, moment_nature and opening image, see _plus_studio_stats), and Upload-Post's post analytics
+    (views only: profile, edit style, length, AI score, posting hour). The YouTube ids Upload-Post reports are
+    saved in the publish plan on the way, for the Studio join."""
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    import stats_ingest
+    has_studio = stats_ingest.latest_export(STUDIO_STATS_DIR) is not None
     api_key, _ = await resolve_upload_post(request, None)
-    if not api_key:
-        raise HTTPException(status_code=400, detail="Missing Upload-Post key")
     names = [u.strip() for u in (users or "").split(",") if u.strip()]
-    if not names:
-        raise HTTPException(status_code=400, detail="No Upload-Post account given")
+    if not api_key or not names:
+        if not has_studio:
+            raise HTTPException(status_code=400,
+                                detail="Missing Upload-Post key" if not api_key else "No Upload-Post account given")
+        return {"posts": [], "total_posts": 0, "unmatched": 0, "rows": 0, "groups": {},
+                "score_vs_views": stats_ingest.score_correlation([], field="predicted_score"),
+                "sample_fields": [], "studio": _plus_studio_stats()}
     since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(365, days)))).strftime("%Y-%m-%d")
 
-    raw_rows = []
-    for user in names:
-        params = {"user": user, "since": since, "limit": 200}
-        for _page in range(5):
-            data = await _upload_post_get(
-                api_key, "https://api.upload-post.com/api/uploadposts/post-analytics/cached", params)
-            items = data.get("posts") or data.get("data") or data.get("items") or []
-            raw_rows += [(user, r) for r in items if isinstance(r, dict)]
-            cursor = data.get("next_cursor")
-            if not cursor or not data.get("has_more"):
-                break
-            params["cursor"] = cursor
+    raw_rows, upload_post_error = [], None
+    try:
+        for user in names:
+            params = {"user": user, "since": since, "limit": 200}
+            for _page in range(5):
+                data = await _upload_post_get(
+                    api_key, "https://api.upload-post.com/api/uploadposts/post-analytics/cached", params)
+                items = data.get("posts") or data.get("data") or data.get("items") or []
+                raw_rows += [(user, r) for r in items if isinstance(r, dict)]
+                cursor = data.get("next_cursor")
+                if not cursor or not data.get("has_more"):
+                    break
+                params["cursor"] = cursor
+    except HTTPException as e:
+        if not has_studio:
+            raise
+        upload_post_error = str(e.detail)[:200]         # the Studio part still answers
 
     plan = [e for e in _load_schedule() if e.get("source") == "upload-post"]
     by_title = {}
     for e in plan:
         by_title.setdefault((e.get("platform"), _norm_title(e.get("title"))), e)
-    cache, posts = {}, {}
+    cache, posts, learned = {}, {}, {}
     unmatched = 0
     for user, r in raw_rows:
         platform = r.get("platform") or ""
@@ -7015,6 +7132,10 @@ async def plus_stats(request: Request, users: Optional[str] = None, days: int = 
             key = f"other:{platform}:{_norm_title(title)}"
         else:
             key = f"{job_id}:{clip_index}"
+            if platform == "youtube":
+                yid = stats_ingest.youtube_id(r, platform)
+                if yid:
+                    learned[(job_id, clip_index)] = yid
         post = posts.setdefault(key, {
             "key": key, "account": user, "job_id": job_id, "clip_index": clip_index,
             "title": title, "views": 0, "per_platform": {},
@@ -7054,7 +7175,11 @@ async def plus_stats(request: Request, users: Optional[str] = None, days: int = 
         return "90+" if s >= 90 else "80-89" if s >= 80 else "70-79" if s >= 70 else "< 70"
 
     ranked = sorted(ours, key=lambda p: -p["views"])
+    if learned:
+        _remember_youtube_ids(learned)                  # before the Studio join below, which uses them
     return {
+        "studio": _plus_studio_stats() if has_studio else None,
+        **({"upload_post_error": upload_post_error} if upload_post_error else {}),
         "posts": ranked,
         "total_posts": len(ours), "unmatched": unmatched, "rows": len(raw_rows),
         "groups": {
@@ -7324,9 +7449,13 @@ async def _auto_publish_best(job_id: str) -> None:
             if response.status_code not in (200, 201, 202):
                 log.append(f"⚠️ Auto-publish: clip {index + 1} refused by Upload-Post: {response.text[:200]}")
                 continue
+            try:
+                result = response.json()
+            except ValueError:
+                result = None
             req = SocialPostRequest(job_id=job_id, clip_index=index, platforms=cfg["platforms"],
                                     scheduled_date=scheduled, timezone=cfg["timezone"])
-            _record_upload_post_in_plan(req, clip, captions["youtube_title"], profile)
+            _record_upload_post_in_plan(req, clip, captions["youtube_title"], profile, result)
             _mark_clip_published(job_id, index, "upload-post", scheduled)
             log.append(f"✅ Auto-publish: clip {index + 1} (score {clip.get('predicted_score', '?')}) "
                        f"scheduled {slot.replace('T', ' ')} on {', '.join(cfg['platforms'])}")
@@ -7374,13 +7503,17 @@ async def post_to_socials(req: SocialPostRequest, request: Request):
              print(f"❌ Upload-Post Error: {response.text}")
              raise HTTPException(status_code=response.status_code, detail=f"Vendor API Error: {response.text}")
 
+        try:
+            result = response.json()
+        except ValueError:
+            result = None
         if req.record_in_plan and not BILLING_ENABLED:
-            _record_upload_post_in_plan(req, clip, final_title, post_user)
+            _record_upload_post_in_plan(req, clip, final_title, post_user, result)
         # The file is already with Upload-Post (scheduled or live), so the clip
         # leaves the project: it can't be picked and posted a second time.
         _mark_clip_published(req.job_id, req.clip_index, "upload-post", req.scheduled_date)
 
-        return response.json()
+        return result if result is not None else response.json()
 
     except Exception as e:
         print(f"❌ Social Post Exception: {e}")

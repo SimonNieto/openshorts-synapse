@@ -1,4 +1,5 @@
-"""stats_ingest.py: the playbook exports joined to a CSV of real views."""
+"""stats_ingest.py: the playbook exports joined to a CSV of real views (legacy path; the YouTube Studio export
+is tested in test_stats_studio.py)."""
 import json
 
 import pytest
@@ -66,26 +67,31 @@ class TestMaths:
 
 
 class TestReadViews:
+    _EMPTY = {"video_id": None, "moment_id": None, "file": None, "title": None, "published": None, "duration": None,
+              "views": None, "engaged_views": None, "avg_view_duration": None, "avg_pct_viewed": None,
+              "stayed": None, "retention": None}
+
     def test_youtube_studio_style(self, tmp_path):
         path = _csv(tmp_path, "Content,Video title,Views,Average percentage viewed (%)\n"
                               "Total,,8400,61.2\n"
                               'abc,"Can thing 1 happen?","7,100",72.5\n'
                               "def,Can thing 2 happen?,1300,\n")
         rows, problem = si.read_views(path)
-        assert problem == "" and len(rows) == 3
-        assert rows[1] == {"moment_id": None, "file": None, "title": "Can thing 1 happen?", "views": 7100.0,
-                           "retention": 72.5}
-        assert rows[2]["retention"] is None
+        assert problem == "" and len(rows) == 2, "Studio's Total line is not a video"
+        assert rows[0] == {**self._EMPTY, "video_id": "abc", "title": "Can thing 1 happen?", "views": 7100.0,
+                           "avg_pct_viewed": 72.5, "retention": 72.5}
+        assert rows[1]["retention"] is None
 
     def test_french_headers_and_semicolons(self, tmp_path):
         path = _csv(tmp_path, "\ufeffFichier;Vues;Rétention\nclip_1.mp4;7 100;45,3\n")
         rows, problem = si.read_views(path)
-        assert problem == "" and rows == [{"moment_id": None, "file": "clip_1.mp4", "title": None, "views": 7100.0,
-                                           "retention": 45.3}]
+        assert problem == "" and rows == [{**self._EMPTY, "file": "clip_1.mp4", "views": 7100.0,
+                                           "avg_pct_viewed": 45.3, "retention": 45.3}]
 
     def test_says_what_is_missing(self, tmp_path):
         assert "no views column" in si.read_views(_csv(tmp_path, "title,likes\nx,3\n"))[1]
-        assert "no moment_id, file or title column" in si.read_views(_csv(tmp_path, "date,views\nx,3\n"))[1]
+        assert "no video id (Content), moment_id, file or title column" in \
+            si.read_views(_csv(tmp_path, "date,views\nx,3\n"))[1]
 
 
 class TestJoinAndReport:

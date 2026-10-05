@@ -30,6 +30,9 @@ output/
 # Generated metadata
 *_metadata.json
 
+# YouTube Studio exports imported on the dashboard (the channel's own numbers)
+/stats/
+
 # Cache dirs
 .cache/
 .config/
