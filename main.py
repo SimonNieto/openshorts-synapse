@@ -3557,8 +3557,22 @@ if __name__ == '__main__':
                 clip_final_path = os.path.join(output_dir, clip_filename)
 
                 try:
-                    # ffmpeg cut — re-encoding for precision on strict seconds
-                    cut_clip(input_video, clip_temp_path, start, end, i + 1)
+                    # Montage (Clip Generator++, montage.py, 5-oct-2026): the clip
+                    # re-cut from the source — silences tightened, the clip
+                    # choice's cut_out passages out, no join that shows. Every
+                    # step below then works on the re-cut clip's own timeline
+                    # (c_start=0 .. its length) through the virtual transcript,
+                    # like an editor recut (clip['recipe']['segments']).
+                    import montage
+                    mont_cfg = montage.config()
+                    mont = (montage.apply(input_video, clip, transcript, start, end, clip_temp_path, mont_cfg)
+                            if mont_cfg and transcript else None)
+                    if mont:
+                        c_transcript, c_start, c_end = mont["transcript"], 0.0, mont["duration"]
+                    else:
+                        c_transcript, c_start, c_end = transcript, start, end
+                        # ffmpeg cut — re-encoding for precision on strict seconds
+                        cut_clip(input_video, clip_temp_path, start, end, i + 1)
 
                     # A picture the source itself put in a corner (the producer's
                     # inset, JRE style): covered on the cut with the wall behind
@@ -3567,7 +3581,9 @@ if __name__ == '__main__':
                     import screen_inset
                     if output_format != "horizontal" and screen_inset.enabled():
                         try:
-                            found = screen_inset.detect(input_video, start, end)
+                            found = (montage.inset_on_clip(screen_inset.detect(input_video, mont["start"],
+                                                                                 mont["end"]), mont)
+                                     if mont else screen_inset.detect(input_video, start, end))
                             if found:
                                 name = screen_inset.prepare(input_video, clip_temp_path, found, output_dir,
                                                             os.path.basename(clip_final_path)[:-4] + "_")
@@ -3601,10 +3617,20 @@ if __name__ == '__main__':
                             import reactions as _react
                             r_tmp = os.path.join(output_dir, f"reacttmp_{i + 1}_{int(time.time())}.mp4")
                             inset = clip.get('screen_inset') or {}
-                            rep = _react.add_reactions(input_video, clip_final_path, start, end, transcript, r_tmp,
-                                                       punchline_time=clip.get("punchline_time"),
-                                                       avoid=[(start + float(inset["t0"]), start + float(inset["t1"]))]
-                                                       if inset else ())
+                            avoid = ([(float(inset["src_t0"]), float(inset["src_t1"]))] if inset.get("src_t0") is not None
+                                     else [(start + float(inset["t0"]), start + float(inset["t1"]))] if inset else ())
+                            if mont:
+                                # In the holes of the re-cut clip (montage.py): its camera cuts
+                                # and the tight frames hiding its joins are changes already.
+                                rep = _react.add_reactions(
+                                    input_video, clip_final_path, start, end, transcript, r_tmp,
+                                    punchline_time=clip.get("punchline_time", (mont.get("punch") or [None])[0]),
+                                    avoid=avoid, segments=mont["segments"],
+                                    events=[(t, t) for t in mont["camera_cuts"]] + [tuple(w) for w in mont["hide_windows"]])
+                            else:
+                                rep = _react.add_reactions(input_video, clip_final_path, start, end, transcript, r_tmp,
+                                                           punchline_time=clip.get("punchline_time"), avoid=avoid,
+                                                           events=[] if mont_cfg else None)
                             if rep:
                                 os.replace(r_tmp, clip_final_path)
                                 clip['reactions'] = rep
@@ -3631,7 +3657,7 @@ if __name__ == '__main__':
                                 fx_opts["hints"] = {"punchline_time": clip["punchline_time"]}
                             fx_tmp = os.path.join(output_dir, f"fxtmp_{i + 1}_{int(time.time())}.mp4")
                             report = viral_fx.apply_motion(clip_final_path,
-                                                           viral_fx.clip_words(transcript, start, end),
+                                                           viral_fx.clip_words(c_transcript, c_start, c_end),
                                                            edit_style, fx_tmp, opts=fx_opts)
                             os.replace(fx_tmp, clip_final_path)
                             clip['edit_style'] = edit_style
@@ -3653,11 +3679,12 @@ if __name__ == '__main__':
                             # goes to Claude once instead of twice.
                             clip['layout_ranges'] = _layouts.read(clip_final_path)
                             br_tmp = os.path.join(output_dir, f"brtmp_{i + 1}_{int(time.time())}.mp4")
-                            br = _broll.add_broll(clip_final_path, br_tmp, clip, transcript, start, end,
+                            br = _broll.add_broll(clip_final_path, br_tmp, clip, c_transcript, c_start, c_end,
                                                   json.loads(os.environ["PLUS_BROLL_JSON"]),
                                                   api_key=os.getenv("GEMINI_API_KEY"), keep_dir=output_dir,
                                                   keep_prefix=os.path.basename(clip_final_path)[:-4] + "_",
-                                                  ground_hook=hook_grounding.wanted(clip['layout_ranges'], end - start))
+                                                  ground_hook=hook_grounding.wanted(clip['layout_ranges'], c_end - c_start),
+                                                  block=montage.broll_block(clip, mont) if mont_cfg else ())
                             if br:
                                 if br.get("pending"):
                                     # Manual review: the clip stays as it is; the
@@ -3687,6 +3714,27 @@ if __name__ == '__main__':
                                 clip['broll'] = br["items"]
                         except Exception as e:
                             print(f"   ⚠️ On-screen picture card failed ({type(e).__name__}: {e}) — clip kept without it.")
+                    # The tight frames (punch_in.py, decision 4): past 6 s without a change
+                    # on screen, a dry cut to a tighter frame and back; and on the very
+                    # frame of every montage join that would show. Last layer before the
+                    # hook and the captions: every other change is known by now.
+                    if success and mont_cfg and mont_cfg.get("tight_frames", True):
+                        try:
+                            import punch_in
+                            import viral_fx
+                            t_tmp = os.path.join(output_dir, f"tighttmp_{i + 1}_{int(time.time())}.mp4")
+                            hook_end = (float(os.environ.get("AUTO_HOOK_SECONDS") or 5)
+                                        if os.environ.get("AUTO_HOOK") == "1" else None)
+                            tight = punch_in.finish(clip_final_path, t_tmp, clip,
+                                                    words=viral_fx.clip_words(c_transcript, c_start, c_end),
+                                                    montage_report=mont, hook_end=hook_end,
+                                                    source_height=montage.video_size(input_video)[1])
+                            if tight:
+                                os.replace(t_tmp, clip_final_path)
+                                clip.setdefault('montage', {})['tight'] = [
+                                    {"a": w["a"], "b": w["b"], "why": w["why"]} for w in tight]
+                        except Exception as e:
+                            print(f"   ⚠️ Tight frames failed ({type(e).__name__}: {e}) — clip kept without them.")
                     deliver_path = clip_final_path
                     # Which stretches were stacked (SPLIT): captions go on the
                     # seam there, and /api/subtitle needs it again later.
@@ -3696,8 +3744,8 @@ if __name__ == '__main__':
                     # and title from three of its frames BEFORE burning them
                     # (unless the B-roll planner already did it in its call).
                     if (success and 'hook_grounding' not in clip
-                            and hook_grounding.wanted(clip['layout_ranges'], end - start)):
-                        hook_grounding.reground(clip_final_path, clip, transcript, start, end)
+                            and hook_grounding.wanted(clip['layout_ranges'], c_end - c_start)):
+                        hook_grounding.reground(clip_final_path, clip, c_transcript, c_start, c_end)
                     # A hook rewritten from the frames (here or by the B-roll
                     # planner) gets the same clarity check as the first one.
                     if (success and playbook_tokens is not None and 'hook_grounding' in clip
@@ -3711,11 +3759,11 @@ if __name__ == '__main__':
                         captioned = None
                         if clip.get('edit_style'):
                             wm = (json.loads(os.environ.get("PLUS_FX_JSON") or "{}") or {}).get("watermark")
-                            captioned = viral_caption_clip(deliver_path, transcript, start, end,
+                            captioned = viral_caption_clip(deliver_path, c_transcript, c_start, c_end,
                                                            clip['edit_style'], watermark=wm, clip=clip)
                         if not captioned:
                             captioned = auto_caption_clip(
-                                deliver_path, transcript, start, end,
+                                deliver_path, c_transcript, c_start, c_end,
                                 split_ranges=_layouts.split_ranges(clip['layout_ranges']),
                                 output_format=output_format)
                         if playbook_tokens is not None:
@@ -3772,7 +3820,7 @@ if __name__ == '__main__':
             # Persist per-clip render results added by the workers (auto_hook)
             # so the editor can see what is already burned into each clip.
             if any('auto_hook' in c or 'hook_grounding' in c or 'broll' in c or 'title_has_name' in c
-                   for c in shorts):
+                   or 'recipe' in c for c in shorts):
                 with open(metadata_file, 'w') as f:
                     json.dump(clips_data, f, indent=2)
 

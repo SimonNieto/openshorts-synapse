@@ -622,21 +622,22 @@ def _reapply_captions(job_id, clip_index, video_path):
         # remapped transcript instead (same trick /api/subtitle uses).
         recipe_segments = (clip.get('recipe') or {}).get('segments')
         if recipe_segments:
-            v_transcript = recut.virtual_transcript(transcript, recipe_segments)
-            return _main.auto_caption_clip(
-                video_path, v_transcript, 0.0,
-                recut.total_duration(recipe_segments))
+            transcript = recut.virtual_transcript(transcript, recipe_segments)
+            c_start, c_end = 0.0, recut.total_duration(recipe_segments)
+        else:
+            c_start, c_end = clip['start'], clip['end']
         if clip.get('edit_style'):
             # A Clip Generator++ clip: its edit style's captions (the house
             # Montserrat look) and the channel name under them, as the job
             # burned them (main.viral_caption_clip) — not the default profile
             # (4-oct-2026: a hook edit turned them into the Anton default).
-            captioned = _main.viral_caption_clip(video_path, transcript, clip['start'], clip['end'],
+            # Since 5-oct-2026 such a clip is re-cut by the montage, so it
+            # has a recipe too: same look, on the virtual transcript.
+            captioned = _main.viral_caption_clip(video_path, transcript, c_start, c_end,
                                                  clip['edit_style'], watermark=_clip_watermark(data), clip=clip)
             if captioned:
                 return captioned
-        return _main.auto_caption_clip(video_path, transcript,
-                                       clip['start'], clip['end'])
+        return _main.auto_caption_clip(video_path, transcript, c_start, c_end)
     except Exception as e:
         print(f"⚠️  Could not re-apply captions to {video_path}: {e}")
         return None

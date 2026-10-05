@@ -28,6 +28,18 @@ def test_a_plus_clip_gets_its_edit_style_captions_back(tmp_path, monkeypatch):
     assert calls == [("viral", "premium", "@TheSynapseCut")]
 
 
+def test_a_clip_the_montage_re_cut_keeps_its_look_on_its_own_timeline(tmp_path, monkeypatch):
+    # 5-oct-2026: a Clip Generator++ clip has a recipe (montage.py): the edit style's captions, from 0 to its length.
+    seen = []
+    calls = _job(tmp_path, monkeypatch, {"start": 1.0, "end": 30.0, "edit_style": "premium",
+                                         "recipe": {"v": 1, "segments": [{"start": 1.0, "end": 10.0},
+                                                                         {"start": 12.0, "end": 30.0}]}})
+    monkeypatch.setattr(main, "viral_caption_clip",
+                        lambda path, tr, s, e, style, watermark=None, clip=None: seen.append((s, e)) or "v.mp4")
+    assert app_module._reapply_captions("job1", 0, "clip.mp4") == "v.mp4"
+    assert seen == [(0.0, 27.0)] and calls == []
+
+
 def test_a_classic_clip_keeps_the_default_captions(tmp_path, monkeypatch):
     calls = _job(tmp_path, monkeypatch, {"start": 1.0, "end": 30.0})
     assert app_module._reapply_captions("job1", 0, "clip.mp4") == "a.mp4"

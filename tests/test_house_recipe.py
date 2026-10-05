@@ -58,6 +58,9 @@ class TestJobEnv:
             assert env["SYNAPSE_PLAYBOOK"] == env["HOOK_CHECK"] == env["AUDIO_SIGNALS"] == env["TITLE_VARIETY"] == "1"
             assert (env["CLIP_DEDUPE_OVERLAP"], env["CLIP_DEDUPE_SECONDS"]) == ("0.2", "8")
             assert "PLUS_MUSIC_ON" not in env
+            # The montage (5-oct-2026, validated): silences, cut_out, hidden joins, tight frames — all on.
+            assert json.loads(env["PLUS_MONTAGE_JSON"]) == {"enabled": True, "silences": True, "cut_out": True,
+                                                            "hide_joins": True, "tight_frames": True}
             fx = json.loads(env["PLUS_FX_JSON"])
             assert fx["smooth_camera"] and fx["reactions"] and fx["hq_chain"] and fx["smart_framing"]
             assert "look" not in fx and "spotlight" not in fx and "streaks" not in fx

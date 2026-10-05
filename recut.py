@@ -28,8 +28,10 @@ from ffmpeg_utils import (METADATA_SCRUB, QUALITY_FAST, audio_encode_args,
                           video_encode_args)
 
 # EDL limits. Deliberately generous — the editor is for humans fixing cuts,
-# not for stitching feature films.
-MAX_SEGMENTS = 12
+# not for stitching feature films. 40 since 5-oct-2026: a clip the montage
+# re-cut (montage.py: every pause tightened) holds up to ~20 pieces, and its
+# recipe must stay a valid EDL.
+MAX_SEGMENTS = 40
 MIN_SEGMENT_SECONDS = 0.5
 MAX_TOTAL_SECONDS = 180.0
 
@@ -106,6 +108,43 @@ def rebase_segments(segments, range_start, range_end=None):
     return rebased
 
 
+def clip_to_source(segments, t):
+    """The source second shown at clip time ``t`` of the clip ``segments``
+    make back to back (past the end: the last segment's end)."""
+    offset = 0.0
+    for seg in segments:
+        length = float(seg["end"]) - float(seg["start"])
+        if t < offset + length:
+            return float(seg["start"]) + max(0.0, t - offset)
+        offset += length
+    return float(segments[-1]["end"]) if segments else float(t)
+
+
+def source_to_clip(segments, s):
+    """The clip time at which source second ``s`` is shown, or None when the
+    cut left it out."""
+    offset = 0.0
+    for seg in segments:
+        start, end = float(seg["start"]), float(seg["end"])
+        if start <= s < end:
+            return offset + (s - start)
+        offset += end - start
+    return None
+
+
+def source_range_to_clip(segments, a, b):
+    """Clip-time stretches showing the source range [a, b] (one per segment
+    it overlaps), as [(from, to)]."""
+    out, offset = [], 0.0
+    for seg in segments:
+        start, end = float(seg["start"]), float(seg["end"])
+        lo, hi = max(a, start), min(b, end)
+        if hi > lo:
+            out.append((round(offset + lo - start, 3), round(offset + hi - start, 3)))
+        offset += end - start
+    return out
+
+
 def snap_segments(segments, transcript, source_duration):
     """Snap each segment's bounds onto word boundaries (ground truth beats
     millisecond arithmetic — same rationale as the pipeline's snapping)."""
@@ -149,14 +188,32 @@ def virtual_transcript(transcript, segments):
     slicing "words between clip_start and clip_end" exactly as before, against
     this transcript with clip_start=0.
     """
+    all_words = transcript_words(transcript)
+
+    def overlap(w, seg):
+        return min(w["e"], float(seg["end"])) - max(w["s"], float(seg["start"]))
+
+    # A word that straddles a cut (Whisper stretches words over the pauses
+    # the montage tightens, 5-oct-2026) is captioned ONCE, in the piece that
+    # holds most of it — it showed twice ("BUT BUT THE") on both sides of
+    # the join. A word wholly inside a piece always belongs to it (a range
+    # reused twice repeats its words, an editing move).
+    home = {}
+    for k, w in enumerate(all_words):
+        best = max(range(len(segments)), key=lambda n: overlap(w, segments[n]), default=None)
+        if best is not None:
+            home[k] = best
     out_segments = []
     offset = 0.0
-    for seg in segments:
+    for n, seg in enumerate(segments):
         seg_start, seg_end = float(seg["start"]), float(seg["end"])
         seg_duration = seg_end - seg_start
         words = []
-        for w in transcript_words(transcript):
+        for k, w in enumerate(all_words):
             if w["e"] <= seg_start or w["s"] >= seg_end:
+                continue
+            whole = w["s"] >= seg_start - 1e-6 and w["e"] <= seg_end + 1e-6
+            if not whole and home.get(k) != n:
                 continue
             words.append({
                 # Leading space = Whisper's word-boundary convention.
