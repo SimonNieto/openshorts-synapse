@@ -14,8 +14,9 @@ or given up:
    the source's frame grid, as the pair of frames whose head looks the most
    alike (optical flow over the head box found by MediaPipe).
 2. HOW MUCH IT JUMPS. The 90th percentile of that flow, in pixels of the
-   1080p source. Under JUMP_CLEAN nothing shows (the bench: the head moves
-   less than a blink does). Different shots on both sides (the source's own
+   1080p source, or what changes in what the 9:16 crop will show (a hand
+   popping in at its edge), whichever is worse. Under JUMP_CLEAN nothing
+   shows (a speaking head moves that much from one frame to the next). Different shots on both sides (the source's own
    camera cut, removed or kept) is a camera cut: nothing to hide either.
 3. HIDDEN OR NOT CUT. Between JUMP_CLEAN and JUMP_HIDE the join needs a frame
    switch on its very frame (normal <-> tight, punch_in.schedule_hides): the
@@ -64,10 +65,16 @@ MIN_PIECE = 0.50     # s: no kept piece shorter than this between two joins (rec
 JUMP_CLEAN = 6.0     # under: invisible as it is (within a speaking head's own frame-to-frame motion)
 JUMP_HIDE = 22.0     # under: hidden by a frame switch on the join; over: the pause is kept
 MAD_SCALE = 2.4      # a mean |diff| of 2.5 over the crop (8-bit) counts as a 6 px jump
+CELL_SCALE = 0.75    # the worst of 3x3 cells of the crop: 8 (a hand popping in at the edge: 9) counts as 6 px;
+                     # speaking moves a cell 1.2-2.1 from one frame to the next (p50), 2.5-8 (p90)
 WIDE_SLACK = 0.45    # s: when no clean pair is found, the breath may grow this much (a longer breath beats a jump)
-CAMERA_DIFF = 22.0   # mean |diff| of 32x18 grey thumbnails (0-255): the two frames are two shots
+CAMERA_DIFF = 22.0   # mean |diff| of 32x18 grey thumbnails (0-255): the two frames of a join are two shots
 MIN_SHOT = 0.60      # s: no join leaves a shot shorter than this on screen (a flash)
-SHOT_FPS = 10        # shot boundary scan of the clip's source range
+# The source's camera cuts, frame by frame: two JRE cameras on the same side of the table differ by only
+# 10.4 (c02, 755.9 s), while a big gesture moves a thumbnail 3.6 at most from one frame to the next (c02,
+# c04, c07, 5-oct-2026). At 10 a second, the same gesture reached 6.4 and the cut was missed at 22.
+SHOT_FPS = 30
+SHOT_DIFF = 8.0
 REGION_W = 640       # analysis width of the frames around a join
 HOP = 0.01           # s: sound level resolution
 
@@ -665,6 +672,18 @@ def _mad(f_a, f_b, region):
     return float(np.mean(np.abs(a - b)))
 
 
+def _cell_mad(f_a, f_b, region):
+    """The worst mean |diff| among 3x3 cells of ``region``: a hand or a paper popping in at one edge, which
+    the whole-crop mean dilutes."""
+    import cv2
+    import numpy as np
+    x, y, w, h = region
+    a = cv2.resize(f_a[y:y + h, x:x + w], (48, 84), interpolation=cv2.INTER_AREA).astype("float32")
+    b = cv2.resize(f_b[y:y + h, x:x + w], (48, 84), interpolation=cv2.INTER_AREA).astype("float32")
+    d = np.abs(a - b).mean(axis=2)
+    return float(max(d[r * 28:(r + 1) * 28, c * 16:(c + 1) * 16].mean() for r in range(3) for c in range(3)))
+
+
 def candidate_pairs(grid, left, right, keep, ok=None):
     """Every (out, in) pair of a join on the frame grid: the out point in ``left``, the in point in
     ``right``, EDGE of silence at least on each side, the silence kept around the join ((out - left start)
@@ -725,13 +744,15 @@ class FrameJudge:
             fa, fb = frame_out(a), frame_in(b)
             camera = thumb_diff(fa, fb) > CAMERA_DIFF
             flow = 0.0 if camera else jump_px(fa, fb, head, scale)
-            jump = 0.0 if camera else max(flow, MAD_SCALE * mad)
+            cell = 0.0 if camera else _cell_mad(fa, fb, view)
+            jump = 0.0 if camera else max(flow, MAD_SCALE * mad, CELL_SCALE * cell)
             kept = (a - left[0]) + (right[1] - b)
             rank = 0 if camera or jump <= JUMP_CLEAN else 1 if jump <= JUMP_HIDE else 2
             key = (rank, kept + 0.01 * jump) if rank == 0 else (rank, jump)
             if best is None or key < best[0]:
                 best = (key, {"a": a, "b": b, "jump": round(jump, 2), "flow": round(flow, 2), "mad": round(mad, 2),
-                              "camera": camera, "kept": round(kept, 3), "face": box is not None}, fa, fb)
+                              "cell": round(cell, 2), "camera": camera, "kept": round(kept, 3),
+                              "face": box is not None}, fa, fb)
         self.looked.append((best[2], best[3], best[1]))
         return best[1]
 
@@ -744,7 +765,7 @@ def shot_cuts(src, t0, t1, fps=SHOT_FPS):
                          capture_output=True, timeout=600).stdout
     n = len(raw) // (32 * 18)
     th = [np.frombuffer(raw[i * 576:(i + 1) * 576], dtype=np.uint8).astype("float32") for i in range(n)]
-    return [round(t0 + i / fps, 2) for i in range(1, n) if float(np.mean(np.abs(th[i] - th[i - 1]))) > CAMERA_DIFF]
+    return [round(t0 + i / fps, 3) for i in range(1, n) if float(np.mean(np.abs(th[i] - th[i - 1]))) > SHOT_DIFF]
 
 
 # --- the cut -----------------------------------------------------------------------------------

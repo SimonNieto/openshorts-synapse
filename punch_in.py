@@ -209,8 +209,8 @@ STATIC_MAX = 6.0        # s on screen without a change before a tight frame come
 MIN_CHANGE_GAP = 4.0    # s between the starts of two changes: never a flicker
 MIN_REST = 2.0          # s between the end of a change and the start of the next
 HIDE_PAIR = (1.5, 4.5)  # two joins to hide this far apart share one tight frame (in on one, out on the other)
-CHANGE_DIFF = 22.0      # mean |diff| of 32x18 grey thumbnails: the picture changed (same as montage.CAMERA_DIFF)
-CHANGE_FPS = 10
+CHANGE_DIFF = 8.0       # mean |diff| of 32x18 grey thumbnails, frame to frame: the picture changed (montage.SHOT_DIFF)
+CHANGE_FPS = 30
 
 
 def tight_zoom(source_height):
