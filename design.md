@@ -47,6 +47,38 @@ previews, image lightboxes) sit on `bg-black` framed by a hairline
 active/selected state (+ one underlined word or firing node on hero screens).
 Everything else is ink / ink2 / muted / rules.
 
+## Topic colours (data only · 5-oct-2026)
+
+The Line-up colours each clip by its topic (`playbook.TOPIC_BUCKETS`). These
+colours are **data, not decoration**: they mark a topic chip, a week tile's
+edge, a mix bar — never a button, a heading, a border of the frame or a
+background. They never replace the label: a topic colour always travels with
+its words. Tokens `--cat-<bucket>` in `src/tokens.css`; names, order and the
+solid/hollow rule in `src/lib/topics.js`.
+
+| topic | token | mark |
+|---|---|---|
+| Medicine (`medical_mystery`) | `--cat-medical_mystery` blue | solid |
+| Substances | `--cat-substances` orange | solid |
+| Psychology (`mind_psychology`) | `--cat-mind_psychology` aqua | solid |
+| Brain (`brain_danger`) | `--cat-brain_danger` amber | solid |
+| Mental health (`psychosis_mental_illness`) | `--cat-psychosis_mental_illness` magenta | solid |
+| Self-improvement | `--cat-self_improvement` green | solid |
+| True crime (`crime_dark`) | `--cat-crime_dark` wine | solid |
+| Science · Combat sports · Entertainment · Money | the aqua · orange · magenta · amber hues | **hollow** (outline only) |
+| Other | `--cat-other` grey | solid |
+
+- The seven niche topics are validated on the card surface (paper-2):
+  adjacent colour-blind ΔE ≥ 8.1, normal-vision ΔE ≥ 19.3, contrast ≥ 3:1
+  (wine is 2.9:1 on paper-3: the label is the relief). No violet, nothing
+  near the cyan signal, steps distinct from ok / warn / danger.
+- Twelve hues can't all stay apart for a colour-blind reader, so the four
+  topics outside the channel's niche reuse a niche hue drawn **hollow**: the
+  shape tells them apart, and it says "off niche" at the same time.
+- The signal (cyan) keeps its one job on this screen: the selection and
+  "Suggest an order" / "Schedule". Status colours keep theirs (published ✓,
+  "Deleted in N days").
+
 ## Type
 
 - **Headlines: Geist 600** (`font-display`, `.page-title`), sentence case,

@@ -40,6 +40,25 @@
   --color-warn: oklch(82% 0.1 82);
   --color-danger: oklch(70% 0.15 22);
 
+  /* topic colours (5-oct-2026, design.md « Topic colours ») — DATA ONLY: chips, tiles, bars of the Line-up.
+     Never on the interface's frame. One per playbook.TOPIC_BUCKETS entry, always shown with its label.
+     The seven niche topics are the dataviz dark steps validated on paper-2 (#101215: adjacent CVD ΔE ≥ 8.1,
+     normal-vision ΔE ≥ 19.3, contrast ≥ 3:1; no violet, nothing near the cyan signal). The four topics
+     outside the niche reuse a niche hue but are drawn HOLLOW (outline, no fill) — the shape tells them
+     apart, not a twelfth hue. "other" is grey. */
+  --cat-medical_mystery: oklch(62.2% 0.161 255);          /* blue */
+  --cat-substances: oklch(62.2% 0.173 40);                /* orange */
+  --cat-mind_psychology: oklch(62.1% 0.128 163);          /* aqua */
+  --cat-brain_danger: oklch(67% 0.143 73);                /* amber */
+  --cat-psychosis_mental_illness: oklch(62.2% 0.171 1);   /* magenta */
+  --cat-self_improvement: oklch(52.9% 0.18 142);          /* green */
+  --cat-crime_dark: oklch(52% 0.121 5);                   /* wine */
+  --cat-science_other: oklch(62.1% 0.128 163);            /* aqua, hollow */
+  --cat-sports_combat: oklch(62.2% 0.173 40);             /* orange, hollow */
+  --cat-entertainment: oklch(62.2% 0.171 1);              /* magenta, hollow */
+  --cat-business_money: oklch(67% 0.143 73);              /* amber, hollow */
+  --cat-other: oklch(58% 0.008 265);                      /* grey */
+
   /* depth: hairline + deep shadow (no offset prints, no neon) */
   --shadow-print: 0 0 0 1px var(--color-rule-2), 0 18px 44px -26px oklch(0% 0 0 / 0.9);
   --shadow-print-accent: 0 0 0 3px oklch(82% 0.095 212 / 0.16);
