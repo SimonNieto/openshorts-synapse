@@ -77,6 +77,13 @@ def no_jury(monkeypatch):
     monkeypatch.setattr(lineup, "JURY_ENABLED", True)
 
 
+@pytest.fixture(autouse=True)
+def fresh_disk():
+    lineup.forget_disk()
+    yield
+    lineup.forget_disk()
+
+
 @pytest.fixture
 def jury_off(monkeypatch):
     monkeypatch.setattr(lineup, "JURY_ENABLED", False)
@@ -270,8 +277,51 @@ class TestCatalog:
                             "title_form": {"question": 4, "how": 1}}
         assert w["episodes"] == {"jre-2553": "Joe Rogan Experience #2553", "lfp-400": "Lex Fridman Podcast #400"}
         assert [(a["kind"], a["refs"], a["date"]) for a in w["alerts"]] == [
-            ("same_category_in_a_row", ["aaaaaaaa_c06", "cccccccc_c01"], "2026-10-05")]
+            ("same_category_in_a_row", ["aaaaaaaa_c06", "cccccccc_c01"], "2026-10-05"),
+            # The run starts on the last post before the week (29 Sep), the same guest.
+            ("same_guest_in_a_row", ["bbbbbbbb_c01", "aaaaaaaa_c01", "aaaaaaaa_c06"], "2026-10-05")]
         assert "2 Science clips in a row" in w["alerts"][0]["message"]
+        assert w["alerts"][1]["message"] == ("3 clips in a row with Andrew Huberman: same face, same set "
+                                             "(Tue 29 Sep 08:00 to Mon 5 Oct 12:00).")
+
+    def test_projects_and_disk_for_deleting_by_hand(self, world, tmp_path):
+        out, schedule = world
+        (out / JOB_A / "big.bin").write_bytes(b"\x00" * 4096)
+        uploads = tmp_path / "uploads"
+        uploads.mkdir()
+        (uploads / "x.mp4").write_bytes(b"\x00" * 2048)
+        v = lineup.build(str(out), schedule, tz="UTC", clock=NOW, uploads_dir=str(uploads))
+        assert v["auto_purge"] is False and all(c["expires_in_days"] is None for c in v["clips"])
+        assert by_ref(v)["aaaaaaaa_c01"]["project_age_days"] == 2.0
+        assert by_ref(v)["cccccccc_c01"]["project_age_days"] == 10.0
+        assert [p["job_id"] for p in v["projects"]] == [JOB_C, JOB_B, JOB_A], "oldest first"
+        c, b, a = v["projects"]
+        assert c == {"job_id": JOB_C, "title": "Lex Fridman Podcast #400 - Elon Musk-001", "age_days": 10.0,
+                     "size_gb": 0.0, "shorts": 2, "clips": 2, "published": 0, "scheduled": 1, "available": 1,
+                     "kept": True, "expires_in_days": None, "episode_key": "lfp-400"}
+        assert (b["clips"], b["published"], b["available"]) == (3, 1, 2)
+        assert (a["shorts"], a["clips"], a["published"], a["scheduled"], a["available"]) == (6, 5, 2, 1, 2)
+        assert v["disk"]["output_gb"] == 0.0 and v["disk"]["uploads_gb"] == 0.0
+        assert v["disk"]["free_gb"] is not None and v["disk"]["measured_at"]
+        on = view(world)
+        # big.bin was just written in JOB_A: its folder is young again for the purge clock (8 days left).
+        assert on["auto_purge"] is True and on["projects"][2]["expires_in_days"] == 8.0
+        assert on["projects"][1]["expires_in_days"] == 2.0
+
+    def test_the_disk_is_measured_once_then_cached(self, world, monkeypatch):
+        out, _ = world
+        walked = []
+        real = lineup._tree_size
+        monkeypatch.setattr(lineup, "_tree_size", lambda p: walked.append(p) or real(p))
+        first = lineup.disk_usage(str(out))
+        n = len(walked)
+        assert n >= 3 and lineup.disk_usage(str(out)) is first and len(walked) == n, "cached: no second walk"
+        lineup.forget_disk()
+        lineup.disk_usage(str(out))
+        assert len(walked) == 2 * n
+        monkeypatch.setattr(lineup, "DISK_CACHE_SECONDS", 0)
+        lineup.disk_usage(str(out))
+        assert len(walked) == 3 * n, "stale after DISK_CACHE_SECONDS"
 
     def test_the_time_zone_moves_today(self, world):
         out, schedule = world
@@ -325,10 +375,11 @@ class TestCategory:
 
 # --- the rules ------------------------------------------------------------------------------------------------
 
-def it(ref, day, hhmm, cat="other", ep="jre-2553", form="statement"):
+def it(ref, day, hhmm, cat="other", ep="jre-2553", form="statement", guest=None):
     return {"ref": ref, "date": day, "time": hhmm, "status": "scheduled", "category": cat,
             "category_label": lineup.category_label(cat), "episode_key": ep,
-            "episode_label": "Joe Rogan Experience #2553" if ep == "jre-2553" else ep, "title_form": form}
+            "episode_label": "Joe Rogan Experience #2553" if ep == "jre-2553" else ep, "title_form": form,
+            "guest": guest, "guest_key": lineup._slug(guest) or None}
 
 
 def kinds(alerts):
@@ -357,6 +408,20 @@ class TestRules:
         alerts, _ = lineup.evaluate([it("a", "2026-10-05", "08:00", "crime_dark", ep="x")], prev)
         assert kinds(alerts) == ["same_category_in_a_row"] and alerts[0]["refs"] == ["p", "a"]
         assert alerts[0]["date"] == "2026-10-05"
+
+    def test_same_guest_in_a_row(self):
+        hub = "Andrew Huberman"
+        alerts, pen = lineup.evaluate([it("a", "2026-10-06", "08:00", "crime_dark", ep="x", guest=hub),
+                                       it("b", "2026-10-06", "12:00", "substances", ep="y", guest=hub)])
+        assert kinds(alerts) == ["same_guest_in_a_row"] and alerts[0]["refs"] == ["a", "b"] and pen == 1
+        assert alerts[0]["message"] == ("2 clips in a row with Andrew Huberman: same face, same set "
+                                        "(Tue 6 Oct 08:00 to Tue 6 Oct 12:00).")
+        assert lineup.evaluate([it("a", "2026-10-06", "08:00", ep="x", guest=hub),
+                                it("b", "2026-10-06", "12:00", ep="y", guest="Elon Musk"),
+                                it("c", "2026-10-06", "20:00", ep="z", guest=hub)])[0] == []
+        unknown = lineup.evaluate([it("a", "2026-10-06", "08:00", ep="x"), it("b", "2026-10-06", "12:00", ep="y")])
+        assert unknown[0] == [], "an unknown guest is nobody"
+        assert lineup.RULES["same_guest_in_a_row"]["max"] == 1
 
     def test_episode_per_day(self):
         two = [it("a", "2026-10-06", "08:00"), it("b", "2026-10-06", "12:00"), it("c", "2026-10-07", "08:00")]
@@ -443,7 +508,7 @@ TUE = [{"date": "2026-10-06", "time": "12:00"}, {"date": "2026-10-06", "time": "
 
 
 class TestPlan:
-    def test_best_that_keeps_the_mix(self, small):
+    def test_best_that_keeps_the_mix(self, small, jury_off):
         p = run_plan(small, [X, Y], TUE)
         assert [(s["time"], s["ref"]) for s in p["plan"]] == [("12:00", "cccccccc_c01"), ("20:00", "bbbbbbbb_c01")]
         assert p["plan"][0]["why"] == ("Best that keeps the mix (AI score 80); bbbbbbbb_c01 would put 2 Medicine "
@@ -510,12 +575,57 @@ class TestPlan:
         assert p["skipped_slots"] == [{"date": "2026-10-07", "time": "20:00",
                                        "why": "left free: every clip left would clash here"}]
 
-    def test_least_clash_when_nothing_fits(self, small):
+    def test_least_clash_when_nothing_fits(self, small, jury_off):
         out, schedule = small
         p = lineup.plan(str(out), schedule, [X], [{"date": "2026-10-06", "time": "12:00"}], tz="UTC", clock=NOW)
         assert p["plan"][0]["ref"] == "bbbbbbbb_c01"
         assert p["plan"][0]["why"] == "Best AI score left (90), though it would put 2 Medicine clips in a row"
         assert kinds(p["alerts"]) == ["same_category_in_a_row"]
+
+    def test_tested_clips_first_never_compared_with_ai_scores(self, small, monkeypatch):
+        out, schedule = small
+        make_job(out, "ffffffff-0000-4000-8000-000000000007", "Lex Fridman Podcast #9 - Nine", [
+            short("Why do we dream?", "mind_psychology", 20)])
+        F = ["ffffffff-0000-4000-8000-000000000007", 0]
+        fake = fake_jury({(JOB_B, 0): {"score": 40}, (F[0], 0): {"score": 30}})
+        monkeypatch.setitem(sys.modules, "hook_jury", fake)
+        board = {c["ref"]: c for c in lineup.build(str(out), schedule, tz="UTC", clock=NOW)["clips"]}
+        assert [(board[r]["rank_score_source"], board[r]["untested"]) for r in
+                ("bbbbbbbb_c01", "ffffffff_c01", "cccccccc_c01")] == [("jury", False), ("jury", False), ("ai", True)]
+        ranked = [c["ref"] for c in sorted(board.values(), key=lineup.rank_key)]
+        assert ranked[:3] == ["bbbbbbbb_c01", "ffffffff_c01", "cccccccc_c01"], \
+            "jury 40 > jury 30, then the untested by ai_score (80 > 70 > 60)"
+        # Tue 12:00 and 20:00 after Tuesday's Medicine: F (tested, 30) beats Y (untested, AI 80); then X (tested).
+        p = run_plan(small, [X, Y, F], TUE)
+        assert [(s["time"], s["ref"]) for s in p["plan"]] == [("12:00", "ffffffff_c01"), ("20:00", "bbbbbbbb_c01")]
+        assert p["plan"][0]["why"].startswith("Best that keeps the mix (jury score 30); bbbbbbbb_c01 would put 2")
+        assert p["plan"][1]["why"] == "Best jury score left (40)"
+        assert p["left_out"] == ["cccccccc_c01"]
+
+    def test_an_untested_clip_only_when_no_tested_one_fits(self, small, monkeypatch):
+        monkeypatch.setitem(sys.modules, "hook_jury", fake_jury({(JOB_B, 0): {"score": 40}}))
+        p = run_plan(small, [X, Y], TUE)
+        assert [(s["time"], s["ref"]) for s in p["plan"]] == [("12:00", "cccccccc_c01"), ("20:00", "bbbbbbbb_c01")]
+        assert p["plan"][0]["why"] == ("Not tested by the spectator yet; best that keeps the mix (AI score 80); "
+                                       "bbbbbbbb_c01 would put 2 Medicine clips in a row")
+        assert p["plan"][1]["why"] == "Best jury score left (40)"
+        rules = lineup.rules()["ranking"]
+        assert rules["untested_last"] is True and "untested clip only takes a slot" in rules["plan"]
+
+    def test_the_plan_keeps_guests_apart(self, small, jury_off):
+        out, schedule = small
+        make_job(out, "99999999-0000-4000-8000-000000000008", "Other Show #5 - Guest", [
+            short("Should you sleep more?", "self_improvement", 95)])
+        p = run_plan(small, [["99999999-0000-4000-8000-000000000008", 0], Y], [TUE[0]])
+        assert p["plan"][0]["ref"] == "cccccccc_c01"
+        assert p["plan"][0]["why"] == ("Best that keeps the mix (AI score 80); 99999999_c01 would put 2 clips with "
+                                       "Guest in a row")
+
+    def test_mix_my_week_takes_every_available_clip(self, world):
+        p = run_plan(world, None)
+        available = {"aaaaaaaa_c03", "aaaaaaaa_c04", "bbbbbbbb_c02", "bbbbbbbb_c03", "cccccccc_c02"}
+        assert {s["ref"] for s in p["plan"]} == available and p["left_out"] == []
+        assert run_plan(world, [])["plan"] == [], "an empty list is no clip, not all of them"
 
     def test_left_out_and_skipped(self, world):
         p = run_plan(world, [[JOB_A, 0], [JOB_A, 1], [JOB_A, 4], [GONE, 0], "junk", [JOB_A, 2]],
@@ -777,6 +887,8 @@ class TestRoutes:
         monkeypatch.setattr(app, "PUBLISH_SCHEDULE_FILE", str(plan_file))
         monkeypatch.setattr(app, "STUDIO_STATS_DIR", str(out.parent / "stats"))
         monkeypatch.setattr(app, "JOB_RETENTION_SECONDS", RETENTION)
+        monkeypatch.setattr(app, "UPLOAD_DIR", str(out.parent / "uploads"))
+        (out.parent / "uploads").mkdir(exist_ok=True)
         from starlette.testclient import TestClient
         return app, TestClient(app.app), plan_file
 
@@ -789,6 +901,24 @@ class TestRoutes:
         assert {"from", "to", "timeline", "mix", "alerts"} <= set(data["week"])
         assert len(data["clips"]) == 10 and all(C2_CLIP_KEYS <= set(c) for c in data["clips"])
         assert client.get("/api/lineup/jury/status").json()["running"] is False
+        assert data["auto_purge"] is False, "self-hosted: the app deletes nothing on its own (5-oct-2026)"
+        assert all(c["expires_in_days"] is None for c in data["clips"])
+        assert {p["job_id"] for p in data["projects"]} == {JOB_A, JOB_B, JOB_C} and data["disk"]["uploads_gb"] == 0.0
+
+    def test_deleting_a_project_by_hand_measures_again(self, world, monkeypatch):
+        _app, client, _ = self._client(world, monkeypatch)
+        assert len(client.get("/api/lineup?tz=UTC").json()["projects"]) == 3
+        assert client.delete(f"/api/local-projects/{JOB_C}").status_code == 200
+        data = client.get("/api/lineup?tz=UTC").json()
+        assert [p["job_id"] for p in data["projects"]] == [JOB_B, JOB_A]
+        assert all(c["job_id"] != JOB_C for c in data["clips"])
+
+    def test_config_says_nothing_expires(self, world, monkeypatch):
+        app, client, _ = self._client(world, monkeypatch)
+        cfg = client.get("/api/config").json()
+        assert cfg["autoPurge"] is False and cfg["jobRetentionSeconds"] is None
+        monkeypatch.setattr(app, "AUTO_PURGE", True)
+        assert client.get("/api/config").json()["jobRetentionSeconds"] == RETENTION
 
     def test_category_route_keeps_the_mtime_and_the_memory(self, world, monkeypatch):
         app, client, _ = self._client(world, monkeypatch)
@@ -818,6 +948,10 @@ class TestRoutes:
         assert len(r.json()["plan"]) == 1 and r.json()["left_out"]
         assert plan_file.read_text(encoding="utf-8") == before
         assert client.post("/api/lineup/plan", json={"clips": [["../x", 0]]}).status_code == 400
+        r = client.post("/api/lineup/plan", json={"clips": None, "tz": "UTC"})    # "Mix my week"
+        assert r.status_code == 200 and len(r.json()["plan"]) == 5
+        assert client.post("/api/lineup/plan", json={}).json()["plan"], "no clips given = all of them"
+        assert plan_file.read_text(encoding="utf-8") == before
 
     def test_jury_routes_off(self, world, monkeypatch, jury_off):
         _app, client, _ = self._client(world, monkeypatch)

@@ -112,6 +112,12 @@ JOB_RETENTION_SECONDS = int(
 SOURCE_RETENTION_SECONDS = int(
     os.environ.get("SOURCE_RETENTION_SECONDS", str(JOB_RETENTION_SECONDS))
 )
+# (5-oct-2026) the user deletes old projects herself from the app (Line-up tab, DELETE /api/local-projects): on a
+# self-hosted box the app deletes nothing on its own any more — no age purge of the projects, no OUTPUT_MAX_GB /
+# UPLOADS_MAX_GB trim, no sweep of retained sources nor of old uploads (cleanup_jobs keeps only its in-memory
+# housekeeping). The billed cloud keeps every sweep (clips archived to R2, shared disk). AUTO_PURGE=1 turns them
+# back on; JOB_RETENTION_SECONDS then applies as before.
+AUTO_PURGE = BILLING_ENABLED or os.environ.get("AUTO_PURGE", "").lower() in ("1", "true", "yes")
 # Force full pipeline logs to the client even under billing (local debugging).
 DEBUG_LOGS = os.environ.get("DEBUG_LOGS", "").lower() in ("1", "true", "yes")
 
@@ -1085,18 +1091,48 @@ def _enforce_uploads_size_cap():
             pass
 
 
+def _is_job_folder(name: str) -> bool:
+    """Is ``output/<name>`` a job the purges may age out? Not the thumbnails dir (it backs a StaticFiles mount:
+    deleting it would 500 every /thumbnails request until reboot), nor a name starting with "_" or "." — the
+    app's own stores live there (_ai_cache: answers already paid for; _jury: the hook notes; _lineup, _stepup,
+    _broll_trace, _test_broll…, and __pycache__), never a job (job ids are uuids). Until 5-oct-2026 both sweeps
+    took every folder older than JOB_RETENTION_SECONDS, these included, unless it held a .keep."""
+    return bool(name) and name != os.path.basename(THUMBNAILS_DIR) and not name.startswith(("_", "."))
+
+
+def _purge_old_jobs(now: float) -> list:
+    """The age sweep of cleanup_jobs: remove the job folders (``_is_job_folder``) without a .keep whose mtime
+    is older than JOB_RETENTION_SECONDS. -> the job ids purged."""
+    purged = []
+    for job_id in os.listdir(OUTPUT_DIR):
+        if not _is_job_folder(job_id):
+            continue
+        job_path = os.path.join(OUTPUT_DIR, job_id)
+        if not os.path.isdir(job_path) or os.path.exists(os.path.join(job_path, ".keep")):
+            continue
+        try:
+            old = now - os.path.getmtime(job_path) > JOB_RETENTION_SECONDS
+        except OSError:
+            continue
+        if old:
+            print(f"🧹 Purging old job: {job_id}")
+            shutil.rmtree(job_path, ignore_errors=True)
+            jobs.pop(job_id, None)
+            purged.append(job_id)
+    return purged
+
+
 def _enforce_output_size_cap():
-    """Delete the oldest job dirs while OUTPUT_DIR is over OUTPUT_MAX_GB."""
+    """Delete the oldest job dirs while OUTPUT_DIR is over OUTPUT_MAX_GB (job folders only, _is_job_folder)."""
     cap = OUTPUT_MAX_GB * 1024 ** 3
     if cap <= 0:
         return
     used = _dir_size(OUTPUT_DIR)
     if used <= cap:
         return
-    thumbs = os.path.basename(THUMBNAILS_DIR)
     candidates = []
     for job_id in os.listdir(OUTPUT_DIR):
-        if job_id == thumbs:
+        if not _is_job_folder(job_id):
             continue
         p = os.path.join(OUTPUT_DIR, job_id)
         if os.path.isdir(p) and not os.path.exists(os.path.join(p, ".keep")):
@@ -1146,70 +1182,63 @@ def _sweep_retained_sources(now=None):
             continue
 
 
+def _cleanup_pass(now: float) -> None:
+    """One pass of cleanup_jobs. The disk sweeps run only with AUTO_PURGE (off on a self-hosted box since
+    5-oct-2026: the user deletes old projects herself); the in-memory housekeeping always does."""
+    if AUTO_PURGE:
+        # Simple directory cleanup based on modification time: job folders
+        # only (_is_job_folder: not the thumbnails mount, nor output/_*).
+        _purge_old_jobs(now)
+
+        for job_id in _sweep_retained_sources(now):
+            print(f"🧹 Dropped retained source for job {job_id}")
+
+        # Hard disk cap. The time-based sweep above bounds the *age* of what
+        # we keep, not its size: a burst of long videos can fill the volume
+        # inside one retention window. Drop the oldest jobs until we're back
+        # under the cap — clips are already archived to R2 and get restored
+        # on demand, so this only costs a re-download.
+        _enforce_output_size_cap()
+        _enforce_uploads_size_cap()
+
+    # Cleanup SaaSShorts jobs from memory
+    try:
+        saas_expired = [
+            jid for jid, jdata in list(saas_jobs.items())
+            if jdata.get("status") in ("completed", "failed")
+            and jdata.get("output_dir")
+            and os.path.isdir(jdata["output_dir"])
+            and now - os.path.getmtime(jdata["output_dir"]) > JOB_RETENTION_SECONDS
+        ]
+        for jid in saas_expired:
+            del saas_jobs[jid]
+    except NameError:
+        pass
+
+    # Agent upload slots: expire with their file (the file sweep below
+    # removes it; a slot whose file is gone or too old is dropped). Without
+    # AUTO_PURGE only the slot goes: its file stays in UPLOAD_DIR.
+    for uid in _sweep_pending_uploads(now, remove_files=AUTO_PURGE):
+        print(f"🧹 Expired agent upload slot {uid}")
+
+    if AUTO_PURGE:
+        # Cleanup Uploads
+        for filename in os.listdir(UPLOAD_DIR):
+            file_path = os.path.join(UPLOAD_DIR, filename)
+            try:
+                if now - os.path.getmtime(file_path) > JOB_RETENTION_SECONDS:
+                    os.remove(file_path)
+            except Exception:
+                pass
+
+
 async def cleanup_jobs():
-    """Background task to remove old jobs and files."""
-    import time
-    print("🧹 Cleanup task started.")
+    """Background task to remove old jobs and files (disk sweeps only with AUTO_PURGE, see _cleanup_pass)."""
+    print(f"🧹 Cleanup task started ({'with' if AUTO_PURGE else 'no'} automatic deletion).")
     while True:
         try:
             await asyncio.sleep(300) # Check every 5 minutes
-            now = time.time()
-            
-            # Simple directory cleanup based on modification time
-            # Check OUTPUT_DIR
-            for job_id in os.listdir(OUTPUT_DIR):
-                # Not a job: the thumbnails dir backs a StaticFiles mount, so
-                # deleting it would 500 every /thumbnails request until reboot.
-                if job_id == os.path.basename(THUMBNAILS_DIR):
-                    continue
-                job_path = os.path.join(OUTPUT_DIR, job_id)
-                if os.path.isdir(job_path):
-                    if os.path.exists(os.path.join(job_path, ".keep")):
-                        continue
-                    if now - os.path.getmtime(job_path) > JOB_RETENTION_SECONDS:
-                        print(f"🧹 Purging old job: {job_id}")
-                        shutil.rmtree(job_path, ignore_errors=True)
-                        if job_id in jobs:
-                            del jobs[job_id]
-
-            for job_id in _sweep_retained_sources(now):
-                print(f"🧹 Dropped retained source for job {job_id}")
-
-            # Hard disk cap. The time-based sweep above bounds the *age* of what
-            # we keep, not its size: a burst of long videos can fill the volume
-            # inside one retention window. Drop the oldest jobs until we're back
-            # under the cap — clips are already archived to R2 and get restored
-            # on demand, so this only costs a re-download.
-            _enforce_output_size_cap()
-            _enforce_uploads_size_cap()
-
-            # Cleanup SaaSShorts jobs from memory
-            try:
-                saas_expired = [
-                    jid for jid, jdata in list(saas_jobs.items())
-                    if jdata.get("status") in ("completed", "failed")
-                    and jdata.get("output_dir")
-                    and os.path.isdir(jdata["output_dir"])
-                    and now - os.path.getmtime(jdata["output_dir"]) > JOB_RETENTION_SECONDS
-                ]
-                for jid in saas_expired:
-                    del saas_jobs[jid]
-            except NameError:
-                pass
-
-            # Agent upload slots: expire with their file (the file sweep below
-            # removes it; a slot whose file is gone or too old is dropped).
-            for uid in _sweep_pending_uploads(now):
-                print(f"🧹 Expired agent upload slot {uid}")
-
-            # Cleanup Uploads
-            for filename in os.listdir(UPLOAD_DIR):
-                file_path = os.path.join(UPLOAD_DIR, filename)
-                try:
-                    if now - os.path.getmtime(file_path) > JOB_RETENTION_SECONDS:
-                         os.remove(file_path)
-                except Exception: pass
-
+            _cleanup_pass(time.time())
         except Exception as e:
             print(f"⚠️ Cleanup error: {e}")
 
@@ -2223,7 +2252,10 @@ async def get_config():
         "youtubeUrlEnabled": not DISABLE_YOUTUBE_URL,
         "billingEnabled": BILLING_ENABLED,
         "googleAuthEnabled": bool(BILLING_ENABLED and cloud.settings.google_auth_enabled),
-        "jobRetentionSeconds": JOB_RETENTION_SECONDS,
+        # None when nothing is deleted on its own (AUTO_PURGE off): the dashboard
+        # then stops saying "Clips are kept for 8 days, then deleted."
+        "jobRetentionSeconds": JOB_RETENTION_SECONDS if AUTO_PURGE else None,
+        "autoPurge": AUTO_PURGE,
         # Self-host only: tells the dashboard the Gemini key is optional
         # because the moment picker runs on an OpenAI-compatible server.
         "localLlm": None if BILLING_ENABLED else llm_backend.describe(),
@@ -2394,18 +2426,19 @@ async def delete_upload(upload_id: str, request: Request):
     return {"deleted": upload_id}
 
 
-def _sweep_pending_uploads(now=None):
-    """Expire agent upload slots older than UPLOAD_TTL_SECONDS (file included).
-    Returns the ids removed. Called from the cleanup loop; pure enough to test."""
+def _sweep_pending_uploads(now=None, remove_files=True):
+    """Expire agent upload slots older than UPLOAD_TTL_SECONDS (file included unless ``remove_files`` is False:
+    cleanup_jobs without AUTO_PURGE). Returns the ids removed. Called from the cleanup loop; pure enough to test."""
     now = now or time.time()
     gone = []
     for uid, slot in list(pending_uploads.items()):
         if now - slot["created"] > UPLOAD_TTL_SECONDS:
             pending_uploads.pop(uid, None)
-            try:
-                os.remove(slot["path"])
-            except OSError:
-                pass
+            if remove_files:
+                try:
+                    os.remove(slot["path"])
+                except OSError:
+                    pass
             gone.append(uid)
     return gone
 
@@ -2984,6 +3017,8 @@ async def delete_local_project(job_id: str):
             pass
     jobs.pop(job_id, None)
     rework_jobs.pop(job_id, None)
+    import lineup
+    lineup.forget_disk()                       # the Line-up board measures the disk again
     return {"deleted": True}
 
 
@@ -3248,7 +3283,7 @@ class LineupCategoryRequest(BaseModel):
 
 
 class LineupPlanRequest(BaseModel):
-    clips: List[List[Any]] = []                      # [[job_id, clip_index], …]
+    clips: Optional[List[List[Any]]] = None          # [[job_id, clip_index], …]; None = every available clip
     slots: Optional[List[Dict[str, Any]]] = None     # [{date, time}, …]; none = the week's free Publish-plan times
     tz: Optional[str] = None                         # the browser's IANA time zone (the plan's dates are local)
 
@@ -3261,7 +3296,8 @@ class LineupJuryRequest(BaseModel):
 def _lineup_view(tz: Optional[str] = None) -> dict:
     import lineup
     return lineup.build(OUTPUT_DIR, _load_schedule(), stats_dir=STUDIO_STATS_DIR,
-                        retention_seconds=JOB_RETENTION_SECONDS, tz=tz)
+                        retention_seconds=JOB_RETENTION_SECONDS if AUTO_PURGE else None, tz=tz,
+                        uploads_dir=UPLOAD_DIR)
 
 
 def _lineup_pairs(raw) -> list:
@@ -3318,9 +3354,10 @@ async def lineup_plan(req: LineupPlanRequest):
     if BILLING_ENABLED:
         raise HTTPException(status_code=404, detail="Not found")
     import lineup
-    clips = _lineup_pairs(req.clips)
+    clips = None if req.clips is None else _lineup_pairs(req.clips)
     return await asyncio.to_thread(lambda: lineup.plan(
-        OUTPUT_DIR, _load_schedule(), clips, req.slots, retention_seconds=JOB_RETENTION_SECONDS, tz=req.tz))
+        OUTPUT_DIR, _load_schedule(), clips, req.slots,
+        retention_seconds=JOB_RETENTION_SECONDS if AUTO_PURGE else None, tz=req.tz))
 
 
 @app.post("/api/lineup/jury")

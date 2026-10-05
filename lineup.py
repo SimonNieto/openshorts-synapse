@@ -30,6 +30,7 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -48,6 +49,9 @@ WINDOW_DAYS = 7
 MAX_SAME_CATEGORY_IN_A_ROW = 1
 # One episode is one face, one set, one light: past two a day the feed looks like a re-upload of the episode.
 MAX_EPISODE_PER_DAY = 2
+# The same guest is the same face and the same set on screen, whatever the topic or the episode: two posts in a
+# row with one guest look alike before a word is heard (5-oct-2026, the user: vary the content AND the picture).
+MAX_SAME_GUEST_IN_A_ROW = 1
 # One topic may lead the week, not be it: ~35 % is 7 posts of 21 at three a day.
 MAX_CATEGORY_SHARE = 0.35
 # One episode at most half the week (5-oct-2026: 12 of 12 from JRE #2553).
@@ -68,6 +72,9 @@ RULES = {
     "same_category_in_a_row": {
         "max": MAX_SAME_CATEGORY_IN_A_ROW,
         "why": "Two clips of one topic back to back read as one short posted twice."},
+    "same_guest_in_a_row": {
+        "max": MAX_SAME_GUEST_IN_A_ROW,
+        "why": "The same guest is the same face and the same set: two in a row look alike before a word is heard."},
     "episode_per_day": {
         "max": MAX_EPISODE_PER_DAY,
         "why": "One episode is one face and one set: more than two a day looks like a re-upload."},
@@ -90,9 +97,11 @@ RULES = {
 # rule: a clip's tokens are spent once). Off (False): nothing imports hook_jury, every clip's ``jury`` and the
 # calibration are null, POST /api/lineup/jury answers "disabled" without running anything.
 JURY_ENABLED = True
-# How the clips are ranked (the board's order, the plan's choice), best evidence first: the real "Stayed to
-# watch" of a published clip (the number that decides a short's fate), else the jury's hook note (its estimate of
-# the same thing), else the generator's own selection score.
+# How the clips are ranked (the board's order, the plan's choice): three groups, best evidence first, and a score
+# is only ever compared with a score of its own group (5-oct-2026: the jury's notes run 22-72, the generator's
+# selection scores 65-90 — an untested clip outranked every tested one). 1. the published clips with their real
+# "Stayed to watch" (apart: the number that decides a short's fate, never mixed with an estimate); 2. the clips the
+# jury noted, by ``jury.score``; 3. after them, the clips not tested yet (``untested``), by ``ai_score``.
 RANK_SOURCES = ("stayed", "jury", "ai")
 
 # --- the plan ---------------------------------------------------------------------------------------------------
@@ -110,6 +119,13 @@ THUMB_AT = 1.5
 THUMB_WIDTH = 360
 THUMB_DIR = os.path.join("_lineup", "thumbs")          # under the output dir
 FFMPEG_TIMEOUT = 30
+
+# --- the disk ---------------------------------------------------------------------------------------------------
+# (5-oct-2026) The self-hosted app deletes nothing on its own any more (app.AUTO_PURGE): the user removes old
+# projects herself, so the board shows what each one weighs and the disk left. Walking output/ is slow (thousands
+# of files): the sizes are measured at most once every DISK_CACHE_SECONDS, never on every request.
+DISK_CACHE_SECONDS = 300
+GB = 1024 ** 3
 
 # A job folder: a uuid4 or a test id (u2515ins-0000-…). Never a dot, a slash nor a leading "_" (output/_lineup,
 # output/_jury… are not jobs).
@@ -480,13 +496,23 @@ def _jury_calibration(mod, output_dir):
 
 # --- the board --------------------------------------------------------------------------------------------------
 
-def _catalog(output_dir, by_clip, now, zone, clock, retention_seconds, stats, mod):
-    projects = sorted(_projects(output_dir), key=lambda p: (-_mtime(p[2]), p[0]))
+def _project_age_days(meta_path, clock):
+    """Days since the project's date (its metadata.json mtime: what History and the Publish plan show, kept by
+    every edit)."""
+    try:
+        return round(max(0.0, (clock - os.path.getmtime(meta_path)) / 86400.0), 1)
+    except OSError:
+        return None
+
+
+def _catalog(projects, output_dir, by_clip, now, zone, clock, retention_seconds, stats, mod):
+    projects = sorted(projects, key=lambda p: (-_mtime(p[2]), p[0]))
     for job_id, job_dir, meta_path, data in projects:
         base_name = os.path.basename(meta_path)[:-len("_metadata.json")]
         episode = episode_info(data.get("source_video") or f"{base_name}.mp4", job_id)
         kept = os.path.exists(os.path.join(job_dir, ".keep"))
         expires = None if kept else _expires_in_days(job_dir, clock, retention_seconds)
+        age = _project_age_days(meta_path, clock)
         exports = _playbook_exports(job_dir)
         for i, short in enumerate(data.get("shorts") or []):
             if not isinstance(short, dict):
@@ -523,12 +549,13 @@ def _catalog(output_dir, by_clip, now, zone, clock, retention_seconds, stats, mo
                 "status": status, "slots": slots, "published_at": published_at,
                 "stats": stats.get((job_id, i)),
                 "jury": _jury_result(mod, output_dir, job_id, i),
-                "expires_in_days": expires, "kept": kept,
+                "expires_in_days": expires, "kept": kept, "project_age_days": age,
                 "niche": data.get("niche"), "niche_guess": data.get("niche_guess"),
                 "upload_profile": data.get("upload_profile"),
                 "_line": line,
             }
             clip["rank_score"], clip["rank_score_source"] = rank_score(clip)
+            clip["untested"] = clip["rank_score_source"] == "ai"
             yield clip
 
 
@@ -544,7 +571,8 @@ def _item(clip, slot, status):
     return {"date": slot["date"], "time": slot.get("time"), "ref": clip["ref"], "status": status,
             "category": clip.get("category"), "category_label": clip.get("category_label"),
             "episode_key": clip.get("episode_key"), "episode_label": _episode_label(clip) if clip.get("episode_key")
-            else None, "title_form": clip.get("title_form"), "on_disk": clip.get("on_disk", True)}
+            else None, "guest": clip.get("guest"), "guest_key": _slug(clip.get("guest")) or None,
+            "title_form": clip.get("title_form"), "on_disk": clip.get("on_disk", True)}
 
 
 def _timeline(clips, by_clip, now):
@@ -582,9 +610,10 @@ def _board(output_dir, schedule, *, stats_dir=None, retention_seconds=None, tz=N
     by_clip = _entries_by_clip(schedule)
     stats, stats_info = _studio_stats(stats_dir, output_dir, schedule)
     mod = jury_module()
-    clips = list(_catalog(output_dir, by_clip, now, zone, clock, retention_seconds, stats, mod))
+    projects = list(_projects(output_dir))
+    clips = list(_catalog(projects, output_dir, by_clip, now, zone, clock, retention_seconds, stats, mod))
     return {"clips": clips, "timeline": _timeline(clips, by_clip, now), "now": now, "zone": zone,
-            "stats_export": stats_info, "mod": mod}
+            "stats_export": stats_info, "mod": mod, "projects": projects, "clock": clock}
 
 
 def evaluate(items, prev=None, total=None, span="this week"):
@@ -599,19 +628,25 @@ def evaluate(items, prev=None, total=None, span="this week"):
         c = (it or {}).get("category")
         return c if c and c != UNSORTED_CATEGORY else None
 
-    run = []
-    for it in ([prev] if prev else []) + items + [None]:
-        if run and it is not None and cat(it) is not None and cat(it) == cat(run[-1]):
-            run.append(it)
-            continue
-        if len(run) > MAX_SAME_CATEGORY_IN_A_ROW:
-            label = run[0].get("category_label") or category_label(cat(run[0]))
-            alerts.append({"kind": "same_category_in_a_row",
-                           "message": f"{len(run)} {label} clips in a row "
-                                      f"({_when_label(run[0])} to {_when_label(run[-1])}).",
-                           "refs": [r["ref"] for r in run], "date": run[MAX_SAME_CATEGORY_IN_A_ROW]["date"]})
-            penalty += len(run) - MAX_SAME_CATEGORY_IN_A_ROW
-        run = [it] if it is not None and cat(it) is not None else []
+    def runs(key, limit, kind, say):
+        """Back-to-back posts sharing ``key`` (None never matches), longer than ``limit``: one alert per run."""
+        nonlocal penalty
+        run = []
+        for it in ([prev] if prev else []) + items + [None]:
+            if run and it is not None and key(it) is not None and key(it) == key(run[-1]):
+                run.append(it)
+                continue
+            if len(run) > limit:
+                alerts.append({"kind": kind,
+                               "message": f"{say(run)} ({_when_label(run[0])} to {_when_label(run[-1])}).",
+                               "refs": [r["ref"] for r in run], "date": run[limit]["date"]})
+                penalty += len(run) - limit
+            run = [it] if it is not None and key(it) is not None else []
+
+    runs(cat, MAX_SAME_CATEGORY_IN_A_ROW, "same_category_in_a_row",
+         lambda run: f"{len(run)} {run[0].get('category_label') or category_label(cat(run[0]))} clips in a row")
+    runs(lambda it: (it or {}).get("guest_key"), MAX_SAME_GUEST_IN_A_ROW, "same_guest_in_a_row",
+         lambda run: f"{len(run)} clips in a row with {run[0].get('guest') or 'the same guest'}: same face, same set")
 
     per_day = {}
     for it in items:
@@ -677,12 +712,16 @@ def _public(clip) -> dict:
     return {k: v for k, v in clip.items() if not k.startswith("_")}
 
 
-def build(output_dir, schedule, *, stats_dir="stats", retention_seconds=None, tz=None, clock=None) -> dict:
+def build(output_dir, schedule, *, stats_dir="stats", retention_seconds=None, tz=None, clock=None,
+          uploads_dir=None) -> dict:
     """GET /api/lineup (contract C2): the catalogue, the categories, the week (today -> +6 days on YouTube's
-    line: timeline, mix, alerts), the rules, the jury's calibration and its background run. ``null`` wherever a
-    value is missing — never a guess."""
+    line: timeline, mix, alerts), the rules, the jury's calibration and its background run; the projects and the
+    disk, for deleting old projects by hand. ``retention_seconds``: the automatic purge's clock, None when the app
+    purges nothing on its own (then every ``expires_in_days`` is null). ``null`` wherever a value is missing —
+    never a guess."""
     board = _board(output_dir, schedule, stats_dir=stats_dir, retention_seconds=retention_seconds, tz=tz,
                    clock=clock)
+    disk = disk_usage(output_dir, uploads_dir)
     now, clips = board["now"], board["clips"]
     lo, hi, inside, prev = _week(board["timeline"], now.date())
     alerts, _penalty = evaluate(inside, prev)
@@ -709,20 +748,118 @@ def build(output_dir, schedule, *, stats_dir="stats", retention_seconds=None, tz
         "jury_enabled": JURY_ENABLED,
         "jury_calibration": _jury_calibration(board["mod"], output_dir),
         "jury_run": jury_state(),
+        "auto_purge": retention_seconds is not None,
+        "disk": {"output_gb": _gb(disk["output"], 2), "uploads_gb": _gb(disk["uploads"], 2),
+                 "free_gb": _gb(disk["free"], 1), "measured_at": disk["measured_at"]},
+        "projects": _project_list(board, disk, retention_seconds),
     }
+
+
+def _gb(size, digits):
+    return None if size is None else round(size / GB, digits)
+
+
+_NO_CLIPS = {"clips": 0, "published": 0, "scheduled": 0, "available": 0}
+
+
+def _project_list(board, disk, retention_seconds):
+    """One line per project on disk (even one whose clips are all gone), oldest first: what the tab offers to
+    delete by hand (the existing DELETE /api/local-projects/{job_id}). ``clips``: its clips with a rendered file
+    (the board's), ``shorts``: every clip it made."""
+    counts = {}
+    for c in board["clips"]:
+        n = counts.setdefault(c["job_id"], dict(_NO_CLIPS))
+        n["clips"] += 1
+        n[c["status"]] += 1
+    out = []
+    for job_id, job_dir, meta_path, data in board["projects"]:
+        base_name = os.path.basename(meta_path)[:-len("_metadata.json")]
+        title = base_name[len(job_id) + 1:] if base_name.startswith(f"{job_id}_") else base_name
+        kept = os.path.exists(os.path.join(job_dir, ".keep"))
+        out.append({"job_id": job_id, "title": title or job_id,
+                    "age_days": _project_age_days(meta_path, board["clock"]),
+                    "size_gb": _gb(disk["folders"].get(job_id), 3),
+                    "shorts": len(data.get("shorts") or []), **counts.get(job_id, _NO_CLIPS),
+                    "kept": kept,
+                    "expires_in_days": None if kept else _expires_in_days(job_dir, board["clock"],
+                                                                          retention_seconds),
+                    "episode_key": episode_info(data.get("source_video") or f"{base_name}.mp4",
+                                                job_id)["episode_key"]})
+    out.sort(key=lambda p: (-(p["age_days"] or 0), p["job_id"]))
+    return out
+
+
+_disk_lock = threading.Lock()
+_disk_cache = {}
+
+
+def _tree_size(path) -> int:
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def disk_usage(output_dir, uploads_dir=None) -> dict:
+    """{"output", "uploads", "free" (bytes, None when unknown), "folders": {name: bytes} of output/'s top
+    folders, "measured_at"}, measured at most once every DISK_CACHE_SECONDS per (output_dir, uploads_dir)."""
+    key = (os.path.abspath(output_dir), os.path.abspath(uploads_dir) if uploads_dir else None)
+    with _disk_lock:
+        hit = _disk_cache.get(key)
+        if hit and time.monotonic() - hit[0] < DISK_CACHE_SECONDS:
+            return hit[1]
+    folders, total = {}, 0
+    try:
+        names = os.listdir(output_dir)
+    except OSError:
+        names = None
+    for name in names or []:
+        path = os.path.join(output_dir, name)
+        try:
+            if os.path.isdir(path) and not os.path.islink(path):
+                folders[name] = _tree_size(path)
+                total += folders[name]
+            elif os.path.isfile(path):
+                total += os.path.getsize(path)
+        except OSError:
+            pass
+    uploads = _tree_size(uploads_dir) if uploads_dir and os.path.isdir(uploads_dir) else None
+    try:
+        free = shutil.disk_usage(output_dir).free
+    except OSError:
+        free = None
+    data = {"output": None if names is None else total, "uploads": uploads, "free": free, "folders": folders,
+            "measured_at": datetime.now().isoformat(timespec="seconds")}
+    with _disk_lock:
+        _disk_cache[key] = (time.monotonic(), data)
+    return data
+
+
+def forget_disk() -> None:
+    """Drop the measured sizes (a project was deleted: the next board measures again)."""
+    with _disk_lock:
+        _disk_cache.clear()
 
 
 def rules() -> dict:
     """RULES + how the clips are ranked (the plan's order), which depends on the jury switch."""
     sources = [s for s in RANK_SOURCES if JURY_ENABLED or s != "jury"]
     if JURY_ENABLED:
-        why = ("The real 'Stayed to watch' once a clip is published, else the jury's hook score, else the "
+        why = ("Three groups, never compared with each other: published clips by their real 'Stayed to watch'; "
+               "then the clips the spectator tested, by their jury score; then the clips not tested yet, by the "
                "generator's selection score (ai_score).")
+        plan = ("Tested clips first: an untested clip only takes a slot when no tested clip left fits it "
+                "without an alert.")
     else:
-        why = ("The real 'Stayed to watch' once a clip is published, else the generator's selection score "
+        why = ("Published clips by their real 'Stayed to watch'; the others by the generator's selection score "
                "(ai_score): the hook jury is off.")
+        plan = "The best ai_score that fits the slot without an alert, else the one that clashes least."
     return {**RULES, "ranking": {"by": sources, "field": "rank_score", "source_field": "rank_score_source",
-                                 "why": why},
+                                 "untested_field": "untested", "untested_last": True, "why": why, "plan": plan},
             "jury_enabled": JURY_ENABLED}
 
 
@@ -739,17 +876,15 @@ _RANK_BASIS = {"stayed": "real stayed", "jury": "jury score", "ai": "AI score"}
 
 
 def rank_score(clip):
-    """(value, source) — RANK_SOURCES order: the real "Stayed to watch" (%), the jury's score (jury on), the AI's
-    selection score; (None, None) without any."""
+    """(value, source) in RANK_SOURCES: the real "Stayed to watch" (%), else the jury's score (jury on), else the
+    AI's selection score — "ai" (value None when the generator gave none) means not tested by the spectator."""
     stayed = _number((clip.get("stats") or {}).get("stayed"))
     if stayed is not None:
         return stayed, "stayed"
     jury = clip.get("jury")
     if JURY_ENABLED and isinstance(jury, dict) and _number(jury.get("score")) is not None:
         return _number(jury["score"]), "jury"
-    if clip.get("ai_score") is not None:
-        return clip["ai_score"], "ai"
-    return None, None
+    return clip.get("ai_score"), "ai"
 
 
 def _rank(clip):
@@ -758,9 +893,15 @@ def _rank(clip):
     return value, _RANK_BASIS.get(source)
 
 
-def _rank_key(clip):
-    value, _basis = _rank(clip)
-    return (-(value if value is not None else -1), clip["ref"])
+def rank_key(clip):
+    """The sort key of RANK_SOURCES: the group first (a jury score is never compared with an AI score), then the
+    score within the group (best first, none last), then the ref (deterministic)."""
+    value, source = rank_score(clip)
+    group = RANK_SOURCES.index(source) if source in RANK_SOURCES else len(RANK_SOURCES)
+    return (group, -(value if value is not None else -1), clip["ref"])
+
+
+_rank_key = rank_key
 
 
 def _clash_phrase(alerts, item) -> str:
@@ -771,6 +912,8 @@ def _clash_phrase(alerts, item) -> str:
     kind, n = alert["kind"], len(alert["refs"])
     if kind == "same_category_in_a_row":
         return f"put {n} {item.get('category_label') or 'same-topic'} clips in a row"
+    if kind == "same_guest_in_a_row":
+        return f"put {n} clips with {item.get('guest') or 'the same guest'} in a row"
     if kind == "episode_per_day":
         return f"put {n} clips of {item.get('episode_label') or 'one episode'} on {_day_label(alert['date'])}"
     if kind == "category_share":
@@ -815,7 +958,8 @@ def _default_slots(now, occupied):
 
 def plan(output_dir, schedule, clips, slots=None, *, stats_dir=None, retention_seconds=None, tz=None,
          clock=None) -> dict:
-    """POST /api/lineup/plan: an order for ``clips`` ([[job_id, clip_index], …]) over ``slots`` ([{date, time}],
+    """POST /api/lineup/plan: an order for ``clips`` ([[job_id, clip_index], …]; None = every available clip, the
+    tab's "Mix my week") over ``slots`` ([{date, time}],
     the week's free Publish-plan times when none), around what is already scheduled or published. Deterministic:
     slots in time order; at each one the best clip (``rank_score``: real stayed, else jury score, else AI score;
     then ref) that raises no alert, else the one that raises the least. PUBLISHES NOTHING."""
@@ -823,7 +967,9 @@ def plan(output_dir, schedule, clips, slots=None, *, stats_dir=None, retention_s
                    clock=clock)
     now, timeline = board["now"], board["timeline"]
     left_out, why_out, candidates, seen = [], {}, [], set()
-    for pair in clips or []:
+    if clips is None:                                # "Mix my week": every clip still available
+        clips = [(c["job_id"], c["clip_index"]) for c in board["clips"] if c["status"] == "available"]
+    for pair in clips:
         try:
             job_id, index = str(pair[0]), int(pair[1])
         except (TypeError, ValueError, IndexError, KeyError):
@@ -886,8 +1032,9 @@ def plan(output_dir, schedule, clips, slots=None, *, stats_dir=None, retention_s
             continue
         top = min(scored, key=lambda s: s[1])
         value, basis = _rank(best)
-        shown = f"{basis} {value}" if basis else "no score yet"
-        lead = f"Best {basis} left ({value})" if top[2] is best and basis else (
+        known = value is not None
+        shown = f"{basis} {value}" if known else "no score yet"
+        lead = f"Best {basis} left ({value})" if top[2] is best and known else (
             "No score yet" if top[2] is best else f"Best that keeps the mix ({shown})" if delta == 0
             else f"Least clash ({shown})")
         if delta == 0:
@@ -896,6 +1043,9 @@ def plan(output_dir, schedule, clips, slots=None, *, stats_dir=None, retention_s
             why = f"{lead}, though it would {_clash_phrase(alerts, item)}"
             if top[2] is not best:
                 why += f"; {top[2]['ref']} clashes more"
+        if JURY_ENABLED and best.get("untested"):
+            # Placed only because no tested clip left fits this slot better (or none is left): say so first.
+            why = f"Not tested by the spectator yet; {why[0].lower()}{why[1:]}"
         placed.append(item)
         remaining.remove(best)
         out.append({"date": slot["date"], "time": slot["time"], "job_id": best["job_id"],
