@@ -437,15 +437,34 @@ def read_views(path):
     return parse_table(text)
 
 
-def latest_export(folder=STUDIO_DIR):
-    """The newest Studio export in ``folder`` (CSV, ZIP or JSON), None when there is none."""
+def _exports(folder):
     try:
         names = [n for n in os.listdir(folder)
                  if n.lower().endswith(STUDIO_EXTENSIONS) and not n.startswith((".", "~"))]
     except OSError:
-        return None
+        return []
     paths = [os.path.join(folder, n) for n in names if os.path.isfile(os.path.join(folder, n))]
-    return max(paths, key=os.path.getmtime) if paths else None
+    return sorted(paths, key=os.path.getmtime, reverse=True)
+
+
+def latest_export(folder=STUDIO_DIR):
+    """The newest Studio export in ``folder`` (CSV, ZIP or JSON), None when there is none."""
+    paths = _exports(folder)
+    return paths[0] if paths else None
+
+
+def read_latest_export(folder=STUDIO_DIR):
+    """(path, rows, problem) for the newest export in ``folder`` that reads — the "Chart data" or "Totals" CSV
+    dropped next to the table one is passed over. (None, [], "") when there is no export; the newest file and
+    its problem when none reads."""
+    paths = _exports(folder)
+    first = None
+    for path in paths:
+        rows, problem = read_views(path)
+        if not problem and rows:
+            return path, rows, ""
+        first = first or (path, [], problem or "no video in it")
+    return first or (None, [], "")
 
 
 # --- the clips the app made -------------------------------------------------------------

@@ -6996,12 +6996,11 @@ def _plus_studio_stats() -> Optional[dict]:
     (stats_ingest.build_studio_report: "Stayed to watch" first, grouped by length, title shape, topic,
     moment_nature, opening image; the opening-image A/B test). None when no export was imported yet."""
     import stats_ingest
-    path = stats_ingest.latest_export(STUDIO_STATS_DIR)
+    path, rows, problem = stats_ingest.read_latest_export(STUDIO_STATS_DIR)
     if not path:
         return None
     exported = datetime.fromtimestamp(os.path.getmtime(path)).date()
     base = {"file": os.path.basename(path), "exported": exported.isoformat()}
-    rows, problem = stats_ingest.read_views(path)
     if problem:
         return {**base, "problem": problem}
     clips = stats_ingest.load_clips(OUTPUT_DIR, _load_schedule())

@@ -274,6 +274,17 @@ class TestReadStudio:
         os.utime(a, (1, 1))
         assert si.latest_export(str(tmp_path)) == b
 
+    def test_the_newest_export_that_reads(self, tmp_path):
+        assert si.read_latest_export(str(tmp_path)) == (None, [], "")
+        table = _write(tmp_path, "Table data.csv", studio_csv("en"))
+        totals = _write(tmp_path, "Totals.csv", "Date,Views\n2026-10-01,300\n")
+        os.utime(table, (1, 1))
+        path, rows, problem = si.read_latest_export(str(tmp_path))
+        assert path == table and len(rows) == 23 and problem == "", "the Totals CSV next to it is passed over"
+        os.remove(table)
+        path, rows, problem = si.read_latest_export(str(tmp_path))
+        assert path == totals and rows == [] and "no video id" in problem
+
 
 class TestJoin:
     @pytest.mark.parametrize("lang", ["fr", "en"])
