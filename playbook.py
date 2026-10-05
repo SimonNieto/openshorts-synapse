@@ -24,6 +24,11 @@ TOPIC_BUCKETS = ("brain_danger", "substances", "psychosis_mental_illness", "crim
                  # with a niche filter (NICHE_DETAIL_ADDENDUM): without a place to put
                  # a fight recap it filed it under science_other or self_improvement.
                  "sports_combat", "entertainment", "business_money", "other")
+# What a moment is (5-oct-2026, gemini_worker.PLAYBOOK_DETAIL_ADDENDUM): the channel's peaks threaten someone
+# the viewer can picture — the viewer ("could this happen to me?") or a person whose fate plays out in the clip
+# (récit report, JRE #2553). An order of preference for the model's ranking, never a filter; exported in
+# <clip>_playbook.json to read the views by nature. Anything else is stored as "other".
+MOMENT_NATURES = ("threat_to_you", "person_at_stake", "your_mind", "debate", "other")
 # The Synapse Cut's own niche, the brain and the mind (the profile's topics of 1-oct-2026): the profile screen
 # shows the other buckets as off niche (4-oct-2026).
 NICHE_CORE = ("brain_danger", "substances", "psychosis_mental_illness", "crime_dark", "medical_mystery",
@@ -747,6 +752,8 @@ def prepare(shorts, source_video, brief=None, show="", series_name="", spoken=No
         c["moment_id"] = moment_id(source_video, c.get("start", 0), c.get("end", 0))
         if c.get("topic_bucket") not in TOPIC_BUCKETS:
             c["topic_bucket"] = "other"
+        if c.get("moment_nature") not in MOMENT_NATURES:
+            c["moment_nature"] = "other"
         if check_title(c, tokens):
             print(f"   ⚠️ Playbook: a name is in the title of the clip at {float(c.get('start', 0)):.0f}s "
                   f"({', '.join(c['title_names'])}): {c.get('video_title_for_youtube_short')}")
@@ -818,6 +825,8 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "end": round(end, 3),
         "duration": round(end - start, 2),
         "topic_bucket": clip.get("topic_bucket") or "other",
+        # Threat to you / person at stake / your mind / debate (MOMENT_NATURES).
+        "moment_nature": clip.get("moment_nature") if clip.get("moment_nature") in MOMENT_NATURES else "other",
         "hook_sentence": hook_sentence(clip, transcript),
         "hook_aligned": bool(clip.get("hook_aligned")),
         "pause_before": pause_before(clip, transcript),
@@ -835,6 +844,10 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "over_target": clip.get("over_target") or "",
         # No full stop nor pause near the end (main.end_on_sentence).
         "end_mid_sentence": bool(clip.get("end_mid_sentence")),
+        # The clip ends on its payoff (main.trim_to_target, 5-oct-2026), or why
+        # the payoff is outside it ("" when it is in: main.land_payoff).
+        "end_on_payoff": bool(clip.get("end_on_payoff")),
+        "payoff_outside": clip.get("payoff_outside") or "",
         "title": clip.get("video_title_for_youtube_short") or "",
         "title_has_name": bool(clip.get("title_has_name")),
         "title_names": clip.get("title_names") or [],

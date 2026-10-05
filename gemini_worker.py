@@ -7,7 +7,7 @@ from typing import List, Optional
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types as genai_types
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from clip_selection import (clip_count_targets, clip_duration_bounds,
                             lookup_model_prices)
@@ -66,6 +66,16 @@ class DetailResponseV2(BaseModel):
     shorts: List[DetailClipModelV2]
 
 
+# A passage a tight edit takes out of the clip (5-oct-2026): its first and
+# last words, verbatim, and why (aside, screen_reading, hesitation,
+# digression). main.check_cut_out checks it against the words and stores it
+# as clip["cut_out"] = [{"from", "to", "why"}] for the montage, which cuts it.
+class CutOutModel(BaseModel):
+    first_words: str
+    last_words: str
+    why: str
+
+
 # Clip Generator++ BETA "Synapse Cut playbook" (SYNAPSE_PLAYBOOK=1): the V2
 # fields (hook_line drives the start, main.align_hook_and_punchline) + the
 # topic family of the moment, for the channel's stats (playbook.py).
@@ -74,6 +84,12 @@ class DetailClipModelPlaybook(DetailClipModelV2):
     # The one or two words of viral_hook_text drawn in colour on screen
     # (hooks.docline_accent falls back to a number or the last long word).
     hook_accent: str = ""
+    # What the moment is (5-oct-2026, playbook.MOMENT_NATURES): a threat to the
+    # viewer, a person at stake, the viewer's mind, a debate — a preference to
+    # rank by, never a filter; exported for the views-by-nature stats.
+    moment_nature: str = ""
+    # 0 to 3 passages to take out (CutOutModel).
+    cut_out: List[CutOutModel] = Field(default_factory=list)
 
 
 class DetailResponsePlaybook(BaseModel):
@@ -319,19 +335,60 @@ NICHE_DETAIL_WEIGHT = ("Strongly prefer clips on that niche. A moment outside it
 
 # Detail pass only (with QUESTION_TITLE_ADDENDUM): the start is cut on
 # hook_line (main.align_hook_and_punchline, without the V2 punchline end),
-# the description gets a closing question (the credit line with the names is
-# added in code, playbook.prepare), topic_bucket feeds the stats.
+# the end on the punchline (main.trim_to_target, every clip since
+# 5-oct-2026), the description gets a closing question (the credit line with
+# the names is added in code, playbook.prepare), topic_bucket and
+# moment_nature feed the stats, cut_out goes to the montage.
+# 5-oct-2026 (the user's « la chute toujours dans le clip », JRE #2553-004):
+# this block said "If the clip then runs over {max_secs}s, end it earlier on
+# a complete sentence; never start later to save time" — the opposite of the
+# target block's "open LATER" — and c11 lost its payoff 35 s after its end.
+# The order of preference (threat, person at stake, your mind, debate) ranks
+# and scores the moments, it is NOT a filter (the user's reserve: « ne ferme
+# pas la sélection sur les menaces »): the HOW MANY rule stays as it is.
 PLAYBOOK_DETAIL_ADDENDUM = """
 SYNAPSE CUT PLAYBOOK — CUT, DESCRIPTIONS, TOPIC:
 - THE OPENING LINE IS THE HOOK: the clip starts EXACTLY on a sentence that works
   when heard cold — a bold claim, a confession, a surprising fact, a "you"
-  statement, or a question. Never on "so", "um", "yeah", "and", "I mean", "you
-  know", a greeting, or the middle of a thought. Return that sentence VERBATIM
-  (exact transcript words) in `hook_line`.
+  statement, or a question the viewer would ask. Never on "so", "um", "yeah",
+  "and", "I mean", "you know", a greeting, or the middle of a thought; never on
+  a line that points back at what came before ("also", "then", "the second
+  thing"); never on a request to someone in the room ("can you put that into
+  Perplexity", "pull that up"): the viewer is not the one asked. Return that
+  sentence VERBATIM (exact transcript words) in `hook_line`.
 - `start` IS THE MOMENT `hook_line` BEGINS — never after it (a start placed after
   the hook opens the clip mid-sentence). If the clip then runs over
-  {max_secs}s, end it earlier on a complete sentence; never start later to
-  save time.
+  {max_secs}s, NEVER end before the payoff: open on a later sentence that
+  still stands alone (it becomes `hook_line`), or skip the moment.
+- THE PAYOFF IS ALWAYS IN THE CLIP: return the payoff — the line the clip
+  exists for, the answer to its question — VERBATIM (exact transcript words)
+  in `punchline`. `punchline` must lie between `start` and `end`, and `end`
+  comes right after it. A clip that stops before its payoff, or on a question
+  whose answer is cut off, is not a clip.
+- WHAT THIS CHANNEL'S VIEWERS STAY FOR — an order of preference to RANK the
+  moments and set `predicted_score`, NEVER a reason to leave a good moment out
+  (the HOW MANY rule above stands: work through every window):
+  1. first, a threat that can reach the viewer ("could this happen to me /
+     inside me?"), or one precise person in danger whose fate plays out inside
+     the clip;
+  2. then, what speaks about the viewer's own mind ("you", how your brain
+     works, what you feel);
+  3. then, a debate about a profession, an institution, a tweet or a company —
+     higher when it carries a number that threatens the viewer ("251,000
+     deaths a year").
+  `moment_nature`: exactly one of threat_to_you, person_at_stake, your_mind,
+  debate, other — which of these the moment is.
+- `cut_out`: 0 to 3 passages INSIDE the clip that a tight edit takes out: the
+  other speaker's aside ("I saw that episode announced"), someone reading a
+  screen aloud, a hesitation ("and... um... I"), a digression that leaves the
+  story and comes back. For each one, its `first_words` and `last_words` (3-6
+  words each, copied VERBATIM from the transcript, in order) and `why`: aside,
+  screen_reading, hesitation or digression. NEVER a negation or a nuance ("it's
+  not going to cure breast cancer" stays: cutting it changes what the clip
+  claims; a passage with "not", "no", "never", "but", "only" in it is never
+  cut), never the opening sentence (`hook_line`), never the payoff
+  (`punchline`). What is left must still make sense heard straight through.
+  Most clips need none: [].
 - DESCRIPTIONS (TikTok + Instagram): 1-2 sentences that tease the payoff
   without spoiling it, then ONE short question to the viewer that invites a
   comment ("Would you have noticed the signs?"), then 3-5 hashtags. Do not
