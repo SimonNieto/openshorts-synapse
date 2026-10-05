@@ -212,6 +212,24 @@ class TestRank:
         assert "names the subject and sets the tension" in " ".join(gw.OPEN_LATER_PROMPT.split())
 
 
+# --- the one-minute ceiling ----------------------------------------------------------------------------
+
+class TestCeiling:
+    def test_leeway(self):
+        assert main._payoff_leeway(60) == 0 and main._payoff_leeway(58) == 2
+        assert main._payoff_leeway(40) == main.PAYOFF_LEEWAY and main._payoff_leeway(90) == main.PAYOFF_LEEWAY
+
+    def test_a_payoff_past_the_minute_is_outside(self):
+        # The payoff ends at ~61.6 s: before, max 60 + 3 s of leeway kept it (a 62 s short, blocked
+        # everywhere with a Content ID claim); now it is flagged.
+        w = mk(FILL * 13 + "and that is how the liver fails.")
+        c = {"start": 0.0, "end": 55.0, "punchline": "that is how the liver fails."}
+        assert main.land_payoff(c, w, 15, 60, pauses=True) is None and c["payoff_outside"]
+        c2 = {"start": 0.0, "end": 40.0, "punchline": "that is how the liver fails."}
+        w2 = mk(FILL * 8 + "and that is how the liver fails.")
+        assert main.land_payoff(c2, w2, 15, 40, pauses=True) and c2["end"] <= 43.0
+
+
 # --- prompt, schema, stats -------------------------------------------------------------------------------
 
 class TestPromptAndSchema:

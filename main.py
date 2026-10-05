@@ -1934,6 +1934,20 @@ def _start_at(words, k):
 # end_on_sentence already had); past that it is flagged ``payoff_outside`` and the
 # auto-publish leaves it out (app._auto_publish_best).
 PAYOFF_LEEWAY = 3.0
+# ...but never past one minute (5-oct-2026, lot Sélection): a Short over 60 s that gets a Content ID claim is
+# blocked in every country (YouTube help, veille report), and every clip of a podcast can get one. A format
+# whose own maximum is over a minute keeps its leeway (that limit is the profile's choice).
+SHORTS_CEILING = 60.0
+
+
+def _payoff_leeway(max_secs):
+    """Seconds a clip may run over ``max_secs`` to keep its payoff: PAYOFF_LEEWAY, cut so that a clip of a
+    format under a minute never goes past SHORTS_CEILING."""
+    if max_secs > SHORTS_CEILING:
+        return PAYOFF_LEEWAY
+    return max(0.0, min(PAYOFF_LEEWAY, SHORTS_CEILING - max_secs))
+
+
 # How far after the payoff's last word the full stop that closes its sentence may be;
 # beyond, the payoff's own last word ends the clip (an unpunctuated transcript).
 PAYOFF_REACH = 3.0
@@ -2032,7 +2046,7 @@ def _reaction_after(words, k):
 def land_payoff(clip, words, min_secs, max_secs, pauses=False):
     """The payoff (``punchline``) always in the clip. When it is said past the
     end, the end runs on to the sentence end that closes it, as long as the
-    clip stays within max_secs + PAYOFF_LEEWAY (``clean_end = "payoff"``);
+    clip stays within max_secs + _payoff_leeway (``clean_end = "payoff"``);
     else the clip is flagged ``payoff_outside`` (the reason, in words).
     Returns the payoff's (first, last) word indices when the clip holds it,
     None when it is outside or the quote is not found in the words."""
@@ -2045,14 +2059,14 @@ def land_payoff(clip, words, min_secs, max_secs, pauses=False):
         clip.pop("payoff_outside", None)
         return span
     t = _tail(words, _payoff_close(words, last, pauses))
-    if t - start <= max_secs + PAYOFF_LEEWAY:
+    if t - start <= max_secs + _payoff_leeway(max_secs):
         clip["end"] = round(t, 3)
         clip["clean_end"] = "payoff"
         clip["end_to_payoff"] = True
         clip.pop("payoff_outside", None)
         return span
     clip["payoff_outside"] = (f"said {max(0.0, words[first]['s'] - end):.0f}s after the end: holding it, "
-                              f"the clip would last {t - start:.0f}s (max {max_secs + PAYOFF_LEEWAY:g}s)")
+                              f"the clip would last {t - start:.0f}s (max {max_secs + _payoff_leeway(max_secs):g}s)")
     return None
 
 
@@ -2407,7 +2421,7 @@ def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.
     never steps back before the ``punchline`` the model quoted (JRE #2553
     c09 lost its answer to the full stop just before it); a payoff said past
     the end is reached first (land_payoff: ``clean_end = "payoff"``, or
-    ``payoff_outside`` when it would break max_secs + PAYOFF_LEEWAY)."""
+    ``payoff_outside`` when it would break max_secs + _payoff_leeway)."""
     before = clip["end"]
     span = land_payoff(clip, words, min_secs, max_secs, pauses)
     if clip["end"] != before:
@@ -2440,7 +2454,7 @@ def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.
             if words[i]["e"] - end > max_extend:
                 break
             if ends_sentence(i):
-                if tail(i) - start <= max_secs + 3:
+                if tail(i) - start <= max_secs + _payoff_leeway(max_secs):
                     clip["end"] = round(tail(i), 3)
                     clip["clean_end"] = "extended"
                     return True
@@ -2468,7 +2482,7 @@ def end_on_sentence(clip, words, min_secs, max_secs, max_trim=4.0, max_extend=4.
     if j is not None:
         k = min(len(words) - 1, j + len(_tokens(clip.get("punchline"))) - 1)
         t = _tail(words, k)
-        if abs(t - end) <= max_extend and min_secs <= t - start <= max_secs + 3:
+        if abs(t - end) <= max_extend and min_secs <= t - start <= max_secs + _payoff_leeway(max_secs):
             clip["end"] = round(t, 3)
             clip["clean_end"] = "payoff"
             return
@@ -2511,7 +2525,7 @@ def trim_to_target(clip, words, min_secs, target=None, pauses=False, max_secs=No
     if span is None:
         over("payoff outside the clip" if clip.get("payoff_outside") else "payoff not located")
         return False
-    limit = (start + max_secs + PAYOFF_LEEWAY) if max_secs is not None else end + 0.05
+    limit = (start + max_secs + _payoff_leeway(max_secs)) if max_secs is not None else end + 0.05
     close = _payoff_close(words, span[1], pauses)
     if _tail(words, close) > limit:
         close = span[1]
