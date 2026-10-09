@@ -76,7 +76,18 @@ def config():
 
 
 def music_dir(cfg=None):
-    return (cfg or {}).get("dir") or os.environ.get("BACKGROUND_MUSIC_DIR") or "music"
+    """The library: plus.AUDIO "dir", else BACKGROUND_MUSIC_DIR, else the first "music" folder holding a catalog —
+    the working directory's (the app runs from /app: /app/music), this code's own folder's, then its parents' (a
+    worktree in .claude/worktrees/<name>/ uses the repo's library: the tracks are never copied nor committed)."""
+    given = (cfg or {}).get("dir") or os.environ.get("BACKGROUND_MUSIC_DIR")
+    if given:
+        return given
+    folder = os.path.dirname(os.path.abspath(__file__))
+    tries = [os.path.abspath("music")]
+    for _ in range(5):
+        tries.append(os.path.join(folder, "music"))
+        folder = os.path.dirname(folder)
+    return next((d for d in tries if os.path.isfile(os.path.join(d, CATALOG))), "music")
 
 
 def target_lufs(cfg=None):

@@ -899,10 +899,12 @@ def prepare(shorts, source_video, brief=None, show="", series_name="", spoken=No
         if not check_format(c):
             print(f"   ⚠️ Playbook: title format of the clip at {float(c.get('start', 0)):.0f}s "
                   f"({'; '.join(c['title_format_issues'])}): {c.get('video_title_for_youtube_short')}")
-        if check_hook(c):
+        # no hook drawn (plus.HOOK_ON_SCREEN False -> AUTO_HOOK 0, the « références » recipe): nothing to warn about
+        shown = os.environ.get("AUTO_HOOK", "1") == "1"
+        if check_hook(c) and shown:
             print(f"   ⚠️ Playbook: the on-screen hook of the clip at {float(c.get('start', 0)):.0f}s repeats "
                   f"the title ({c['hook_title_overlap']:.0%} of its words): {c.get('viral_hook_text')}")
-        if c.get("hook_problems"):
+        if c.get("hook_problems") and shown:
             print(f"   ⚠️ Playbook: the on-screen hook of the clip at {float(c.get('start', 0)):.0f}s is not "
                   f"clear on its own ({'; '.join(c['hook_problems'])}): {c.get('viral_hook_text')}")
     return tokens

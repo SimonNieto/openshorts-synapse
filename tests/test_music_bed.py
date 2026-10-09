@@ -214,3 +214,26 @@ def test_a_real_mix_lands_14_db_under_the_voice_at_minus_16_6_lufs(tmp_path):
     assert rep["gap_db"] == pytest.approx(14.0, abs=1.0)
     assert rep["lufs"] == pytest.approx(-16.6, abs=0.6) and rep["true_peak"] <= -1.0
     assert mb.probe_duration(out) == pytest.approx(mb.probe_duration(clip), abs=0.15)   # looped under all 12 s
+
+
+def test_the_library_is_found_from_the_app_and_from_a_worktree(monkeypatch, tmp_path):
+    import os
+    monkeypatch.delenv("BACKGROUND_MUSIC_DIR", raising=False)
+    # given explicitly: as is
+    assert mb.music_dir({"dir": "/x/music"}) == "/x/music"
+    monkeypatch.setenv("BACKGROUND_MUSIC_DIR", "/y/music")
+    assert mb.music_dir() == "/y/music"
+    monkeypatch.delenv("BACKGROUND_MUSIC_DIR")
+    # the app runs from its folder: ./music with its catalog
+    app = tmp_path / "app"
+    (app / "music").mkdir(parents=True)
+    (app / "music" / mb.CATALOG).write_text("{}")
+    monkeypatch.chdir(app)
+    assert mb.music_dir() == str(app / "music")
+    # from a worktree without a catalog of its own: the code's own folder, then its parents (the repo's library)
+    wt = app / ".claude" / "worktrees" / "x"
+    (wt / "music").mkdir(parents=True)
+    monkeypatch.chdir(wt)
+    monkeypatch.setattr(mb, "__file__", str(wt / "music_bed.py"))
+    assert mb.music_dir() == str(app / "music")
+    assert os.path.isfile(os.path.join(mb.music_dir(), mb.CATALOG))
