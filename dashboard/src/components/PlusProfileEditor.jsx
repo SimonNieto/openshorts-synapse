@@ -20,7 +20,7 @@ const brollVerdict = (r) => {
 };
 
 // The clip formats (plus.py CLIP_FORMATS, sent by the server with the topics): their names on screen.
-const FORMAT_LABEL = { short: 'Short', standard: 'Standard', long: 'Long' };
+const FORMAT_LABEL = { short: 'Short', standard: 'Standard', long: 'Long', references: 'OptimalHealth' };
 
 // Quick-fill suggestions (recent niches): small rectangles, white fill when they match.
 const chip = (active) => `px-3 py-1.5 [@media(pointer:coarse)]:min-h-[44px] rounded-input border text-xs transition-colors ${active
@@ -92,7 +92,7 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
     const setIn = (key, patch) => setP((cur) => ({ ...cur, [key]: { ...(cur[key] || {}), ...patch } }));
     const picked = p.selection?.niche_topics || [];
     const toggleTopic = (id) => setIn('selection', { niche_topics: picked.includes(id) ? picked.filter((t) => t !== id) : [...picked, id] });
-    const fmt = formats[p.format || 'standard'];
+    const fmt = formats[p.format || 'references'];
     return (
         <Modal
             isOpen={isOpen}
@@ -194,13 +194,13 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
                     )}
                 </Section>
 
-                <Section id="pp-clips" icon={<Clock size={15} />} title="Clips" lede="The reference channels' best shorts run 16-33 s.">
+                <Section id="pp-clips" icon={<Clock size={15} />} title="Clips" lede="OptimalHealth's shorts run 35-60 s (median 51 s).">
                     <div role="group" aria-labelledby="pp-length">
                         <p id="pp-length" className="readout mb-2">Length</p>
-                        <SegmentedControl columns={3} value={p.format || 'standard'} onChange={(v) => set({ format: v })}
+                        <SegmentedControl columns={4} value={p.format || 'references'} onChange={(v) => set({ format: v })}
                             options={Object.entries(formats).map(([k, f]) => ({
                                 value: k, label: FORMAT_LABEL[k] || k,
-                                hint: `${f.clip_target[0]}–${f.clip_target[1]} s${k === 'standard' ? ' · recommended' : ''}`,
+                                hint: `${f.clip_target[0]}–${f.clip_target[1]} s${k === 'references' ? ' · recommended' : ''}`,
                             }))} />
                         {fmt && (
                             <p className="text-xs text-muted leading-relaxed mt-2">

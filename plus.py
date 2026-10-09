@@ -37,7 +37,7 @@ DEFAULT_PROFILE = {
     # line when the episode's title does not (playbook.split_show).
     "show": "",
     # The clip length, one of CLIP_FORMATS (4-oct-2026, instead of six numbers).
-    "format": "standard",
+    "format": "references",
     # The channel's name: small at the top right with the one-word captions
     # ("@TheSynapseCut" -> THE SYNAPSE CUT), under the words with "premium" (blank = none).
     "watermark": "",
@@ -152,6 +152,11 @@ CLIP_FORMATS = {
     "short": {"clip_min": 10, "clip_max": 40, "clip_target": [15, 30]},
     "standard": {"clip_min": 15, "clip_max": 60, "clip_target": [25, 40]},
     "long": {"clip_min": 30, "clip_max": 90, "clip_target": [40, 60]},
+    # OptimalHealth's length (9-oct-2026, the user: « la durée faisant comme lui ») — their 48 last Shorts:
+    # 21-139 s, quartiles 35 / 51 / 60 s, the same median (56 s) for their hits and their flops. Capped at
+    # 60 s like "standard" (main.SHORTS_CEILING: a Short over a minute with a Content ID claim is blocked
+    # everywhere); 37 of their 48 fit under it.
+    "references": {"clip_min": 20, "clip_max": 60, "clip_target": [35, 58]},
 }
 # How many clips (4-oct-2026, validated by the user: « s'il y en a plus que deux de bons, on est bloqué à deux »): no
 # number in the profile, the AI keeps every clip good enough to publish. The fewest the clip-choice prompt asks for
