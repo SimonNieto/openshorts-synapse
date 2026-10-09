@@ -600,6 +600,17 @@ def _clip_watermark(metadata):
         return None
 
 
+def _clip_show(metadata):
+    """The show the « CREDIT: » line of the one-word captions names
+    (playbook.show_name): the episode title's own show, else the profile's."""
+    try:
+        import playbook as _pb
+        md = metadata or {}
+        return _pb.show_name(md.get('source_video'), (md.get('plus_profile') or {}).get('niche') or "") or None
+    except Exception:
+        return None
+
+
 def _reapply_captions(job_id, clip_index, video_path):
     """Re-burn the default captions onto a freshly derived file.
 
@@ -640,7 +651,8 @@ def _reapply_captions(job_id, clip_index, video_path):
             # Since 5-oct-2026 such a clip is re-cut by the montage, so it
             # has a recipe too: same look, on the virtual transcript.
             captioned = _main.viral_caption_clip(video_path, transcript, c_start, c_end,
-                                                 clip['edit_style'], watermark=_clip_watermark(data), clip=clip)
+                                                 clip['edit_style'], watermark=_clip_watermark(data), clip=clip,
+                                                 show=_clip_show(data))
             if captioned:
                 return captioned
         return _main.auto_caption_clip(video_path, transcript, c_start, c_end)
@@ -3506,6 +3518,8 @@ async def viral_edit_clip(job_id: str, clip_index: int, req: ViralEditRequest, r
     if clip.get("punchline_time") is not None:
         opts["hints"] = {"punchline_time": clip["punchline_time"]}
     topic = viral_fx.topic_words(clip.get('video_title_for_youtube_short'), clip.get('viral_hook_text'))
+    # The « CREDIT: » line of the one-word captions, on a clip without a hook title only.
+    show = _clip_show(meta)
 
     def run():
         ts = int(time.time())
@@ -3561,7 +3575,8 @@ async def viral_edit_clip(job_id: str, clip_index: int, req: ViralEditRequest, r
             layered = with_broll(motion)
             out = os.path.join(output_dir, f"subtitled_{ts}_{clean}")
             try:
-                viral_fx.apply_captions(layered, words, req.style, out, watermark=watermark, topic=topic)
+                viral_fx.apply_captions(layered, words, req.style, out, watermark=watermark, topic=topic,
+                                        credit=show)
             finally:
                 for tmp_path in {motion, layered}:
                     if os.path.exists(tmp_path):
@@ -3569,7 +3584,8 @@ async def viral_edit_clip(job_id: str, clip_index: int, req: ViralEditRequest, r
         elif no_caps == clean:
             # No hook: motion + captions in one encode, from the pristine file.
             out = os.path.join(output_dir, f"subtitled_{ts}_{clean}")
-            viral_fx.apply(clean_path, words, req.style, out, watermark=watermark, opts=opts, topic=topic)
+            viral_fx.apply(clean_path, words, req.style, out, watermark=watermark, opts=opts, topic=topic,
+                           credit=show)
         else:
             # A manual hook without its config is kept as is (zoomed with the clip).
             src = os.path.join(output_dir, no_caps)

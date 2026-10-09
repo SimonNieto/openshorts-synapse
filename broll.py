@@ -3004,7 +3004,8 @@ def _caption_band(H, style=None, watermark=None):
     bottom = p["caption_y"] + 0.6 * size
     try:
         wm = watermark if watermark is not None else json.loads(os.environ.get("PLUS_FX_JSON") or "{}").get("watermark")
-        if wm:
+        # A "corner" preset (oneword) puts the channel's name at the top, not under the words.
+        if wm and not p.get("corner"):
             bottom = p["caption_y"] + 0.95 * size + max(18, size // 4) * 0.6
     except ValueError:
         pass

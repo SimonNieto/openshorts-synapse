@@ -52,8 +52,9 @@ class TestJobEnv:
     def test_every_job_gets_the_recipe_whatever_the_profile_said(self):
         for profile in ({}, OLD_PROFILE):
             env = plus.job_env(profile)
-            assert env["EDIT_STYLE"] == "premium"
-            assert (env["AUTO_HOOK"], env["AUTO_HOOK_STYLE"], env["AUTO_HOOK_SECONDS"]) == ("1", "docline", "3.3")
+            # 9-oct-2026 (« références »): one word at a time, no hook title on screen.
+            assert env["EDIT_STYLE"] == "oneword"
+            assert (env["AUTO_HOOK"], env["AUTO_HOOK_STYLE"], env["AUTO_HOOK_SECONDS"]) == ("0", "docline", "3.3")
             assert env["SMOOTH_CAMERA"] == env["PLUS_REACTIONS"] == env["PLUS_HQ_CHAIN"] == "1"
             assert env["SYNAPSE_PLAYBOOK"] == env["HOOK_CHECK"] == env["AUDIO_SIGNALS"] == env["TITLE_VARIETY"] == "1"
             assert (env["CLIP_DEDUPE_OVERLAP"], env["CLIP_DEDUPE_SECONDS"]) == ("0.2", "8")

@@ -1,6 +1,6 @@
 """The "podcast shorts" look: captions and grade, rendered locally with ffmpeg.
 
-Two presets, the same words in two faces:
+Three presets, the same words in three faces:
 
 * ``natural`` — 2-3 plain white words with a soft shadow, an accent colour on
   a real key word now and then (the clip's topic words and numbers always),
@@ -9,7 +9,11 @@ Two presets, the same words in two faces:
   the big podcast channels caption in, a little lower (under the mouth of
   the premium framing), lit word by word as it is said, and since 5-oct-2026
   big with a solid black edge (read with the sound off, on a phone, over a
-  bright drawing). The house style.
+  bright drawing). The house style until 9-oct-2026.
+* ``oneword`` — the « références » recipe (OptimalHealth): one word at a time
+  in capitals, mid-screen, a golden word now and then, the credit and the
+  channel's name small at the top (see PRESETS). The house style since
+  9-oct-2026 (plus.CAPTION_STYLE; "premium" stays one switch away).
 
 The frame itself never moves here: the reframe (framing.py) holds the
 speaker's head where an editor would. The jump zooms, shake, dips, glow,
@@ -104,6 +108,39 @@ PRESETS = {
 PRESETS["premium"] = {**PRESETS["natural"], "font": "Montserrat ExtraBold", "bold": 0, "spacing": 0, "size": 100,
                       "max_chars": 14, "caption_y": 1275, "lit": True, "safe_x": (0.06, 0.84),
                       "outline": 5, "shadow": 3, "edge_alpha": 0x20, "shadow_alpha": 0x60}
+# "oneword" (9-oct-2026, the « références » recipe, OptimalHealth (387 k) as THE
+# model; RECETTE_REFERENCES.md section 2): ONE word at a time, in capitals,
+# white with a thick solid black edge, around the middle of the screen, from
+# the first word, over the full-screen pictures too (the captions are the last
+# layer). No lighting up, no fade: the word is there when it is said, gone at
+# the next. Measured on their storyboards (vLVGpzxWpfw, gwzeJicUXAE,
+# OrOdCRiDWQQ): the word's centre at 53-70 % of the height, capitals 2.2-2.6 %
+# of the height (~45-50 px on 1920), "PERSON" 30 % of the width, "OFF" 14 %.
+# Size 110 here: capitals ~48 px, "PERSON" ~29 %. A long word is set smaller to
+# stay inside 84 % of the width (safe_x 8-92 %, _fit_scale). A short word
+# never rides with its neighbour ("one_word"); the punctuation is dropped.
+# Colour: a strong word now and then in their golden orange ("CRAZY", "AND" on
+# a strong beat), about one word in 8-10 (1 in 11 over the 12 clips of job
+# b8e46c24): a word whose keyword_score reaches ``key_min`` (a topic word, a
+# number, an 8+ letter word but not a plain one, _plain_long), at least
+# ``key_gap`` words after the last one.
+# ``corner``: the channel's name small at the top right in a grey see-through
+# box (their « OPTIMAL HEALTH »), instead of under the word, and the clip's
+# credit (« CREDIT: <the show> ») tiny at the top left, the whole clip long
+# (CORNER below) — their top band, with no hook title on screen
+# (plus.HOOK_ON_SCREEN).
+PRESETS["oneword"] = {**PRESETS["premium"], "max_words": 1, "max_chars": 40, "one_word": True, "size": 110,
+                      "caption_y": 1000, "lit": False, "fade": 0, "safe_x": (0.08, 0.92),
+                      "accent": "#F2B544", "key_every": 0, "key_gap": 4, "key_min": 0.8,
+                      "outline": 6, "shadow": 3, "edge_alpha": 0x00, "shadow_alpha": 0x50, "corner": True}
+# The small texts at the top of a "corner" preset, in px of a 1080x1920 frame.
+# The credit: white at 80 % (alpha 0x33), size 34 (~1.8 % of the height), a thin
+# dark edge so it reads on a bright picture. The channel: white in a grey box
+# at 55 % (box_alpha 0x73, BorderStyle 3: the "outline" is the box's padding),
+# its top at 11.5 % of the height, as their logo (11-17 %).
+CORNER = {"size": 34, "alpha": 0x33, "outline": 2, "edge_alpha": 0x60, "spacing": 1,
+          "x_margin": 0.04, "credit_y": 0.03,
+          "channel_size": 32, "channel_y": 0.115, "box": "#3C3C3C", "box_alpha": 0x73, "box_pad": 9}
 
 
 # --- words ---------------------------------------------------------------------
@@ -159,9 +196,12 @@ def topic_words(*texts):
     return out
 
 
-def group_words(words, max_words, max_chars):
+def group_words(words, max_words, max_chars, one_word=False):
     """Caption groups. Short function words ride with their neighbour, so a
-    1-word preset still shows "A GOAL" instead of a lone "A"."""
+    1-word preset still shows "A GOAL" instead of a lone "A" — unless
+    ``one_word``: every word alone, as the references caption ("OF")."""
+    if one_word:
+        return [[w] for w in words]
     groups, cur = [], []
     for w in words:
         cand = cur + [w]
@@ -252,6 +292,56 @@ def _fit_scale(text, p, width=1080):
     return max(50, int((room - edge) / glyphs * 100))
 
 
+_EDGE_PUNCT = re.compile(r"^[^\w$#]+|[^\w%$']+$")
+
+
+def _one_word_text(text):
+    """A word as the one-word captions show it, without the punctuation around
+    it ("morning," -> "morning", "..." -> "")."""
+    return _EDGE_PUNCT.sub("", text)
+
+
+# Long words that are never the strong word of a one-word caption (the colour
+# goes to a thing or an act: "MALPRACTICE", "DRUNK", "12"), with the adverbs in -ly.
+_PLAIN_LONG = set("""understand different interesting sometimes through necessarily another anybody somebody
+everybody something important especially probably obviously usually certainly definitely absolutely
+basically actually generally normally totally whatever whenever wherever however together already
+yourself himself herself themselves ourselves myself because""".split())
+
+
+def _plain_long(word):
+    b = _bare(word)
+    return b in _PLAIN_LONG or b.endswith("ly")
+
+
+def channel_label(watermark):
+    """The profile's watermark as the corner shows it: "@TheSynapseCut" ->
+    "THE SYNAPSE CUT" (the @ dropped, the words of a CamelCase handle split)."""
+    w = re.sub(r"^@+", "", str(watermark or "").strip())
+    if " " not in w:
+        w = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", w)
+    return re.sub(r"\s+", " ", w).strip().upper()
+
+
+def _corner_lines(width, height, end, watermark=None, credit=None):
+    """The small texts at the top of a "corner" preset (PRESETS["oneword"]),
+    from 0 to ``end``: « CREDIT: <show> » top left, the channel's name top
+    right in its grey box (style Badge)."""
+    lines = []
+    margin = int(width * CORNER["x_margin"])
+    s, e = _ass_time(0.0), _ass_time(end)
+    if credit and str(credit).strip():
+        y = int(height * CORNER["credit_y"])
+        lines.append(f"Dialogue: 3,{s},{e},Corner,,0,0,0,,{{\\an7\\pos({margin},{y})}}"
+                     f"{_esc('CREDIT: ' + str(credit).strip().upper())}")
+    label = channel_label(watermark)
+    if label:
+        pad = CORNER["box_pad"]
+        y = int(height * CORNER["channel_y"]) + pad
+        lines.append(f"Dialogue: 3,{s},{e},Badge,,0,0,0,,{{\\an9\\pos({width - margin - pad},{y})}}{_esc(label)}")
+    return lines
+
+
 def _lit_word(text, at, accent=None):
     """One word of a lit caption: ``at`` = seconds from the caption's start to
     the word; ``accent``: the key word's colour (hex), reached when it is said."""
@@ -262,15 +352,23 @@ def _lit_word(text, at, accent=None):
     return f"{{\\c&HFFFFFF&{dim}\\t({t0},{t0 + LIT_RISE},{lit})}}{text}"
 
 
-def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None, after=0.0):
+def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None, after=0.0, credit=None,
+              duration=None):
     """``after``: the seconds the hook is on screen (hooks.hook_gone_at): the
-    captions start with the first word said once it is gone, never under it."""
+    captions start with the first word said once it is gone, never under it.
+    A "corner" preset (oneword) puts ``watermark`` top right and ``credit``
+    (the show's name, see playbook.show_name; None = no credit line) top
+    left, for ``duration`` seconds (the clip's length; else to the last word)."""
     p = PRESETS[preset]
     words = [w for w in words if w["start"] >= after - 1e-6]
-    groups = group_words(words, p["max_words"], p["max_chars"])
+    if p.get("one_word"):
+        words = [{**w, "text": _one_word_text(w["text"])} for w in words]
+        words = [w for w in words if w["text"]]
+    groups = group_words(words, p["max_words"], p["max_chars"], one_word=bool(p.get("one_word")))
     # Colour one word in every ``key_every`` groups — the strongest of the group.
     lines = []
     colour_i = 0
+    last_key = -10 ** 6
     for gi, g in enumerate(groups):
         start = g[0]["start"]
         end = groups[gi + 1][0]["start"] if gi + 1 < len(groups) else g[-1]["end"] + 0.3
@@ -278,8 +376,16 @@ def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None
         best = max(range(len(g)), key=lambda k: keyword_score(g[k]["text"], topic))
         score = keyword_score(g[best]["text"], topic)
         # The rhythm (every ``key_every`` captions) never skips a topic word
-        # or a number (score >= 1.2).
-        colored = score >= p.get("key_min", 0.5) and (gi % p["key_every"] == 0 or score >= 1.2)
+        # or a number (score >= 1.2). A preset with a ``key_gap`` instead
+        # (oneword) colours a strong word only ``key_gap`` words after the last.
+        if p.get("key_gap"):
+            colored = (score >= p.get("key_min", 0.5) and gi - last_key >= p["key_gap"]
+                       and (score >= 1.2 or not _plain_long(g[best]["text"])))
+        else:
+            colored = (bool(p["key_every"]) and score >= p.get("key_min", 0.5)
+                       and (gi % p["key_every"] == 0 or score >= 1.2))
+        if colored:
+            last_key = gi
         color = (p.get("accent") or PALETTE[colour_i % len(PALETTE)]) if colored else None
         if colored:
             colour_i += 1
@@ -296,11 +402,14 @@ def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None
             # No pop: an 80 ms fade-in reads as calm, not as an effect.
             k = _fit_scale(" ".join(_esc(w["text"].upper()) for w in g), p, width)
             fit = f"\\fscx{k}\\fscy{k}" if k < 100 else ""
-            lines.append(f"Dialogue: 1,{s},{e},Main,,0,0,0,,{{\\an5\\pos({x},{y})\\fad(80,0){fit}}}{' '.join(parts_text)}")
+            # oneword: no fade at all, the word is there the moment it is said.
+            fade = p.get("fade", 80)
+            fad = f"\\fad({fade},0)" if fade else ""
+            lines.append(f"Dialogue: 1,{s},{e},Main,,0,0,0,,{{\\an5\\pos({x},{y}){fad}{fit}}}{' '.join(parts_text)}")
         else:
             pop = "\\fscx106\\fscy106\\t(0,80,\\fscx100\\fscy100)"
             lines.append(f"Dialogue: 1,{s},{e},Main,,0,0,0,,{{\\an5\\pos({x},{y}){pop}}}{' '.join(parts_text)}")
-        if watermark:
+        if watermark and not p.get("corner"):
             lines.append(f"Dialogue: 2,{s},{e},Mark,,0,0,0,,{{\\an5\\pos({x},{y + int(p['size'] * 0.95)})}}{_esc(watermark.upper())}")
 
     size = p["size"]
@@ -318,6 +427,18 @@ def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None
         styles = [f"Style: Main,{FONT},{size},&H00FFFFFF,&H00FFFFFF,&H80000000,&H90000000,1,0,0,0,100,100,0.5,0,1,3,2,5,0,0,0,1"]
         lines = [ln.replace(",Main,,0,0,0,,{", ",Main,,0,0,0,,{\\blur2") for ln in lines]
     styles.append(f"Style: Mark,{font},{max(18, size // 4)},&H90FFFFFF,&H00FFFFFF,&H00000000,&H00000000,{p.get('bold', 1)},0,0,0,100,100,2,0,1,0,0,5,0,0,0,1")
+    if p.get("corner"):
+        c = CORNER
+        styles.append(f"Style: Corner,{font},{c['size']},&H{c['alpha']:02X}FFFFFF,&H00FFFFFF,"
+                      f"&H{c['edge_alpha']:02X}000000,&HFF000000,{p.get('bold', 1)},0,0,0,100,100,{c['spacing']},0,1,"
+                      f"{c['outline']},0,7,0,0,0,1")
+        # BorderStyle 3: libass draws a box in the OutlineColour, the Outline as its padding.
+        styles.append(f"Style: Badge,{font},{c['channel_size']},&H00FFFFFF,&H00FFFFFF,"
+                      f"{_ass_color(c['box'], c['box_alpha'])[:-1]},&HFF000000,{p.get('bold', 1)},0,0,0,100,100,"
+                      f"{c['spacing']},0,3,{c['box_pad']},0,9,0,0,0,1")
+        end = duration or ((groups[-1][-1]["end"] + 0.6) if groups else 0.0)
+        if end > 0:
+            lines.extend(_corner_lines(width, height, end, watermark=watermark, credit=credit))
 
     return "\n".join([
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {width}", f"PlayResY: {height}",
@@ -380,7 +501,7 @@ def build_graph(words, info, preset, opts, tmp, ass_path=None, motion=True):
 
 
 def _render(clip_path, words, preset, out_path, motion, captions, watermark=None, opts=None, topic=None,
-            after=0.0):
+            after=0.0, credit=None):
     if preset not in PRESETS:
         raise ValueError(f"unknown preset {preset}")
     opts = dict(opts or {})
@@ -392,7 +513,7 @@ def _render(clip_path, words, preset, out_path, motion, captions, watermark=None
         ass_path, n_caps = None, 0
         if captions:
             ass_text, groups = build_ass(words, preset, info["w"], info["h"], opts.get("watermark"), topic=topic,
-                                         after=after)
+                                         after=after, credit=credit, duration=info["duration"])
             n_caps = len(groups)
             ass_path = os.path.join(tmp, "captions.ass")
             with open(ass_path, "w", encoding="utf-8") as f:
@@ -418,17 +539,18 @@ def apply_motion(clip_path, words, preset, out_path, opts=None):
     return _render(clip_path, words, preset, out_path, motion=True, captions=False, opts=opts)
 
 
-def apply_captions(clip_path, words, preset, out_path, watermark=None, topic=None, after=0.0):
+def apply_captions(clip_path, words, preset, out_path, watermark=None, topic=None, after=0.0, credit=None):
     """The preset's captions only: the last layer, like every caption burn.
-    ``after``: when the hook under them has left (see build_ass)."""
+    ``after``: when the hook under them has left; ``credit``: the show named
+    at the top left by a "corner" preset (see build_ass)."""
     return _render(clip_path, words, preset, out_path, motion=False, captions=True, watermark=watermark,
-                   topic=topic, after=after)
+                   topic=topic, after=after, credit=credit)
 
 
-def apply(clip_path, words, preset, out_path, watermark=None, opts=None, topic=None):
+def apply(clip_path, words, preset, out_path, watermark=None, opts=None, topic=None, credit=None):
     """Motion + captions in one encode (a clip without a hook, tests)."""
     return _render(clip_path, words, preset, out_path, motion=True, captions=True,
-                   watermark=watermark, opts=opts, topic=topic)
+                   watermark=watermark, opts=opts, topic=topic, credit=credit)
 
 
 if __name__ == "__main__":
