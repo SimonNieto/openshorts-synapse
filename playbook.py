@@ -265,8 +265,68 @@ def assign_why_slots(shorts) -> None:
         budget -= c["why_slot"]
 
 
-def title_problems(title: str, why_slot: bool = False) -> list:
+TITLE_STYLES = ("question", "references")
+
+
+def title_style() -> str:
+    """How titles are written: "references" (9-oct-2026, the OptimalHealth formulas: one everyday thing,
+    4-8 words, question or statement, gemini_worker.REFERENCES_TITLE_ADDENDUM) or "question" (the closed
+    yes/no question of 1-oct-2026, QUESTION_TITLE_ADDENDUM). TITLE_STYLE in a job's env (plus.job_env),
+    else the house recipe's (plus.SELECTION) — the editor's regenerate-copy has no job env."""
+    v = (os.environ.get("TITLE_STYLE") or "").strip().lower()
+    if v not in TITLE_STYLES:
+        try:
+            import plus
+            v = str(plus.SELECTION.get("title_style") or "question").lower()
+        except Exception:
+            v = "question"
+    return v if v in TITLE_STYLES else "question"
+
+
+# The "references" title (RECETTE_REFERENCES.md §4): OptimalHealth's median is 6 words, none has an emoji.
+REF_TITLE_WORDS = (4, 8)
+# Words that got a short held back (c05 "Is Big Pharma scared of microdosers?", 9 views, 5-oct-2026): the
+# phrase itself, and a prescription drug shared / split / sold / microdosed.
+_HELD_BACK = re.compile(
+    r"\bbig\s+pharma\b"
+    r"|\b(?:shar\w*|split\w*|sell\w*|sold|microdos\w*|trad\w*)\b.{0,40}\b(?:prescriptions?|meds|medications?|pills?)\b"
+    r"|\b(?:prescriptions?|meds|medications?|pills?)\b.{0,40}\b(?:shar\w*|split\w*|sell\w*|sold|microdos\w*)\b",
+    re.I)
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿️]")
+
+
+def held_back_words(text: str) -> str:
+    """The words of ``text`` that got a short held back ("" when none)."""
+    m = _HELD_BACK.search(text or "")
+    return m.group(0) if m else ""
+
+
+def _reference_problems(t: str) -> list:
+    out = []
+    if _EMOJI.search(t):
+        out.append("an emoji (none in this niche's titles)")
+    core = _EMOJI.sub("", t).strip()
+    n = len(re.findall(r"[\w’'-]+", core))
+    lo, hi = REF_TITLE_WORDS
+    if n < lo or n > hi:
+        out.append(f"{n} words (must be {lo}-{hi})")
+    if "#" in core:
+        out.append("a hashtag")
+    m = _VAGUE_SUBJECT.search(core)
+    if m:
+        out.append(f"subject not named ('{m.group(0).strip()}')")
+    held = held_back_words(core)
+    if held:
+        out.append(f"words that got a short held back ('{held}')")
+    if len(core) > TITLE_MAX:
+        out.append(f"{len(core)} characters (max {TITLE_MAX})")
+    return out
+
+
+def title_problems(title: str, why_slot: bool = False, style: str = None) -> list:
     t = (title or "").strip()
+    if (style or title_style()) == "references":
+        return _reference_problems(t)
     core = re.sub(r"[^\w?!.)\"'’]+$", "", t)   # trailing emojis do not count
     first = _first_word(t)
     out = []
@@ -292,6 +352,10 @@ def title_problems(title: str, why_slot: bool = False) -> list:
 # grouped retitle (main.retitle_repeats), never the clip.
 TITLE_INTENSIFIERS = frozenset("really actually truly just ever even literally seriously".split())
 TITLE_INTENSIFIER_MAX = 1
+# "references" titles (title_style): the words that carry OptimalHealth's formulas, each in this many titles of a
+# job at most; "really" / "actually" leave the padding words there.
+TITLE_SIGNALS = frozenset("hidden really actually trick fastest truth myth".split())
+TITLE_SIGNAL_MAX = 2
 
 
 def title_variety_enabled() -> bool:
@@ -306,7 +370,8 @@ def title_keyword_max(n: int) -> int:
 
 
 def _title_keywords(title: str) -> set:
-    return {w for w in _sig_words(title) if w not in TITLE_OPENERS and w not in TITLE_INTENSIFIERS}
+    return {w for w in _sig_words(title) if w not in TITLE_OPENERS and w not in TITLE_INTENSIFIERS
+            and w not in TITLE_SIGNALS}
 
 
 def _title_intensifier(title: str):
@@ -347,7 +412,20 @@ def title_set_problems(shorts) -> dict:
         for i in idx:
             if i not in keep:
                 flag(i, f"'{w}' is already in {cap} other titles", w)
-    ints = [(i, _title_intensifier(t)) for i, t in titles]
+    if title_style() == "references":
+        # The signal words ARE the formula (REFERENCES_VARIETY_ADDENDUM): each in TITLE_SIGNAL_MAX titles, the
+        # padding words in TITLE_INTENSIFIER_MAX title.
+        for w in sorted(TITLE_SIGNALS):
+            idx = [i for i, t in titles if w in _hook_words(t)]
+            if len(idx) > TITLE_SIGNAL_MAX:
+                keep = sorted(idx, key=score, reverse=True)[:TITLE_SIGNAL_MAX]
+                for i in idx:
+                    if i not in keep:
+                        flag(i, f"'{w}' is already in {TITLE_SIGNAL_MAX} other titles", w)
+        ints = [(i, next((w for w in _hook_words(t) if w in TITLE_INTENSIFIERS - TITLE_SIGNALS), None))
+                for i, t in titles]
+    else:
+        ints = [(i, _title_intensifier(t)) for i, t in titles]
     ints = [(i, x) for i, x in ints if x]
     if len(ints) > TITLE_INTENSIFIER_MAX:
         keep = sorted((i for i, _ in ints), key=score, reverse=True)[:TITLE_INTENSIFIER_MAX]
@@ -395,9 +473,44 @@ RETITLE_SCHEMA = {
 }
 
 
+# The same rewrite for "references" titles (title_style): OptimalHealth's shapes, one everyday thing.
+REF_RETITLE_PROMPT = """
+You fix the titles of short video clips cut from one episode. A title is 4 to
+8 words in {language}, max 60 characters, Title Case, no emoji, a question or
+a statement, about ONE thing the viewer knows (an object, a substance, a food,
+a body part, an everyday gesture), in one of the shapes that work in this
+niche: "The Hidden Problem With Melatonin", "The Eye Trick That Helps You Fall
+Asleep", "What's Really In Your Shower Water?", "What Ibuprofen Really Does To
+Your Body", "The Fastest Way To Calm Down", "Can Alzheimer's Actually Be
+Reversed?". Hidden / Really / Actually / Trick / Fastest / Truth / Myth only
+when it is TRUE of the clip. The clips of one episode are posted one after the
+other: read as a set, their titles must not look like the same short posted
+four times.
+
+For each clip below you get its current title, what is wrong with it, the
+words to leave out (`avoid`), its on-screen hook, the first sentences heard
+and the payoff it ends on. `other_titles` are the episode's titles that stay.
+Write ONE new title per clip:
+- it uses none of the `avoid` words (nor their plural or another form): take
+  another angle on the same moment or another of the formulas above;
+- it is not one of `other_titles` and does not reuse their shape;
+- it does not say the on-screen hook again;
+- no name of a person or a show; never "Big Pharma" nor a prescription drug
+  shared, split, sold or microdosed; never an explicit word for suicide or
+  self-harm; a drug is shown from its risk or what it does, never as fun;
+- true to the clip: it promises only what this clip says.
+
+CLIPS_JSON:
+{clips}
+
+Return only: {{"titles": [{{"id": <clip id>, "video_title_for_youtube_short": "<the title>"}}]}}
+"""
+
+
 def retitle_prompt(items, other_titles, language: str = "en") -> str:
     """``items``: [{"id", "title", "problems", "avoid", "hook", "opening", "payoff"}]."""
-    return RETITLE_PROMPT.format(language=language or "en",
+    template = REF_RETITLE_PROMPT if title_style() == "references" else RETITLE_PROMPT
+    return template.format(language=language or "en",
                                  clips=json.dumps({"other_titles": list(other_titles), "clips": items},
                                                   ensure_ascii=False, indent=1))
 
@@ -886,6 +999,14 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "opening_score": clip.get("opening_score"),
         "opening_misses": [m for m in clip.get("opening_misses") or [] if m in OPENING_CRITERIA],
         "opening_flags": clip.get("opening_flags") or [],
+        # 9-oct-2026 (recette « références »): the title style, the words naming the clip's thing and when they are
+        # heard, the start moved for them (main.open_on_subject), the everyday thing and its weight.
+        "title_style": title_style(),
+        "subject_words": clip.get("subject_words") or "",
+        "subject_said_at": clip.get("subject_said_at"),
+        "opening_moved_for_subject": clip.get("opening_moved_for_subject") or None,
+        "everyday_thing": clip.get("everyday_thing") or "",
+        "everyday_bonus": clip.get("everyday_bonus") or 0,
         # A bigger channel posted this moment in the last 30 days (already_clipped.py; off by default).
         "already_clipped": clip.get("already_clipped") or None,
         # Outside the profile's niche_topics: the score above lost the niche

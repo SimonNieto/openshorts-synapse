@@ -2217,7 +2217,8 @@ def _playbook_start(clip, words, start, end, min_secs, max_secs):
 OPENING_WEIGHT = 0.5            # share of predicted_score carried by the opening
 OPENING_TOPIC_SECONDS = 5.0     # the subject of the title or the hook is said within this
 # Points the opening loses for what the code finds in the final cut (a flag ×1 each).
-OPENING_PENALTY = {"mid_sentence": 25, "points_back": 15, "request": 15, "pronoun": 8, "topic_late": 8}
+OPENING_PENALTY = {"mid_sentence": 25, "points_back": 15, "request": 15, "pronoun": 8, "topic_late": 8,
+                   "subject_late": 10}
 # A first word pointing at someone or something the viewer has not met ("They have side effects.", JRE
 # #2553 c04; "Those are the ones..."): flagged, never moved — the on-screen hook may name them.
 _OPENS_ON_PRONOUN = re.compile(r"^(?:they|them|he|she|him|her|those|these|that['’]s|that was|that is)\b")
@@ -2294,13 +2295,162 @@ def check_opening(clip, words, seconds=None):
             hook = [playbook._singular(w) for w in playbook._hook_words(clip.get("viral_hook_text"))]
             if not (m.group(0) in _PERSONAL and any(w in playbook._HOOK_PERSONS for w in hook)):
                 flags.append("pronoun")
-        topic = {_stem(w) for w in playbook._sig_words(f"{clip.get('video_title_for_youtube_short') or ''} "
-                                                       f"{clip.get('viral_hook_text') or ''}")}
-        said = " ".join(w["w"] for w in words[k0:] if w["s"] < start + seconds)
-        if topic and not topic & {_stem(w) for w in playbook._sig_words(said)}:
-            flags.append("topic_late")
+        if _subject_stems(clip):
+            at = subject_said_at(clip, words)
+            # 9-oct-2026: the model named the clip's thing (subject_words): it is heard within
+            # OPENING_SUBJECT_SECONDS, or the opening is late (never heard in the clip counts as late).
+            if at is None or at > OPENING_SUBJECT_SECONDS:
+                flags.append("subject_late")
+        else:
+            topic = {_stem(w) for w in playbook._sig_words(f"{clip.get('video_title_for_youtube_short') or ''} "
+                                                           f"{clip.get('viral_hook_text') or ''}")}
+            said = " ".join(w["w"] for w in words[k0:] if w["s"] < start + seconds)
+            if topic and not topic & {_stem(w) for w in playbook._sig_words(said)}:
+                flags.append("topic_late")
     clip["opening_flags"] = flags
     return flags
+
+
+# --- the first sentence says the thing (9-oct-2026, recette « références », RECETTE_REFERENCES.md §3) -----------
+# No title on screen any more (OptimalHealth, Clip Storm: none has one): the first sentence heard IS the hook. The
+# spectator of 9-oct (etude2/spectateur/rapport.md): 9 clips of 12 opened mid-thought and 10 made the viewer wait
+# more than 10 s for the thing promised (c11: « 700 escaped » at 27 s); the same tumour passage went from 47.7 % to
+# 77.8 % of viewers staying when the rifle moved from 26 s to 6 s. The model names the clip's thing
+# (subject_words); the target: heard within OPENING_SUBJECT_SECONDS (else flagged subject_late, OPENING_PENALTY).
+# When the first sentence does not say it, the clip opens on the sentence around its FIRST mention that says it
+# within SUBJECT_MOVE_SECONDS — never on a mention more than OPENING_SUBJECT_SECONDS after the first one (bench of
+# 9-oct, c10: "now lidocaine is standard", 7 s after the first "lidocaine", would cut the finding itself). The end
+# (the payoff) never moves; the clip never goes under its minimum nor drops more than SUBJECT_MAX_SKIP s of its
+# start, never opens on a line pointing back, a request or "that's / it's"; else it stays as it was.
+OPENING_SUBJECT_SECONDS = 3.0
+SUBJECT_MOVE_SECONDS = 5.0
+SUBJECT_MAX_SKIP = 25.0
+# A sentence opening on these points at something the viewer has not met: never moved onto (a personal pronoun
+# is, when the sentence names the thing; check_opening still flags it).
+_OPENS_ON_POINTER = re.compile(r"^(?:those|these|that['’]s|that was|that is|this is|it['’]s|it was)\b")
+
+
+def _bare(word):
+    return re.sub(r"[^a-z0-9]", "", (word or "").lower())
+
+
+def _word_stems(text):
+    return {_stem(w) for w in playbook._sig_words(str(text or ""))}
+
+
+def _subject_stems(clip, key="subject_words"):
+    return _word_stems(clip.get(key))
+
+
+def _subject_phrase(text):
+    """The stems of ``text``'s significant words, in the order said."""
+    out = []
+    for w in str(text or "").split():
+        for s in sorted(_word_stems(w)):
+            if s not in out:
+                out.append(s)
+    return out
+
+
+def _sentence_last(words, k, max_words=40):
+    """Index of the last word of the sentence opening on word ``k`` (_sentence_text's)."""
+    for j in range(k, min(len(words), k + max_words)):
+        if _is_boundary(words, j):
+            return j
+    return min(len(words), k + max_words) - 1
+
+
+def _subject_hits(words, text, k0, end):
+    """Indices of the words (from ``k0``, said before ``end``) where ``text`` is said: its first significant
+    word, with all the others within the next few words. A bench of 9-oct-2026 had "people should retire" hit
+    on any "people" and "cured his own Castleman's disease" on any "own" when any word counted."""
+    phrase = _subject_phrase(text)
+    if not phrase:
+        return []
+    reach = len(phrase) + 3
+    hits = []
+    for i in range(k0, len(words)):
+        if words[i]["s"] >= end:
+            break
+        if phrase[0] not in _word_stems(words[i]["w"]):
+            continue
+        near = set().union(*(_word_stems(w["w"]) for w in words[i:i + reach]))
+        if all(t in near for t in phrase[1:]):
+            hits.append(i)
+    return hits
+
+
+def subject_said_at(clip, words, start=None):
+    """Seconds from the first word heard to the first word of ``subject_words`` (None: no subject words, or
+    never said in the clip)."""
+    start = float(clip.get("start", 0)) if start is None else start
+    k0 = _first_heard(words, start)
+    if not _subject_stems(clip) or k0 is None:
+        return None
+    hits = _subject_hits(words, clip.get("subject_words"), k0, float(clip.get("end", 0)))
+    return round(words[hits[0]]["s"] - words[k0]["s"], 2) if hits else None
+
+
+def open_on_subject(clip, words, min_secs, seconds=None):
+    """OPENING_SUBJECT_FIRST=1: when ``subject_words`` is heard later than ``seconds`` (OPENING_SUBJECT_SECONDS)
+    after the first word and the first sentence does not say it, open on the sentence around its first mention
+    that says it within SUBJECT_MOVE_SECONDS of its start (see above). Sets ``subject_said_at`` (seconds, None
+    when never heard) and, on a move, ``opening_moved_for_subject``. Returns the new start, or None when the clip
+    keeps its start."""
+    seconds = OPENING_SUBJECT_SECONDS if seconds is None else seconds
+    start, end = float(clip.get("start", 0)), float(clip.get("end", 0))
+    k0 = _first_heard(words, start)
+    if not _subject_stems(clip) or k0 is None:
+        return None
+    hits = _subject_hits(words, clip.get("subject_words"), k0, end)
+    t0 = words[k0]["s"]
+    clip["subject_said_at"] = round(words[hits[0]]["s"] - t0, 2) if hits else None
+    if not hits or words[hits[0]]["s"] - t0 <= seconds or hits[0] <= _sentence_last(words, k0):
+        # Said in time — or said in the first sentence, only late in a long one: that sentence does say the
+        # thing. Kept; flagged by check_opening.
+        return None
+    span = _payoff_span(words, clip.get("punchline"), start, end)
+    payoff_start = words[span[0]]["s"] if span else end
+    first_said = words[hits[0]]["s"]
+    for j in range(k0 + 1, len(words)):
+        if (words[j]["s"] > first_said + seconds or words[j]["s"] - t0 > SUBJECT_MAX_SKIP
+                or words[j]["s"] >= payoff_start or end - _start_at(words, j) < min_secs):
+            break
+        if not _opens_sentence(words, j):
+            continue
+        k, verdict = _opening_start(words, j)
+        if verdict or words[k]["s"] > first_said + seconds:
+            continue
+        # The thing is said in the new FIRST sentence, within SUBJECT_MOVE_SECONDS.
+        h = next((i for i in hits if i >= k), None)
+        if h is None or h > _sentence_last(words, k) or words[h]["s"] - words[k]["s"] > SUBJECT_MOVE_SECONDS:
+            continue
+        if _OPENS_ON_POINTER.match(_sentence_text(words, k).lower().lstrip("\"'“‘(")):
+            continue
+        new_start = _start_at(words, k)
+        if end - new_start < min_secs:
+            break
+        clip["opening_moved_for_subject"] = {
+            "from": round(start, 2), "to": round(new_start, 2), "subject": clip.get("subject_words"),
+            "said_at_before": clip["subject_said_at"], "said_at_after": round(words[h]["s"] - words[k]["s"], 2),
+            "hook_line_before": clip.get("hook_line")}
+        clip["start"] = new_start
+        clip["hook_line"] = _sentence_text(words, k, 40)
+        clip["hook_aligned"] = True
+        clip["subject_said_at"] = round(words[h]["s"] - words[k]["s"], 2)
+        for flag in ("start_mid_sentence", "opens_on_before", "opens_on_request"):
+            clip.pop(flag, None)
+        return new_start
+    return None
+
+
+def everyday_weight():
+    """EVERYDAY_WEIGHT (plus.SELECTION["everyday_weight"]): points a clip whose moment turns on an everyday thing
+    gets in rank_by_opening; 0 (off) without it."""
+    try:
+        return max(0.0, min(20.0, float(os.environ.get("EVERYDAY_WEIGHT") or 0)))
+    except ValueError:
+        return 0.0
 
 
 def _score(v):
@@ -2327,6 +2477,14 @@ def rank_by_opening(clip):
     base = moment if opening is None else opening
     base = max(0.0, base - sum(OPENING_PENALTY.get(f, 0) for f in clip.get("opening_flags") or []))
     score = (1 - OPENING_WEIGHT) * moment + OPENING_WEIGHT * base
+    # 9-oct-2026: a moment about an everyday thing the viewer knows (the model's everyday_thing, once checked as
+    # said in the clip by rank_openings) — a weight at equal quality, never a filter.
+    bonus = everyday_weight() if str(clip.get("everyday_thing") or "").strip() and clip.get("everyday_said", True) else 0
+    if bonus:
+        clip["everyday_bonus"] = bonus
+        score += bonus
+    else:
+        clip.pop("everyday_bonus", None)
     if clip.get("already_clipped"):
         score -= already_clipped.PENALTY
     score = int(round(max(0.0, score)))
@@ -2344,6 +2502,10 @@ def rank_openings(shorts, words):
     import already_clipped
     for s in shorts:
         check_opening(s, words)
+        if str(s.get("everyday_thing") or "").strip():
+            k0 = _first_heard(words, float(s.get("start", 0)))
+            s["everyday_said"] = bool(k0 is not None and any(
+                _subject_hits(words, w, k0, float(s.get("end", 0))) for w in str(s["everyday_thing"]).split()))
     try:
         n = already_clipped.check(shorts, (os.environ.get("PLAYBOOK_SHOW") or "").strip())
         if n:
@@ -2359,7 +2521,8 @@ def rank_openings(shorts, words):
             k0 = _first_heard(words, float(s["start"]))
             heard = _sentence_text(words, k0, 14)[:80] if k0 is not None else ""
             print(f"      🎬 {float(s['start']):.0f}s: opening {s.get('opening_score', '?')}"
-                  f"{' (' + ', '.join(flags) + ')' if flags else ''}, moment {s.get('moment_score')}, "
+                  f"{' (' + ', '.join(flags) + ')' if flags else ''}, moment {s.get('moment_score')}"
+                  f"{', +' + format(s['everyday_bonus'], 'g') + ' everyday thing (' + str(s.get('everyday_thing')) + ')' if s.get('everyday_bonus') else ''}, "
                   f"score {before} -> {s['predicted_score']}: \"{heard}\"")
     clean = sum(not s.get("opening_flags") for s in shorts)
     print(f"   🎬 Openings: {clean}/{len(shorts)} clip(s) open clean (sentence start, stands alone, subject said "
@@ -3035,8 +3198,8 @@ def playbook_detail_rules(max_secs):
     cut + descriptions, off-limits topics, the niche when there is one)."""
     if not playbook.enabled():
         return ""
-    return (gemini_worker.QUESTION_TITLE_ADDENDUM
-            + (gemini_worker.TITLE_VARIETY_ADDENDUM if playbook.title_variety_enabled() else "")
+    return (gemini_worker.title_rules()
+            + (gemini_worker.title_variety_rules() if playbook.title_variety_enabled() else "")
             + gemini_worker.PLAYBOOK_DETAIL_ADDENDUM.replace("{max_secs}", f"{max_secs:g}")
             + gemini_worker.SAFETY_TOPICS_ADDENDUM
             + playbook_niche_rules(detail=True))
@@ -3407,6 +3570,21 @@ def get_viral_clips(transcript_result, video_duration, video_path=None):
             if s.get("payoff_outside"):
                 print(f"      ⚠️ {s['start']:.0f}s: the PAYOFF IS OUTSIDE the clip ({s['payoff_outside']}) — "
                       f"kept, but left out of the auto-publish: \"{str(s.get('punchline') or '')[:70]}\"")
+        if playbook_on and os.environ.get("OPENING_SUBJECT_FIRST") == "1":
+            # 9-oct-2026: the first sentence says the clip's thing (open_on_subject), once the end is final.
+            moved = 0
+            for s in shorts:
+                before = float(s["start"])
+                if open_on_subject(s, words, min_secs) is not None:
+                    moved += 1
+                    m = s["opening_moved_for_subject"]
+                    print(f"      🗣️ {before:.0f}s: \"{s.get('subject_words')}\" was said at {m['said_at_before']:.1f}s — "
+                          f"opens {s['start'] - before:.1f}s later, said at {m['said_at_after']:.1f}s: "
+                          f"\"{str(s.get('hook_line') or '')[:70]}\"")
+            said = [s.get("subject_said_at") for s in shorts if s.get("subject_words")]
+            early = sum(a is not None and a <= OPENING_SUBJECT_SECONDS for a in said)
+            print(f"   🗣️ Subject first: {early}/{len(said)} clip(s) say their thing within "
+                  f"{OPENING_SUBJECT_SECONDS:g}s ({moved} opened later for it).")
         if playbook_on:
             kept = dropped = 0
             for s in shorts:

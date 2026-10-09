@@ -208,7 +208,7 @@ def request(clip_path, clip, transcript, start, end):
     if playbook.enabled():
         # Same title / hook rules as the detail pass (reground and the
         # B-roll planner's hook both come through here).
-        prompt += gemini_worker.QUESTION_TITLE_ADDENDUM
+        prompt += gemini_worker.title_rules()
     return frames, prompt
 
 

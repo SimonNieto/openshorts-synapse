@@ -8,6 +8,14 @@ import pytest
 import playbook
 import plus
 
+
+@pytest.fixture(autouse=True)
+def _question_titles(monkeypatch):
+    """These checks are the closed-question titles (playbook.title_style "question"); the "references" style
+    has its own (tests/test_references_recipe.py)."""
+    monkeypatch.setenv("TITLE_STYLE", "question")
+
+
 # The six titles of the job, with the scores the model gave.
 JRE = [("Is certainty just a security blanket for your brain?", 74),
        ("Can words ever truly describe a DMT experience?", 71),
