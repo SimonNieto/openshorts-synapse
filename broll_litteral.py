@@ -109,8 +109,12 @@ physician" about a named man). An expression is not a noun ("my finger on the pu
 lights"). Nothing concrete in the clip: an empty list.
 Offer MANY: every concrete noun worth seeing, each time it is said (a 30 s clip usually has 10 to 20); the code keeps
 about one picture every 5 s and 40 % of the clip off the face. A list (A, B, C) gets one entry per element.
-People are ordinary Americans (the podcasts are American): give each one an age and a look ("a man in his forties
-in navy scrubs"), and always DOING something visible (rubbing his eyes, driving, writing) — never posing for the camera.
+People are ordinary Americans (the podcasts are American): give each one an age, a plain casting note and a look ("a
+white man in his forties in navy scrubs", "a Black woman in her thirties"), varied across the clip — without it the
+image model makes everyone East Asian — and always DOING something visible (rubbing his eyes, driving, writing),
+never posing for the camera.
+Never a thing made to be read (a newspaper, a book, a sign, a label, what a screen shows): the image model writes
+gibberish on it. Show the hands or the person holding it from the side, or leave it out.
 "nouns", one entry each:
 - "i": the number of the noun itself (not its article nor its adjective): the picture comes up on that word;
 - "word": that word;
