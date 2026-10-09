@@ -81,7 +81,8 @@ class TestJobEnv:
     def test_broll_is_the_recipe_plus_the_switch(self):
         cfg = json.loads(plus.job_env(OLD_PROFILE)["PLUS_BROLL_JSON"])
         for k, v in plus.BROLL.items():
-            assert cfg[k] == v, k
+            # the whoosh also needs the sound recipe's "sfx" (plus.AUDIO, 9-oct-2026: they have none)
+            assert cfg[k] == (bool(v and plus.AUDIO["sfx"]) if k == "sfx" else v), k
         assert cfg["enabled"] is True and cfg["planner"] == "claude"
         assert cfg["engine"] == "zimage" and cfg["layout"] == "mixed" and cfg["review"] == "auto"
         assert "real_photos" not in cfg

@@ -4189,7 +4189,12 @@ if __name__ == '__main__':
                     # the re-dump after the pool is race-free.
                     if success and os.environ.get("WATERMARK") == "1":
                         apply_watermark(clip_final_path)
-                    if success and os.environ.get("BACKGROUND_MUSIC") == "1":
+                    if success and audio_cfg:
+                        # The music bed and the target loudness of Clip Generator++ (plus.AUDIO, music_bed.py):
+                        # the last time the clip's sound is mixed — every later layer copies it, the whoosh
+                        # (when on) re-normalises to the same target.
+                        music_bed.apply(clip_final_path, clip, audio_cfg)
+                    elif success and os.environ.get("BACKGROUND_MUSIC") == "1":
                         import background_music
                         background_music.add_background_music(clip_final_path)
                     # Clip Generator++ reaction cutaways (reactions.py): cut to
@@ -4388,6 +4393,13 @@ if __name__ == '__main__':
 
             clip_workers = max(int(os.environ.get("CLIP_WORKERS", "3")), 1)
             shorts = clips_data['shorts']
+            # The music bed (plus.AUDIO): every clip's track chosen here, in order, before the clips render in
+            # parallel — so two clips in a row never share one.
+            import music_bed
+            audio_cfg = music_bed.config()
+            if audio_cfg and music_bed.plan_job(shorts, audio_cfg, seed=video_title):
+                print("🎵 Music: " + "; ".join(f"clip {k + 1} « {c['music'].get('title') or c['music']['file']} »"
+                                              for k, c in enumerate(shorts) if c.get('music')))
             with ThreadPoolExecutor(max_workers=min(clip_workers, len(shorts))) as pool:
                 futures = {pool.submit(_process_one_clip, i, clip): i
                            for i, clip in enumerate(shorts)}
@@ -4410,7 +4422,7 @@ if __name__ == '__main__':
             # Persist per-clip render results added by the workers (auto_hook)
             # so the editor can see what is already burned into each clip.
             if any('auto_hook' in c or 'hook_grounding' in c or 'broll' in c or 'title_has_name' in c
-                   or 'recipe' in c for c in shorts):
+                   or 'recipe' in c or 'audio' in c for c in shorts):
                 with open(metadata_file, 'w') as f:
                     json.dump(clips_data, f, indent=2)
             # After the final metadata (the montage's recipe is in it: the words as edited).

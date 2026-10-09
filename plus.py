@@ -143,6 +143,16 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
 # sleeping...), 1.5-3 s of real stock footage from Pexels instead of a generated picture, cut on the word, full screen,
 # 9:16, no sound; the objects stay generated (broll_video.py). OFF until the user validates it on a board.
 BROLL["video"] = False
+# The sound (9-oct-2026, recette « références », music_bed.py): OptimalHealth's 9 hits measured
+# (etude2/mesures/rapport.md) — a soft music bed held ~14 dB under the voice in 6 of 9, steady (no ducking they
+# could measure), NO whoosh nor sound effect, the whole at -16.6 LUFS; ours was the voice alone, a whoosh on the first
+# drawing, -14 LUFS. "music" = one track of music/catalog.json per clip (its mood from the clip's subject, never the
+# same twice in a row in a job; only tracks marked "content_id": false), faded in 0.5 s / out 1 s;
+# "music_db_under_voice" = the gap measured the study's way (speech frames vs the bed between the syllables);
+# "duck_db" = a light ducking under the voice (1.5 dB ~ inside their ±2-3 dB, 0 = none); "target_lufs" = the
+# delivered loudness (None = the app's -14); "sfx" = the whoosh on the first drawing (plus.BROLL["sfx"]).
+# NOT IN PROD until she validates it on the bench (etude2/v3/son).
+AUDIO = {"music": True, "music_db_under_voice": 14, "target_lufs": -16.6, "sfx": False, "duck_db": 1.5}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set
@@ -373,6 +383,8 @@ def job_env(profile):
         "FACE_CHECK": "1" if SELECTION["face_check"] else "0",
         # Read by main.spectate_clips once every clip is rendered (SPECTATOR above).
         "PLUS_SPECTATOR": "1" if SPECTATOR else "0",
+        # Read by music_bed (main._process_one_clip) and broll's whoosh loudness (AUDIO above).
+        "PLUS_AUDIO_JSON": json.dumps(AUDIO),
         # --- the channel's own facts ---
         "CLIP_MIN_SECONDS": str(fmt["clip_min"]),
         "CLIP_MAX_SECONDS": str(fmt["clip_max"]),
@@ -398,7 +410,8 @@ def job_env(profile):
         env["AI_CACHE_REFRESH"] = "1"
     if p["broll"]["enabled"]:
         # The B-roll planner is the brain's "broll" step.
-        env["PLUS_BROLL_JSON"] = json.dumps({**BROLL, "enabled": True,
+        # The whoosh only when the sound recipe wants it too (AUDIO["sfx"]).
+        env["PLUS_BROLL_JSON"] = json.dumps({**BROLL, "enabled": True, "sfx": bool(BROLL["sfx"] and AUDIO["sfx"]),
                                              "planner": "gemini" if BRAIN["broll"] == "gemini" else "claude"})
     if p["show"]:
         env["PLAYBOOK_SHOW"] = p["show"]

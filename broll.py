@@ -4280,7 +4280,10 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                 ms = max(0, int(round((t - SFX_LEAD) * 1000)))
                 audio_graph.append(f"[{1 + len(layers) + j}:a]adelay={ms}|{ms},"
                                    f"volume={sfx_gain(clip_path, t):g}dB[sx{j}]")
-            norm = (f",{LOUDNORM_FILTER},aresample=48000"
+            # At the job's own target when it has one (plus.AUDIO "target_lufs", music_bed; 9-oct-2026).
+            import music_bed
+            ln = music_bed.loudnorm_filter() if music_bed.config() else LOUDNORM_FILTER
+            norm = (f",{ln},aresample=48000"
                     if os.environ.get("AUDIO_NORMALIZE", "1").strip() != "0" else "")
             audio_graph.append(f"[0:a]{''.join(f'[sx{j}]' for j in range(len(sfx_at)))}"
                                f"amix=inputs={len(sfx_at) + 1}:duration=first:normalize=0{norm}[a]")
