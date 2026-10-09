@@ -126,50 +126,99 @@ def main():
     fps = float(eval(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                                      "stream=r_frame_rate", "-of", "csv=p=0", src],
                                     capture_output=True, text=True).stdout.strip()))
+    import montage
+    import plus
+    import punch_in
+    import recut
     report = {}
-    for n, a in CLIPS.items():
-        c = meta["shorts"][n - 1]
-        start, end = float(c["start"]), float(c["end"])
-        cut = os.path.join(OUT, f"_cut_{n}.mp4")
-        run(["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", src, "-t", f"{end - start:.3f}",
-             "-c:v", "libx264", "-crf", "10", "-preset", "fast", "-c:a", "aac", "-b:a", "192k", cut])
-        words = viral_fx.clip_words(transcript, start, end)
-        punch = punch_span(words, c.get("punchline"))
-        pics = [(float(b["t"]), float(b["t"]) + float(b["dur"])) for b in c.get("broll") or []]
-        items = [{"t": float(b["t"]), "dur": float(b["dur"]), "path": os.path.join(JOB, b["image"])}
-                 for b in c.get("broll") or []]
+    for n, a0 in CLIPS.items():
+        c0 = meta["shorts"][n - 1]
+        start, end = float(c0["start"]), float(c0["end"])
+        raw_words = viral_fx.clip_words(transcript, start, end)
         for style in ("fixed", "references"):
-            import plus
+            c = json.loads(json.dumps(c0))
             os.environ["PLUS_FX_JSON"] = json.dumps({"zoom_style": style})
             os.environ["PLUS_ZOOMS_JSON"] = json.dumps(plus.ZOOMS)
-            os.environ["BROLL_HERO_PUSH"] = f"{plus.STILL_PUSH:g}" if style == "references" else "1.0"
-            os.environ["BROLL_HERO_STILL_EVERY"] = str(plus.STILL_EVERY) if style == "references" else "0"
+            refs = style == "references"
+            os.environ["BROLL_HERO_PUSH"] = "1.0"
+            os.environ["BROLL_HERO_PUSH_RATE"] = f"{plus.STILL_RATE:g}" if refs else "0"
+            os.environ["BROLL_HERO_STILL_EVERY"] = str(plus.STILL_EVERY) if refs else "0"
             os.environ["BROLL_HERO_PUSH_CURVE"] = "linear"
             import broll
             importlib.reload(broll)
-            if style == "references":
-                zooms.write_cues(cut, words, punch=punch, pictures=pics)
+            zooms.configure()
+            # The montage first, as a job does it (the silences cut, the joins to hide).
+            cut = os.path.join(OUT, f"_cut_{n}_{style}.mp4")
+            mont = montage.apply(src, c, transcript, start, end, cut, dict(plus.MONTAGE))
+            if mont:
+                segs = mont["segments"]
+                words = viral_fx.clip_words(mont["transcript"], 0.0, mont["duration"])
+
+                def to_clip(t):
+                    v = recut.source_to_clip(segs, start + t)
+                    return v if v is not None else t
+            else:
+                run(["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", src, "-t", f"{end - start:.3f}",
+                     "-c:v", "libx264", "-crf", "10", "-preset", "fast", "-c:a", "aac", "-b:a", "192k", cut])
+                words = raw_words
+
+                def to_clip(t):
+                    return t
+            joins = (mont or {}).get("joins") or []
+            hide = [j["t"] for j in joins if j.get("verdict") == "hide"]
+            clean = [j["t"] for j in joins if j.get("verdict") == "clean"]
+            punch = (mont or {}).get("punch") or punch_span(words, c0.get("punchline"))
+            items = [{"t": round(to_clip(float(b["t"])), 3), "dur": float(b["dur"]),
+                      "path": os.path.join(JOB, b["image"])} for b in c0.get("broll") or []]
+            pics = [(it["t"], it["t"] + it["dur"]) for it in items]
+            if refs:
+                zooms.write_cues(cut, words, joins=hide, punch=punch, pictures=pics, silences=clean)
             framed = os.path.join(OUT, f"_framed_{n}_{style}.mp4")
             assert m.render_clip(cut, framed, "vertical")
-            plan = (zooms.read_cues(cut) or {}).get("applied") if style == "references" else []
+            plan = ((zooms.read_cues(cut) or {}).get("applied") or []) if refs else []
             if os.path.exists(zooms.cues_path(cut)):
                 os.remove(zooms.cues_path(cut))
             full = os.path.join(OUT, f"_full_{n}_{style}.mp4")
             overlay_drawings(framed, full, items, fps)
-            tag = "zooms" if style == "references" else "fixe"
+            if not refs and mont:
+                # The fixed recipe's tight frames (punch_in.finish), after the pictures, as a job cuts them.
+                tight_out = os.path.join(OUT, f"_tight_{n}_{style}.mp4")
+                wins = punch_in.finish(full, tight_out, {"broll": [{"t": it["t"], "dur": it["dur"]} for it in items]},
+                                       words=words, montage_report=mont, hook_end=None, source_height=1080)
+                if wins:
+                    full = tight_out
+                    for w in wins:
+                        plan += [{"t": w["a"], "to": "tight", "why": f"plan serré ({w['why']})", "word": ""},
+                                 {"t": w["b"], "to": "wide", "why": "fin du plan serré", "word": ""}]
+            a = round(to_clip(a0), 2)
+            tag = "zooms" if refs else "fixe"
             mp4 = os.path.join(OUT, f"clip{n:02d}_{tag}.mp4")
             run(["ffmpeg", "-y", "-v", "error", "-ss", f"{a:.3f}", "-i", full, "-t", "15", "-c:v", "libx264",
                  "-crf", "16", "-preset", "medium", "-c:a", "aac", "-movflags", "+faststart", mp4])
-            shown = [(it["t"], it["t"] + it["dur"], it.get("still") or style != "references") for it in items]
+            shown = [(it["t"], it["t"] + it["dur"], it.get("still") or not refs) for it in items]
             contact_sheet(mp4, os.path.join(OUT, f"clip{n:02d}_{tag}_planche.jpg"), labels_for(a, plan, shown),
-                          f"Clip {n} — {tag} — {a:.0f}-{a + 15:.0f} s du clip (1 image/s)")
-            report[f"clip{n:02d}_{tag}"] = {"window": [a, a + 15], "punch": punch, "pictures": pics, "plan": plan}
+                          f"Clip {n} — {tag} — {a:.1f}-{a + 15:.1f} s du clip monté (1 image/s)")
+            # The rhythm: speech rate before / after the montage, changes on screen a minute, the longest stretch.
+            dur = (mont or {}).get("duration") or (end - start)
+            changes = sorted({round(x["t"], 2) for x in plan if not x.get("hidden")}
+                             | {round(x, 2) for p_ in pics for x in p_}
+                             | {round(x, 2) for x in (mont or {}).get("camera_cuts") or []})
+            gaps = [b_ - a_ for a_, b_ in zip([0.0] + changes, changes + [dur])]
+            span = lambda ws: (ws[-1]["end"] - ws[0]["start"]) if ws else 1.0
+            report[f"clip{n:02d}_{tag}"] = {
+                "window": [a, a + 15], "punch": punch, "pictures": pics, "plan": plan,
+                "montage_saved_s": (mont or {}).get("saved", 0.0), "duration": round(dur, 2),
+                "joins": {"hide": len(hide), "clean": len(clean), "refused": len((mont or {}).get("refused") or [])},
+                "words_per_s_raw": round(len(raw_words) / span(raw_words), 2),
+                "words_per_s_cut": round(len(words) / span(words), 2),
+                "changes_per_min": round(len(changes) / dur * 60, 1), "longest_without_change_s": round(max(gaps), 1)}
+            print(f"   📊 clip {n} {tag}: " + json.dumps({k: v for k, v in report[f"clip{n:02d}_{tag}"].items()
+                                                      if k not in ("plan", "pictures", "punch")}, ensure_ascii=False))
         for f in set(glob.glob(os.path.join(OUT, f"_*_{n}*.mp4*")) + glob.glob(os.path.join(OUT, f"_*_{n}_*"))):
             if os.path.exists(f):
                 os.remove(f)
     with open(os.path.join(OUT, "plans.json"), "w", encoding="utf-8") as f:
         json.dump(report, f, indent=1, ensure_ascii=False)
-    print(json.dumps({k: v["plan"] for k, v in report.items()}, ensure_ascii=False)[:5000])
 
 
 if __name__ == "__main__":

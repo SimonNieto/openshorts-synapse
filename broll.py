@@ -165,6 +165,9 @@ HERO_PUSH = _knob("BROLL_HERO_PUSH", 1.0)           # push-in over the time on s
 # The push's curve: "ease" (slow, faster, slow) or "linear" (the references' steady creep, plus.FX "zoom_style"
 # "references" since 9-oct-2026: it starts moving on the cut's very frame).
 HERO_PUSH_CURVE = os.environ.get("BROLL_HERO_PUSH_CURVE", "ease")
+# The push as a rate (per second on screen, 0 = HERO_PUSH as it is): OptimalHealth's still photos creep +1.4 %/s
+# (measured frame by frame, 9-oct-2026), whatever their length.
+HERO_PUSH_RATE = _knob("BROLL_HERO_PUSH_RATE", 0.0)
 # One full-screen picture in this many holds still (OptimalHealth: about one in three does not move); 0 = all move.
 HERO_STILL_EVERY = int(_knob("BROLL_HERO_STILL_EVERY", 0))
 HERO_VIGNETTE = _knob("BROLL_HERO_VIGNETTE", 0.30)  # darkening at the corners (0-1): keeps the eye in the middle
@@ -3338,7 +3341,8 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None, push=None):
     ``push``: this picture's own push (HERO_PUSH when None; 1.0 = it holds still).
     Returns the frame pattern."""
     import numpy as np
-    push = HERO_PUSH if push is None else push
+    if push is None:
+        push = 1.0 + HERO_PUSH_RATE * dur if HERO_PUSH_RATE > 0 else HERO_PUSH
     img = Image.open(src).convert("RGB")
     if _grade_params(grade):
         img = _grade_colour(img, grade)

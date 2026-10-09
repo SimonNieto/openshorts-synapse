@@ -4168,6 +4168,8 @@ if __name__ == '__main__':
                             _zooms.write_cues(
                                 clip_temp_path, _vfx.clip_words(c_transcript, c_start, c_end),
                                 joins=[j["t"] for j in (mont or {}).get("joins") or [] if j.get("verdict") == "hide"],
+                                # the joins that show nothing: the frame switches there too when it can
+                                silences=[j["t"] for j in (mont or {}).get("joins") or [] if j.get("verdict") == "clean"],
                                 punch=(mont or {}).get("punch") or ((pt, pt + 3.0) if pt is not None else None))
                         except Exception as e:
                             print(f"   ⚠️ Zoom cues failed ({type(e).__name__}: {e}) — fixed framing.")
