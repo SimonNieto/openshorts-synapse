@@ -11,13 +11,27 @@ Photo réaliste, plan de cinéma ou rendu 3D médical : couleurs franches, très
 d'aquarelle, jamais de dessin animé. Le prompt de chaque image commence par cette phrase, mot pour mot, ajoutée par
 le code (le directeur n'écrit aucun mot de style ni d'appareil photo) :
 
-> Photorealistic cinematic image, vivid saturated colours, strong contrast, crisp sharp focus, one clear subject filling the frame, every label, sign, page and screen left blank.
+> Photorealistic cinematic photograph set in the United States, vivid saturated colours, strong contrast, crisp sharp focus, one clear subject filling the frame, no writing, no letters and no logos anywhere.
+
+(9 octobre 2026, au banc : « every label, sign and screen left blank » faisait des rectangles blancs partout et
+laissait passer des panneaux en chinois ; sans lieu dit, Z-Image met des Asiatiques et des enseignes chinoises
+partout, alors que les podcasts sont américains.)
 
 Pour une séquence d'explication (plus bas), la figure 3D suit cette phrase-là, mot pour mot, ajoutée par le code :
 
 > High-end 3D medical visualization, vivid saturated colours, strong contrast, crisp sharp focus, one clear figure centred in the frame on a plain dark background with space around it, nothing written anywhere.
 
-## Trois formats, choisis par le directeur
+## Les formats, choisis par le directeur
+
+(Règles du décodage de 12 Shorts d'OptimalHealth, `output/_stepup/etude2/decodage/rapport.md` § 4 : un objet qu'on
+tient → carte en bas ; une matière, une action, un lieu, un état vécu → plein écran ; un mécanisme invisible → 3D ;
+un geste pas à pas → une seule figure 3D qui évolue. Les 3 premières secondes restent sur le visage, au plus une
+carte ; le clip finit sur un visage ; ≈ 40 % du temps hors visage.)
+
+- **Écran coupé en deux** : l'invité dans la moitié haute, la matière ou les petites choses nombreuses (un tapis de
+  comprimés, des grains de café) remplissent la moitié basse ; le sous-titre tombe sur la ligne de séparation.
+- **Intérieur du corps** : un nerf, une cellule, un organe, une inflammation, en rendu 3D médical plein écran (la
+  phrase de style des séquences).
 
 - **Scène** : plein écran, 9:16. Un lieu (une salle des urgences, un bloc opératoire), une personne générique qui
   fait quelque chose (un médecin épuisé au bout d'une garde), un geste, l'intérieur du corps (en rendu 3D médical

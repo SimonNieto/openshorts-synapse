@@ -196,6 +196,13 @@ TOP_BAND = (0.05, 0.34)                     # of the height: above the head of a
 OBJECT_GEN = (1024, 768)
 OBJECT_SIZE = int(_knob("BROLL_OBJECT_SIZE", 60))
 OBJECT_TOP = (0.55, 0.62)
+OBJECT_RISE = 0.4          # s: the card rises from OBJECT_RISE_FROM lower and settles (the chain starts it 0.5 s early)
+OBJECT_RISE_FROM = 0.10    # of the height
+# The « littéral » chain's SPLIT screen (9-oct-2026, OptimalHealth's ibuprofen): the speaker's frame moved up into the
+# top half (from SPLIT_FACE_FROM of the height: the face of a tracked podcast frame lands in the middle of it), the
+# thing filling the bottom half (SPLIT_GEN, made 9:8 like the half), the captions on the line between them.
+SPLIT_GEN = (1152, 1024)
+SPLIT_FACE_FROM = 0.14
 # Pace of the "mixed" layout: few images, far apart (one hero + two or three cards on 30 s), whatever the
 # profile's max / density say; nothing in the hook's seconds nor in the last MIXED_TAIL s.
 MIXED_MAX = int(_knob("BROLL_MIXED_MAX", 4))     # density "normal" / "more": one hero + three cards
@@ -2411,6 +2418,8 @@ def _gen_size(layout, hero_res="std"):
         return CARD_GEN
     if layout == "object":
         return OBJECT_GEN
+    if layout == "split":
+        return SPLIT_GEN
     if layout == "half":
         return (1024, 1024)       # one half of a pair (v21, broll_v20._make): a square, cropped and composed by code
     return (768, 1344)
@@ -3361,7 +3370,22 @@ def _object_frames(src, folder, fps, dur, W, H, size_pct=None):
     canvas.save(first, compress_level=1)
     for f in range(1, max(2, int(round(dur * fps)))):
         shutil.copyfile(first, os.path.join(folder, f"c{f:03d}.png"))
-    return os.path.join(folder, "c%03d.png"), x - pad, y - pad
+    return os.path.join(folder, "c%03d.png"), x - pad, y - pad, canvas.height
+
+
+def _split_frames(src, folder, fps, dur, W, H):
+    """PNG sequence of a split screen's bottom half: the picture covering W x H/2 (centre crop), a hard cut, no move."""
+    img = Image.open(src).convert("RGB")
+    img = ImageEnhance.Sharpness(img).enhance(1.1)
+    hw, hh = W, H - H // 2
+    k = max(hw / img.width, hh / img.height)
+    big = img.resize((max(hw, int(img.width * k + 0.5)), max(hh, int(img.height * k + 0.5))), Image.LANCZOS)
+    x0, y0 = (big.width - hw) // 2, (big.height - hh) // 2
+    first = os.path.join(folder, "c000.png")
+    big.crop((x0, y0, x0 + hw, y0 + hh)).save(first, compress_level=1)
+    for f in range(1, max(2, int(round(dur * fps)))):
+        shutil.copyfile(first, os.path.join(folder, f"c{f:03d}.png"))
+    return os.path.join(folder, "c%03d.png")
 
 
 MARK_COLOUR = (255, 255, 255)
@@ -4103,7 +4127,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     "query": m["query"], "prompt": m["prompt"],
                     "source": c["source"],
                     "style": c["style"] if c["source"] in ("local", "gemini") else "photo",
-                    "layout": "hero" if hero else "object" if obj else ("full" if big else ("card" if mixed else "rise")),
+                    "layout": c["layout"] if literal else "hero" if hero else ("full" if big else ("card" if mixed else "rise")),
                     "_img": c["file"]}
             reg = register_of(c["style"])
             if reg:
@@ -4159,8 +4183,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 if m.get("seq"):
                     # a step of a « littéral » sequence: the same figure, its marks drawn over it (_draw_marks)
                     item.update(seq=m["seq"], step=m.get("step", 0), marks=list(m.get("marks") or []))
-                if obj:
-                    item.update(size=OBJECT_SIZE, format="object", background=m.get("background") or "")
+                if literal:
+                    item["format"] = m.get("format") or ""
+                    if obj:
+                        item.update(size=OBJECT_SIZE, background=m.get("background") or "")
                 elif not hero:
                     item.update(look="premium", size=CARD_SIZE, position=CARD_POSITION)
                     if cfg.get("label"):
@@ -4209,8 +4235,9 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # A fixed time on screen (or a hero longer than its sentence): two pictures never overlap, the
             # first one leaves a little early
             for a, b in zip(items, items[1:]):
-                if a.get("seq") and a.get("seq") == b.get("seq"):
-                    a["dur"] = round(min(a["dur"], b["t"] - a["t"]), 2)     # a sequence's steps: end to end
+                if literal or (a.get("seq") and a.get("seq") == b.get("seq")):
+                    # broll_litteral.schedule placed them: picture to picture is a cut, never a flash of face
+                    a["dur"] = round(min(a["dur"], b["t"] - a["t"]), 2)
                     continue
                 a["dur"] = round(max(1.0, min(a["dur"], b["t"] - a["t"] - 0.25)), 2)
         clip.pop("opening_image", None)
@@ -4349,9 +4376,15 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
             dur = max(0.4 if it.get("seq") else 1.0, min(SCREEN_DUR_MAX if screen else 4.0, dur))
             grade = it.get("grade") if _grade_params(it.get("grade")) else "off"
             if it.get("layout") == "object":
-                pattern, x, y = _object_frames(src, folder, fps, dur, w, h, int(it.get("size") or OBJECT_SIZE))
-                layers.append({"t": it["t"], "dur": dur, "rise": False, "object": True, "pattern": pattern, "x": x,
-                               "y": y})
+                pattern, x, y, cvh = _object_frames(src, folder, fps, dur, w, h, int(it.get("size") or OBJECT_SIZE))
+                # it rises from below and settles (the overlay's y expression of the rising cards, canvas centres)
+                ye = y + cvh / 2
+                layers.append({"t": it["t"], "dur": dur, "rise": True, "object": True, "pattern": pattern, "x": x,
+                               "y": (ye + h * OBJECT_RISE_FROM, ye, 0, cvh, OBJECT_RISE)})
+            elif it.get("layout") == "split":
+                pattern = _split_frames(src, folder, fps, dur, w, h)
+                layers.append({"t": it["t"], "dur": dur, "rise": False, "split": True, "pattern": pattern, "x": 0,
+                               "y": h // 2})
             elif hero:
                 fx = it.get("fx") if it.get("fx") in FX_KINDS else None
                 pattern = _hero_frames(src, folder, fps, dur, w, h, grade=grade, fx=fx, marks=it.get("marks"))
@@ -4373,7 +4406,7 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                 layers.append({"t": it["t"], "dur": dur, "rise": False, "pattern": pattern, "x": x, "y": y})
         if not layers:
             raise RuntimeError("no B-roll image to cut in")
-        big = [ly for ly in layers if not ly["rise"] and not ly.get("hero") and not ly.get("object")]
+        big = [ly for ly in layers if not ly["rise"] and not ly.get("hero") and not ly.get("split")]
         if big:
             # Behind a big card, the podcast keeps playing — blurred and dimmed,
             # so the photo reads as "in front of" the conversation. A small
@@ -4385,6 +4418,13 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
         else:
             graph = ["[0:v]null[bg]"]
         cur, inputs = "[bg]", []
+        splits = [ly for ly in layers if ly.get("split")]
+        if splits:
+            # A split screen: the speaker's frame moved up into the top half while the thing fills the bottom one.
+            windows = "+".join(f"between(t,{ly['t']:.3f},{ly['t'] + ly['dur']:.3f})" for ly in splits)
+            graph += [f"{cur}split=2[sa][sb]", f"[sb]crop=iw:ih/2:0:{int(h * SPLIT_FACE_FROM)}[stop]",
+                      f"[sa][stop]overlay=0:0:enable='{windows}'[bgs]"]
+            cur = "[bgs]"
         for k, ly in enumerate(layers):
             inputs += ["-itsoffset", f"{ly['t']:.3f}", "-framerate", str(fps), "-i", ly["pattern"]]
             win = f"between(t,{ly['t']:.3f},{ly['t'] + ly['dur']:.3f})"

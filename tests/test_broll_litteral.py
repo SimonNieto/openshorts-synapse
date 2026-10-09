@@ -41,7 +41,7 @@ def test_the_recipe_runs_the_literal_chain_and_keeps_the_drawn_one():
 
 def test_the_charter_gives_one_style_for_pictures_and_one_for_sequences():
     text, styles, method = bl.charter()
-    assert styles["picture"].startswith("Photorealistic cinematic image") and "blank" in styles["picture"]
+    assert styles["picture"].startswith("Photorealistic cinematic photograph") and "no writing" in styles["picture"]
     assert styles["sequence"].startswith("High-end 3D medical visualization")
     assert "noms concrets" in method and "Séquence" in text
     skill = broll_ideas.skill_text("principes")
@@ -49,27 +49,37 @@ def test_the_charter_gives_one_style_for_pictures_and_one_for_sequences():
 
 
 class TestSchedule:
-    def test_on_the_word_never_before_0_8_s(self):
-        nouns = [_noun("if"), _noun("emergency"), _noun("physician")]
-        picks = bl.schedule(nouns, WORDS, 60.0)
-        assert picks[0]["key"] == "emergency" and picks[0]["t"] == WORDS[IDX["emergency"]]["start"]
-        assert all(p["t"] >= bl.HEAD for p in picks)
+    """The rules of the 12 OptimalHealth shorts decoded (output/_stepup/etude2/decodage/rapport.md § 4)."""
 
-    def test_three_seconds_between_starts_and_face_between(self):
-        nouns = [_noun(w) for w in ("emergency", "room", "morning", "physician", "car", "melatonin", "bottle", "bed",
+    def test_on_the_word_the_face_alone_for_3_s_but_one_card(self):
+        nouns = [_noun("if"), _noun("emergency"), _noun("morning"), _noun("physician"),
+                 _noun("go", fmt="object", bg="yellow"), _noun("room", fmt="object", bg="yellow")]
+        picks = bl.schedule(nouns, WORDS, 60.0)
+        full = [p for p in picks if p["format"] in bl.FULL]
+        assert full and all(p["t"] >= bl.FULL_HEAD for p in full), "nothing full screen in the first 3 s"
+        assert full[0]["key"] == "morning" and full[0]["t"] == WORDS[IDX["morning"]]["start"]
+        early = [p for p in picks if p["t"] < bl.FULL_HEAD]
+        assert len(early) == 1 and early[0]["format"] == "object"
+        # an object card rises CARD_LEAD s before its word (it is settled on it), never before HEAD
+        assert early[0]["t"] >= bl.HEAD and early[0]["t"] == round(WORDS[early[0]["i"]]["start"] - bl.CARD_LEAD, 2)
+
+    def test_the_pace_of_the_references(self):
+        nouns = [_noun(w) for w in ("morning", "physician", "car", "melatonin", "bottle", "bed",
                                      "hospital", "nurse", "corridor", "coffee", "clock", "wall")]
-        picks = bl.schedule(nouns, WORDS, WORDS[-1]["end"] + 1.5)
-        assert len(picks) >= 5
+        total = WORDS[-1]["end"] + 1.5
+        picks = bl.schedule(nouns, WORDS, total)
+        assert len(picks) >= 4 and len(picks) <= bl.PER_MIN * total / 60 + 1
         for a, b in zip(picks, picks[1:]):
-            assert b["t"] - a["t"] >= bl.GAP_MIN - 1e-6
-            assert b["t"] - (a["t"] + a["dur"]) >= bl.FACE_MIN - 1e-6
-        assert all(bl.DUR_MIN <= p["dur"] <= bl.DUR_MAX for p in picks)
-        cover = bl.coverage(picks, WORDS[-1]["end"] + 1.5)
-        assert bl.COVER_LO - 0.02 <= cover <= bl.COVER_HI + 0.02, cover
+            assert b["t"] - a["t"] >= bl.STEP - 1e-6
+            gap = b["t"] - (a["t"] + a["dur"])
+            assert gap >= -1e-6 and (gap < 1e-6 or gap >= bl.JOIN - 1e-6), "picture to picture, or a real face"
+        assert all(p["dur"] <= bl.DUR_MAX + bl.CARD_LEAD + 1e-6 for p in picks)
+        assert bl.COVER_LO - 0.02 <= bl.coverage(picks, total) <= bl.COVER_HI + 1e-6
+        assert picks[-1]["t"] + picks[-1]["dur"] <= total - bl.TAIL + 1e-6, "the clip ends on a face"
 
     def test_priority_wins_a_clash(self):
-        picks = bl.schedule([_noun("room", prio=1), _noun("morning", prio=3)], WORDS, 60.0)
-        assert [p["key"] for p in picks] == ["morning"]
+        picks = bl.schedule([_noun("morning", prio=1), _noun("your", prio=3)], WORDS, 60.0)
+        assert [p["key"] for p in picks] == ["your"]
 
     def test_the_punchline_stays_on_the_face_and_the_tail_too(self):
         t_car = WORDS[IDX["car"]]["start"]
@@ -178,7 +188,7 @@ def _row(word, key, fmt="scene", picture="", bg="", prio=2):
 
 class TestAddBroll:
     def test_scene_full_screen_object_card_one_render_per_key(self, add):
-        rep, made, cut = add([_row("emergency", "er", picture="an emergency room at night"),
+        rep, made, cut = add([_row("physician", "er", picture="an emergency room at night"),
                               _row("melatonin", "pills", "object", "a bottle of melatonin pills", "sky blue"),
                               _row("bed", "pills"),
                               _row("corridor", "hall", picture="a quiet hospital corridor")])
@@ -187,13 +197,13 @@ class TestAddBroll:
         items = rep["items"]
         assert [it["layout"] for it in items] == ["hero", "object", "object", "hero"]
         assert items[1]["image"] != items[2]["image"] and items[1]["size"] == broll.OBJECT_SIZE
-        assert items[0]["t"] == WORDS[IDX["emergency"]]["start"]
+        assert items[0]["t"] == WORDS[IDX["physician"]]["start"]
         assert cut and cut[0] == items
 
     def test_a_refused_key_is_never_made(self, add):
-        rep, made, _cut = add([_row("emergency", "er", picture="an emergency room"),
+        rep, made, _cut = add([_row("physician", "er", picture="an emergency room"),
                                _row("car", "car", "object", "a car key", "yellow")], refuse=["car"])
-        assert len(made) == 1 and [it["anchor"] for it in rep["items"]] == ["emergency"]
+        assert len(made) == 1 and [it["anchor"] for it in rep["items"]] == ["physician"]
 
     def test_a_sequence_s_steps_carry_their_marks_end_to_end(self, add):
         steps = [{"i": IDX[w], "word": w, "marks": [{"kind": "circle", "at": "eye", "dir": "cw"}]}
@@ -213,7 +223,7 @@ def test_the_object_card_and_the_marks_are_drawn(tmp_path):
     Image.new("RGB", broll.OBJECT_GEN, (40, 120, 220)).save(src)
     folder = tmp_path / "f"
     folder.mkdir()
-    pattern, x, y = broll._object_frames(str(src), str(folder), 30, 1.0, 1080, 1920)
+    pattern, x, y, _cvh = broll._object_frames(str(src), str(folder), 30, 1.0, 1080, 1920)
     frames = sorted(os.listdir(folder))
     assert len(frames) == 30
     im = Image.open(folder / frames[0])
@@ -226,3 +236,21 @@ def test_the_object_card_and_the_marks_are_drawn(tmp_path):
                                            {"kind": "glow", "dir": "", "px": 540, "py": 1200}], 0.3)
     assert layer.getpixel((400, 900))[3] > 200 and layer.getpixel((540, 1200))[3] > 100
     assert layer.getpixel((50, 50))[3] == 0
+
+
+def test_the_split_screen_fills_the_lower_half(tmp_path):
+    src = tmp_path / "s.jpg"
+    Image.new("RGB", broll.SPLIT_GEN, (200, 60, 60)).save(src)
+    folder = tmp_path / "f"
+    folder.mkdir()
+    broll._split_frames(str(src), str(folder), 30, 0.5, 1080, 1920)
+    frames = sorted(os.listdir(folder))
+    assert len(frames) == 15 and Image.open(folder / frames[0]).size == (1080, 960)
+    assert broll._gen_size("split") == broll.SPLIT_GEN and broll._gen_size("object") == broll.OBJECT_GEN
+
+
+def test_a_split_picture_is_cut_in_as_such(add):
+    rep, made, _cut = add([_row("melatonin", "pills", "split", "a heap of small white melatonin tablets")])
+    (it,) = rep["items"]
+    assert it["layout"] == "split" and made[0][0] == broll.SPLIT_GEN
+    assert made[0][1].endswith(bl.SPLIT_LINE)

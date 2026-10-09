@@ -30,22 +30,32 @@ import broll_ideas
 
 SKILL = broll_ideas.SKILL_DIR
 CHARTER_FILE, METHOD_FILE = "charte.md", "directeur-banc.md"
-FORMATS = ("object", "scene")
-LAYOUT = {"object": "object", "scene": "hero", "sequence": "hero"}
+# The formats (9-oct-2026, the decoding of 12 OptimalHealth shorts, output/_stepup/etude2/decodage/rapport.md § 4):
+# "object" a thing you hold -> a card in the lower half that rises from the bottom; "split" a substance or many small
+# things (pills, beans) -> the screen cut in two, the guest above, the thing filling the lower half; "scene" a place,
+# an action, a person living a state -> full screen; "inside" an invisible mechanism (a nerve, a cell, an organ, an
+# inflammation) -> full screen 3D medical render; a gesture or mechanism step by step -> a sequence (one 3D figure).
+FORMATS = ("object", "split", "scene", "inside")
+LAYOUT = {"object": "object", "split": "split", "scene": "hero", "inside": "hero", "sequence": "hero"}
+FULL = ("scene", "inside", "sequence")        # the formats that hide the face
 MARK_KINDS = ("arrow", "circle", "glow")
 MARK_DIRS = ("left", "right", "up", "down", "in", "out", "cw", "ccw")
 
-HEAD = 0.8          # s: no picture before (the clip opens on the voice and the face)
-LEAD = 0.0          # s the picture comes up before its word starts (the rule: on the word, ± 0.1 s)
-DUR_MIN, DUR_MAX = 1.0, 3.0
-DUR_AIM = 2.2       # s on screen when the clause gives no end
-GAP_MIN = 3.0       # s from one picture's start to the next one's
-FACE_MIN = 0.5      # s of face at least between two pictures (the cut back to the speaker)
-TAIL = 1.0          # the last s stay on the face
+HEAD = 0.8          # s: no picture before (the clip opens on the voice and the face) — a card at most before FULL_HEAD
+FULL_HEAD = 3.0     # s: no full-screen picture before (12/12 shorts decoded: the face alone for 0-3 s)
+HEAD_GRACE = 0.3    # s: a word said this long before HEAD still gets its picture, at HEAD
+LEAD = 0.0          # s a picture comes up before its word starts (decoded: on the word in 86/109, 1 s before in 16)
+CARD_LEAD = 0.5     # s an object card starts rising before its word (it is settled on the word)
+DUR_MIN, DUR_MAX = 1.0, 3.0   # decoded: median 2 s, 112 of 130 pictures at most 3 s
+DUR_AIM = 2.0       # s on screen when the clause gives no end
+STEP = 1.0          # s at least between two pictures' starts (an enumeration changes picture about every second)
+JOIN = 0.4          # s: a gap of face shorter than this between two pictures is closed (picture to picture)
+TAIL = 1.5          # the last s stay on the face (10/12 decoded shorts end on a face)
 PUNCH_CLEAR = 0.2   # a picture leaves this long before the punchline (the face says it)
-COVER_LO, COVER_HI = 0.35, 0.60
+COVER_LO, COVER_HI = 0.35, 0.45   # decoded: ~40 % of the time off the face, cards included
+PER_MIN = 12        # pictures a minute at most (decoded: ~11)
 SEQ_STEPS = (3, 6)  # steps of a sequence
-SEQ_MAX = 12.0      # s a sequence may hold its figure
+SEQ_MAX = 10.0      # s a sequence may hold its figure (decoded: 5-10 s)
 STEP_MIN = 0.5      # s between two steps (closer: the later one is dropped)
 
 # A person in the picture: dressed (5-oct-2026, the « dessin » chain's lesson: Z-Image undresses anyone shown lying down
@@ -57,6 +67,7 @@ DRESSED_MORE = "The clothes stay closed from the neck to the knees."
 OBJECT_LINE = ("Alone in the centre of the frame on a plain seamless {bg} background, studio product shot, soft even light, "
                "a soft shadow beneath it, the whole object in view with space around it.")
 DEFAULT_BG = "light blue"
+SPLIT_LINE = "Close-up filling the whole frame edge to edge, seen from slightly above, nothing else in view."
 
 
 def read(name):
@@ -94,16 +105,23 @@ You do NOT look for an idea. List the CONCRETE NOUNS said in this clip, each tim
 object, a substance, an organ, a place, a gesture, a type of person — a thing a camera can film. For each one its
 LITERAL picture: the thing itself, as anyone recognises it. No symbol, no allegory, no metaphor, no figure of speech,
 nothing to decode. A real person's name never gets a picture. Nothing concrete in the clip: an empty list.
+Offer MANY: every concrete noun worth seeing, each time it is said (a 30 s clip usually has 10 to 20); the code keeps
+about one picture every 5 s and 40 % of the clip off the face. A list (A, B, C) gets one entry per element.
+People are ordinary Americans (the podcasts are American): give each one an age and a look ("a man in his forties
+in navy scrubs").
 "nouns", one entry each:
 - "i": the number of the noun itself (not its article nor its adjective): the picture comes up on that word;
 - "word": that word;
 - "key": a short name of the thing; the same thing said again gets the same key (its picture comes back);
-- "format": "object" (a thing you hold in a hand or set on a table: shown alone on a plain colour) or "scene" (a
-  place, a person, a gesture, the inside of a body: full screen);
+- "format": "object" (ONE thing you hold in a hand: a bottle, a pen, keys — shown alone on a plain colour, as a card
+  under the face), "split" (a substance or many small things: pills, coffee beans, water — filling the lower half of
+  the screen under the face), "scene" (a place, an action, a person living a state — tired, asleep, ill — full
+  screen) or "inside" (something invisible inside the body: a nerve, a cell, an organ, an inflammation — a 3D
+  medical render, full screen);
 - "picture": on the FIRST entry of a key only (later ones: ""), the thing in plain words, 30 at most, present tense,
   positive: what fills the frame and one or two true details from what is said. "A single" for a thing alone. For
-  the inside of a body: "a clean 3D medical render of" the organ, whole. No style word, no camera word, nothing to
-  read (no text, no number, no label);
+  "inside": the organ or the cells, whole and clean. No style word, no camera word, nothing to read (no text, no
+  number, no label);
 - "background": for an object, ONE plain colour that contrasts with it (e.g. "sky blue", "warm yellow"); else "";
 - "priority": 3 = the thing the clip is about, 2 = clearly worth showing, 1 = minor.
 "sequences": [] unless the guest explains HOW to do something or HOW something works, step by step (a gesture of the
@@ -148,8 +166,10 @@ THE CHANNEL'S PRINCIPLES:
 
 Every picture is a photograph or a clean 3D medical render (the code adds the style words). An organ shown whole and
 clean (a brain, a heart, a tumour inside an organ), even with an instrument touching it, is fine; so is a glowing
-anatomical hologram of a head or a body. A medicine on its own (a pill bottle, tablets, a blister pack) is an everyday
-object and passes.
+anatomical hologram of a head or a body. White arrows, turning circles and glowing spots drawn over a 3D figure are the
+channel's way of explaining: never a reason to refuse. A medicine on its own (a pill bottle, tablets, a blister pack)
+is an everyday object and passes.
+Each picture comes with what is said around it: read it to know who a person in the picture stands for.
 Refuse a picture when:
 - it is gore: a head or a body opened, a wound, blood, a cut into flesh, tissue taken out of a body;
 - something in it evokes a death or its means, even as a visual cliché (a clip about a death, a sentence about deaths);
@@ -158,7 +178,8 @@ Refuse a picture when:
 - in a clip whose subject is a death, the dead person is shown, alive or not;
 - it gives real victims a number or their belongings;
 - it shows an illicit or recreational drug, its gear, or anyone taking a drug or a medicine;
-- it shows a real person: the speakers, or anyone named in the clip (a stranger standing for a named person too);
+- it shows a real person: the speakers, or anyone named in the clip — a stranger standing for a named person too (a
+  "physician" said of a named man is that man: refuse);
 - something in it is to be read (text, numbers, a label).
 Otherwise let it pass. "verdict": "pass" or "refuse"; "reason": 12 words at most when you refuse.
 THE CLIP: "{title}"
@@ -302,7 +323,9 @@ def picture_text(styles, n, more=False):
     picture = n["picture"].rstrip(". ") + "."
     if n["format"] == "object":
         text = f"{styles['picture']} {picture} {OBJECT_LINE.format(bg=n.get('background') or DEFAULT_BG)}"
-    elif n["format"] == "sequence":
+    elif n["format"] == "split":
+        text = f"{styles['picture']} {picture} {SPLIT_LINE}"
+    elif n["format"] in ("sequence", "inside"):
         return f"{styles['sequence']} {picture}"
     else:
         text = f"{styles['picture']} {picture}"
@@ -350,90 +373,102 @@ def _room(t, duration, avoid, block, tail):
     return room
 
 
-def schedule(nouns, words, duration, avoid=(), block=(), head=HEAD, tail=TAIL, sequences=()):
+def schedule(nouns, words, duration, avoid=(), block=(), head=HEAD, tail=TAIL, sequences=(), full_head=FULL_HEAD):
     """The pictures shown, in order: [{**noun, "t", "dur"}] — a sequence's steps as one entry each ("format"
-    "sequence", "key", "step", "marks", end to end). Each comes up on its word (its start - LEAD), never before ``head``
-    s nor in the last ``tail`` s, never starting in a ``block`` stretch nor running over a punchline (``avoid``); two
-    pictures start at least GAP_MIN s apart with FACE_MIN s of face between them (the most priority wins; a sequence
-    weighs its steps); then the nouns' times on screen are stretched (to DUR_MAX, room allowed) while the clip is under
-    COVER_LO off the face, shortened (to DUR_MIN) while it is over COVER_HI."""
+    "sequence", "key", "step", "marks", end to end). The rules of the 12 OptimalHealth shorts decoded (9-oct-2026):
+    - each comes up on its word (its start - LEAD; an object card CARD_LEAD s before, it rises to be settled on it);
+    - nothing before ``head`` s, nothing full screen before ``full_head`` s, and at most one card before it; nothing in
+      the last ``tail`` s (the clip ends on a face), nothing starting in a ``block`` stretch nor running over a
+      punchline (``avoid``);
+    - DUR_MIN-DUR_MAX s each: to the end of its clause (a new sentence, or the word no longer said), cut short by the
+      next picture (picture to picture, an enumeration) — a face shorter than JOIN s between two is closed;
+    - chosen by priority (a sequence first, then the nouns, the strongest and earliest first), STEP s at least between
+      two starts, PER_MIN a minute at most, at most COVER_HI of the clip off the face; then stretched (to DUR_MAX, room
+      allowed) while under COVER_LO."""
+    total = max(float(duration), 1.0)
     cands = []
     for n in nouns:
-        t = round(max(0.0, float(words[n["i"]]["start"]) - LEAD), 2)
-        room = _room(t, duration, avoid, block, tail) if t >= head - 1e-6 else None
+        word_t = float(words[n["i"]]["start"])
+        t = round(max(0.0, word_t - (CARD_LEAD if n["format"] == "object" else LEAD)), 2)
+        first = full_head if n["format"] in FULL else head
+        if first - HEAD_GRACE - 1e-6 <= t < first:
+            t = first       # said just before: it comes up then (« emergency room » at 0.64 s -> 0.8 s)
+        room = _room(t, duration, avoid, block, tail) if t >= first - 1e-6 else None
         if room is None or room < DUR_MIN - 1e-6:
             continue
-        cands.append({**n, "t": t, "dur": min(natural_dur(words, n["i"], t), room), "room": room,
-                      "min_end": t + DUR_MIN, "w": n["priority"] + 1.0 + (0.5 if t <= 2.0 else 0.0)})
+        lead = max(0.0, word_t - t)
+        cands.append({**n, "t": t, "dur": round(min(natural_dur(words, n["i"], word_t) + lead, DUR_MAX + lead, room), 2),
+                      "room": room, "max": DUR_MAX + lead})
+    seqs = []
     for s in sequences or ():
         ts = [round(max(0.0, float(words[st["i"]]["start"]) - LEAD), 2) for st in s["steps"]]
-        if ts[0] < head - 1e-6:
+        if ts[0] < full_head - 1e-6:
             continue
         room = _room(ts[0], duration, avoid, block, tail)
         last = min(natural_dur(words, s["steps"][-1]["i"], ts[-1]), DUR_MAX)
         if room is None or ts[-1] - ts[0] + DUR_MIN > room + 1e-6:
             continue
-        span = round(min(ts[-1] - ts[0] + last, room), 2)
+        span = round(min(ts[-1] - ts[0] + last, room, SEQ_MAX), 2)
         steps = []
         for k, (st, t) in enumerate(zip(s["steps"], ts)):
             end = ts[k + 1] if k + 1 < len(ts) else ts[0] + span
             steps.append({"i": st["i"], "word": st["word"], "key": s["key"], "format": "sequence", "picture": s["figure"],
                           "points": s["points"], "marks": st["marks"], "step": k, "t": t, "dur": round(end - t, 2),
                           "priority": 3, "background": ""})
-        cands.append({"seq": steps, "t": ts[0], "dur": span, "room": span, "min_end": ts[0] + span,
-                      "priority": 3, "w": 3.0 + len(steps)})
-    cands.sort(key=lambda c: (c["t"], -c["w"]))
-    uniq = []
-    for c in cands:
-        if uniq and abs(uniq[-1]["t"] - c["t"]) < 1e-6:
-            continue
-        uniq.append(c)
+        seqs.append({"seq": steps, "t": ts[0], "dur": span, "room": span, "max": span, "priority": 4})
 
-    def fits(a, b):     # b may follow a
-        return b["t"] >= a["t"] + GAP_MIN - 1e-6 and b["t"] >= a["min_end"] + FACE_MIN - 1e-6
+    def trimmed(picks):
+        """The picks in time order with their times on screen cut by the next one, a short face closed."""
+        picks = sorted(picks, key=lambda c: c["t"])
+        durs = []
+        for k, c in enumerate(picks):
+            d = c["dur"]
+            if "seq" not in c and k + 1 < len(picks):
+                gap = picks[k + 1]["t"] - c["t"]
+                d = min(d, gap)
+                if 0 < gap - d < JOIN and gap <= min(c["max"], c["room"]) + JOIN:
+                    d = gap
+            durs.append(round(max(min(d, c["room"]), 0.0), 2))
+        return picks, durs
 
-    best, prev = [], []
-    for j, c in enumerate(uniq):
-        b, p = c["w"], None
-        for i in range(j):
-            if fits(uniq[i], c) and best[i] + c["w"] > b + 1e-9:
-                b, p = best[i] + c["w"], i
-        best.append(b)
-        prev.append(p)
+    def fits(c, picks):
+        for a in picks:
+            if abs(a["t"] - c["t"]) < STEP - 1e-6:
+                return False
+            for s, o in ((a, c), (c, a)):
+                if "seq" in s and s["t"] - 1e-6 <= o["t"] < s["t"] + s["dur"] + JOIN:
+                    return False
+        early = [a for a in picks + [c] if a["t"] < full_head - 1e-6]
+        if len(early) > 1:
+            return False
+        if len(picks) + 1 > max(1, int(PER_MIN * total / 60.0 + 0.5)):
+            return False
+        _p, durs = trimmed(picks + [c])
+        return sum(durs) <= COVER_HI * total + 1e-6
+
     picks = []
-    j = max(range(len(uniq)), key=lambda j: best[j]) if uniq else None
-    while j is not None:
-        picks.append(uniq[j])
-        j = prev[j]
-    picks.reverse()
-
-    def cap(k):
-        nxt = picks[k + 1]["t"] - FACE_MIN - picks[k]["t"] if k + 1 < len(picks) else 10 ** 9
-        return max(DUR_MIN, min(DUR_MAX, picks[k]["room"], nxt))
-
-    for k, c in enumerate(picks):
-        if "seq" not in c:
-            c["dur"] = round(max(DUR_MIN, min(c["dur"], cap(k))), 2)
-    total = max(duration, 1.0)
-    nouns_k = [k for k, c in enumerate(picks) if "seq" not in c]
-    if picks and sum(c["dur"] for c in picks) < COVER_LO * total:
-        for k in sorted(nouns_k, key=lambda k: -picks[k]["priority"]):
-            short = COVER_LO * total - sum(c["dur"] for c in picks)
+    for c in seqs + sorted(cands, key=lambda c: (-c["priority"], c["t"])):
+        if fits(c, picks):
+            picks.append(c)
+    picks, durs = trimmed(picks)
+    for c, d in zip(picks, durs):
+        c["dur"] = d
+    if picks and sum(durs) < COVER_LO * total:
+        for k in sorted(range(len(picks)), key=lambda k: -picks[k]["priority"]):
+            c = picks[k]
+            short = COVER_LO * total - sum(p["dur"] for p in picks)
             if short <= 0:
                 break
-            picks[k]["dur"] = round(min(cap(k), picks[k]["dur"] + short), 2)
-    while nouns_k and sum(c["dur"] for c in picks) > COVER_HI * total:
-        k = max(nouns_k, key=lambda k: picks[k]["dur"])
-        if picks[k]["dur"] <= DUR_MIN + 1e-6:
-            break
-        over = sum(c["dur"] for c in picks) - COVER_HI * total
-        picks[k]["dur"] = round(max(DUR_MIN, picks[k]["dur"] - over), 2)
+            if "seq" in c:
+                continue
+            nxt = picks[k + 1]["t"] - c["t"] if k + 1 < len(picks) else 10 ** 9
+            c["dur"] = round(min(c["max"], c["room"], nxt, c["dur"] + short), 2)
     out = []
     for c in picks:
         if "seq" in c:
             out.extend(c["seq"])
         else:
-            out.append({k: v for k, v in c.items() if k not in ("room", "min_end", "w")})
+            out.append({k: v for k, v in c.items() if k not in ("room", "max")})
     return out
 
 
@@ -453,16 +488,26 @@ def direct(words, clip):
     return nouns, sequences_of(data, words, taken={n["key"] for n in nouns}), styles
 
 
-def verify(nouns, sequences, clip):
-    """{key: (verdict, reason)} for every key with a picture and every sequence: one Sonnet pass; a key it does not
-    answer is refused."""
-    keys = {}
+def _around_word(words, i, n=8):
+    return " ".join(str(w.get("text") or "") for w in words[max(0, i - n):i + n + 1])
+
+
+def verify(nouns, sequences, clip, words=None):
+    """{key: (verdict, reason)} for every key with a picture and every sequence: one Sonnet pass, each with what is said
+    around its words (``words``); a key it does not answer is refused."""
+    keys, said = {}, {}
     for n in nouns:
-        keys.setdefault(n["key"], f'({n["format"]}) — said: "{n["word"]}"; picture: "{broll_ideas._q(n["picture"], 60)}"')
+        keys.setdefault(n["key"], f'({n["format"]}) picture: "{broll_ideas._q(n["picture"], 60)}"')
+        if words:
+            said.setdefault(n["key"], []).append(_around_word(words, n["i"]))
     for s in sequences:
-        said = " … ".join(st["word"] for st in s["steps"])
-        keys[s["key"]] = (f'(a 3D figure held while the guest explains, white arrows and glows drawn over it) — said: '
-                          f'"{said}"; figure: "{broll_ideas._q(s["figure"], 60)}"')
+        keys[s["key"]] = f'(a 3D figure held while the guest explains) figure: "{broll_ideas._q(s["figure"], 60)}"'
+        if words:
+            said[s["key"]] = [_around_word(words, s["steps"][0]["i"], 4) + " … "
+                              + _around_word(words, s["steps"][-1]["i"], 4)]
+    for k in keys:
+        if said.get(k):
+            keys[k] += "; said around it: " + " | ".join(f'"…{x}…"' for x in said[k][:3])
     if not keys:
         return {}
     q = broll_ideas._q
@@ -576,7 +621,7 @@ def run(clip_path, clip, words, avoid, block, tmp, render, duration=None, head=H
     if not nouns and not sequences:
         print("   ℹ️ B-roll « littéral »: nothing concrete said in this clip — no picture.")
         return [], []
-    verdicts = verify(nouns, sequences, clip)
+    verdicts = verify(nouns, sequences, clip, words)
     for key, (v, why) in verdicts.items():
         if v != "pass":
             broll.filter_hit("litteral: refused by the verifier", f'"{key}": {why}')

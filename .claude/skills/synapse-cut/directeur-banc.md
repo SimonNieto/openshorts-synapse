@@ -19,13 +19,16 @@ montre chacun tel quel.**
 4. Le format :
    - **objet** pour ce qu'on tient dans la main ou qu'on pose sur une table : la chose seule, avec la couleur unie du
      fond, choisie pour trancher avec elle ;
-   - **scène** pour un lieu, une personne, un geste, l'intérieur du corps (rendu 3D médical propre, l'organe entier).
+   - **écran coupé** pour une matière ou des petites choses nombreuses (des comprimés, de l'eau, des grains) ;
+   - **scène** pour un lieu, une action, une personne qui vit un état (fatiguée, endormie, malade) ;
+   - **intérieur** pour ce qui ne se voit pas à l'œil nu (un nerf, une cellule, un organe, une inflammation) : rendu
+     3D médical propre, l'organe entier.
 5. Une description courte (30 mots au plus), au présent, au positif, en mots simples : ce qui remplit l'image, un
    ou deux détails vrais tirés de ce qui est dit (« trois heures du matin », « au bout de quinze heures de garde »).
    « A single » pour ce qui est seul. Aucun mot de style ni d'appareil photo (le code les ajoute), aucun texte à
    lire, aucune comparaison.
 6. Une même chose qui revient garde la même clé : son image revient, sans être refaite.
-7. Proposer large : un nom concret à chaque fois qu'il est dit. Le code choisit (une image toutes les 3 à 5 s, pile
+7. Proposer large : un nom concret à chaque fois qu'il est dit, un par élément d'une liste. Le code choisit (environ une image toutes les 5 s, 40 % du clip hors visage, pile
    sur le mot) ; la priorité dit ce qui compte le plus (3 = la chose dont parle le clip).
 8. Quand l'invité explique **comment** faire ou **comment ça marche** (un geste des yeux, une respiration, un nerf
    qui transmet, un cordon qui pulse), une seule séquence d'explication pour ce passage : une figure 3D décrite une

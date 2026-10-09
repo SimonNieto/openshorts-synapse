@@ -82,16 +82,13 @@ def items_of(cands):
             it.update(seq=m["seq"], step=m.get("step", 0), marks=list(m.get("marks") or []))
         items.append(it)
     for a, b in zip(items, items[1:]):
-        if a.get("seq") and a.get("seq") == b.get("seq"):
-            a["dur"] = round(min(a["dur"], b["t"] - a["t"]), 2)
-        else:
-            a["dur"] = round(max(1.0, min(a["dur"], b["t"] - a["t"] - 0.25)), 2)
+        a["dur"] = round(min(a["dur"], b["t"] - a["t"]), 2)       # add_broll's rule for this chain
     return items
 
 
 def sheet(video, words, items, out_path, title, cols=10):
     """One frame a second (at s + 0.5) at TILE_W px, the second and the word said under it, a coloured edge when a
-    picture is up (blue: scene, yellow: object, magenta: sequence)."""
+    picture is up (blue: full screen, yellow: object card, green: split screen, magenta: sequence)."""
     from PIL import Image, ImageDraw
     tmp = tempfile.mkdtemp(prefix="sheet_")
     try:
@@ -113,7 +110,7 @@ def sheet(video, words, items, out_path, title, cols=10):
             im.paste(Image.open(f), (x, y))
             up = next((it for it in items if it["t"] <= t < it["t"] + it["dur"]), None)
             if up:
-                colour = {"hero": (80, 160, 255), "object": (255, 210, 60)}[up["layout"]] if not up.get("seq") else (230, 80, 230)
+                colour = {"hero": (80, 160, 255), "object": (255, 210, 60), "split": (60, 220, 120)}[up["layout"]] if not up.get("seq") else (230, 80, 230)
                 d.rectangle((x - 3, y - 3, x + tw + 2, y + th + 2), outline=colour, width=4)
             said = " ".join(w["text"] for w in words if k <= w["start"] < k + 1)[:28]
             d.text((x + 4, y + th + 4), f"{k}s", fill=(255, 255, 255), font=small)
@@ -132,6 +129,7 @@ def main():
     ap.add_argument("--plan-only", action="store_true", help="the director and the verifier only, no render")
     args = ap.parse_args()
     os.environ.setdefault("EDIT_STYLE", "premium")        # the object card sits under the premium captions' band
+    os.environ.setdefault("BROLL_TRACE", "0")             # the bench keeps its own trace (c<N>_plan.json)
     os.makedirs(args.out, exist_ok=True)
     fixes = json.load(open(args.fix, encoding="utf-8")) if args.fix else {}
     import ai_brain
