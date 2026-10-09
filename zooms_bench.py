@@ -175,7 +175,7 @@ def main():
                 zooms.write_cues(cut, words, joins=hide, punch=punch, pictures=pics, silences=clean)
             framed = os.path.join(OUT, f"_framed_{n}_{style}.mp4")
             assert m.render_clip(cut, framed, "vertical")
-            plan = (zooms.read_cues(cut) or {}).get("applied") if refs else []
+            plan = ((zooms.read_cues(cut) or {}).get("applied") or []) if refs else []
             if os.path.exists(zooms.cues_path(cut)):
                 os.remove(zooms.cues_path(cut))
             full = os.path.join(OUT, f"_full_{n}_{style}.mp4")

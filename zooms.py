@@ -490,7 +490,7 @@ def frame_states(n, fps, switches, cuts=(), restarts=()):
     tight = np.zeros(n, dtype=bool)
     start = np.zeros(n, dtype=int)
     marks = sorted([(frame_index(s["t"], fps), s["to"] == "tight") for s in switches]
-                   + [(frame_index(c, fps), None) for c in list(cuts) + list(restarts)])
+                   + [(frame_index(c, fps), None) for c in list(cuts) + list(restarts)], key=lambda m: m[0])
     state, origin, k = False, 0, 0
     for f in range(n):
         while k < len(marks) and marks[k][0] <= f:

@@ -109,6 +109,9 @@ class TestPlan:
     def test_the_slow_push_starts_over_after_a_picture(self):
         _, start = zooms.frame_states(150, 30.0, [], restarts=[3.0])
         assert start[89] == 0 and start[90] == 90
+        # a switch and a restart on the same frame (a silence cut as a picture ends)
+        tight, start = zooms.frame_states(150, 30.0, [{"t": 3.0, "to": "tight"}], restarts=[3.0])
+        assert tight[90] and start[90] == 90
 
 
     def test_the_frame_switches_on_the_silence_cuts_in_turn(self):
