@@ -41,6 +41,51 @@ def test_workflow_uses_native_nodes_only_and_is_filled():
     assert not any(k.startswith("_") for k in g)
 
 
+def test_engine_comes_from_plus_and_ltxv_by_default(monkeypatch):
+    assert plus.BROLL["animate_engine"] == "ltxv"
+    assert broll_animate.engine_name() == "ltxv"
+    monkeypatch.setitem(plus.BROLL, "animate_engine", "wan22")
+    assert broll_animate.engine_name() == "wan22"
+    assert broll_animate.engine_name("ltxv") == "ltxv"
+    with pytest.raises(ValueError):
+        broll_animate.engine_name("sora")
+
+
+def test_wan22_graph_follows_the_official_template_and_4n_plus_1():
+    g = broll_animate.build_graph("synapse_animate/x.png", "she blinks once", 9, engine="wan22",
+                                  length=broll_animate.frames_for(2.5, step=4))
+    assert {n["class_type"] for n in g.values()} == {
+        "UNETLoader", "CLIPLoader", "VAELoader", "CLIPTextEncode", "LoadImage", "Wan22ImageToVideoLatent",
+        "ModelSamplingSD3", "KSampler", "VAEDecode", "PreviewImage"}
+    assert not any(v is None for n in g.values() for v in n["inputs"].values())
+    lat = g["latent"]["inputs"]
+    assert (lat["width"], lat["height"], lat["length"]) == (704, 1280, 61) and (61 - 1) % 4 == 0
+    assert lat["start_image"] == ["load", 0]
+    s = g["sample"]["inputs"]
+    assert (s["seed"], s["steps"], s["cfg"], s["sampler_name"]) == (9, 20, 5.0, "uni_pc")
+    assert g["ms"]["inputs"]["shift"] == 8.0
+    assert g["neg"]["inputs"]["text"] == broll_animate.WAN_NEGATIVE
+    assert g["clip"]["inputs"]["type"] == "wan"
+
+
+def test_available_checks_every_file_of_the_engine(monkeypatch):
+    lists = {"UNETLoader": ("unet_name", ["wan2.2_ti2v_5B_fp16.safetensors"]),
+             "CLIPLoader": ("clip_name", ["umt5_xxl_fp8_e4m3fn_scaled.safetensors"]),
+             "VAELoader": ("vae_name", ["ae.safetensors"]),
+             "CheckpointLoaderSimple": ("ckpt_name", [])}
+
+    def handler(request):
+        node = request.url.path.rsplit("/", 1)[-1]
+        field, names = lists[node]
+        return httpx.Response(200, json={node: {"input": {"required": {field: [names]}}}})
+    real = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda *a, **k: real(*a, **{**k, "transport": httpx.MockTransport(handler)}))
+    assert broll_animate.available("wan22") is False                     # the Wan VAE is missing
+    lists["VAELoader"] = ("vae_name", ["wan2.2_vae.safetensors"])
+    assert broll_animate.available("wan22") is True
+    assert broll_animate.available("ltxv") is False
+
+
 def test_static_camera_unless_the_motion_moves_the_camera():
     assert broll_animate.prompt_text("she blinks once").startswith("Static camera")
     assert broll_animate.prompt_text("The camera pushes in slowly").startswith("The camera pushes in slowly.")
@@ -126,6 +171,21 @@ def test_animate_writes_a_silent_vertical_mp4(comfy, tmp_path):
     assert fake.graph["i2v"]["inputs"]["length"] == 9
     assert fake.graph["pos"]["inputs"]["text"].startswith("the camera pushes in slowly.")
     assert b"\x89PNG" in fake.upload
+
+
+def test_animate_with_wan22_sends_the_wan_graph(comfy, tmp_path):
+    fake = comfy(n=5)
+    src = tmp_path / "pic.jpg"
+    Image.new("RGB", (768, 1344)).save(src)
+    res = broll_animate.animate(src, "steam rises", tmp_path / "w.mp4", seconds=0.2, seed=3, engine="wan22",
+                                out_size=(360, 640))
+    assert res["engine"] == "wan22" and res["frames"] == 5
+    assert fake.graph["sample"]["inputs"]["seed"] == 3 and fake.graph["latent"]["inputs"]["length"] == 5
+    assert Image.open(io.BytesIO(fake_upload_png(fake.upload))).size == (704, 1280)
+
+
+def fake_upload_png(body):
+    return body[body.index(b"\x89PNG"):]
 
 
 def test_a_comfy_error_is_raised_and_no_file_left(comfy, tmp_path):

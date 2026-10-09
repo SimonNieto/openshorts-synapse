@@ -1,0 +1,14 @@
+{
+  "_about": "Image -> short video with Wan 2.2 TI2V 5B (Wan-AI, repackaged by Comfy-Org), native ComfyUI nodes only (ComfyUI 0.37, no custom node). API format. Settings of ComfyUI's official template video_wan2_2_5B_ti2v (shift 8, 20 steps, cfg 5, uni_pc / simple, 24 fps, its negative prompt). broll_animate.py fills the inputs marked null.",
+  "unet": {"class_type": "UNETLoader", "inputs": {"unet_name": "wan2.2_ti2v_5B_fp16.safetensors", "weight_dtype": "default"}},
+  "clip": {"class_type": "CLIPLoader", "inputs": {"clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors", "type": "wan", "device": "default"}},
+  "vae": {"class_type": "VAELoader", "inputs": {"vae_name": "wan2.2_vae.safetensors"}},
+  "pos": {"class_type": "CLIPTextEncode", "inputs": {"text": null, "clip": ["clip", 0]}},
+  "neg": {"class_type": "CLIPTextEncode", "inputs": {"text": null, "clip": ["clip", 0]}},
+  "load": {"class_type": "LoadImage", "inputs": {"image": null}},
+  "latent": {"class_type": "Wan22ImageToVideoLatent", "inputs": {"vae": ["vae", 0], "width": null, "height": null, "length": null, "batch_size": 1, "start_image": ["load", 0]}},
+  "ms": {"class_type": "ModelSamplingSD3", "inputs": {"model": ["unet", 0], "shift": 8.0}},
+  "sample": {"class_type": "KSampler", "inputs": {"model": ["ms", 0], "positive": ["pos", 0], "negative": ["neg", 0], "latent_image": ["latent", 0], "seed": null, "steps": 20, "cfg": 5.0, "sampler_name": "uni_pc", "scheduler": "simple", "denoise": 1.0}},
+  "decode": {"class_type": "VAEDecode", "inputs": {"samples": ["sample", 0], "vae": ["vae", 0]}},
+  "out": {"class_type": "PreviewImage", "inputs": {"images": ["decode", 0]}}
+}
