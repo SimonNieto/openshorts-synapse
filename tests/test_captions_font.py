@@ -21,8 +21,9 @@ class TestPresetFont:
         assert main.startswith("Style: Main,Liberation Sans,64,")
         assert main.endswith(",&H70000000,&H99000000,1,0,0,0,100,100,0.5,0,1,2,2,5,0,0,0,1")
         assert _style(ass, "Mark").startswith("Style: Mark,Liberation Sans,18,") and _style(ass, "Mark").split(",")[7] == "1"
-        # punchy / clean (glow, jump zooms, shake) were removed on 1-oct-2026
-        assert set(viral_fx.PRESETS) == {"natural", "premium"}
+        # punchy / clean (glow, jump zooms, shake) were removed on 1-oct-2026;
+        # oneword (the « références » recipe) came on 9-oct-2026
+        assert set(viral_fx.PRESETS) == {"natural", "premium", "oneword"}
 
     def test_premium_sets_the_same_groups_in_the_bundled_face_lower_and_lit(self):
         ass, groups = viral_fx.build_ass(WORDS, "premium", watermark="@thesynapsecut")
@@ -55,9 +56,10 @@ class TestPresetFont:
     def test_premium_is_a_profile_style_and_keeps_the_caption_band(self):
         import broll
         import plus
-        # premium is the house style: every Clip Generator++ job, whatever an old profile said
-        assert plus.EDIT_STYLE == "premium"
-        assert plus.job_env({"name": "t", "edit_style": "punchy"})["EDIT_STYLE"] == "premium"
+        # the house style (plus.CAPTION_STYLE: oneword since 9-oct-2026, premium one
+        # switch away) is every Clip Generator++ job's, whatever an old profile said
+        assert plus.EDIT_STYLE == plus.CAPTION_STYLE in ("oneword", "premium")
+        assert plus.job_env({"name": "t", "edit_style": "punchy"})["EDIT_STYLE"] == plus.CAPTION_STYLE
         assert "edit_style" not in plus.sanitize({"edit_style": "punchy"})
         top, bottom = broll._caption_band(1920, "premium", True)
         nt, nb = broll._caption_band(1920, "natural", True)

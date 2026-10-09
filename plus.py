@@ -38,7 +38,8 @@ DEFAULT_PROFILE = {
     "show": "",
     # The clip length, one of CLIP_FORMATS (4-oct-2026, instead of six numbers).
     "format": "standard",
-    # The channel's name under the captions (blank = none).
+    # The channel's name: small at the top right with the one-word captions
+    # ("@TheSynapseCut" -> THE SYNAPSE CUT), under the words with "premium" (blank = none).
     "watermark": "",
     # Images when something concrete is named (broll.py, the recipe in BROLL).
     # Off by default: it needs ComfyUI running on this PC, and a job without
@@ -58,13 +59,23 @@ DEFAULT_PROFILE = {
 }
 
 # --- the house recipe: what every Clip Generator++ job does -----------------------------
-# Captions: the natural look set in Montserrat ExtraBold (viral_fx.PRESETS["premium"]).
-EDIT_STYLE = "premium"
+# Captions (9-oct-2026, the « références » recipe, OptimalHealth as the model): "oneword" = one word at a
+# time in capitals, mid-screen, a golden strong word now and then, the « CREDIT: <show> » line and the
+# channel's name small at the top (viral_fx.PRESETS["oneword"], CORNER). "premium" = the 2-3 lit words
+# at 66 % of the height and the channel's name under them, the house style of 2-9 oct (one switch back).
+CAPTION_STYLE = "oneword"
+EDIT_STYLE = CAPTION_STYLE
 # Hook at the top: the documentary line (hooks.HOOK_STYLES["docline"], H3 of
 # the hook study of 2-oct-2026): the topic as a small yellow eyebrow, a short
 # rule, the hook in sentence case with its payoff word in yellow (the brain's
 # hook_accent); the title leaves at 3.3 s, the eyebrow and the rule stay.
 HOOK_STYLE, HOOK_SECONDS = "docline", 3.3
+# Whether the hook is burned at all (9-oct-2026, « références »: neither OptimalHealth nor Clip Storm puts a
+# title on screen; the first sentence said is the hook, the captioned word the only text, with the credit and
+# the channel's name small at the top, drawn by the "oneword" captions). False = no hook title (AUTO_HOOK 0):
+# the hook text is still written (titles, the spectator, publishing), just not drawn. True brings the
+# docline above back.
+HOOK_ON_SCREEN = False
 # The picture: zooms aimed at the measured face; the premium framing of the
 # reframe (framing.py, SMOOTH_CAMERA); reaction shots of the listener after a
 # strong line (reactions.py); every layer before the captions encoded
@@ -290,7 +301,7 @@ def job_env(profile):
         # --- the house recipe (EDIT_STYLE, HOOK_*, FX, SELECTION above) ---
         "EDIT_STYLE": EDIT_STYLE,
         "PLUS_FX_JSON": json.dumps({**FX, "watermark": p["watermark"] or None}),
-        "AUTO_HOOK": "1",
+        "AUTO_HOOK": "1" if HOOK_ON_SCREEN else "0",
         "AUTO_HOOK_STYLE": HOOK_STYLE,
         "AUTO_HOOK_SECONDS": str(HOOK_SECONDS),
         "PLUS_REACTIONS": "1",

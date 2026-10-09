@@ -166,6 +166,19 @@ def split_show(title: str, show: str = "") -> tuple:
     return title[:m.start()].strip(), title[m.start():].strip(" -–|:")
 
 
+def show_name(source_video: str, show: str = "", limit: int = 40) -> str:
+    """The show a clip comes from, as the « CREDIT: » line at the top of the
+    one-word captions names it (viral_fx.CORNER, 9-oct-2026): the episode
+    title's own show ("Joe Rogan Experience"), else the profile's ``show``,
+    else the title itself, cut at a word under ``limit`` characters."""
+    title = episode_title(source_video)
+    name, rest = split_show(title, show)
+    name = (name or rest or "").strip()
+    if len(name) > limit:
+        name = name[:limit].rsplit(" ", 1)[0].strip(" -–|:,")
+    return name
+
+
 def speaker_names(brief) -> list:
     out = []
     for s in (brief or {}).get("speakers") or []:

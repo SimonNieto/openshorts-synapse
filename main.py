@@ -1134,10 +1134,12 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
         return None
 
 
-def viral_caption_clip(clip_path, transcript, clip_start, clip_end, style, watermark=None, clip=None):
+def viral_caption_clip(clip_path, transcript, clip_start, clip_end, style, watermark=None, clip=None, show=None):
     """The edit style's captions (viral_fx) instead of the default caption
     profile, written as ``subtitled_<ts>_<clip>`` like auto_caption_clip so a
-    restyle from the subtitle editor still replaces them. None on skip/fail."""
+    restyle from the subtitle editor still replaces them. None on skip/fail.
+    ``show``: the show named by the « CREDIT: » line of the one-word captions
+    (playbook.show_name) — left out over a burned hook, which holds the top."""
     if os.environ.get("AUTO_CAPTIONS", "1").strip() == "0":
         return None
     try:
@@ -1154,7 +1156,8 @@ def viral_caption_clip(clip_path, transcript, clip_start, clip_end, style, water
         from hooks import captions_start_at
         hooked = os.path.basename(clip_path).startswith("hooked_")
         after = captions_start_at((clip or {}).get('auto_hook')) if hooked else 0.0
-        viral_fx.apply_captions(clip_path, words, style, out, watermark=watermark, topic=topic, after=after)
+        viral_fx.apply_captions(clip_path, words, style, out, watermark=watermark, topic=topic, after=after,
+                                credit=None if hooked else show)
         print(f"   💬 {style} captions burned: {os.path.basename(out)}")
         return out
     except Exception as e:
@@ -3923,12 +3926,12 @@ if __name__ == '__main__':
                                 clip['reactions'] = rep
                         except Exception as e:
                             print(f"   ⚠️ Reactions failed ({type(e).__name__}: {e}) — clip kept without them.")
-                    # Edit style (EDIT_STYLE=natural|premium, Clip Generator++):
+                    # Edit style (EDIT_STYLE=natural|premium|oneword, Clip Generator++):
                     # the look layer (grade, vignette) goes INTO the canonical,
                     # under the hook, so the hook text is never touched; its
                     # captions replace the default ones as the last layer.
                     edit_style = os.environ.get("EDIT_STYLE", "").strip()
-                    if success and edit_style in ("natural", "premium"):
+                    if success and edit_style in ("natural", "premium", "oneword"):
                         try:
                             import viral_fx
                             # Pristine copy (music included, no motion): the
@@ -4046,8 +4049,11 @@ if __name__ == '__main__':
                         captioned = None
                         if clip.get('edit_style'):
                             wm = (json.loads(os.environ.get("PLUS_FX_JSON") or "{}") or {}).get("watermark")
+                            credit_show = playbook.show_name(clips_data.get('source_video'),
+                                                             os.environ.get("PLAYBOOK_SHOW") or "")
                             captioned = viral_caption_clip(deliver_path, c_transcript, c_start, c_end,
-                                                           clip['edit_style'], watermark=wm, clip=clip)
+                                                           clip['edit_style'], watermark=wm, clip=clip,
+                                                           show=credit_show)
                         if not captioned:
                             captioned = auto_caption_clip(
                                 deliver_path, c_transcript, c_start, c_end,
