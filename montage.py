@@ -822,6 +822,7 @@ def settle(plan_, shots=(), hide=True):
     Returns (segments, joins [(removal, clip t)], hide windows, camera events in clip time)."""
     import punch_in
     import recut
+    import zooms
     while True:
         segs, joins = timeline(plan_["start"], plan_["end"], plan_["removals"])
         duration = recut.total_duration(segs)
@@ -831,6 +832,11 @@ def settle(plan_, shots=(), hide=True):
         todo = [(r, t) for r, t in joins if r["verdict"] == "hide"]
         if not hide:
             windows, refused = [], list(range(len(todo)))
+        elif zooms.style() == "references":
+            # The smart zooms (zooms.py) switch the frame on the join itself: no tight-frame window to fit, only
+            # their spacing (a dry cut MIN_GAP from the next, none on a camera cut).
+            zooms.configure()
+            windows, refused = [], zooms.hide_spacing([t for _, t in todo], duration, cams)
         else:
             windows, refused = punch_in.schedule_hides([t for _, t in todo], duration, events)
         if not refused:

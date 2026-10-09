@@ -26,9 +26,10 @@ LINE = ("so the thing is that when you go to the hospital at night the doctor ha
 
 class TestPlan:
     def test_no_strong_moment_no_punch_but_the_relaunch(self):
-        w = _words("so the thing is that when you go there and they say that it is what it is")
-        assert zooms.plan(5.0, w, _flat(w)) == []
-        sw = zooms.plan(10.0, w, _flat(w))
+        w = _words("so the thing is that when you go there and they say that it is what it is "
+                   "and then you go back home and you sit there and you think about it for a while")
+        assert zooms.plan(6.0, w[:18], _flat(w[:18])) == []
+        sw = zooms.plan(w[-1]["end"] + 1, w, _flat(w))
         assert [s["why"] for s in sw if s["to"] == "tight"] == ["relance"]
 
     def test_a_number_and_a_shock_word_get_a_punch_on_their_first_letter(self):
@@ -110,12 +111,30 @@ class TestPlan:
         assert start[89] == 0 and start[90] == 90
 
 
+    def test_the_frame_switches_on_the_silence_cuts_in_turn(self):
+        w = _words(LINE, step=0.25)
+        sil = [w[6]["start"], w[13]["start"], w[24]["start"], w[25]["start"]]     # the last one too close
+        every = [s for s in zooms.plan(w[-1]["end"] + 1, w, _flat(w), silences=sil) if not s.get("hidden")]
+        assert [s["t"] for s in every if s["why"] == "coupe de silence"] == sil[:3]
+        assert all(s["to"] == ("tight" if k % 2 == 0 else "wide") for k, s in enumerate(every))   # in turn
+
+    def test_a_join_to_hide_needs_only_the_gap(self):
+        assert zooms.hide_spacing([0.5, 2.0, 2.6, 4.0, 6.0, 9.7], 10.0, cuts=[6.2]) == [0, 2, 4, 5]
+
+
 class TestStates:
     def test_switch_frames_and_slow_push_origins(self):
         sw = [{"t": 1.0, "to": "tight"}, {"t": 2.5, "to": "wide"}]
         tight, start = zooms.frame_states(120, 30.0, sw, cuts=[3.0])
         assert not tight[29] and tight[30] and tight[74] and not tight[75]
         assert start[10] == 0 and start[40] == 30 and start[80] == 75 and start[100] == 90
+
+
+class TestSlow:
+    def test_only_the_longest_quarter_of_the_stretches_pushes_in(self):
+        sw = [{"t": t, "to": to} for t, to in ((2.0, "tight"), (3.5, "wide"), (5.0, "tight"), (6.5, "wide"))]
+        tight, start = zooms.frame_states(300, 30.0, sw)                # stretches 2, 1.5, 1.5, 1.5, 3.5 s
+        assert zooms.slow_starts(tight, start, 30.0) == {195, 0}
 
 
 class TestBoxes:
@@ -182,7 +201,8 @@ class TestRecipe:
         env = plus.job_env({})
         monkeypatch.setenv("PLUS_FX_JSON", env["PLUS_FX_JSON"])
         assert zooms.style() == "references"
-        assert env["BROLL_HERO_PUSH"] == "1.1" and env["BROLL_HERO_PUSH_CURVE"] == "linear"
+        assert env["BROLL_HERO_PUSH_RATE"] == "0.014" and env["BROLL_HERO_PUSH_CURVE"] == "linear"
+        assert json.loads(env["PLUS_ZOOMS_JSON"])["punch"] == 1.12
         monkeypatch.setenv("PLUS_FX_JSON", json.dumps({**plus.FX, "zoom_style": "fixed"}))
         assert zooms.style() == "fixed"
         monkeypatch.delenv("PLUS_FX_JSON")

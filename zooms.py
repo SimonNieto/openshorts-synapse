@@ -7,6 +7,13 @@ of the head changes nearly every second. Two moves, nothing else (no shake, no r
    etude2/decodage/rapport.md) on a word that carries the line, and back (x0.83-0.88);
 2. a SLOW PUSH between two punches (about 1.00 -> 1.06 over a 2-4 s stretch), so the picture is never frozen.
 
+Measured frame by frame the same evening (9 of their hits, etude2/mesures/rapport.md), it is quieter than the
+one-a-second read suggested: the dry reframe is x1.12 in [1.07-1.17], /1.10 out, and it sits mostly on the cut of
+a silence (it hides the join; one short alternates at every silence cut); on a continuous shot the camera holds
+still, a slow push (2 %/s) on a quarter of the face shots only; one change on screen every 2.0 s, never much more
+than 8 s without one. The numbers below follow those measures; the logic stays: silence joins first (``silences``),
+then the strong words as a rare complement, then a relaunch.
+
 The user wants a « zoom intelligent » (9-oct-2026): not a metronome, the zoom follows what is said. So:
 
 * IN (a dry cut to the tight frame) on a strong moment: a word said louder or higher than the words around it
@@ -36,24 +43,29 @@ import subprocess
 import numpy as np
 
 # --- the recipe ----------------------------------------------------------------------------------
-PUNCH = 1.20            # the tight frame on a 1080p source (OptimalHealth: x1.13-1.26)...
-PUNCH_HI = 1.25         # ...from 1440p up
-PUNCH_MIN = 1.12        # under this a punch does not read as one: the moment stays wide
+PUNCH = 1.12            # the tight frame (measured frame by frame on 9 OptimalHealth hits: x1.12 in, /1.10
+PUNCH_HI = 1.12         # out, x1.07-1.17) — on a 1080p source and from 1440p up
+PUNCH_MIN = 1.07        # under this a punch does not read as one: the moment stays wide
 TOTAL_MAX = 1.42        # the tightest crop of a 1080p source, against its full-height crop (2.5x upscale)...
 TOTAL_MAX_HI = 1.70     # ...from 1440p up
-SLOW_RATE = 0.02        # per second: the slow push (1.00 -> 1.06 over 3 s)...
+SLOW_RATE = 0.02        # per second: the slow push on a face (theirs: 2 %/s when there is one)...
 SLOW_MAX = 0.10         # ...at most this much over one stretch (a 10 s stretch creeps 1.00 -> 1.10)
+SLOW_SHARE = 0.25       # ...on this share of the stretches, the longest (theirs: 23 % of the face shots; the
+                        # others hold still: on a continuous shot their camera does not move)
+SLOW_MIN_S = 2.0        # a stretch shorter than this never pushes
 MIN_GAP = 1.2           # s between two dry cuts, never less (the user's rule)
 TIGHT_MIN = 1.2         # s a tight frame lasts at least...
-TIGHT_MAX = 3.0         # ...and at most (the punchline: PUNCH_HOLD)
-PUNCH_HOLD = 4.0
-RELAUNCH = 5.0          # s without any change on screen: a dry punch-in relaunches (theirs: 6 s, never ~7)
+TIGHT_MAX = 6.0         # ...and at most (the punchline: PUNCH_HOLD); theirs holds until the next cut
+PUNCH_HOLD = 6.0
+RELAUNCH = 7.0          # s without any change on screen: a dry punch-in relaunches, the change lands at 6-8 s
+                        # (theirs: one change every 2.0 s, the longest stretch without one 8 s, median)
 LAST_S = 6.0            # s: a last sentence starting this close to the end is said wide
 CUT_GAP = 0.6           # s: no switch this close to a camera cut of the source (a double cut)
 END_GAP = 0.8           # s: no switch this close to the clip's end...
 START_GAP = 1.0         # ...nor to its start (the opening frame holds under the hook)
 PAUSE = 0.30            # s of silence before a word: it opens a new idea
-SCORE_MIN = 1.5         # a moment weaker than this is not punched (a pitch rise alone on a content word is 1.5+)
+SCORE_MIN = 3.0         # a moment weaker than this is not punched: a strong word is a rare complement (theirs
+                        # cut at the silences); a number (3), a shock word said louder (3.5+), the punchline (5)
 EMPH_DB = 3.0           # dB over the words around it: a word said louder
 EMPH_PITCH = 0.15       # a voice this much higher than around it (over PITCH_JUMP: a misread pitch)
 PITCH_JUMP = 0.80
@@ -116,13 +128,14 @@ def cues_path(video):
     return video + ".zooms.json"
 
 
-def write_cues(video, words, joins=(), punch=None, pictures=()):
+def write_cues(video, words, joins=(), punch=None, pictures=(), silences=()):
     """Next to the cut clip, for reframe_v2: its words in clip seconds ({"text", "start", "end"}), the montage
     joins to hide (clip seconds), the punchline (start, end) and the full-screen pictures [(a, b)] if known."""
     with open(cues_path(video), "w", encoding="utf-8") as f:
         json.dump({"words": [{"text": w["text"], "start": round(float(w["start"]), 3), "end": round(float(w["end"]), 3)}
                              for w in words or []],
                    "joins": [round(float(t), 4) for t in joins or ()],
+                   "silences": [round(float(t), 4) for t in silences or ()],
                    "punch": list(punch) if punch else None,
                    "pictures": [[round(float(a), 3), round(float(b), 3)] for a, b in pictures or ()]}, f)
 
@@ -274,14 +287,17 @@ def _free(t, words):
     return not any(float(w["start"]) + 0.02 < t < float(w["end"]) - 0.02 for w in words)
 
 
-def plan(duration, words, pros=None, joins=(), cuts=(), punch=None, pictures=()):
+def plan(duration, words, pros=None, joins=(), cuts=(), punch=None, pictures=(), silences=()):
     """The dry cuts of a clip: [{"t", "to": "tight"|"wide", "why", "word"}] in clip seconds, sorted.
 
-    ``joins``: montage joins to hide (a switch on each, whichever way); ``cuts``: the source's camera cuts (the
-    frame goes back wide there, no switch within CUT_GAP); ``punch``: the punchline (start, end); ``pictures``:
-    full-screen pictures [(a, b)] (wide before each, no punch under one)."""
+    ``joins``: montage joins to hide (a switch on each, whichever way); ``silences``: the other joins where the
+    montage cut a silence — the frame switches there whenever MIN_GAP allows (theirs: the reframe sits on the
+    silence cuts, x1.12 in and /1.10 out in turn); ``cuts``: the source's camera cuts (the frame goes back wide
+    there, no switch within CUT_GAP); ``punch``: the punchline (start, end); ``pictures``: full-screen pictures
+    [(a, b)] (wide before each, no punch under one)."""
     words = [w for w in words or [] if float(w["end"]) > float(w["start"]) - 1e-6]
     joins = sorted(float(t) for t in joins or ())
+    silences = sorted(float(t) for t in silences or () if not any(abs(float(t) - j) < 1e-3 for j in joins))
     cuts = sorted(float(t) for t in cuts or ())
     pictures = sorted((float(a), float(b)) for a, b in pictures or ())
     cands = sorted(moments(words, pros, punch), key=lambda m: m["t"])
@@ -353,6 +369,9 @@ def plan(duration, words, pros=None, joins=(), cuts=(), punch=None, pictures=())
                 events.append((nxt_join, "raccord caché", ""))
             if last_open and last_open > t + 1e-6 and ok(last_open, since):
                 events.append((last_open, "dernière phrase", str(words[opens[-1]]["text"]).strip()))
+            sil = next((x for x in silences if x > t + 1e-6 and ok(x, since) and not under_picture(x)), None)
+            if sil is not None:
+                events.append((sil, "coupe de silence", _word_at(words, sil)))
             if not events:
                 break
             tb, why, word = min(events, key=lambda e: e[0])
@@ -398,7 +417,7 @@ def plan(duration, words, pros=None, joins=(), cuts=(), punch=None, pictures=())
             best = None
             for k, w in enumerate(words):
                 s_ = float(w["start"])
-                if not (r0 + RELAUNCH - 1.0 <= s_ <= r0 + RELAUNCH + 1.5) or s_ <= t + 1e-6 or s_ >= r1 - MIN_GAP:
+                if not (r0 + RELAUNCH - 1.0 <= s_ <= r0 + RELAUNCH + 1.0) or s_ <= t + 1e-6 or s_ >= r1 - MIN_GAP:
                     continue
                 if not ok(s_, since) or under_picture(s_, pad=TIGHT_MIN) or (last_open and s_ >= last_open):
                     continue
@@ -409,9 +428,15 @@ def plan(duration, words, pros=None, joins=(), cuts=(), punch=None, pictures=())
                 score -= 0.3 * abs(s_ - (r0 + RELAUNCH))
                 if best is None or score > best[0]:
                     best = (score, s_, str(w["text"]).strip(), m["why"] if m else "")
-            if best and (pick is None or pick["t"] > r0 + RELAUNCH + 1.5):
+            if best and (pick is None or pick["t"] > r0 + RELAUNCH + 1.0):
                 relaunch = best          # (a strong moment in the window does the relaunch itself)
             break
+        sil = next((x for x in silences if x > t + 1e-6 and ok(x, since)
+                    and not under_picture(x, pad=TIGHT_MIN) and not (last_open and x >= last_open)), None)
+        if sil is not None and sil < horizon and (relaunch is None or sil <= relaunch[1]):
+            out.append({"t": round(sil, 3), "to": "tight", "why": "coupe de silence", "word": _word_at(words, sil)})
+            tight, since, t_in, t, hold = True, sil, sil, sil, TIGHT_MAX
+            continue
         if relaunch:
             why = "relance" + (f" ({relaunch[3]})" if relaunch[3] else "")
             out.append({"t": round(relaunch[1], 3), "to": "tight", "why": why, "word": relaunch[2]})
@@ -431,6 +456,27 @@ def plan(duration, words, pros=None, joins=(), cuts=(), punch=None, pictures=())
             hold = min(PUNCH_HOLD, max(TIGHT_MIN, float(punch[1]) - pick["t"]))
         tight, since, t_in, t = True, pick["t"], pick["t"], pick["t"]
     return out
+
+
+def _word_at(words, t):
+    """The word said from ``t`` on (the first one starting at or after it)."""
+    w = next((w for w in words if float(w["start"]) >= t - 0.05), None)
+    return str(w["text"]).strip() if w else ""
+
+
+def hide_spacing(joins, duration, cuts=()):
+    """With the smart zooms, a montage join to hide needs only its dry cut: the indices of the joins (clip
+    seconds, sorted) that cannot get one — within MIN_GAP of the previous kept one, within CUT_GAP of a
+    camera cut, or too close to the clip's ends (montage.settle then keeps their pause)."""
+    refused, last = [], -1e9
+    for n, t in enumerate(joins):
+        t = float(t)
+        if (t - last < MIN_GAP - 1e-6 or any(abs(t - float(c)) < CUT_GAP for c in cuts)
+                or t < START_GAP or t > duration - END_GAP):
+            refused.append(n)
+        else:
+            last = t
+    return refused
 
 
 def frame_index(t, fps):
@@ -475,10 +521,20 @@ def _u_range(lo_edge, hi_edge, z, m):
     return (hi_edge * z - (1.0 - m)) / (z - 1.0), (lo_edge * z - m) / (z - 1.0)
 
 
-def shot_boxes(base, heads, tight, start, fps, crop_h, orig_h, report=None):
+def slow_starts(tight, start, fps):
+    """The stretches (by their first frame) that push in slowly: the longest SLOW_SHARE of them, SLOW_MIN_S
+    long at least. The others hold still."""
+    runs = _runs(tight, start, 0, len(tight))
+    long_ = sorted((r for r in runs if (r[1] - r[0]) / fps >= SLOW_MIN_S), key=lambda r: r[0] - r[1])
+    keep = int(math.ceil(len(runs) * SLOW_SHARE)) if runs else 0
+    return {int(start[r[0]]) for r in long_[:keep]}
+
+
+def shot_boxes(base, heads, tight, start, fps, crop_h, orig_h, report=None, slow=None):
     """Float boxes (x, y, w, h) per frame of one shot, from its premium framing ``base`` [(w, h, x, y)] and its
     tracked head per frame (``heads``: (cx, cy, w, h, yaw) or None, source px); ``tight``/``start``: this
-    shot's slice of frame_states. Zoom = (punch on tight stretches) x (slow push), about the eyes."""
+    shot's slice of frame_states; ``slow``: the stretches that push in (slow_starts; None = all). Zoom =
+    (punch on tight stretches) x (slow push), about the eyes."""
     import framing
     n = len(base)
     obs = framing.fill(heads)
@@ -486,7 +542,7 @@ def shot_boxes(base, heads, tight, start, fps, crop_h, orig_h, report=None):
     out = [None] * n
     for s, e, is_tight in _runs(tight, start, 0, n):
         L = (e - s) / fps
-        z_end = 1.0 + min(SLOW_MAX, SLOW_RATE * L)
+        z_end = 1.0 + min(SLOW_MAX, SLOW_RATE * L) if slow is None or int(start[s]) in slow else 1.0
         bw, bh = float(base[s][0]), float(base[s][1])
         base_zoom = crop_h / bh
         p = 1.0
@@ -660,15 +716,16 @@ def clip_boxes(input_video, n, fps, premium, heads, scene_boundaries, crop_h, or
         pros = None
     cuts = [s / fps for s, _ in scene_boundaries[1:]]
     sw = plan(n / fps, words, pros, joins=cues.get("joins") or (), cuts=cuts, punch=cues.get("punch"),
-              pictures=cues.get("pictures") or ())
+              pictures=cues.get("pictures") or (), silences=cues.get("silences") or ())
     tight, start = frame_states(n, fps, sw, cuts, restarts=[b for _, b in cues.get("pictures") or ()])
+    slow = slow_starts(tight, start, fps)
     out, report = {}, []
     for s_f, base in premium.items():
         e_f = min(n, s_f + len(base))
         if e_f <= s_f:
             continue
         out[s_f] = shot_boxes(base[:e_f - s_f], heads[s_f:e_f], tight[s_f:e_f], start[s_f:e_f], fps, crop_h,
-                              orig_h, report)
+                              orig_h, report, slow)
     seen = [s for s in sw if not s.get("hidden")]
     ins = [s for s in seen if s["to"] == "tight"]
     log(f"   🔎 Smart zooms: {len(ins)} punch-in(s), {len(seen) - len(ins)} back wide, slow push between — "

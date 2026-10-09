@@ -70,8 +70,8 @@ class TestJobEnv:
             # 9-oct-2026 (the user: copy the references' zooms): the fixed camera of 1-5 oct gives way to the smart
             # zooms (zooms.py) — they replace the montage's tight frames, the drawings push in slowly.
             assert fx["zoom_style"] == "references"
-            assert (env["BROLL_HERO_PUSH"], env["BROLL_HERO_PUSH_CURVE"]) == ("1.1", "linear")
-            assert (env["BROLL_HERO_STILL_EVERY"], env["BROLL_CARD_PUSH"]) == ("3", "1.06")
+            assert (env["BROLL_HERO_PUSH_RATE"], env["BROLL_HERO_PUSH_CURVE"]) == ("0.014", "linear")
+            assert (env["BROLL_HERO_STILL_EVERY"], env["BROLL_CARD_PUSH"]) == ("3", "1.04")
             assert json.loads(env["PLUS_ZOOMS_JSON"]) == plus.ZOOMS
 
     def test_the_watermark_travels_with_the_fx(self):

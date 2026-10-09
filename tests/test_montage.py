@@ -246,6 +246,17 @@ class TestSettle:
             assert any(abs(t - a) < 1e-3 or abs(t - b) < 1e-3 for a, b in windows)
         assert len(p["removals"]) + sum(1 for r in p["refused"] if r["reason"] == "spacing") == n
 
+    def test_with_the_smart_zooms_a_join_to_hide_needs_only_their_gap(self, monkeypatch):
+        # 9-oct-2026 (zooms.py): the dry cut lands on the join itself, no tight-frame window to fit.
+        import zooms
+        monkeypatch.setenv("PLUS_FX_JSON", json.dumps({"zoom_style": "references"}))
+        p = plan(judge=fake_judge(jump=(montage.JUMP_CLEAN + montage.JUMP_HIDE) / 2))
+        segs, joins, windows, events = montage.settle(p, shots=())
+        hide_t = [t for r, t in joins if r["verdict"] == "hide"]
+        assert windows == [] and hide_t
+        assert all(b - a >= zooms.MIN_GAP - 1e-6 for a, b in zip(hide_t, hide_t[1:]))
+        assert all(r["reason"] == "spacing" for r in p["refused"] if r["kind"] == "silence")
+
     def test_hide_off_drops_every_join_to_hide(self):
         p = plan(judge=fake_judge(jump=(montage.JUMP_CLEAN + montage.JUMP_HIDE) / 2))
         segs, joins, windows, events = montage.settle(p, shots=(), hide=False)
