@@ -29,6 +29,8 @@ TOPIC_BUCKETS = ("brain_danger", "substances", "psychosis_mental_illness", "crim
 # (récit report, JRE #2553). An order of preference for the model's ranking, never a filter; exported in
 # <clip>_playbook.json to read the views by nature. Anything else is stored as "other".
 MOMENT_NATURES = ("threat_to_you", "person_at_stake", "your_mind", "debate", "other")
+# Who a moment concerns (9-oct-2026, gemini_worker.PLAYBOOK_DETAIL_ADDENDUM, weighed in main._weights_for).
+AUDIENCE_REACH = ("everyone", "many", "few")
 # What the first ~5 s heard must do (5-oct-2026, lot Sélection; the jury's criteria of the same names,
 # hook_jury.py): the clip-choice call lists the ones its opening fails in ``opening_misses``.
 OPENING_CRITERIA = ("stands_alone", "topic_named", "tension")
@@ -885,6 +887,8 @@ def prepare(shorts, source_video, brief=None, show="", series_name="", spoken=No
             c["topic_bucket"] = "other"
         if c.get("moment_nature") not in MOMENT_NATURES:
             c["moment_nature"] = "other"
+        if "audience_reach" in c and str(c.get("audience_reach") or "").strip().lower() not in AUDIENCE_REACH:
+            c["audience_reach"] = ""
         if "opening_misses" in c:
             c["opening_misses"] = [m for m in c.get("opening_misses") or [] if m in OPENING_CRITERIA]
         if check_title(c, tokens):
@@ -1021,7 +1025,13 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "subject_said_at": clip.get("subject_said_at"),
         "opening_moved_for_subject": clip.get("opening_moved_for_subject") or None,
         "everyday_thing": clip.get("everyday_thing") or "",
-        "everyday_bonus": clip.get("everyday_bonus") or 0,
+        # Who the moment concerns, a practical tip / a myth broken, the other speaker heard, the face in the source
+        # frame, and the points each one added to the score (main._weights_for).
+        "audience_reach": clip.get("audience_reach") or "",
+        "practical": bool(clip.get("practical")),
+        "two_voices": bool(clip.get("two_voices")),
+        "face_share": clip.get("face_share"),
+        "selection_weights": clip.get("selection_weights") or {},
         # A bigger channel posted this moment in the last 30 days (already_clipped.py; off by default).
         "already_clipped": clip.get("already_clipped") or None,
         # Outside the profile's niche_topics: the score above lost the niche

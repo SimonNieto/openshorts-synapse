@@ -40,7 +40,7 @@ class TestStyle:
     def test_job_env(self):
         env = plus.job_env({"name": "Joe Rogan"})
         assert env["TITLE_STYLE"] == "references" and env["OPENING_SUBJECT_FIRST"] == "1"
-        assert env["EVERYDAY_WEIGHT"] == "5"
+        assert env["SELECTION_WEIGHTS"] and env["FACE_CHECK"] == "1"
 
     def test_every_place_that_writes_a_title_gets_the_style(self, monkeypatch):
         monkeypatch.setenv("SYNAPSE_PLAYBOOK", "1")
@@ -212,22 +212,144 @@ class TestOpenOnSubject:
 
 # --- the everyday thing: a weight, never a filter ---------------------------------------------------------------
 
+WEIGHTS = '{"everyday": 5, "everyone": 6, "many": 2, "practical": 3, "two_voices": 4, "face_small": 20}'
+
+
 class TestEveryday:
     def test_a_weight_with_the_switch(self, monkeypatch):
         c = {"predicted_score": 70, "opening_score": 70, "everyday_thing": "melatonin"}
-        monkeypatch.delenv("EVERYDAY_WEIGHT", raising=False)
+        monkeypatch.delenv("SELECTION_WEIGHTS", raising=False)
         assert main.rank_by_opening(dict(c)) == 70
-        monkeypatch.setenv("EVERYDAY_WEIGHT", "5")
+        monkeypatch.setenv("SELECTION_WEIGHTS", WEIGHTS)
         assert main.rank_by_opening(dict(c)) == 75
         assert main.rank_by_opening({**c, "everyday_thing": ""}) == 70
         assert main.rank_by_opening({**c, "everyday_said": False}) == 70
 
     def test_checked_in_the_words(self, monkeypatch):
-        monkeypatch.setenv("EVERYDAY_WEIGHT", "5")
+        monkeypatch.setenv("SELECTION_WEIGHTS", WEIGHTS)
         w = mk("If you take melatonin every night here is what happens. " + FILL * 3)
         said = {"start": 0.0, "end": w[-1]["e"], "predicted_score": 60, "opening_score": 60,
                 "everyday_thing": "melatonin"}
         not_said = {**said, "everyday_thing": "coffee"}
         main.rank_openings([said, not_said], w)
-        assert said["everyday_said"] and said["everyday_bonus"] == 5
-        assert not not_said["everyday_said"] and "everyday_bonus" not in not_said
+        assert said["everyday_said"] and said["selection_weights"] == {"everyday": 5}
+        assert not not_said["everyday_said"] and "selection_weights" not in not_said
+
+
+# --- who is concerned, two voices, the face: weights, never filters (decoding of OptimalHealth, 9-oct) ---------
+
+class TestAudienceWeights:
+    def test_the_points(self, monkeypatch):
+        monkeypatch.setenv("SELECTION_WEIGHTS", WEIGHTS)
+        base = {"predicted_score": 60, "opening_score": 60}
+        rank = lambda **kw: main.rank_by_opening({**base, **kw})  # noqa: E731
+        assert rank() == 60
+        assert rank(audience_reach="everyone") == 66 and rank(audience_reach="many") == 62
+        assert rank(audience_reach="few") == 60 and rank(audience_reach="nonsense") == 60
+        # A practical tip counts on a thing many people share, not on a specialist topic.
+        assert rank(audience_reach="everyone", practical=True) == 69 and rank(audience_reach="few", practical=True) == 60
+        assert rank(two_voices=True) == 64
+        # A small face weighs heavily against, still never drops the clip.
+        assert rank(face_small=True) == 40
+        c = {**base, "everyday_thing": "coffee", "audience_reach": "everyone", "practical": True, "two_voices": True}
+        main.rank_by_opening(c)
+        assert c["predicted_score"] == 78
+        assert c["selection_weights"] == {"everyday": 5, "everyone": 6, "practical": 3, "two_voices": 4}
+
+    def test_off_without_the_switch(self, monkeypatch):
+        monkeypatch.delenv("SELECTION_WEIGHTS", raising=False)
+        c = {"predicted_score": 60, "opening_score": 60, "audience_reach": "everyone", "two_voices": True,
+             "face_small": True}
+        assert main.rank_by_opening(c) == 60 and "selection_weights" not in c
+        monkeypatch.setenv("SELECTION_WEIGHTS", "not json")
+        assert main.selection_weights() == {k: 0.0 for k in main.SELECTION_WEIGHT_KEYS}
+
+    def test_the_prompt_and_the_schema(self):
+        flat = " ".join(gw.PLAYBOOK_DETAIL_ADDENDUM.split())
+        for must in ("WHO IS CONCERNED", "`audience_reach`", '"everyone"', "`practical`", "TWO VOICES",
+                     "`two_voices`", "opening ON that question is good", "THE END: stop dead",
+                     "never on a question left without its answer"):
+            assert must in flat, must
+        assert flat.count("never a filter") >= 2 or "PREFERENCE weighed in code, never a filter" in flat
+        props = gw.DetailResponsePlaybook.model_json_schema()["$defs"]["DetailClipModelPlaybook"]["properties"]
+        assert {"audience_reach", "practical", "two_voices"} <= set(props)
+        assert "THE TITLE ECHOES THE FIRST SENTENCE" in gw.REFERENCES_TITLE_ADDENDUM
+        assert "The Fastest Way To Calm Down" in gw.REFERENCES_TITLE_ADDENDUM
+
+    def test_the_house_recipe(self):
+        env = plus.job_env({"name": "Joe Rogan"})
+        assert env["FACE_CHECK"] == "1"
+        import json
+        assert json.loads(env["SELECTION_WEIGHTS"]) == plus.SELECTION["weights"]
+        assert plus.SELECTION["weights"]["face_small"] > 0          # taken off (_weights_for), never a filter
+        # The 40-60 s aim, never over a minute; the default format unchanged.
+        assert plus.CLIP_FORMATS["minute"] == {"clip_min": 25, "clip_max": 60, "clip_target": [40, 58]}
+        assert plus.sanitize({})["format"] == "standard"
+        assert env["CLIP_TARGET_MIN_SECONDS"] == "25"
+        env = plus.job_env({"name": "x", "format": "minute"})
+        assert (env["CLIP_MIN_SECONDS"], env["CLIP_MAX_SECONDS"], env["CLIP_TARGET_MAX_SECONDS"]) == ("25", "60", "58")
+
+
+class TestFaceCheck:
+    def test_small_faces_are_flagged(self, monkeypatch, tmp_path):
+        import numpy as np
+        video = tmp_path / "v.mp4"
+        video.write_bytes(b"x")
+        shares = iter([0.30, 0.10, 0.08, 0.12, 0.0])
+        frame = np.zeros((1000, 1920, 3), dtype=np.uint8)
+
+        class Cap:
+            def __init__(self, *_):
+                pass
+
+            def set(self, *_):
+                pass
+
+            def read(self):
+                return True, frame
+
+            def release(self):
+                pass
+
+        monkeypatch.setattr(main.cv2, "VideoCapture", Cap)
+        monkeypatch.setattr(main, "detect_face_candidates",
+                            lambda f: [{"box": [0, 0, 10, round(next(shares) * 1000)]}])
+        clips = [{"start": 0.0, "end": 30.0}]
+        main.check_faces(clips, str(video))
+        assert clips[0]["face_share"] == 0.1 and clips[0]["face_small"] is True
+        shares = iter([0.30, 0.26, 0.22, 0.10, 0.28])
+        main.check_faces(clips, str(video))
+        assert clips[0]["face_share"] == 0.26 and clips[0]["face_small"] is False
+
+    def test_a_profile_falls_back_on_the_person(self, monkeypatch, tmp_path):
+        # JRE #2553 c02: Joe side-on reading a screen — no face found, YOLO finds him; a screen alone does not count.
+        import numpy as np
+        video = tmp_path / "v.mp4"
+        video.write_bytes(b"x")
+        frame = np.zeros((1000, 1920, 3), dtype=np.uint8)
+        persons = iter([[0, 0, 10, 400], None, [0, 0, 10, 300], None, [0, 0, 10, 350]])
+
+        class Cap:
+            def __init__(self, *_):
+                pass
+
+            set = lambda *a: None  # noqa: E731
+
+            def read(self):
+                return True, frame
+
+            def release(self):
+                pass
+
+        monkeypatch.setattr(main.cv2, "VideoCapture", Cap)
+        monkeypatch.setattr(main, "detect_face_candidates", lambda f: [])
+        monkeypatch.setattr(main, "detect_person_yolo", lambda f: next(persons))
+        clips = [{"start": 0.0, "end": 30.0}]
+        main.check_faces(clips, str(video))
+        assert clips[0]["face_share"] == 0.21 and clips[0]["face_small"] is False
+
+    def test_no_video_no_check(self):
+        clips = [{"start": 0.0, "end": 30.0}]
+        main.check_faces(clips, None)
+        main.check_faces(clips, "/nope.mp4")
+        assert "face_small" not in clips[0]
