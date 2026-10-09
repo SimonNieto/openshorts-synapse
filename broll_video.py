@@ -45,6 +45,11 @@ CANDIDATES = 5                    # judged per moment (one row of the sheet each
 PREVIEW_FRAMES = 3                # preview frames per candidate on the sheet
 TILE_W, TILE_H = 150, 266
 EDGE = 0.4                        # s never taken at the very start / end of a stock video (fades, wobbles)
+# Colour footage only (10-oct-2026, clip 1: the « scientists » footage was black and white — the judge let it pass):
+# a candidate whose preview frames are all grey (mean HSV saturation under GREY_SAT and its 90th percentile under
+# GREY_P90 — the « scientists » one: 0.000 / 0.000; the dullest colour shots of clips 1-2: 0.04-0.08 / 0.12-0.26) is
+# dropped before the judge sees it, and the judge is told to want colour footage.
+GREY_SAT, GREY_P90 = 0.03, 0.08
 
 # Never searched nor kept (the channel's rule: nothing that evokes a death or its means, no gore).
 BLOCKED = re.compile(r"\b(dead|death|dying|die[sd]?|corpse|coffin|funeral|grave|cemetery|suicid\w*|overdose\w*|gun|"
@@ -264,6 +269,49 @@ def preview_frames(cand, n=PREVIEW_FRAMES):
     return [(i, pics[i]) for i in idx]
 
 
+def saturation(path):
+    """(mean, 90th percentile) of the HSV saturation of the picture at ``path``, 0..1."""
+    import numpy as np
+    from PIL import Image
+    im = Image.open(path).convert("RGB")
+    im.thumbnail((256, 256))
+    s = np.asarray(im.convert("HSV"), dtype=np.float32)[..., 1] / 255.0
+    return float(s.mean()), float(np.percentile(s, 90))
+
+
+def is_grey(path):
+    """True when the picture at ``path`` is black and white (or nearly: GREY_SAT, GREY_P90); None when unreadable."""
+    try:
+        mean, p90 = saturation(path)
+    except Exception:
+        return None
+    return mean < GREY_SAT and p90 < GREY_P90
+
+
+def colour_only(cands, session=None, n=CANDIDATES):
+    """The first ``n`` candidates whose preview frames are not all black and white (the frames the sheet shows, fetched
+    once into the cache); a candidate whose frames cannot be read is kept (the judge sees it)."""
+    folder = os.path.join(cache_dir(), "previews")
+    os.makedirs(folder, exist_ok=True)
+    out = []
+    for c in cands or []:
+        greys = []
+        for i, url in preview_frames(c):
+            p = os.path.join(folder, f"{c['id']}_{i}.jpg")
+            try:
+                _fetch(url, p, PREVIEW_HOST, session)
+            except Exception:
+                continue
+            greys.append(is_grey(p))
+        if greys and all(g is True for g in greys):
+            print(f"   ⚫ B-roll vidéo : « {_q(c.get('title'), 8)} » écartée (noir et blanc).")
+            continue
+        out.append(c)
+        if len(out) >= n:
+            break
+    return out
+
+
 def sheet(cands, path, label="", session=None):
     """One jpg for a moment: a row per candidate (its number, PREVIEW_FRAMES frames a, b, c)."""
     from PIL import Image, ImageDraw, ImageFont
@@ -323,7 +371,8 @@ none does. A candidate is NEVER chosen when it shows:
 - blood, a wound, gore, a needle going in;
 - readable text, a caption, a watermark, a brand or a logo on screen;
 - a sexualised or bare body;
-- a toy, an animal, an object or a cartoon standing in for the person or the action said (never literal).
+- a toy, an animal, an object or a cartoon standing in for the person or the action said (never literal);
+- black and white, sepia or washed-out footage: the channel shows COLOR footage only, vivid and natural.
 Prefer real anonymous people doing exactly the action said, in a plain natural setting.
 Also say which frame (a, b or c) is the best moment to cut to (it will be the middle of the excerpt).
 
@@ -357,6 +406,7 @@ def choose(moments, cands, folder, session=None):
     candidate (with "frame_index", "why") or None."""
     os.makedirs(folder, exist_ok=True)
     asked, sheets, lines = [], [], []
+    cands = [colour_only(cs, session) for cs in cands]          # black-and-white footage never reaches the judge
     for k, (m, cs) in enumerate(zip(moments, cands)):
         cs = (cs or [])[:CANDIDATES]
         if not cs:
@@ -366,7 +416,7 @@ def choose(moments, cands, folder, session=None):
         sheets.append(path)
         titles = "; ".join(f"{i}: {_q(c['title'], 10)} ({c['duration']:.0f} s)" for i, c in enumerate(cs))
         lines.append(f'k={k} — word "{_q(m.get("word"), 4)}" in "{_q(m.get("sentence"))}"; looking for: '
-                     f'"{_q(m.get("query"), 8)}"\n  candidates (page titles): {titles}')
+                     f'"{_q(m.get("query"), 8)}", color footage\n  candidates (page titles): {titles}')
         asked.append(k)
     out = [None] * len(moments)
     if not asked:

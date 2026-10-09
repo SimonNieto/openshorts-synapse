@@ -255,3 +255,38 @@ def test_spot_snaps_to_the_word(monkeypatch):
     assert len(got) == 2                                    # never a picture on "dying"
     assert got[0] == {"t": 2.1, "word": "clock", "sentence": "", "kind": "object", "query": "wall clock"}
     assert got[1]["t"] == 17.26 and got[1]["kind"] == "action"
+
+
+def test_black_and_white_footage_never_reaches_the_judge(monkeypatch, tmp_path):
+    """10-oct-2026, clip 1: the « scientists » footage was black and white (its preview: saturation 0.000) and the judge
+    took it. A candidate whose preview frames are all grey is dropped before the judge; the judge wants color footage."""
+    import numpy as np
+    from PIL import Image
+    folder = os.path.join(bv.cache_dir(), "previews")
+    os.makedirs(folder, exist_ok=True)
+    grey, colour = bv.candidate(video(1)), bv.candidate(video(2))
+    rng = np.random.default_rng(0)
+    for c, tint in ((grey, None), (colour, (40, 120, 200))):
+        for i, _url in bv.preview_frames(c):
+            g = rng.integers(30, 220, (120, 90, 1)).astype(np.uint8)
+            px = np.repeat(g, 3, -1) if tint is None else np.clip(g * 0.4 + np.array(tint), 0, 255).astype(np.uint8)
+            Image.fromarray(px).save(os.path.join(folder, f"{c['id']}_{i}.jpg"))
+    seen = []
+
+    def fake_ask(prompt, schema, attach, stage):
+        seen.append(prompt)
+        return {"moments": [{"k": 0, "pick": 0, "frame": "b"}]}
+    monkeypatch.setattr(bv, "_ask", fake_ask)
+    moments = [{"t": 1, "word": "scientists", "sentence": "knowing scientists", "query": "scientist in a laboratory"}]
+    got = bv.choose(moments, [[grey, colour]], str(tmp_path / "j"), session=FakeSession([]))
+    assert got[0]["id"] == 2, "the grey one is gone: pick 0 is now the colour one"
+    assert "color footage" in seen[0] and "black and white" in bv.JUDGE_PROMPT
+    i0 = bv.preview_frames(grey)[0][0]
+    p = os.path.join(folder, f"{grey['id']}_{i0}.jpg")
+    assert bv.is_grey(p) is True and bv.is_grey(os.path.join(folder, f"{colour['id']}_{i0}.jpg")) is False
+    # the dullest real colour shots of clips 1-2 (mean saturation 0.04-0.08) stay
+    dull = tmp_path / "dull.jpg"
+    Image.fromarray(np.clip(rng.integers(60, 120, (120, 90, 1)) + np.array([[[12, 6, 0]]]), 0, 255)
+                    .astype(np.uint8)).save(dull)
+    assert bv.saturation(str(dull))[0] > bv.GREY_SAT and bv.is_grey(str(dull)) is False
+    assert bv.is_grey(str(tmp_path / "missing.jpg")) is None
