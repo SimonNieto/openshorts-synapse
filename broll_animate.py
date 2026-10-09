@@ -7,7 +7,8 @@ like the Z-Image pictures (broll.local_image); each graph lives in comfy_workflo
 - "ltxv": LTX-Video 2B 0.9.8 distilled (Lightricks) + T5-XXL fp8, 11.5 GB of files, 8 steps; 29-47 s of GPU per 2.4 s
   shot on the RTX 3060 (bench of 9-oct-2026, 704x1248, 57 frames).
 - "wan22": Wan 2.2 TI2V 5B (Comfy-Org repack) + UMT5-XXL fp8 + Wan 2.2 VAE, 18.1 GB of files, the official
-  template's 20 steps at cfg 5.
+  template's 20 steps at cfg 5; 406-446 s of GPU per 2.5 s shot on the RTX 3060 (bench of 9-oct-2026, 704x1280,
+  61 frames): ~12x LTX, steadier (shapes held, no flicker), but less motion on faces.
 Off by default: plus.BROLL["animate"].
 
 Flow: the picture is cropped to 9:16 and sized for the model, uploaded to ComfyUI's input folder (subfolder

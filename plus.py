@@ -111,7 +111,7 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          "opening": False,
          # Animated pictures (9-oct-2026, references recipe): a picture becomes a 2-3 s silent shot with one light
          # motion (broll_animate: LTX-Video 2B distilled in ComfyUI). OFF until the user has seen the bench.
-         # "animate_engine": "ltxv" (LTX-Video 2B distilled, ~35 s a shot) or "wan22" (Wan 2.2 TI2V 5B).
+         # "animate_engine": "ltxv" (LTX-Video 2B distilled, ~35 s a shot) or "wan22" (Wan 2.2 TI2V 5B, ~7 min a shot).
          "animate": False, "animate_engine": "ltxv"}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
