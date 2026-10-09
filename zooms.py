@@ -763,8 +763,11 @@ def clip_boxes(input_video, n, fps, premium, heads, scene_boundaries, crop_h, or
         for s_f, base in premium.items():
             e_f = min(n, s_f + len(base))
             if e_f > s_f:
+                k0 = len(report)
                 out[s_f] = shot_boxes(base[:e_f - s_f], heads[s_f:e_f], tight[s_f:e_f], start[s_f:e_f], fps, crop_h,
                                       orig_h, report, rates=rates)
+                for r in report[k0:]:
+                    r["frame"] += s_f              # the clip's frame (shot_boxes counts in its shot)
         runs = [r for r in report if "rate" in r]
         log(f"   🔎 Continuous zooms: {len(runs)} stretch(es), no dry cut — "
             + ", ".join(f"{r['frame'] / fps:.1f}s {'-' if r['out'] else '+'}{abs(r['rate']):.2f} %/s over "
