@@ -92,8 +92,12 @@ def sheet(video, words, items, out_path, title, cols=10):
     from PIL import Image, ImageDraw
     tmp = tempfile.mkdtemp(prefix="sheet_")
     try:
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "0.5", "-i", video, "-vf", f"fps=1,scale={TILE_W}:-2",
-                        os.path.join(tmp, "f%03d.jpg")], check=True)
+        # one exact seek a second (the fps filter picked the frame half a second late)
+        length = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
+                                       "csv=p=0", video], capture_output=True, text=True).stdout.strip() or 0)
+        for k in range(int(length)):
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{k + 0.5:.2f}", "-i", video, "-frames:v", "1",
+                            "-vf", f"scale={TILE_W}:-2", os.path.join(tmp, f"f{k:03d}.jpg")], check=True)
         frames = sorted(glob.glob(os.path.join(tmp, "f*.jpg")))
         if not frames:
             return

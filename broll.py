@@ -3443,17 +3443,22 @@ def _draw_marks(W, H, marks, t):
             a = lw * 2.2
             d.polygon([(tx + vx * a * 1.4, ty + vy * a * 1.4), (tx - vy * a, ty + vx * a), (tx + vy * a, ty - vx * a)],
                       fill=MARK_COLOUR + (255,))
-        elif mk["kind"] == "glow":
-            r = W * (0.07 + 0.03 * (0.5 + 0.5 * math.sin(2 * math.pi * t / 1.2)))
-            d.ellipse((x - r, y - r, x + r, y + r), fill=MARK_GLOW + (200,))
+    # a glow is light, not a disc: a soft halo that pulses, the picture still seen through it (bench of 9-oct-2026:
+    # a filled spot read as a blue sticker)
+    spots = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ds = ImageDraw.Draw(spots)
+    for mk in marks:
+        if mk["kind"] == "glow":
+            x, y = mk["px"], mk["py"]
+            r = W * (0.06 + 0.025 * (0.5 + 0.5 * math.sin(2 * math.pi * t / 1.2)))
+            ds.ellipse((x - r, y - r, x + r, y + r), fill=MARK_GLOW + (150,))
+            ds.ellipse((x - r * 0.35, y - r * 0.35, x + r * 0.35, y + r * 0.35), fill=MARK_COLOUR + (170,))
     glow = sharp.filter(ImageFilter.GaussianBlur(max(6, int(W * 0.012))))
     out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     out.alpha_composite(glow)
     out.alpha_composite(glow)
-    if any(mk["kind"] != "glow" for mk in marks):
-        out.alpha_composite(sharp)
-    else:
-        out.alpha_composite(sharp.filter(ImageFilter.GaussianBlur(max(3, int(W * 0.006)))))
+    out.alpha_composite(sharp)
+    out.alpha_composite(spots.filter(ImageFilter.GaussianBlur(max(10, int(W * 0.03)))))
     return out
 
 

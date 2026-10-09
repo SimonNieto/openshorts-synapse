@@ -332,6 +332,11 @@ def picture_text(styles, n, more=False):
     elif n["format"] == "split":
         text = f"{styles['picture']} {picture} {SPLIT_LINE}"
     elif n["format"] in ("sequence", "inside"):
+        points = [p for p in n.get("points") or [] if p]
+        if points:
+            # the figure shows what the marks will point at (bench of 9-oct-2026: a figure written without its
+            # tumour came out as a body, the marks pointing at nothing)
+            return f"{styles['sequence']} {picture} Clearly visible: " + "; ".join(points) + "."
         return f"{styles['sequence']} {picture}"
     else:
         text = f"{styles['picture']} {picture}"
@@ -507,8 +512,10 @@ def direct(words, clip):
     return nouns, sequences_of(data, words, taken={n["key"] for n in nouns}), styles
 
 
-def _around_word(words, i, n=8):
-    return " ".join(str(w.get("text") or "") for w in words[max(0, i - n):i + n + 1])
+def _around_word(words, i, n=8, before=24):
+    """What is said around the word ``i``: ``before`` words before it (a « physician » is said of a man named ten words
+    earlier — on job b8e46c24 c07 the verifier missed him with 8), ``n`` after."""
+    return " ".join(str(w.get("text") or "") for w in words[max(0, i - max(n, before)):i + n + 1])
 
 
 def mention_id(j):
