@@ -255,13 +255,14 @@ class TestSettle:
         hide_t = [t for r, t in joins if r["verdict"] == "hide"]
         assert windows == [] and hide_t
         assert all(b - a >= zooms.MIN_GAP - 1e-6 for a, b in zip(hide_t, hide_t[1:]))
-        assert all(r["reason"] == "spacing" for r in p["refused"] if r["kind"] == "silence")
+        # short_piece: a 0.25-0.35 s pause now counted (SILENCE_MIN 0.25) leaves a piece too short to keep
+        assert all(r["reason"] in ("spacing", "short_piece") for r in p["refused"] if r["kind"] == "silence")
 
     def test_hide_off_drops_every_join_to_hide(self):
         p = plan(judge=fake_judge(jump=(montage.JUMP_CLEAN + montage.JUMP_HIDE) / 2))
         segs, joins, windows, events = montage.settle(p, shots=(), hide=False)
         assert windows == [] and joins == []
-        assert {r["reason"] for r in p["refused"]} == {"hide_off"}
+        assert {r["reason"] for r in p["refused"]} <= {"hide_off", "short_piece"} and "hide_off" in {r["reason"] for r in p["refused"]}
 
     def test_source_camera_cuts_land_on_the_new_timeline(self):
         p = plan()

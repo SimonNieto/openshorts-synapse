@@ -43,8 +43,8 @@ import subprocess
 import threading
 
 # --- the recipe (plus.MONTAGE switches them; the numbers are here) ---------------------------------
-SILENCE_MIN = 0.35   # s: a pause longer than this is tightened (son/rapport.md C2: 2.1 s of them per clip)
-BREATH = 0.20        # s of a tightened pause that stays: a breath
+SILENCE_MIN = 0.25   # s: a pause longer than this is tightened (was 0.35; 9-oct-2026, OptimalHealth measured: +14 % speech rate)
+BREATH = 0.12        # s of a tightened pause that stays: a breath (was 0.20; their cuts keep ~0.1 s, joins hidden by zooms.py)
 BREATH_SLACK = 0.12  # the breath may grow by this much when it finds two frames that look more alike
 BEAT = 0.50          # s kept before the punchline and before a short reply of the other speaker ("Whoa.")
 SILENCE_DB = -20.0   # dB under the clip's speech level (its 95th percentile): silence (son: -35 dBFS, voice -15)
