@@ -116,7 +116,9 @@ PRESETS["premium"] = {**PRESETS["natural"], "font": "Montserrat ExtraBold", "bol
 # the next. Measured on their storyboards (vLVGpzxWpfw, gwzeJicUXAE,
 # OrOdCRiDWQQ): the word's centre at 53-70 % of the height, capitals 2.2-2.6 %
 # of the height (~45-50 px on 1920), "PERSON" 30 % of the width, "OFF" 14 %.
-# Size 110 here: capitals ~48 px, "PERSON" ~29 %. A long word is set smaller to
+# Measured on the videos themselves (9-oct-2026, etude2/mesures, 9 hits, frame by frame): the word centred at
+# 58 % of the height, capitals 58 px. Size 133 here: capitals ~58 px; centre at 1114 px (58 % of 1920).
+# A long word is set smaller to
 # stay inside 84 % of the width (safe_x 8-92 %, _fit_scale). A short word
 # never rides with its neighbour ("one_word"); the punctuation is dropped.
 # Colour (decoded on 12 of their shorts, 724 s: ONE coloured word, "CRAZY"): at
@@ -127,8 +129,8 @@ PRESETS["premium"] = {**PRESETS["natural"], "font": "Montserrat ExtraBold", "bol
 # credit (« CREDIT: <the show> ») tiny at the top left, the whole clip long
 # (CORNER below) — their top band, with no hook title on screen
 # (plus.HOOK_ON_SCREEN).
-PRESETS["oneword"] = {**PRESETS["premium"], "max_words": 1, "max_chars": 40, "one_word": True, "size": 110,
-                      "caption_y": 1000, "lit": False, "fade": 0, "safe_x": (0.08, 0.92),
+PRESETS["oneword"] = {**PRESETS["premium"], "max_words": 1, "max_chars": 40, "one_word": True, "size": 133,
+                      "caption_y": 1114, "lit": False, "fade": 0, "safe_x": (0.08, 0.92),
                       "accent": "#F2B544", "key_every": 0, "key_gap": 4, "key_min": 0.8, "key_max": 1,
                       "key_only": "emotion",
                       "outline": 6, "shadow": 3, "edge_alpha": 0x00, "shadow_alpha": 0x50, "corner": True}

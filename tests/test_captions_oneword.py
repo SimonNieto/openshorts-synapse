@@ -50,14 +50,14 @@ class TestOneWord:
 
     def test_mid_screen_white_thick_black_edge_no_fade_no_lighting(self):
         p = viral_fx.PRESETS["oneword"]
-        assert (p["font"], p["size"], p["caption_y"], p["lit"]) == ("Montserrat ExtraBold", 110, 1000, False)
-        assert 0.50 <= p["caption_y"] / 1920 <= 0.55
+        assert (p["font"], p["size"], p["caption_y"], p["lit"]) == ("Montserrat ExtraBold", 133, 1114, False)
+        assert 0.56 <= p["caption_y"] / 1920 <= 0.60                 # theirs 58 % (mesures, 9 hits)
         f = _style(viral_fx.build_ass(WORDS, "oneword")[0], "Main")
         # PrimaryColour white, OutlineColour solid black, Outline 6, Shadow 3
         assert (f[3], f[5], f[16], f[17]) == ("&H00FFFFFF", "&H00000000", "6", "3")
         ass, _ = viral_fx.build_ass(WORDS, "oneword")
         assert "\\fad" not in ass and "\\1a" not in ass and "\\t(" not in ass
-        assert {m for m in re.findall(r"\\pos\((\d+),(\d+)\)", "\n".join(_lines(ass, "Main")))} == {("540", "1000")}
+        assert {m for m in re.findall(r"\\pos\((\d+),(\d+)\)", "\n".join(_lines(ass, "Main")))} == {("540", "1114")}
 
     def test_at_most_one_golden_word_and_only_an_emotion_word(self):
         # Decoded on 12 OptimalHealth shorts: one coloured word (« CRAZY ») in 724 s.
@@ -143,7 +143,7 @@ class TestTheRecipe:
         import broll
         top, bottom = broll._caption_band(1920, "oneword", True)
         assert (top, bottom) == broll._caption_band(1920, "oneword", False)
-        assert top < 1000 < bottom
+        assert top < 1114 < bottom
 
     def test_the_job_names_the_show_only_without_a_hook_title(self, monkeypatch, tmp_path):
         import main
@@ -188,8 +188,8 @@ class TestDrawnByLibass:
     def test_the_word_mid_screen_at_the_references_size(self, frames):
         person, _ = frames
         white = np.where((person[800:1200] > 235).any(axis=1))[0] + 800
-        assert 44 <= white.max() - white.min() + 1 <= 52                  # capitals ~48 px (theirs 45-50)
-        assert abs((white.min() + white.max()) / 2 - 1000) <= 12
+        assert 54 <= white.max() - white.min() + 1 <= 66                  # capitals ~58 px (theirs 58, measured on the videos)
+        assert abs((white.min() + white.max()) / 2 - 1114) <= 12
         left, right, _, _ = self._ink(person, 800, 1200)
         assert 0.26 <= (right - left) / 1080 <= 0.34                       # "PERSON" ~30 % of the width in theirs
 
