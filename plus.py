@@ -95,7 +95,12 @@ FX = {"smart_framing": True, "smooth_camera": True, "reactions": True, "hq_chain
 # (theirs: x1.12 [1.07-1.17] in, /1.10 out), mostly on the montage's silence cuts, a strong word a rare complement;
 # a slow push of 2 %/s on the longest quarter of the face shots only (theirs: 23 % of them; the others hold still);
 # two dry cuts 1.2 s apart at least; a relaunch when 7 s pass without a change (theirs: 8 s at most, median).
-ZOOMS = {"punch": 1.12, "punch_hi": 1.12, "slow_rate": 0.02, "slow_max": 0.10, "min_gap": 1.2, "relaunch": 7.0}
+ZOOMS = {"punch": 1.12, "punch_hi": 1.12, "slow_rate": 0.02, "slow_max": 0.10, "min_gap": 1.2, "relaunch": 7.0,
+         # 10-oct-2026 (the user: « les zooms ça va pas, c'est pas comme eux »; their face shots measured at 10 i/s,
+         # etude2/mesures/zoom_continu.py): NO dry reframe; every stretch between two real changes zooms slowly and
+         # steadily, 0.3-0.7 %/s drawn per stretch, out one stretch in three, through the montage joins (a join that
+         # would show keeps its pause). "mode": "punch" brings the dry reframes above back.
+         "mode": "continuous", "rate_range": [0.003, 0.007], "back_every": 3}
 # The pictures with the "references" zooms (broll knobs): a full-screen drawing pushes in STILL_RATE a second,
 # linear over its time on screen (theirs: +1.4 %/s on a still photo), one in STILL_EVERY holds still (theirs: about
 # one in three); a card's picture pushes CARD_PUSH inside its frame while the face behind it keeps its own zoom.

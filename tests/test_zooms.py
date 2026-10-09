@@ -217,3 +217,51 @@ class TestRecipe:
         zooms.mark_applied(v, [{"t": 1.5, "to": "tight", "why": "raccord caché", "word": ""}])
         c = zooms.read_cues(v)
         assert c["words"][0]["text"] == "hi" and c["joins"] == [1.5] and c["applied"][0]["to"] == "tight"
+
+
+class TestContinuous:
+    """10-oct-2026: their face shots creep slowly and steadily, no dry reframe (etude2/mesures/zoom_continu.py)."""
+
+    @staticmethod
+    def _mode(monkeypatch):
+        for k in ("MODE", "RATE_RANGE", "BACK_EVERY", "PUNCH", "PUNCH_HI", "SLOW_RATE", "SLOW_MAX", "MIN_GAP", "RELAUNCH"):
+            monkeypatch.setattr(zooms, k, getattr(zooms, k))
+        monkeypatch.setenv("PLUS_ZOOMS_JSON", plus.job_env({})["PLUS_ZOOMS_JSON"])
+        zooms.configure()
+
+    def test_the_branch_s_recipe_is_continuous(self, monkeypatch):
+        self._mode(monkeypatch)
+        assert zooms.MODE == "continuous" and zooms.RATE_RANGE == (0.003, 0.007) and zooms.BACK_EVERY == 3
+        # no join is hidden by a dry cut any more: each keeps its pause (montage.settle)
+        assert zooms.hide_spacing([2.0, 5.0, 9.0], 30.0) == [0, 1, 2]
+
+    def test_rates_drawn_per_stretch_out_one_in_three(self, monkeypatch):
+        self._mode(monkeypatch)
+        rates = zooms.continuous_rates(np.repeat(np.arange(9) * 100, 100))
+        vals = [rates[s] for s in sorted(rates)]
+        assert all(0.003 - 1e-9 <= abs(r) <= 0.007 + 1e-9 for r in vals)
+        assert [r < 0 for r in vals] == [False, False, True] * 3
+        assert zooms.continuous_rates(np.repeat(np.arange(9) * 100, 100)) == rates, "the same clip, the same draw"
+
+    def test_linear_no_jump_eyes_on_their_line(self, monkeypatch):
+        self._mode(monkeypatch)
+        n = 300
+        base = [(608, 1080, 656, 0)] * n
+        heads = [(960.0, 430.0, 220.0, 260.0, 0.0)] * n
+        tight = np.zeros(n, dtype=bool)
+        start = np.array([0] * 150 + [150] * 150)            # a picture ended at frame 150: a new stretch
+        rates = {0: 0.005, 150: -0.006}
+        rep = []
+        boxes = zooms.shot_boxes(base, heads, tight, start, 30.0, 1080, 1080, rep, rates=rates)
+        zs = np.array([1080 / b[3] for b in boxes])
+        a, b = zs[:150], zs[150:]
+        assert abs(a[0] - 1.0) < 1e-9 and abs(a[-1] - (1 + 0.005 * 5.0)) < 1e-3          # in, +0.5 %/s
+        assert abs(b[0] - (1 + 0.006 * 5.0)) < 1e-3 and abs(b[-1] - 1.0) < 1e-9          # out, -0.6 %/s
+        for run in (a, b):
+            d = np.diff(run)
+            assert np.all(np.sign(d) == np.sign(d[0])) and np.ptp(d) < 1e-9, "linear: no acceleration"
+            assert np.max(np.abs(d)) < 0.0003, "no dry cut inside a stretch"
+        eye = 430.0 - zooms.EYE * 260.0
+        line = [(eye - x[1]) / x[3] for x in boxes]
+        assert max(line) - min(line) < 0.005
+        assert [r["out"] for r in rep] == [False, True]
