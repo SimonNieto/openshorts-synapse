@@ -418,7 +418,7 @@ def trace(clip_path, clip, tmp, kept, ideas=False):
         pictures = []
         for e in LAST_CHECKS:
             src = os.path.join(tmp, e["file"])
-            if os.path.exists(src):
+            if e.get("file") and os.path.isfile(src):      # a refused picture has no file
                 shutil.copyfile(src, os.path.join(folder, e["file"]))
             pictures.append({**e, "kept": e["file"] in kept_files})
         rounds = []
