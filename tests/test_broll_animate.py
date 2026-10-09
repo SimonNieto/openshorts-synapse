@@ -32,13 +32,18 @@ def test_workflow_uses_native_nodes_only_and_is_filled():
     assert {n["class_type"] for n in g.values()} <= native
     assert not any(v is None for n in g.values() for v in n["inputs"].values())
     assert g["load"]["inputs"]["image"] == "synapse_animate/x.png"
-    assert g["pos"]["inputs"]["text"].startswith("steam rises slowly from the cup. a cup of coffee")
+    assert g["pos"]["inputs"]["text"].startswith(broll_animate.STATIC + " steam rises slowly from the cup. a cup of")
     assert "morphing" in g["neg"]["inputs"]["text"]
     assert g["i2v"]["inputs"]["width"] % 32 == 0 and g["i2v"]["inputs"]["height"] % 32 == 0
     assert g["i2v"]["inputs"]["height"] > g["i2v"]["inputs"]["width"]          # vertical
     assert g["sample"]["inputs"]["noise_seed"] == 42 and g["sample"]["inputs"]["cfg"] == 1.0
     assert g["ckpt"]["inputs"]["ckpt_name"] == broll_animate.MODEL
     assert not any(k.startswith("_") for k in g)
+
+
+def test_static_camera_unless_the_motion_moves_the_camera():
+    assert broll_animate.prompt_text("she blinks once").startswith("Static camera")
+    assert broll_animate.prompt_text("The camera pushes in slowly").startswith("The camera pushes in slowly.")
 
 
 def test_fit_crops_to_the_frame_aspect_without_stretching(tmp_path):

@@ -3,7 +3,7 @@ realistic motion — steam rising, a person blinking, the camera pushing in slow
 reference channels (RECETTE_REFERENCES.md, OptimalHealth first) cut to such 1-3 s moving shots of the thing said.
 
 Model: LTX-Video 2B 0.9.8 distilled (Lightricks) + T5-XXL fp8 (11.5 GB of files, 8 steps, native ComfyUI nodes, no
-custom node), run through ComfyUI's HTTP API like the Z-Image pictures (broll.local_image). The graph lives in
+custom node), 29-47 s of GPU per 2.4 s shot on the RTX 3060 (bench of 9-oct-2026, 704x1248, 57 frames), run through ComfyUI's HTTP API like the Z-Image pictures (broll.local_image). The graph lives in
 comfy_workflows/animate_ltxv_2b_distilled.json; this module only fills it in. Off by default: plus.BROLL["animate"].
 
 Flow: the picture is cropped to 9:16 and sized for the model, uploaded to ComfyUI's input folder (subfolder
@@ -62,9 +62,17 @@ def frames_for(seconds, fps=FPS):
     return 8 * n + 1
 
 
+# Bench of 9-oct-2026 (output/_stepup/etude2/v3/animation): without it, LTX-Video turned the 3D renders (a holographic
+# head by ~30 degrees, a heart that rotated instead of beating); "static camera ... does not rotate" first kept the
+# head still with only its light pulsing. Not added when the motion itself moves the camera ("the camera pushes in").
+STATIC = "Static camera, the subject stays in place and does not rotate."
+
+
 def prompt_text(motion, scene=""):
-    parts = [str(motion or "").strip().rstrip(".") + "." if motion else "", str(scene or "").strip(), STEADY]
-    return " ".join(p for p in parts if p and p != ".")
+    motion = str(motion or "").strip().rstrip(".")
+    lead = "" if "camera" in motion.lower() else STATIC
+    parts = [lead, motion + "." if motion else "", str(scene or "").strip(), STEADY]
+    return " ".join(p for p in parts if p)
 
 
 def load_workflow(name=WORKFLOW):
