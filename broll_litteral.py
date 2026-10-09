@@ -78,12 +78,31 @@ DRESSED_PATIENT = ("Anyone in this picture is fully dressed: a patient wears a c
 DRESSED_MORE = "The clothes stay closed from the neck to the knees."
 # The object large in its frame and its label blank (bench of 9-oct-2026: the lidocaine vial of c10 filled 15 % of its
 # card, with « Liidocaine » printed on it). fill_object() then crops the render so the object fills OBJECT_FILL of it.
-OBJECT_LINE = ("Alone in the centre of the frame on a plain seamless {bg} background, studio product shot, close-up, soft "
-               "even light, a soft shadow beneath it, the object very large, filling about three quarters of the frame's "
-               "height, its edges inside the frame. Any label or sticker on it is blank and plain, with no writing, no "
-               "letters and no numbers.")
+# (10-oct-2026) A long thin object (a needle, a syringe, a pen) rendered standing in a landscape frame stayed a thin line
+# in its card: it is asked lying diagonally, and fill_object() lays it along the card's diagonal anyway.
+OBJECT_LINE = ("Alone on a plain seamless {bg} background, studio product shot, close-up, soft even light, a soft shadow "
+               "beneath it, the object lying diagonally across the frame, large, filling the frame, its ends inside the "
+               "frame. Any label or sticker on it is blank and plain, with no writing, no letters and no numbers.")
 OBJECT_FILL = 0.70       # of the card's height (or width, a wide object) the object fills (theirs: the melatonin bottle)
-OBJECT_ZOOM_MAX = 2.6    # never cropped tighter than this (the card is ~650 px wide, the render 1024)
+OBJECT_ZOOM_MAX = 2.6    # never cropped tighter than this (the card is ~900 px wide, the render 1024)
+LONG_RATIO = 2.2         # an object this many times longer than thick is laid along the card's diagonal ...
+OBJECT_DIAG_FILL = 0.85  # ... and fills this much of the diagonal (theirs: the melatonin bottle lying across its card)
+OBJECT_FEATHER = 0.06    # of the render's short side: its edges melt into the background's colour (no visible border)
+OBJECT_MARGIN = 0.05     # of the card's side: the object never closer than this to its edges
+# The same thing in the same clip (10-oct-2026, rule 13 of the decoding: their melatonin bottle comes back, the same card):
+# every object card of a clip on ONE colour (the first object's), and close variants of one family said in one passage
+# (a needle, a syringe, its plunger) shown as the first of them — never three renders of one thing in three colours.
+FAMILY_PASSAGE = 20.0    # s: a variant said within this of the family's last mention is the same picture
+FAMILIES = {"syringe": ("needle", "syringe", "plunger", "hypodermic"),
+            "pill": ("pill", "tablet", "capsule", "caplet"),
+            "vial": ("vial", "ampoule", "ampule")}
+# No long stretch of face (10-oct-2026, clip 1 « needle phobia »: 31-46 s without a picture though « clinical trials »,
+# « scientific », « peptides » are said — the one noun offered had 0.95 s of room before the tail, under DUR_MIN, and
+# PER_MIN was spent). The decoded shorts never stay 7-8 s without a change: a face stretch longer than GAP_MAX (out of the
+# first FULL_HEAD s and the TAIL) gets a picture — a noun offered in it (from FILL_DUR_MIN s, PER_MIN and COVER_HI not
+# counted), else a picture of the clip whose word comes back in it (a key's word, « scientific » for the scientists).
+GAP_MAX = 8.0
+FILL_DUR_MIN = 0.8
 # The transitions (measured on 9 hits, frame by frame: 41 % of the picture changes come in with a 0.2 s flash of light or
 # a blurred arrival of the card, the rest on a dry cut).
 TRANSITION_SHARE, TRANSITION_S = 0.41, 0.2
@@ -133,7 +152,11 @@ nothing to decode. A real person's name never gets a picture, nor does a common 
 physician" about a named man). An expression is not a noun ("my finger on the pulse", "a puddle of tears", "the bright
 lights"). Nothing concrete in the clip: an empty list.
 Offer MANY: every concrete noun worth seeing, each time it is said (a 30 s clip usually has 10 to 20); the code keeps
-about one picture every 5 s and 40 % of the clip off the face. A list (A, B, C) gets one entry per element.
+about one picture every 5 s and 40 % of the clip off the face. A list (A, B, C) gets one entry per element. Go to the
+clip's LAST words: a noun said in its last third is listed like the others, each time it is said (the viewer must never
+watch 8 s of face while something showable is said).
+A part or a close variant of a thing already listed (the needle or the plunger of a syringe, a capsule after a pill)
+takes that thing's key: one picture for one thing, never three renders of it.
 People are ordinary Americans (the podcasts are American): give each one an age, a plain casting note and a look ("a
 white man in his forties in navy scrubs", "a Black woman in her thirties"), varied across the clip — without it the
 image model makes everyone East Asian — and always DOING something visible (rubbing his eyes, driving, writing),
@@ -153,7 +176,10 @@ gibberish on it. Show the hands or the person holding it from the side, or leave
   positive: what fills the frame and one or two true details from what is said. "A single" for a thing alone. For
   "inside": the organ or the cells, whole and clean. No style word, no camera word, nothing to read (no text, no
   number, no label);
-- "background": for an object, ONE plain colour that contrasts with it (e.g. "sky blue", "warm yellow"); else "";
+- "background": for an object, ONE plain colour that contrasts with it (e.g. "sky blue", "warm yellow"); the code
+  keeps the FIRST object's colour for every card of the clip; else "";
+- "family": for an object, the plain name of the kind of thing it is, the same for its close variants and parts (a
+  needle, a syringe and its plunger: "syringe"; a pill, a tablet, a capsule: "pill"); else "";
 - "footage": for a "scene" that is an ACTION (someone doing it: driving, sleeping, running), a PLACE (a hospital, a
   factory) or a STATE someone lives (tired, stressed, ill, in pain), on its FIRST entry: 2-5 plain English words to find
   real stock footage of it ("exhausted doctor night shift hospital", "person scrolling phone in bed"), anonymous people
@@ -173,7 +199,8 @@ eyes, a breath, a signal along a nerve, a cord that pulses). Then ONE sequence f
   {{"kind": "arrow" | "circle" | "glow", "at": one of the points, "dir": "left" | "right" | "up" | "down" | "in"
   (toward the figure's middle) | "out" | "cw" | "ccw" (for a circle, as seen on the screen) | "" (a glow)}}.
 Return JSON: {{"nouns": [{{"i": 12, "word": "...", "key": "...", "format": "object", "picture": "...",
-"background": "...", "footage": "", "motion": "", "priority": 2}}], "sequences": [{{"key": "...", "figure": "...", "points": ["..."],
+"background": "...", "family": "", "footage": "", "motion": "", "priority": 2}}],
+"sequences": [{{"key": "...", "figure": "...", "points": ["..."],
 "steps": [{{"i": 40, "word": "...", "marks": [{{"kind": "arrow", "at": "...", "dir": "in"}}]}}]}}]}}"""
 _MARK = {"type": "object", "properties": {"kind": {"type": "string", "enum": list(MARK_KINDS)}, "at": {"type": "string"},
                                           "dir": {"type": "string"}}, "required": ["kind", "at"]}
@@ -182,6 +209,7 @@ DA_SCHEMA = {"type": "object", "properties": {
         "type": "object", "properties": {"i": {"type": "integer"}, "word": {"type": "string"}, "key": {"type": "string"},
                                          "format": {"type": "string", "enum": list(FORMATS)},
                                          "picture": {"type": "string"}, "background": {"type": "string"},
+                                         "family": {"type": "string"},
                                          "footage": {"type": "string"},
                                          "motion": {"type": "string", "enum": ["pulse", "flow", "none", ""]},
                                          "priority": {"type": "integer"}},
@@ -311,7 +339,9 @@ def nouns_of(data, words):
                          # real footage for an action, a place, a state lived (a scene only); a light motion for a 3D
                          # render of the inside of the body
                          "footage": _clean(r.get("footage"), 60) if fmt == "scene" else "",
-                         "motion": r.get("motion") if fmt == "inside" and r.get("motion") in MOTIONS else ""}
+                         "motion": r.get("motion") if fmt == "inside" and r.get("motion") in MOTIONS else "",
+                         "family": family_of(r.get("family"), r.get("word") or words[i].get("text"), key)
+                         if fmt == "object" else ""}
         try:
             prio = int(r.get("priority") or 1)
         except (TypeError, ValueError):
@@ -319,7 +349,81 @@ def nouns_of(data, words):
         used.add(i)
         out.append({"i": i, "word": _clean(r.get("word") or words[i].get("text"), 40), "key": key,
                     "priority": min(max(prio, 1), 3), **seen[key]})
-    return out
+    return one_picture_per_thing(out, words)
+
+
+def stem(word):
+    """A word's plain form for comparing: letters only, lower case, a plural made singular (« needles » -> needle)."""
+    w = re.sub(r"[^a-z]", "", str(word or "").lower())
+    if len(w) > 4 and w.endswith("ies"):
+        return w[:-3] + "y"
+    if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+        return w[:-1]
+    return w
+
+
+def same_word(a, b, prefix=7):
+    """The same word said again, or the same root (« scientific » / « scientists »: 7 letters in common at least)."""
+    sa, sb = stem(a), stem(b)
+    if not sa or not sb:
+        return False
+    if sa == sb:
+        return True
+    return len(sa) >= prefix and len(sb) >= prefix and sa[:prefix] == sb[:prefix]
+
+
+def family_of(given, word, key):
+    """The family of an object (FAMILIES: a needle, a syringe and its plunger are one thing): the director's "family"
+    when it names one, else the family of its word or of a word of its key, else ""."""
+    g = stem(given)
+    for fam, members in FAMILIES.items():
+        if g and (g == fam or g in members):
+            return fam
+    if g:
+        return g
+    for w in [word] + str(key or "").split("_"):
+        s = stem(w)
+        for fam, members in FAMILIES.items():
+            if s and s in members:
+                return fam
+    return ""
+
+
+_SHARED = ("picture", "format", "background", "footage", "motion", "family")
+
+
+def one_picture_per_thing(nouns, words):
+    """The same thing keeps the same picture, the same card (10-oct-2026, rule 13 of the decoding; clip 1 had a needle in
+    yellow, a pen in blue, a syringe in red then in green):
+    - a word said again takes the key it had the first time (the director gave it another);
+    - a close variant of an object's family said within FAMILY_PASSAGE s of the family's last mention (a syringe, its
+      plunger after the needle) takes the first one's key: one render, never three;
+    - every object card of the clip on ONE colour, the first object's."""
+    by_key = {}
+    for n in nouns:
+        by_key.setdefault(n["key"], {k: n.get(k, "") for k in _SHARED})
+    alias, first_word, family_last = {}, {}, {}
+    for n in nouns:
+        key = alias.get(n["key"], n["key"])
+        s = stem(n["word"])
+        if key == n["key"] and s in first_word and first_word[s] != key:
+            key = alias[n["key"]] = first_word[s]
+        fam = by_key[key].get("family") if by_key[key]["format"] == "object" else ""
+        t = float(words[n["i"]]["start"])
+        if fam and key == n["key"] and fam in family_last:
+            k0, t0 = family_last[fam]
+            if k0 != key and t - t0 <= FAMILY_PASSAGE:
+                key = alias[n["key"]] = k0
+        if key != n["key"]:
+            n.update(key=key, **by_key[key])
+        first_word.setdefault(s, key)
+        if fam:
+            family_last[fam] = (key, t)
+    bg = next((n["background"] for n in nouns if n["format"] == "object" and n.get("background")), "")
+    for n in nouns:
+        if n["format"] == "object" and bg:
+            n["background"] = bg
+    return nouns
 
 
 def _mark(m, points):
@@ -454,19 +558,26 @@ def schedule(nouns, words, duration, avoid=(), block=(), head=HEAD, tail=TAIL, s
       two starts, PER_MIN a minute at most, at most COVER_HI of the clip off the face; then stretched (to DUR_MAX, room
       allowed) while under COVER_LO."""
     total = max(float(duration), 1.0)
-    cands = []
-    for n in nouns:
-        word_t = float(words[n["i"]]["start"])
+    def place(n, i, least):
+        """The noun ``n`` shown on the word ``i``: a candidate {**n, "t", "dur", "room", "max"}, or None (no room for
+        ``least`` s there)."""
+        word_t = float(words[i]["start"])
         t = round(max(0.0, word_t - (CARD_LEAD if n["format"] == "object" else LEAD)), 2)
         first = full_head if n["format"] in FULL else head
         if first - HEAD_GRACE - 1e-6 <= t < first:
             t = first       # said just before: it comes up then (« emergency room » at 0.64 s -> 0.8 s)
         room = _room(t, duration, avoid, block, tail) if t >= first - 1e-6 else None
-        if room is None or room < DUR_MIN - 1e-6:
-            continue
+        if room is None or room < least - 1e-6:
+            return None
         lead = max(0.0, word_t - t)
-        cands.append({**n, "t": t, "dur": round(min(natural_dur(words, n["i"], word_t) + lead, DUR_MAX + lead, room), 2),
-                      "room": room, "max": DUR_MAX + lead})
+        return {**n, "i": i, "t": t, "dur": round(min(natural_dur(words, i, word_t) + lead, DUR_MAX + lead, room), 2),
+                "room": room, "max": DUR_MAX + lead}
+
+    cands, spare = [], []
+    for n in nouns:
+        c = place(n, n["i"], FILL_DUR_MIN)
+        if c:
+            (cands if c["room"] >= DUR_MIN - 1e-6 else spare).append(c)
     seqs = []
     for s in sequences or ():
         ts = [round(max(0.0, float(words[st["i"]]["start"]) - LEAD), 2) for st in s["steps"]]
@@ -534,6 +645,8 @@ def schedule(nouns, words, duration, avoid=(), block=(), head=HEAD, tail=TAIL, s
     picks, durs = trimmed(picks)
     for c, d in zip(picks, durs):
         c["dur"] = d
+    picks = fill_gaps(picks, cands + spare, nouns, words, duration, block, tail, full_head, place, trimmed)
+    durs = [c["dur"] for c in picks]
     if picks and sum(durs) < COVER_LO * total:
         for k in sorted(range(len(picks)), key=lambda k: -picks[k]["priority"]):
             c = picks[k]
@@ -551,6 +664,70 @@ def schedule(nouns, words, duration, avoid=(), block=(), head=HEAD, tail=TAIL, s
         else:
             out.append({k: v for k, v in c.items() if k not in ("room", "max")})
     return out
+
+
+def face_gaps(picks, duration, block=(), tail=TAIL, full_head=FULL_HEAD, longer=GAP_MAX):
+    """The stretches of face longer than ``longer`` s between ``full_head`` and the tail: [(start, end)] — a picture, a
+    sequence or a ``block`` stretch (the screen) is not face."""
+    lo, hi = full_head, float(duration) - tail
+    shown = sorted([(float(c["t"]), float(c["t"]) + float(c["dur"])) for c in picks]
+                   + [(float(a), float(b)) for a, b in block or ()])
+    gaps, cur = [], lo
+    for a, b in shown:
+        if a > cur:
+            gaps.append((cur, min(a, hi)))
+        cur = max(cur, b)
+    if hi > cur:
+        gaps.append((cur, hi))
+    return [(round(a, 2), round(b, 2)) for a, b in gaps if b - a > longer + 1e-6]
+
+
+def fill_gaps(picks, cands, nouns, words, duration, block, tail, full_head, place, trimmed):
+    """No face stretch longer than GAP_MAX while something showable is said in it (schedule's last pass): in each such
+    stretch, the candidate nearest its middle (a noun offered there, from FILL_DUR_MIN s of room — PER_MIN and COVER_HI
+    not counted: a long face is what loses the viewer), else a noun of the clip whose word comes back there (its key's
+    word or root: « trials » for the clinical trial offered later, « scientific » for the scientists) — its picture
+    again. Nothing said there that the clip shows: the stretch stays on the face."""
+    picks = list(picks)
+    tried = set()
+    while True:
+        todo = [g for g in face_gaps(picks, duration, block, tail, full_head) if g not in tried]
+        if not todo:
+            return picks
+        a, b = todo[0]
+        mid = (a + b) / 2.0
+
+        def free(c):
+            return (a - 1e-6 <= c["t"] and c["t"] + FILL_DUR_MIN <= b + 1e-6
+                    and all(abs(p["t"] - c["t"]) >= STEP - 1e-6 for p in picks))
+
+        taken = {id(p) for p in picks}
+        offered = [c for c in cands if id(c) not in taken and free(c)]
+        best = max(offered, key=lambda c: (c["priority"] - abs(c["t"] - mid) / 4.0, -c["t"])) if offered else None
+        if best is None:
+            shown = {p.get("key") for p in picks}
+            again = []
+            for i, w in enumerate(words):
+                if not a <= float(w["start"]) < b:
+                    continue
+                for n in nouns:
+                    names = [n["word"]] + [k for k in n["key"].split("_") if len(k) > 3]
+                    if any(same_word(w.get("text"), x) for x in names):
+                        c = place(n, i, FILL_DUR_MIN)
+                        if c and free(c):
+                            # a picture already shown first, then the one nearest the middle
+                            again.append((n["key"] in shown, -abs(c["t"] - mid), c))
+                        break
+            if again:
+                best = max(again, key=lambda x: (x[0], x[1]))[2]
+                best = {**best, "word": _clean(words[best["i"]].get("text"), 40)}
+        if best is None:
+            tried.add((a, b))
+            continue
+        picks.append(best)
+        picks, durs = trimmed(picks)
+        for c, d in zip(picks, durs):
+            c["dur"] = d
 
 
 def coverage(picks, duration):
@@ -687,61 +864,193 @@ def _render_key(n, styles, tmp, render, k, checks):
     return None, None, text
 
 
-def object_bbox(path):
-    """(x0, y0, x1, y1) of the object on its plain background in the picture at ``path``, or None (no plain background,
-    nothing found): the pixels away from the border's colour in hue (a shadow is the same hue, darker) or much brighter /
-    darker, cleaned, the parts at least 15 % the size of the biggest."""
+def _bg_terms(x, y):
+    """The terms of the background's smooth surface at (x, y) in 0..1 (a cubic: a lit studio sweep, a vignette)."""
+    import numpy as np
+    one = np.ones_like(x)
+    return np.stack([one, x, y, x * x, x * y, y * y, x ** 3, x * x * y, x * y * y, y ** 3], -1)
+
+
+def _object_mask(path):
+    """(the picture as an H x W x 3 float array, the object's mask (uint8 0/255), the background's median colour, the
+    background's surface: f(x, y) in pixels -> RGB) for an object on its plain background, or None (no plain background,
+    nothing found). The background is a smooth surface fitted robustly on the picture (a studio sweep is lighter in the
+    middle, darker in the corners — 10-oct-2026, the syringe and the plunger of clip 1: a global colour took their
+    vignette for the object); the object: the pixels away from it in hue (a shadow is the same hue, darker) or much
+    brighter / darker, cleaned, the parts at least 15 % the size of the biggest."""
     import cv2
     import numpy as np
     from PIL import Image
     a = np.asarray(Image.open(path).convert("RGB"), dtype=np.float32)
     h, w = a.shape[:2]
+    sw = 160
+    sh = max(8, int(round(sw * h / w)))
+    small = cv2.resize(a, (sw, sh), interpolation=cv2.INTER_AREA).reshape(-1, 3)
+    gy, gx = np.mgrid[0:sh, 0:sw]
+    terms = _bg_terms((gx.ravel() + 0.5) / sw, (gy.ravel() + 0.5) / sh)
+    # first fitted on the picture's outer band (the object is in the middle), then on everything that fits it
+    band = max(2, int(min(sw, sh) * 0.12))
+    ring = np.zeros((sh, sw), bool)
+    ring[:band], ring[-band:], ring[:, :band], ring[:, -band:] = True, True, True, True
+    inl = ring.ravel()
+    for _ in range(5):
+        coef, *_r = np.linalg.lstsq(terms[inl], small[inl], rcond=None)
+        res = np.abs(small - terms @ coef).sum(-1)
+        inl = res < max(24.0, 2.5 * float(np.median(res[inl])))
+    if inl.mean() < 0.35:
+        return None                       # most of the picture is not one smooth background: not a product shot
+
+    def surface(px, py):
+        return np.clip(_bg_terms(np.asarray(px, np.float32) / w, np.asarray(py, np.float32) / h) @ coef, 0, 255)
+
+    bgimg = cv2.resize((terms @ coef).reshape(sh, sw, 3).astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
     b = max(4, int(min(h, w) * 0.04))
-    border = np.concatenate([a[:b].reshape(-1, 3), a[-b:].reshape(-1, 3), a[:, :b].reshape(-1, 3),
-                             a[:, -b:].reshape(-1, 3)])
-    bg = np.median(border, axis=0)
-    if float(np.median(np.abs(border - bg).sum(-1))) > 45:
-        return None                       # the border is not one plain colour: not a product shot
+    diff = np.abs(a - bgimg).sum(-1)
+    border = np.concatenate([diff[:b].ravel(), diff[-b:].ravel(), diff[:, :b].ravel(), diff[:, -b:].ravel()])
+    if float(np.median(border)) > 45:
+        return None                       # the border is not one plain (smooth) background: not a product shot
     lum = a.mean(-1) + 1.0
-    dc = np.sqrt(((a / lum[..., None] - bg / (bg.mean() + 1.0)) ** 2).sum(-1))
-    dl = a.mean(-1) - bg.mean()
+    blum = bgimg.mean(-1) + 1.0
+    dc = np.sqrt(((a / lum[..., None] - bgimg / blum[..., None]) ** 2).sum(-1))
+    dl = a.mean(-1) - bgimg.mean(-1)
     m = ((dc > 0.18) | (dl > 70) | (dl < -110)).astype(np.uint8) * 255
     m = cv2.morphologyEx(cv2.medianBlur(m, 7), cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
-    n, _lab, st, _c = cv2.connectedComponentsWithStats(m, 8)
+    n, lab, st, _c = cv2.connectedComponentsWithStats(m, 8)
     if n <= 1:
         return None
     areas = st[1:, cv2.CC_STAT_AREA]
     keep = [k + 1 for k in range(n - 1) if areas[k] >= 0.15 * areas.max()]
-    x0, y0 = min(st[k, 0] for k in keep), min(st[k, 1] for k in keep)
-    x1, y1 = max(st[k, 0] + st[k, 2] for k in keep), max(st[k, 1] + st[k, 3] for k in keep)
-    if (x1 - x0) * (y1 - y0) < 0.002 * w * h:
+    mask = np.isin(lab, keep).astype(np.uint8) * 255
+    # the thin parts the cleaning wiped out (a needle's tip: 2-3 px) come back when they touch the object
+    # (a cast shadow on a coloured sweep is the same hue, deeper: it moves the colour AWAY from grey; a steel needle
+    # moves it toward grey or to another hue)
+    sat = bgimg / blum[..., None] - 1.0
+    sat /= np.linalg.norm(sat, axis=-1, keepdims=True) + 1e-6
+    d = a / lum[..., None] - bgimg / blum[..., None]
+    along = (d * sat).sum(-1)
+    across = np.linalg.norm(d - along[..., None] * sat, axis=-1)
+    raw = ((dc > 0.10) & ((along < 0) | (across > 0.08))) | (dl > 40)
+    n2, lab2 = cv2.connectedComponents(((mask > 0) | raw).astype(np.uint8), connectivity=8)
+    if n2 > 1:
+        mask = np.isin(lab2, np.unique(lab2[mask > 0])).astype(np.uint8) * 255
+    yy, xx = np.nonzero(mask)
+    if (xx.max() + 1 - xx.min()) * (yy.max() + 1 - yy.min()) < 0.002 * w * h:
         return None
-    return int(x0), int(y0), int(x1), int(y1)
+    bg = tuple(int(round(float(v))) for v in np.median(small[inl], axis=0))
+    return a, mask, bg, surface
 
 
-def fill_object(path, fill=OBJECT_FILL, zoom_max=OBJECT_ZOOM_MAX):
-    """Crops an object's render in place (same shape) so the object fills ``fill`` of its height — or of its width, a
-    wide object — centred on it, never more than ``zoom_max`` tighter. Returns the zoom applied (1.0: left as is: the
-    object fills it already, or no plain background found)."""
-    from PIL import Image
+def object_bbox(path):
+    """(x0, y0, x1, y1) of the object on its plain background in the picture at ``path``, or None (_object_mask)."""
+    import numpy as np
+    got = _object_mask(path)
+    if not got:
+        return None
+    ys, xs = np.nonzero(got[1])
+    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+
+
+def object_axis(mask):
+    """(cx, cy, length, thickness, angle) of the object's mask: its middle in pixels, its extent along its long axis and
+    across it, the long axis's angle in degrees as seen (counter-clockwise from the right, y up), in (-90, 90]."""
+    import math
+    import numpy as np
+    ys, xs = np.nonzero(mask)
+    step = max(1, len(xs) // 200000)
+    pts = np.stack([xs[::step], -ys[::step]], 1).astype(np.float64)
+    c = pts.mean(0)
+    _vals, vecs = np.linalg.eigh(np.cov((pts - c).T))
+    v = vecs[:, 1]
+    nrm = np.array([-v[1], v[0]])
+    along, across = (pts - c) @ v, (pts - c) @ nrm
+    mid = c + v * (along.max() + along.min()) / 2 + nrm * (across.max() + across.min()) / 2
+    ang = _wrap(math.degrees(math.atan2(v[1], v[0])))
+    length, thick = float(along.max() - along.min() + 1), float(across.max() - across.min() + 1)
+    return float(mid[0]), float(-mid[1]), length, thick, ang
+
+
+def _wrap(deg):
+    """An axis's angle (no direction) in (-90, 90]."""
+    while deg > 90:
+        deg -= 180
+    while deg <= -90:
+        deg += 180
+    return deg
+
+
+def fill_object(path, fill=OBJECT_FILL, zoom_max=OBJECT_ZOOM_MAX, size=None, info=None):
+    """Makes an object's render its card's picture, in place, ``size`` (broll.OBJECT_GEN: the card's shape):
+    - a long thin object (LONG_RATIO times longer than thick: a needle, a syringe, a pen — rendered standing it stayed a
+      thin line in its card, 10-oct-2026) is turned about its middle to lie along the card's nearer diagonal (the rising
+      one on a tie) and fills OBJECT_DIAG_FILL of that diagonal;
+    - any other object fills ``fill`` of the card's height (or width, a wide object), centred on it;
+    never more than ``zoom_max`` tighter than the render. Where the frame goes past the render (a turn, a zoom out): the
+    background's own surface carried on from the render's edges, the edges melted into it (OBJECT_FEATHER): no visible
+    border. Returns the zoom (the render's width / the width kept); 1.0 and the file untouched without a plain
+    background. ``info`` (a dict) gets {"zoom", "turn" (degrees, counter-clockwise), "long"}."""
+    import math
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFilter
+    import broll
+    W, H = size or broll.OBJECT_GEN
     try:
-        box = object_bbox(path)
+        got = _object_mask(path)
     except Exception:
+        got = None
+    if not got:
         return 1.0
-    if not box:
-        return 1.0
+    _a, mask, bg, surface = got
     im = Image.open(path).convert("RGB")
     w, h = im.size
-    bw, bh = box[2] - box[0], box[3] - box[1]
-    zoom = min(fill * h / max(bh, 1), fill * w / max(bw, 1), zoom_max)
-    if zoom <= 1.05:
-        return 1.0
-    cw, ch = w / zoom, h / zoom
-    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
-    x0 = min(max(cx - cw / 2, 0.0), w - cw)
-    y0 = min(max(cy - ch / 2, 0.0), h - ch)
-    im.resize((w, h), Image.LANCZOS, box=(x0, y0, x0 + cw, y0 + ch)).save(path, quality=94)
-    return round(zoom, 2)
+    cx, cy, length, thick, ang = object_axis(mask)
+    ar = W / H
+    long_ = length / max(thick, 1.0) >= LONG_RATIO
+    turn = 0.0
+    if long_:
+        diag = math.degrees(math.atan(H / W))
+        rising, falling = _wrap(diag - ang), _wrap(-diag - ang)
+        turn = rising if abs(rising) <= abs(falling) + 1.0 else falling
+        ch = (length / OBJECT_DIAG_FILL) / math.sqrt(1.0 + ar * ar)
+        cw = ch * ar
+    else:
+        ys, xs = np.nonzero(mask)
+        bw, bh = xs.max() + 1 - xs.min(), ys.max() + 1 - ys.min()
+        cx, cy = (xs.min() + xs.max() + 1) / 2.0, (ys.min() + ys.max() + 1) / 2.0
+        ch = max(bh / fill, bw / fill / ar)
+        cw = ch * ar
+    if cw < w / zoom_max:
+        cw = w / zoom_max
+        ch = cw / ar
+    # the whole object inside the card, OBJECT_MARGIN from its edges (clip 1's pen: its cap ran off the top), centred
+    pad = int(max(w, h, cw, ch)) * 2
+    turned = Image.new("L", (w + 2 * pad, h + 2 * pad), 0)
+    turned.paste(Image.fromarray(mask), (pad, pad))
+    if abs(turn) > 0.5:
+        turned = turned.rotate(turn, resample=Image.NEAREST, center=(cx + pad, cy + pad))
+    bx0, by0, bx1, by1 = turned.getbbox()
+    cx, cy = (bx0 + bx1) / 2.0 - pad, (by0 + by1) / 2.0 - pad
+    cw = max(cw, (bx1 - bx0) * (1 + 2 * OBJECT_MARGIN), (by1 - by0) * (1 + 2 * OBJECT_MARGIN) * ar)
+    ch = cw / ar
+    cw_, ch_ = w + 2 * pad, h + 2 * pad
+    # the background beyond the render: its surface at the nearest point of the render (continuous with its edges)
+    step = 8
+    gx = np.clip(np.arange(0, cw_, step) - pad, 0, w - 1).astype(np.float32)
+    gy = np.clip(np.arange(0, ch_, step) - pad, 0, h - 1).astype(np.float32)
+    gxx, gyy = np.meshgrid(gx + 0.5, gy + 0.5)
+    canvas = Image.fromarray(surface(gxx, gyy).astype(np.uint8)).resize((cw_, ch_), Image.BILINEAR)
+    feather = max(2, int(min(w, h) * OBJECT_FEATHER))
+    alpha = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(alpha).rectangle((feather, feather, w - 1 - feather, h - 1 - feather), fill=255)
+    alpha = alpha.filter(ImageFilter.GaussianBlur(feather / 2.0))
+    canvas.paste(im, (pad, pad), alpha)
+    if abs(turn) > 0.5:
+        canvas = canvas.rotate(turn, resample=Image.BICUBIC, center=(cx + pad, cy + pad), fillcolor=bg)
+    x0, y0 = cx + pad - cw / 2.0, cy + pad - ch / 2.0
+    canvas.resize((W, H), Image.LANCZOS, box=(x0, y0, x0 + cw, y0 + ch)).save(path, quality=94)
+    zoom = round(float(w / cw), 2)
+    if info is not None:
+        info.update(zoom=zoom, turn=round(float(turn), 1), long=bool(long_))
+    return zoom
 
 
 def transitions(picks, share=TRANSITION_SHARE):
@@ -870,9 +1179,11 @@ def run(clip_path, clip, words, avoid, block, tmp, render, duration=None, head=H
         if key in videos:
             continue
         if p["format"] == "object":
-            z = fill_object(made[key][0])
-            if z > 1.0:
-                print(f"   🔍 B-roll « littéral » : « {key} » recadré ×{z:g} pour remplir sa carte.")
+            info = {}
+            z = fill_object(made[key][0], info=info)
+            if info:
+                turn = f", couché sur la diagonale ({info['turn']:+g}°)" if info.get("long") else ""
+                print(f"   🔍 B-roll « littéral » : « {key} » recadré ×{z:g} pour remplir sa carte{turn}.")
         elif p["format"] == "inside" and p.get("motion"):
             anim = animate_inside(made[key][0], p, longest[key], tmp, cfg)
             if anim:

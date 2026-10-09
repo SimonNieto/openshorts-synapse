@@ -197,12 +197,14 @@ CARD_OUT_SHRINK = 0.02
 CARD_PUSH = _knob("BROLL_CARD_PUSH", 1.03)  # push-in inside the card over its time on screen
 TOP_BAND = (0.05, 0.34)                     # of the height: above the head of a tracked speaker (crown at ~0.34 H)
 # The « littéral » chain's OBJECT card (9-oct-2026, after OptimalHealth's melatonin bottle): the thing alone on a plain
-# colour, made 4:3 (OBJECT_GEN: ~9 s on the 3060), shown as a big card OBJECT_SIZE % of the width wide, rounded
+# colour, made 16:9 (OBJECT_GEN: ~9 s on the 3060), shown as a big card OBJECT_SIZE % of the width wide, rounded
 # corners and a light shadow, in the lower half of the frame over the bottom of the face: its top just under the
 # captions when they sit in the middle, held within OBJECT_TOP (fractions of the height). A hard cut in and out, no
-# move, the speaker stays sharp around it. (The references measure ~85 % of the width: a matter of taste, the knob.)
-OBJECT_GEN = (1024, 768)
-OBJECT_SIZE = int(_knob("BROLL_OBJECT_SIZE", 60))
+# move, the speaker stays sharp around it. (10-oct-2026) Measured on their melatonin card (clip1_planche.jpg, the same
+# frame width): 85 % of the width, 0.56 as high as wide — ours was 58 %, 0.75: the card is now theirs, 84 % and 16:9,
+# and the render is made 16:9 (an object lying along its diagonal, broll_litteral.fill_object). The knob brings 60 back.
+OBJECT_GEN = (1024, 576)
+OBJECT_SIZE = int(_knob("BROLL_OBJECT_SIZE", 84))
 OBJECT_TOP = (0.55, 0.62)
 OBJECT_RISE = 0.4          # s: the card rises from OBJECT_RISE_FROM lower and settles (the chain starts it 0.5 s early)
 OBJECT_RISE_FROM = 0.10    # of the height
@@ -3370,8 +3372,13 @@ def _object_frames(src, folder, fps, dur, W, H, size_pct=None, enter=None):
     margin)."""
     img = Image.open(src).convert("RGB")
     img = ImageEnhance.Sharpness(img).enhance(1.1)
-    x, y, cw, ch = object_box(W, H, size_pct, img.height / img.width)
-    img = img.resize((cw, ch), Image.LANCZOS)
+    # the card has the render's shape (OBJECT_GEN); a picture of another shape (an older 4:3 render that fill_object
+    # could not frame) is cut to it about its middle
+    x, y, cw, ch = object_box(W, H, size_pct)
+    k = max(cw / img.width, ch / img.height)
+    sw, sh = cw / k, ch / k
+    img = img.resize((cw, ch), Image.LANCZOS,
+                     box=((img.width - sw) / 2, (img.height - sh) / 2, (img.width + sw) / 2, (img.height + sh) / 2))
     radius = int(cw * 0.06)
     shadow = max(8, int(W * 0.014))
     pad = shadow * 2

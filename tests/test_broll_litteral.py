@@ -79,7 +79,7 @@ class TestSchedule:
 
     def test_priority_wins_a_clash(self):
         picks = bl.schedule([_noun("morning", prio=1), _noun("your", prio=3)], WORDS, 60.0)
-        assert [p["key"] for p in picks] == ["your"]
+        assert picks[0]["key"] == "your" and "morning" not in [p["key"] for p in picks]
 
     def test_the_punchline_stays_on_the_face_and_the_tail_too(self):
         t_car = WORDS[IDX["car"]]["start"]
@@ -229,7 +229,8 @@ def test_the_object_card_and_the_marks_are_drawn(tmp_path):
     assert len(frames) == 30
     im = Image.open(folder / frames[0])
     bx, by, bw, bh = broll.object_box(1080, 1920)
-    assert abs(bw - 0.6 * 1080) < 2 and 0.5 * 1920 <= by and by + bh <= 0.97 * 1920
+    assert abs(bw - broll.OBJECT_SIZE / 100 * 1080) < 2 and 0.5 * 1920 <= by and by + bh <= 0.97 * 1920
+    assert broll.OBJECT_SIZE >= 80 and abs(bh / bw - 0.5625) < 0.01, "their card: 85 % of the width, 16:9"
     assert all(abs(a - b) <= 3 for a, b in zip(im.getpixel((im.width // 2, im.height // 2))[:3], (40, 120, 220)))
     assert im.getpixel((2, 2))[3] == 0                                         # rounded corner: see-through
     layer = broll._draw_marks(1080, 1920, [{"kind": "arrow", "dir": "in", "px": 400, "py": 900},
@@ -252,7 +253,8 @@ def test_the_split_screen_fills_the_lower_half(tmp_path):
 
 def test_a_split_picture_is_cut_in_as_such(add):
     rep, made, _cut = add([_row("melatonin", "pills", "split", "a heap of small white melatonin tablets")])
-    (it,) = rep["items"]
+    it = rep["items"][0]          # (« pills » said again later, after a long face: the same picture comes back)
+    assert len(made) == 1 and all(x["layout"] == "split" for x in rep["items"])
     assert it["layout"] == "split" and made[0][0] == broll.SPLIT_GEN
     assert made[0][1].endswith(bl.SPLIT_LINE)
 
@@ -306,10 +308,10 @@ def test_an_object_fills_its_card_and_its_label_is_blank(tmp_path):
     from PIL import ImageDraw
     p = tmp_path / "vial.jpg"
     im = Image.new("RGB", broll.OBJECT_GEN, (70, 175, 220))
-    ImageDraw.Draw(im).rectangle((470, 260, 560, 480), fill=(235, 235, 240))      # a small vial: 29 % of the height
+    ImageDraw.Draw(im).rectangle((450, 160, 580, 330), fill=(235, 235, 240))      # a small vial: 30 % of the height
     im.save(p, quality=95)
     z = bl.fill_object(str(p))
-    assert z > 2.0
+    assert z > 1.5
     out = Image.open(p)
     assert out.size == broll.OBJECT_GEN
     x0, y0, x1, y1 = bl.object_bbox(str(p))
@@ -320,7 +322,7 @@ def test_an_object_fills_its_card_and_its_label_is_blank(tmp_path):
     assert bl.fill_object(str(noisy)) == 1.0
     _t, styles, _m = bl.charter()
     obj = bl.picture_text(styles, {"picture": "a single vial of lidocaine", "format": "object", "background": "blue"})
-    assert "no writing" in obj.split(styles["picture"])[1] and "three quarters of the frame" in obj
+    assert "no writing" in obj.split(styles["picture"])[1] and "lying diagonally across the frame" in obj
 
 
 def test_footage_and_an_animated_render_are_cut_in_with_their_credit(add, monkeypatch, tmp_path):
@@ -385,3 +387,139 @@ def test_a_video_comes_out_of_a_flash_and_a_still_too(tmp_path):
     assert at(1.0)[2] > 150 and at(1.0)[0] < 60                      # the footage (blue)
     assert at(1.75)[1] > 100 and at(1.75)[0] < 90                    # the still (green), after its flash
     assert broll._media_seconds(str(out)) >= 1.9
+
+
+# --- 10-oct-2026: the faults of clip 1 « needle phobia » (output/_stepup/etude2/v3/final/rapport.md) -------------------
+
+def _sweep(size, colour, dark=60):
+    """A studio sweep: ``colour`` in the middle, darker toward the corners (the renders' vignette)."""
+    import numpy as np
+    w, h = size
+    yy, xx = np.mgrid[0:h, 0:w]
+    r = np.sqrt(((xx - w / 2) / (w / 2)) ** 2 + ((yy - h / 2) / (h / 2)) ** 2) / np.sqrt(2)
+    a = np.clip(np.array(colour, np.float32)[None, None] - dark * r[..., None] ** 2, 0, 255)
+    return Image.fromarray(a.astype(np.uint8))
+
+
+def test_a_long_thin_object_lies_along_the_card_s_diagonal_and_fills_it(tmp_path):
+    """A needle rendered standing in a 4:3 picture (lit_2 of clip 1) was a thin line in its card: it is laid along the
+    card's diagonal, fills ~85 % of it, the whole of it inside, and the corners show no border."""
+    import math
+    import numpy as np
+    from PIL import ImageDraw
+    p = tmp_path / "needle.jpg"
+    im = _sweep((1024, 768), (230, 200, 70))                                       # a yellow sweep, darker corners
+    ImageDraw.Draw(im).rectangle((505, 110, 519, 640), fill=(90, 90, 95))          # a steel needle, standing
+    ImageDraw.Draw(im).rectangle((490, 560, 534, 660), fill=(245, 245, 245))       # its hub
+    im.save(p, quality=95)
+    box = bl.object_bbox(str(p))
+    assert box[1] < 130 and box[3] > 640 and box[2] - box[0] < 80, "the vignette is not the object"
+    info = {}
+    z = bl.fill_object(str(p), info=info)
+    out = Image.open(p)
+    assert out.size == broll.OBJECT_GEN and info["long"] and z > 1.0
+    diag = math.degrees(math.atan(out.height / out.width))
+    assert abs(abs(info["turn"]) - (90 - diag)) < 3, info
+    _a, mask, _bg, _f = bl._object_mask(str(p))
+    _cx, _cy, length, _thick, ang = bl.object_axis(mask)
+    assert abs(abs(ang) - diag) < 4, "it lies along a diagonal"
+    assert 0.72 <= length / math.hypot(*out.size) <= 0.9, "it fills the diagonal"
+    x0, y0, x1, y1 = bl.object_bbox(str(p))
+    assert x0 > 0 and y0 > 0 and x1 < out.width and y1 < out.height, "the whole needle inside the card"
+    a = np.asarray(out, dtype=np.float32)
+    for y, x, dy, dx in ((3, 3, 12, 12), (3, out.width - 4, 12, -12), (out.height - 4, 3, -12, 12),
+                         (out.height - 4, out.width - 4, -12, -12)):
+        assert np.abs(a[y, x] - a[y + dy, x + dx]).sum() < 40, "no visible border in the corners"
+        assert a[y, x][0] > 120 and a[y, x][2] < 120, "the corners are the background's yellow"
+
+
+def test_the_object_card_is_as_big_as_theirs():
+    """Their melatonin card measured on the same frame (clip1_planche.jpg): 85 % of the screen's width, 16:9."""
+    _x, y, w, h = broll.object_box(1080, 1920)
+    assert w >= 0.8 * 1080 and abs(h / w - 9 / 16) < 0.01 and y >= 0.5 * 1920 and y + h <= 0.97 * 1920
+    assert broll.OBJECT_GEN == (1024, 576) and broll._gen_size("object") == broll.OBJECT_GEN
+
+
+# clip 1's words around its objects, and its director's nouns (output/_ai_cache, job of 9-oct-2026)
+CLIP1 = _words("The pens have gotten rid of everyone's needle phobia. So now my sister, people are like, oh, what "
+               "about peptides? I go, you have to inject it. And they go, well, do they have the, like, the little "
+               "needles with the pen? Yeah, cool. No one's afraid of a pen, even if it has a needle on the end, but "
+               "no one likes, so it turns out it was the syringe that scared people. The plunger. It's the plunger.")
+
+
+def _at(words, word, nth=0):
+    return [k for k, w in enumerate(words) if w["text"].strip(".,?").lower() == word][nth]
+
+
+def _clip1_nouns():
+    def row(word, key, prio=2, picture="", bg="", nth=0):
+        return {"i": _at(CLIP1, word, nth), "word": word, "key": key, "format": "object", "picture": picture,
+                "background": bg, "priority": prio}
+    return {"nouns": [row("pens", "injector_pen", 3, "a single white injector pen", "sky blue"),
+                      row("needle", "needle", 3, "a single thin steel needle on its hub", "warm yellow"),
+                      row("needles", "needle"), row("pen", "injector_pen"),
+                      row("syringe", "syringe", 3, "a single clear plastic syringe", "deep teal"),
+                      row("plunger", "plunger", 3, "a syringe's grey rubber plunger", "soft coral"),
+                      row("plunger", "plunger", nth=1)]}
+
+
+def test_one_thing_one_picture_one_colour_in_a_clip():
+    """Clip 1 showed a needle in yellow, a pen in blue, a syringe in green, its plunger in pink: every card of a clip now
+    has the first object's colour, and the syringe and its plunger, said in the passage of the needle, are the
+    needle's picture (one render); the pen stays itself."""
+    nouns = bl.nouns_of(_clip1_nouns(), CLIP1)
+    assert {n["background"] for n in nouns} == {"sky blue"}, "one colour for every card of the clip"
+    keys = [(n["word"], n["key"]) for n in nouns]
+    assert keys == [("pens", "injector_pen"), ("needle", "needle"), ("needles", "needle"), ("pen", "injector_pen"),
+                    ("syringe", "needle"), ("plunger", "needle"), ("plunger", "needle")]
+    assert all(n["picture"] == "a single thin steel needle on its hub" for n in nouns if n["key"] == "needle")
+    assert len({n["key"] for n in nouns}) == 2, "two renders, not four"
+    # a word said again takes its first key even when the director gave it another (rule 13 of the decoding)
+    data = {"nouns": [{"i": _at(CLIP1, "pens"), "word": "pens", "key": "pen", "format": "object", "picture": "a pen",
+                       "background": "yellow", "priority": 2},
+                      {"i": _at(CLIP1, "pen"), "word": "pen", "key": "white_pen", "format": "object",
+                       "picture": "a white pen", "background": "red", "priority": 2}]}
+    assert [n["key"] for n in bl.nouns_of(data, CLIP1)] == ["pen", "pen"]
+    # past the passage, a variant of the family is its own picture again
+    cut = _at(CLIP1, "syringe")
+    far = [dict(w, start=w["start"] + (60.0 if k >= cut else 0.0)) for k, w in enumerate(CLIP1)]
+    assert {n["key"] for n in bl.nouns_of(_clip1_nouns(), far)} == {"injector_pen", "needle", "syringe"}
+    # the director's own "family" is taken too
+    assert bl.family_of("Syringes", "barrel", "barrel") == "syringe" and bl.family_of("", "capsules", "x") == "pill"
+    assert '"family"' in bl.DA_PROMPT and "family" in bl.DA_SCHEMA["properties"]["nouns"]["items"]["properties"]
+
+
+TAIL_TEXT = ("Well I said that so I think the scientists and physicians call about my knee all the time you know. "
+             "But then when they come back and like, this is wild. How come there "
+             "aren't twenty clinical trials? It's because the general public beat the scientific community to it. And I "
+             "know this is going to break some hearts. There will never be good clinical trials of each and all of "
+             "these peptides.")
+
+
+def test_no_long_face_while_something_showable_is_said():
+    """Clip 1, 31-46 s: no picture though « clinical trials », « scientific », « peptides » were said — the one noun
+    offered (« trials » at 44 s) had 0.95 s of room before the tail (under DUR_MIN) and PER_MIN was spent. Now no face
+    stretch longer than GAP_MAX (out of the first 3 s and the tail) while a noun of the clip is said in it."""
+    words = _words(TAIL_TEXT, step=0.42)
+    duration = words[-1]["end"] + 0.5
+    nouns = [{"i": _at(words, "scientists"), "word": "scientists", "key": "scientist", "format": "scene",
+              "picture": "a scientist in a lab", "background": "", "priority": 2},
+             {"i": _at(words, "knee"), "word": "knee", "key": "knee_joint", "format": "inside",
+              "picture": "a knee joint", "background": "", "priority": 3},
+             {"i": _at(words, "trials", 1), "word": "trials", "key": "clinical_trial", "format": "scene",
+              "picture": "a clinical trial", "background": "", "priority": 2}]
+    before = bl.FILL_DUR_MIN, bl.GAP_MAX
+    picks = bl.schedule(nouns, words, duration)
+    assert not bl.face_gaps(picks, duration), [(p["t"], p["dur"], p["key"]) for p in picks]
+    assert any(p["i"] in (_at(words, "clinical"), _at(words, "trials")) and p["key"] == "clinical_trial"
+               for p in picks), \
+        "« trials » said first (the director listed only the last time): its picture comes then"
+    assert any(p["i"] == _at(words, "trials", 1) for p in picks), "the last « trials », 0.9 s before the tail: shown"
+    assert all(p["t"] + p["dur"] <= duration - bl.TAIL + 1e-6 for p in picks), "the clip still ends on the face"
+    assert (bl.FILL_DUR_MIN, bl.GAP_MAX) == before == (0.8, 8.0)
+    # nothing of the clip said in a long stretch: it stays on the face (no picture invented)
+    quiet = _words(" ".join(["so", "I", "think", "that", "the", "very", "nice", "scientists"] + ["word"] * 80),
+                   step=0.45)
+    only = bl.schedule([dict(nouns[0], i=7)], quiet, quiet[-1]["end"] + 2.0)
+    assert [p["key"] for p in only] == ["scientist"] and bl.face_gaps(only, quiet[-1]["end"] + 2.0)
+    assert bl.same_word("scientific", "scientists") and not bl.same_word("physical", "physicians")
