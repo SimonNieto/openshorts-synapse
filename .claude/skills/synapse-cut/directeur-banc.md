@@ -1,40 +1,42 @@
-# Principes du directeur artistique — banc
+# Méthode du directeur — chaîne « littéral »
 
-Écrits le 4 octobre 2026 avec l'utilisatrice, après la planche « test à la main / directeur ». Le directeur de la
-production (chaîne « dessin », broll_draw.py) les lit à chaque appel depuis le 4 octobre 2026 : les modifier change la
-production. Ce sont des principes, jamais les solutions des moments du banc.
+Écrite le 9 octobre 2026. Le directeur de la chaîne « littéral » (broll_litteral.py) la lit à chaque appel : la
+modifier change la chaîne. Les principes du directeur des dessins sont gardés dans `directeur-dessin.md`.
 
-**La règle qui les résume : le directeur perd quand il met une couche entre le spectateur et l'idée. Il dessine le
-symbole le plus simple de la phrase, en grand.**
+**La règle qui la résume : le directeur ne cherche pas une idée. Il relève les noms concrets dits dans le clip et
+montre chacun tel quel.**
 
-1. Le sujet de la phrase, dessiné en grand et en clair, remplit l'image. Pas d'écran qui filme la scène, pas de cadre
-   dans le cadre, sauf quand comparer deux images est le propos.
-2. Une drogue psychédélique nommée pour son effet appelle la vision elle-même : des visages qui rient dans des motifs
-   psychédéliques. Pas d'objet de drogue, pas de scène du lendemain.
-3. Une notion abstraite se montre par un objet du quotidien qui déborde, se vide ou s'allume, pas par un schéma
-   scientifique.
-4. Une phrase qui nie un lien avec une chose nommée se dessine avec la chose barrée de deux traits rouges en diagonale.
-   Même dans un clip sur une mort, la négation passe avant l'absence.
-5. Une question posée met un point d'interrogation visible dans l'image, à côté de la chose dont on doute.
-6. Une comparaison montre les deux choses côte à côte, chacune reconnaissable.
-7. Un seul exemplaire de chaque chose nommée. Le modèle d'image double les objets : le prompt d'image le dit
-   (« a single … », « only one … »), et ce qui est attaché à une chose y est dit attaché.
-8. Un moment grave sur des victimes réelles : ni nombre, ni chaises, ni bols, ni jouets, ni affaires des victimes. Un
-   lieu sobre, ou le visage seul.
-9. Une absence : un lieu ou un passage laissé vide, une porte ouverte sur rien ; jamais celui qui manque.
-10. Une voix ou un bruit entendu de l'intérieur : la personne au centre de l'image, ce qu'elle entend tout autour.
-11. Nommer ce qu'on voit, jamais « une carte », « une image », « une photo » ou « un schéma » de la chose : le modèle
-    d'image dessine le mot. C'est la règle de la v24 : jamais l'instrument ni la catégorie.
-12. Quand la phrase compare deux images (« une image de ceci avec une image de cela »), les deux images s'accrochent
-    côte à côte comme deux tableaux qu'on regarde : le cadre dans le cadre est alors le propos, et la ressemblance se
-    voit d'un tableau à l'autre. (Retenu par l'utilisatrice le 4 octobre : c'est la logique qu'elle veut garder.)
-13. Aucune comparaison dans la description de l'image (« fin comme une feuille » donne une feuille) : le modèle dessine
-    chaque mot. Une ressemblance se montre en mettant les deux choses côte à côte, jamais en l'écrivant.
-14. Le corps opéré : l'organe lui-même, propre et entier, dessiné en grand dans la charte, l'instrument posé contre lui
-    au bon endroit, le patient à côté quand la phrase parle de lui. Jamais la tête ouverte, la chair coupée, une plaie,
-    du sang, un tissu sorti du corps.
-15. Une expression toute faite se dessine par ce qu'elle veut dire, jamais par l'objet qu'elle nomme (une « trappe de
-    sortie » n'est pas une trappe).
-16. Ce qui se ressent se voit en une seconde : un mouvement franc et visible (ça bout, ça déborde, ça éclate, ça
-    s'allume), jamais un frémissement ou un détail qu'il faut chercher.
-17. Une émotion nommée se lit sur un visage, en grand et nettement ; pas un geste ordinaire où il faut la deviner.
+1. Un nom concret, c'est une chose qu'une caméra peut filmer : un objet (un flacon, des clés, un téléphone), une
+   substance (des comprimés, du café, de l'eau), un organe (le cœur, une tumeur, le cerveau), un lieu (les urgences,
+   un bloc opératoire, une chambre la nuit), un geste (conduire, prendre la tension), un type de personne (un médecin
+   de garde, une patiente, un interne).
+2. Ne sont pas concrets : les idées (la valeur, l'ego, la peur), les chiffres et les durées, les noms propres de
+   personnes, les figures de style (« une flaque de larmes », « les lumières brillantes »), les mots dits en passant
+   qui ne sont pas le propos (« quelqu'un m'a envoyé sur X » : X n'est pas le sujet).
+3. L'image est la chose, littéralement, telle qu'on la reconnaît : « mélatonine » → un flacon de comprimés de
+   mélatonine ; « urgences » → une salle des urgences ; « médecin » → un médecin en blouse. Pas un détour, pas une
+   ambiance, pas un symbole.
+4. Le format :
+   - **objet** pour ce qu'on tient dans la main ou qu'on pose sur une table : la chose seule, avec la couleur unie du
+     fond, choisie pour trancher avec elle ;
+   - **écran coupé** pour une matière ou des petites choses nombreuses (des comprimés, de l'eau, des grains) ;
+   - **scène** pour un lieu, une action, une personne qui vit un état (fatiguée, endormie, malade) ;
+   - **intérieur** pour ce qui ne se voit pas à l'œil nu (un nerf, une cellule, un organe, une inflammation) : rendu
+     3D médical propre, l'organe entier.
+5. Une description courte (30 mots au plus), au présent, au positif, en mots simples : ce qui remplit l'image, un
+   ou deux détails vrais tirés de ce qui est dit (« trois heures du matin », « au bout de quinze heures de garde »).
+   « A single » pour ce qui est seul. Aucun mot de style ni d'appareil photo (le code les ajoute), aucun texte à
+   lire, aucune comparaison. Une personne fait toujours quelque chose qui se voit (elle se frotte les yeux, elle
+   conduit, elle écrit), jamais une pose face à l'objectif : debout les bras le long du corps, c'est une photo de
+   catalogue (vu au banc du 9 octobre).
+6. Une même chose qui revient garde la même clé : son image revient, sans être refaite.
+7. Proposer large : un nom concret à chaque fois qu'il est dit, un par élément d'une liste. Le code choisit (environ une image toutes les 5 s, 40 % du clip hors visage, pile
+   sur le mot) ; la priorité dit ce qui compte le plus (3 = la chose dont parle le clip).
+8. Quand l'invité explique **comment** faire ou **comment ça marche** (un geste des yeux, une respiration, un nerf
+   qui transmet, un cordon qui pulse), une seule séquence d'explication pour ce passage : une figure 3D décrite une
+   fois (l'hologramme bleu d'une tête ou d'un corps, ou l'organe en rendu anatomique réaliste), les points de la
+   figure où quelque chose se passe, nommés tels qu'on les voit à l'écran (« l'œil à gauche de l'écran »), et 3 à 6
+   étapes, chacune sur le mot qui la dit, avec ce qui s'y montre : une flèche (vers où), un cercle qui tourne (dans
+   quel sens), une zone qui s'allume. Rien de tout ça dans la description de la figure : le code le dessine.
+9. Une vraie personne nommée ne donne jamais d'image, même pas un inconnu qui la remplacerait ; la gravité, la
+   sécurité et les faits des principes passent avant tout.

@@ -92,7 +92,7 @@ def main():
     q = broll_ideas._q
     lines = [f'k={k} — clip "{q(title, 20)}"\n  heard just before: "{q(before)}"\n  SENTENCE: "{q(said)}"'
              for k, (_n, _l, title, before, said) in enumerate(moments)]
-    principes = broll_ideas.skill_text("principes")
+    principes = broll_draw.principles()
     data = broll_ideas._call(DA_PROMPT.format(principes=principes, charte=CHARTE, banc=PRINCIPES_BANC,
                                               moments="\n".join(lines)),
                              DA_SCHEMA, "broll_ideas", broll_ideas._model("broll_ideas", "opus"),

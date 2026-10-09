@@ -2,7 +2,7 @@
 
   1. the editor (broll_spec, as in v20/v21) places the clip's moments and marks the hero;
   2. the art director (Opus, ONE call per clip) writes ONE idea per moment, drawn: the episode's style charter
-     (.claude/skills/synapse-cut/charte.md) and its principles (directeur-banc.md) in the call, the charter's style
+     (.claude/skills/synapse-cut/charte-dessin.md) and its principles (directeur-dessin.md) in the call, the charter's style
      sentence added word for word by the code, at the head of the picture's text (4-oct-2026);
   3. the verifier (Sonnet, ONE pass, before any picture) checks safety only: it refuses or lets pass, it gives no score;
   4. one render per moment (the hero full screen, the others as cards). No viewer, no judge, no render loop.
@@ -20,7 +20,9 @@ import re
 import broll_ideas
 
 SKILL = broll_ideas.SKILL_DIR
-CHARTER_FILE, PRINCIPLES_FILE = "charte.md", "directeur-banc.md"
+# 9-oct-2026: the « littéral » chain (broll_litteral) took charte.md, directeur-banc.md and SKILL.md over; this chain keeps
+# its own texts exactly as they were on 4-oct-2026 (the charter, its director's principles, the channel's principles).
+CHARTER_FILE, PRINCIPLES_FILE, CHANNEL_FILE = "charte-dessin.md", "directeur-dessin.md", "principes-dessin.md"
 
 
 def read(name):
@@ -36,6 +38,15 @@ def charter():
     if not suffix:
         raise OSError(f"no style sentence (a line starting with '> ') in {CHARTER_FILE}")
     return text, suffix, read(PRINCIPLES_FILE)
+
+
+def principles():
+    """The channel's principles as this chain's director and verifier read them (CHANNEL_FILE, the SKILL.md of
+    4-oct-2026); SKILL.md itself when that file is missing."""
+    try:
+        return read(CHANNEL_FILE)
+    except OSError:
+        return broll_ideas.skill_text("principes")
 
 
 DA_PROMPT = """You are the art director of the channel described below (its texts are in French; answer in ENGLISH).
@@ -139,7 +150,7 @@ def picture_text(suffix, picture, more=False):
     return text
 
 
-DRESS_PROMPT = """Look at this drawing. Answer true ONLY if a person in it is undressed: naked, in underwear, a bra, a
+DRESS_PROMPT = """Look at this picture. Answer true ONLY if a person in it is undressed: naked, in underwear, a bra, a
 swimsuit or a crop top that leaves the belly bare, lying with nothing on under a sheet, or with bare skin on the chest,
 the belly, the back or the top of the shoulders. Anyone wearing a top (a T-shirt, scrubs, a sweater, a shirt with an
 open collar, a hospital gown) is dressed, even with a sleeve rolled up, and even when a glow, a light or an organ is
@@ -187,7 +198,7 @@ def direct_and_verify(sentences, title=None):
     q = broll_ideas._q
     lines = [f'k={k} — clip "{q(t, 20)}"\n  heard just before: "{q(b)}"\n  SENTENCE: "{q(s)}"'
              for k, (t, b, s) in enumerate(sentences)]
-    principes = broll_ideas.skill_text("principes")
+    principes = principles()
     data = broll_ideas._call(DA_PROMPT.format(principes=principes, charte=text, banc=banc, moments="\n".join(lines)),
                              DA_SCHEMA, "broll_ideas", broll_ideas._model("broll_ideas", "opus"),
                              effort=os.environ.get("CLAUDE_EFFORT_BROLL_IDEAS") or "high")
