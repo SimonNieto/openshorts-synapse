@@ -59,16 +59,18 @@ class TestOneWord:
         assert "\\fad" not in ass and "\\1a" not in ass and "\\t(" not in ass
         assert {m for m in re.findall(r"\\pos\((\d+),(\d+)\)", "\n".join(_lines(ass, "Main")))} == {("540", "1000")}
 
-    def test_a_golden_strong_word_now_and_then(self):
-        ass, groups = viral_fx.build_ass(WORDS, "oneword")
+    def test_at_most_one_golden_word_and_only_an_emotion_word(self):
+        # Decoded on 12 OptimalHealth shorts: one coloured word (« CRAZY ») in 724 s.
         gold = viral_fx._ass_color("#F2B544")
-        keyed = [i for i, l in enumerate(_lines(ass, "Main")) if gold in l]
-        assert keyed and all(b - a >= viral_fx.PRESETS["oneword"]["key_gap"] for a, b in zip(keyed, keyed[1:]))
-        assert [_text(_lines(ass, "Main")[i]) for i in keyed][0] == "EMERGENCY"
-        # never a plain long word or an adverb
-        for w in ("understand", "necessarily", "sometimes"):
-            ws = [{"text": w, "start": 0, "end": 0.2}]
-            assert gold not in viral_fx.build_ass(ws, "oneword")[0]
+        ass, groups = viral_fx.build_ass(WORDS, "oneword")
+        assert gold not in ass  # no emotion word in this text: all white
+        ws = [{"text": w, "start": i * 0.3, "end": i * 0.3 + 0.25}
+              for i, w in enumerate("that is crazy and really insane, crazy right".split())]
+        lines = _lines(viral_fx.build_ass(ws, "oneword")[0], "Main")
+        keyed = [_text(l) for l in lines if gold in l]
+        assert keyed == ["CRAZY"]
+        for w in ("emergency", "understand", "necessarily", "sometimes"):
+            assert gold not in viral_fx.build_ass([{"text": w, "start": 0, "end": 0.2}], "oneword")[0]
 
     def test_a_very_long_word_is_set_smaller_to_stay_inside_84_percent(self):
         p = viral_fx.PRESETS["oneword"]

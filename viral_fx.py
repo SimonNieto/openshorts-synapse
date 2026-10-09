@@ -119,11 +119,9 @@ PRESETS["premium"] = {**PRESETS["natural"], "font": "Montserrat ExtraBold", "bol
 # Size 110 here: capitals ~48 px, "PERSON" ~29 %. A long word is set smaller to
 # stay inside 84 % of the width (safe_x 8-92 %, _fit_scale). A short word
 # never rides with its neighbour ("one_word"); the punctuation is dropped.
-# Colour: a strong word now and then in their golden orange ("CRAZY", "AND" on
-# a strong beat), about one word in 8-10 (1 in 11 over the 12 clips of job
-# b8e46c24): a word whose keyword_score reaches ``key_min`` (a topic word, a
-# number, an 8+ letter word but not a plain one, _plain_long), at least
-# ``key_gap`` words after the last one.
+# Colour (decoded on 12 of their shorts, 724 s: ONE coloured word, "CRAZY"): at
+# most ``key_max`` word per clip, and only an emotion word (EMOTION_WORDS) —
+# the first one said; a clip without one stays all white.
 # ``corner``: the channel's name small at the top right in a grey see-through
 # box (their « OPTIMAL HEALTH »), instead of under the word, and the clip's
 # credit (« CREDIT: <the show> ») tiny at the top left, the whole clip long
@@ -131,8 +129,13 @@ PRESETS["premium"] = {**PRESETS["natural"], "font": "Montserrat ExtraBold", "bol
 # (plus.HOOK_ON_SCREEN).
 PRESETS["oneword"] = {**PRESETS["premium"], "max_words": 1, "max_chars": 40, "one_word": True, "size": 110,
                       "caption_y": 1000, "lit": False, "fade": 0, "safe_x": (0.08, 0.92),
-                      "accent": "#F2B544", "key_every": 0, "key_gap": 4, "key_min": 0.8,
+                      "accent": "#F2B544", "key_every": 0, "key_gap": 4, "key_min": 0.8, "key_max": 1,
+                      "key_only": "emotion",
                       "outline": 6, "shadow": 3, "edge_alpha": 0x00, "shadow_alpha": 0x50, "corner": True}
+# The only words a "key_only": "emotion" preset may colour (their « CRAZY »).
+EMOTION_WORDS = frozenset("""crazy insane wild unbelievable incredible insanely shocking terrifying scary
+terrified amazing horrible awful disgusting brutal nuts mindblowing""".split())
+
 # The small texts at the top of a "corner" preset, in px of a 1080x1920 frame.
 # The credit: white at 80 % (alpha 0x33), size 34 (~1.8 % of the height), a thin
 # dark edge so it reads on a bright picture. The channel: white in a grey box
@@ -378,7 +381,12 @@ def build_ass(words, preset, width=1080, height=1920, watermark=None, topic=None
         # The rhythm (every ``key_every`` captions) never skips a topic word
         # or a number (score >= 1.2). A preset with a ``key_gap`` instead
         # (oneword) colours a strong word only ``key_gap`` words after the last.
-        if p.get("key_gap"):
+        if p.get("key_only") == "emotion":
+            best = next((k for k, w in enumerate(g)
+                         if re.sub(r"[^a-z]", "", w["text"].lower()) in EMOTION_WORDS), best)
+            colored = (re.sub(r"[^a-z]", "", g[best]["text"].lower()) in EMOTION_WORDS
+                       and colour_i < p.get("key_max", 1))
+        elif p.get("key_gap"):
             colored = (score >= p.get("key_min", 0.5) and gi - last_key >= p["key_gap"]
                        and (score >= 1.2 or not _plain_long(g[best]["text"])))
         else:

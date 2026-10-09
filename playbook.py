@@ -299,9 +299,11 @@ def title_style() -> str:
 # The "references" title (RECETTE_REFERENCES.md §4): OptimalHealth's median is 6 words, none has an emoji.
 REF_TITLE_WORDS = (4, 8)
 # Words that got a short held back (c05 "Is Big Pharma scared of microdosers?", 9 views, 5-oct-2026): the
-# phrase itself, and a prescription drug shared / split / sold / microdosed.
+# phrase itself, a prescription drug shared / split / sold / microdosed, and a drug not yet on the market
+# (the 9-oct bench titled c05 "The Hidden Problem With Retitrutide Doses": the same held-back topic).
 _HELD_BACK = re.compile(
     r"\bbig\s+pharma\b"
+    r"|\bret\w{0,3}trutide\b|\borforglipron\b|\bcagrisema\b|\bsurvodutide\b"
     r"|\b(?:shar\w*|split\w*|sell\w*|sold|microdos\w*|trad\w*)\b.{0,40}\b(?:prescriptions?|meds|medications?|pills?)\b"
     r"|\b(?:prescriptions?|meds|medications?|pills?)\b.{0,40}\b(?:shar\w*|split\w*|sell\w*|sold|microdos\w*)\b",
     re.I)
@@ -509,7 +511,7 @@ Write ONE new title per clip:
 - it is not one of `other_titles` and does not reuse their shape;
 - it does not say the on-screen hook again;
 - no name of a person or a show; never "Big Pharma" nor a prescription drug
-  shared, split, sold or microdosed; never an explicit word for suicide or
+  shared, split, sold or microdosed, nor a drug not yet approved (retatrutide…); never an explicit word for suicide or
   self-harm; a drug is shown from its risk or what it does, never as fun;
 - true to the clip: it promises only what this clip says.
 
