@@ -672,6 +672,19 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
         if calmed:
             print(f"   🎥 Smooth camera on {calmed} scene(s), soft cuts between shots")
 
+    # Smart zooms (zooms.py, plus.FX["zoom_style"] = "references"): on the premium TRACK shots, a dry punch-in
+    # on the strong moments and a slow push between, cropped frame by frame from the source.
+    zoomed, zoom_plan = {}, []
+    if smooth and premium and not force_strategy:
+        import zooms
+        if zooms.style() == "references":
+            try:
+                zoomed, zoom_plan = zooms.clip_boxes(input_video, len(xs), fps, premium, heads, scene_boundaries,
+                                             cameraman.crop_height, orig_h)
+            except Exception as e:
+                print(f"   ⚠️ Smart zooms failed ({type(e).__name__}: {e}) — fixed framing.")
+                zoomed = {}
+
     # Beats are found once per clip; each scene takes the ones inside it.
     beats = []
     if punch_in.ENABLED:
@@ -729,6 +742,9 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
             elif strategy == 'GENERAL':
                 graph = general_filtergraph(out_w, out_h,
                                             orig_w=orig_w, orig_h=orig_h)
+            elif start_f in zoomed and strategy == 'TRACK':
+                # Cropped in Python (zooms.render_segment): the encoder only sees the finished frames.
+                graph = "[0:v]setsar=1[v]"
             else:
                 seg_xs = [x if x is not None else 0 for x in xs[start_f:end_f]]
                 cmd_path = os.path.join(workdir, f"cmd_{idx:03d}.txt")
@@ -788,6 +804,14 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
                 except Exception as e:
                     print(f"   ⚠️ Soft cut skipped at scene {idx} ({e})")
 
+            if start_f in zoomed and strategy == 'TRACK':
+                import zooms
+                boxes = zoomed[start_f][:end_f - start_f]
+                boxes += [boxes[-1]] * (end_f - start_f - len(boxes))
+                zooms.render_segment(input_video, ss, dur, boxes, out_w, out_h, seg_path,
+                                     video_encode_args(QUALITY_FAST), graph, extra_in)
+                segments.append(seg_path)
+                continue
             _run([
                 "ffmpeg", "-y", "-loglevel", "error",
                 "-ss", f"{ss:.4f}", "-t", f"{dur:.4f}", "-i", input_video, *extra_in,
@@ -818,6 +842,9 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
         import shutil
         shutil.rmtree(workdir, ignore_errors=True)
 
+    if zoomed:
+        import zooms
+        zooms.mark_applied(input_video, zoom_plan)
     # Tell the caption pass which stretches are stacked (see layout_ranges).
     layout_ranges.write(final_output_video,
                         [(s / fps, e / fps, strategy) for s, e, strategy in ranges])

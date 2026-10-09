@@ -3881,7 +3881,30 @@ if __name__ == '__main__':
                             print(f"   ⚠️ On-screen picture check failed ({type(e).__name__}: {e}) — "
                                   f"clip framed as usual.")
 
+                    # Smart zooms (zooms.py, plus.FX["zoom_style"] = "references"): the reframe punches in
+                    # on the strong words, so it gets the clip's words, the joins to hide and the punchline.
+                    import zooms as _zooms
+                    zoom_cues = (_zooms.style() == "references" and bool(transcript)
+                                 and output_format != "horizontal")
+                    if zoom_cues:
+                        try:
+                            import viral_fx as _vfx
+                            pt = clip.get("punchline_time")
+                            _zooms.write_cues(
+                                clip_temp_path, _vfx.clip_words(c_transcript, c_start, c_end),
+                                joins=[j["t"] for j in (mont or {}).get("joins") or [] if j.get("verdict") == "hide"],
+                                punch=(mont or {}).get("punch") or ((pt, pt + 3.0) if pt is not None else None))
+                        except Exception as e:
+                            print(f"   ⚠️ Zoom cues failed ({type(e).__name__}: {e}) — fixed framing.")
                     success = render_clip(clip_temp_path, clip_final_path, output_format)
+                    if zoom_cues:
+                        applied = (_zooms.read_cues(clip_temp_path) or {}).get("applied")
+                        if os.path.exists(_zooms.cues_path(clip_temp_path)):
+                            os.remove(_zooms.cues_path(clip_temp_path))
+                        # Only zooms the reframe really rendered stand in for the tight frames below.
+                        zoom_cues = applied is not None
+                        if zoom_cues:
+                            clip['zooms'] = applied
                     # Layer order: watermark burns into the canonical (so any
                     # later hook replacement, which re-derives from it, keeps
                     # the branding), background music mixes into the canonical
@@ -4005,7 +4028,9 @@ if __name__ == '__main__':
                     # on screen, a dry cut to a tighter frame and back; and on the very
                     # frame of every montage join that would show. Last layer before the
                     # hook and the captions: every other change is known by now.
-                    if success and mont_cfg and mont_cfg.get("tight_frames", True):
+                    # With the smart zooms the reframe already changed the frame on the strong words and on
+                    # every join to hide: a tight frame on top would stack two zooms.
+                    if success and mont_cfg and mont_cfg.get("tight_frames", True) and not zoom_cues:
                         try:
                             import punch_in
                             import viral_fx

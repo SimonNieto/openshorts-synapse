@@ -69,7 +69,23 @@ HOOK_STYLE, HOOK_SECONDS = "docline", 3.3
 # reframe (framing.py, SMOOTH_CAMERA); reaction shots of the listener after a
 # strong line (reactions.py); every layer before the captions encoded
 # near-lossless (ffmpeg_utils.layer_encode_args).
-FX = {"smart_framing": True, "smooth_camera": True, "reactions": True, "hq_chain": True}
+#
+# The zooms (9-oct-2026, the user: copy OptimalHealth / Clip Storm, « zoom intelligent »; the decoding of 12
+# OptimalHealth Shorts, etude2/decodage/rapport.md rules 11, 12, 15): "references" = a dry punch-in on the strong
+# moments — a word said louder or higher, a number, a shock or emotion word, the punchline, every montage join to
+# hide — and to relaunch a stretch with no change for RELAUNCH s; back wide (x0.83) on a new sentence after a
+# pause and on the clip's last sentence; a slow push on every stretch; cropped from the source (zooms.py,
+# reframe_v2). It replaces the tight frames of MONTAGE. "fixed" = the fixed camera of 1-5 oct: one framing per
+# shot, the tight frame past 6 s without a change (punch_in.finish), still drawings.
+FX = {"smart_framing": True, "smooth_camera": True, "reactions": True, "hq_chain": True, "zoom_style": "references"}
+# The numbers of the "references" zooms (zooms.configure reads them, PLUS_ZOOMS_JSON): the punch on a 1080p source
+# and from 1440p up (theirs: x1.13-1.26), the slow push per second and its most over a stretch, the least time
+# between two dry cuts, the stretch without a change that earns a relaunch punch.
+ZOOMS = {"punch": 1.20, "punch_hi": 1.25, "slow_rate": 0.02, "slow_max": 0.10, "min_gap": 1.2, "relaunch": 5.0}
+# The pictures with the "references" zooms (broll knobs): a full-screen drawing pushes in 1.00 -> STILL_PUSH,
+# linear over its time on screen (theirs: 6-12 % over the picture), one in STILL_EVERY holds still (theirs: about
+# one in three); a card's picture pushes CARD_PUSH inside its frame while the face behind it keeps its own zoom.
+STILL_PUSH, STILL_EVERY, CARD_PUSH = 1.10, 3, 1.06
 # The montage (5-oct-2026, the user's decisions 2, 4 and 6 and her reservation 9, « go pour tout »): the clip
 # re-cut from the source — every silence over 0.35 s down to a breath, the clip choice's cut_out passages
 # taken out, the clip opening on the voice (montage.py); a dry cut to a 1.2x tighter frame past 6 s without a
@@ -300,6 +316,11 @@ def job_env(profile):
         "PLUS_HQ_CHAIN": "1",
         # Read by montage.config (main._process_one_clip): the re-cut, the tight frames, the reactions' holes.
         "PLUS_MONTAGE_JSON": json.dumps(MONTAGE),
+        # Read by broll at import: the full-screen drawings push in slowly with the "references" zooms.
+        **({"BROLL_HERO_PUSH": f"{STILL_PUSH:g}", "BROLL_HERO_PUSH_CURVE": "linear",
+            "BROLL_HERO_STILL_EVERY": str(STILL_EVERY), "BROLL_CARD_PUSH": f"{CARD_PUSH:g}",
+            "PLUS_ZOOMS_JSON": json.dumps(ZOOMS)}
+           if FX.get("zoom_style") == "references" else {}),
         # Every clip ends on a full stop (main.end_on_sentence): a clip
         # stopping on a dangling "cause..." is never wanted.
         "CLEAN_END": "1",
