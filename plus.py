@@ -108,7 +108,10 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          "full_width": True,
          # The opening drawing, 0-1.2 s under the hook (decision 8): coded, OFF until the A/B test (6 clips with /
          # 6 without, published 5-8 oct) is good at 48 h.
-         "opening": False}
+         "opening": False,
+         # Animated pictures (9-oct-2026, references recipe): a picture becomes a 2-3 s silent shot with one light
+         # motion (broll_animate: LTX-Video 2B distilled in ComfyUI). OFF until the user has seen the bench.
+         "animate": False}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set
