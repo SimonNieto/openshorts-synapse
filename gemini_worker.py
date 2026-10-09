@@ -100,6 +100,11 @@ class DetailClipModelPlaybook(DetailClipModelV2):
     # the everyday thing the moment turns on ("" when none), a small weight in main.rank_by_opening, never a filter.
     subject_words: str = ""
     everyday_thing: str = ""
+    # Who the moment concerns (playbook.AUDIENCE_REACH), a practical tip or a myth broken, the other speaker heard
+    # (decoding of OptimalHealth, 9-oct-2026): weights in main.rank_by_opening, never filters.
+    audience_reach: str = ""
+    practical: bool = False
+    two_voices: bool = False
 
 
 class DetailResponsePlaybook(BaseModel):
@@ -323,6 +328,11 @@ SYNAPSE CUT PLAYBOOK — TITLE AND HOOK (strict, wins over any other title or ho
   titles: use ONE of them when it is TRUE of the clip (a "trick" is a thing
   the viewer can do; "hidden" is something people do not know; "myth" is a
   belief the clip proves wrong), never as decoration.
+- THE TITLE ECHOES THE FIRST SENTENCE: when the clip's first sentence names
+  the thing, the title takes its words almost verbatim ("the fastest way to
+  calm down is..." -> "The Fastest Way To Calm Down"; "melatonin is a hormone
+  that..." -> "The Hidden Problem With Melatonin"): what the viewer reads in
+  the feed is what they hear first.
 - TRUE TO THE CLIP: the title promises only what this clip says and shows. No
   fake claim, no number, cure or danger the clip does not state. A question is
   one the clip answers or explores.
@@ -534,6 +544,39 @@ SYNAPSE CUT PLAYBOOK — CUT, DESCRIPTIONS, TOPIC:
   filter: a strong moment without one is still returned, and `predicted_score`
   is NOT changed for it — fill `everyday_thing` with that thing in plain words
   ("melatonin", "your phone"), or "" when there is none; the code weighs it.
+  Only a thing the viewer HAS or DOES: a hospital, a scan, a doctor, a drug
+  company, an AI or a disease is not one (an object the clip mentions in
+  passing is not one either).
+- WHO IS CONCERNED, AT EQUAL QUALITY: the niche's shorts at 250k-1.6M views are
+  about a thing EVERYONE does, uses or feels (sleep, calming down, stress, food,
+  a common drug like ibuprofen or melatonin, the phone, exercise, ageing), the
+  ones at 11-20k about niche things (glutathione after anaesthesia, the vagus
+  nerve, fibre); a debate about the medical system reaches fewer still. Fill
+  `audience_reach` — be strict, most podcast moments are not "everyone":
+  "everyone": the moment is ABOUT something most viewers do, use or feel in
+    their own day (sleeping, eating, coffee, the phone, stress, a headache,
+    exercise, ageing, ibuprofen, melatonin) and they can recognise it in their
+    own life;
+  "many": a large group does or uses it (parents, people on a weight-loss
+    drug, people with ADHD, drinkers, people who scroll social media);
+  "few": anything else — the medical system and its debates (doctors on call,
+    medical errors, scans, experts, drug companies, prices), research, AI, a
+    rare disease, one person's story. A story that "could happen to anyone"
+    is still "few" when it is about the system, not about the viewer's day.
+  And `practical`: true when the moment gives a practical tip about that thing
+  (a gesture, a question to ask, what to do) or breaks a myth about it. Again
+  a PREFERENCE weighed in code, never a filter, `predicted_score` unchanged.
+- TWO VOICES, AT EQUAL QUALITY: the niche's big shorts cut to the other person
+  about 6 times a minute (their question, "wow", a laugh, a push-back), its
+  flops almost never. Prefer a passage where the other speaker is heard asking,
+  reacting or pushing back over a monologue; `two_voices`: true when the other
+  speaker says more than "yeah / right" inside the clip. When the other
+  speaker's question is what launches the subject ("What does melatonin
+  actually do?"), opening ON that question is good.
+- THE END: stop dead on the last strong sentence or on the other speaker's
+  short reaction to it — no conclusion, no "anyway", no wrap-up; never on a
+  question left without its answer, nor on "I don't know" / "I'm making up a
+  story here".
 - `subject_words`: the 1 to 3 words, copied VERBATIM from the transcript inside
   the clip, that name the thing or the event the clip is about — what its
   title names ("emergency room", "lidocaine", "escaped"). The code checks

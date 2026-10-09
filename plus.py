@@ -135,11 +135,17 @@ BROLL["video"] = False
 # title_style "references" = OptimalHealth's titles (one everyday thing, 4-8 words, Hidden / Really / Trick...;
 # "question" = the closed yes/no question of 1-oct, back with one word); subject_first = the words naming the
 # clip's thing heard within main.OPENING_SUBJECT_SECONDS, else the clip opens on the later sentence that says them
-# (no title on screen any more: the first sentence IS the hook); everyday_weight = points a moment about an
-# everyday thing gets in the ranking (a weight, never a filter).
+# (no title on screen any more: the first sentence IS the hook).
+# weights = points added to a clip's score in the ranking (main._weights_for), never filters (her reserve: « ne
+# ferme pas la sélection »), from the decoding of OptimalHealth (etude2/decodage/rapport.md): a moment about an
+# everyday thing; about a thing everyone / many people do, use or feel (their hits: sleep, melatonin, ibuprofen;
+# their 11-20k: niche things); a practical tip or a myth broken on it; the other speaker heard (hits 5.8 cuts to
+# them a minute, flops 0.7); and taken off when the face is small in the source (flops 12 % of the height, hits 26 %:
+# face_check measures it, main.FACE_SMALL_SHARE).
 SELECTION = {"dedupe_overlap": 0.2, "dedupe_seconds": 8.0, "hook_check": True, "audio_signals": True,
              "title_variety": True, "playbook": True,
-             "title_style": "references", "subject_first": True, "everyday_weight": 5}
+             "title_style": "references", "subject_first": True, "face_check": True,
+             "weights": {"everyday": 5, "everyone": 6, "many": 2, "practical": 3, "two_voices": 4, "face_small": 20}}
 # The spectator (5-oct-2026, the user: « Brancher tout de suite », before any calibration): at the end of the job
 # every rendered clip's first 3 seconds are judged once by a blind viewer (hook_jury.py: frames of the final clip,
 # the words as edited, the hook; 1 vote, Sonnet) — a 0-100 chance to stay, stop yes/maybe/no, a verdict, a fix,
@@ -342,7 +348,8 @@ def job_env(profile):
         # Read by playbook.title_style, main.open_on_subject and main.rank_by_opening (SELECTION above).
         "TITLE_STYLE": SELECTION["title_style"],
         "OPENING_SUBJECT_FIRST": "1" if SELECTION["subject_first"] else "0",
-        "EVERYDAY_WEIGHT": f"{SELECTION['everyday_weight']:g}",
+        "SELECTION_WEIGHTS": json.dumps(SELECTION["weights"]),
+        "FACE_CHECK": "1" if SELECTION["face_check"] else "0",
         # Read by main.spectate_clips once every clip is rendered (SPECTATOR above).
         "PLUS_SPECTATOR": "1" if SPECTATOR else "0",
         # --- the channel's own facts ---

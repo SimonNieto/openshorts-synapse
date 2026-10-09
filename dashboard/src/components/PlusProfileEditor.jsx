@@ -197,7 +197,7 @@ export default function PlusProfileEditor({ isOpen, onClose, profile, accounts =
                 <Section id="pp-clips" icon={<Clock size={15} />} title="Clips" lede="OptimalHealth's shorts run 35-60 s (median 51 s).">
                     <div role="group" aria-labelledby="pp-length">
                         <p id="pp-length" className="readout mb-2">Length</p>
-                        <SegmentedControl columns={4} value={p.format || 'references'} onChange={(v) => set({ format: v })}
+                        <SegmentedControl columns={Object.keys(formats).length || 4} value={p.format || 'references'} onChange={(v) => set({ format: v })}
                             options={Object.entries(formats).map(([k, f]) => ({
                                 value: k, label: FORMAT_LABEL[k] || k,
                                 hint: `${f.clip_target[0]}–${f.clip_target[1]} s${k === 'references' ? ' · recommended' : ''}`,

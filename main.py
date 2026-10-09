@@ -2447,13 +2447,104 @@ def open_on_subject(clip, words, min_secs, seconds=None):
     return None
 
 
-def everyday_weight():
-    """EVERYDAY_WEIGHT (plus.SELECTION["everyday_weight"]): points a clip whose moment turns on an everyday thing
-    gets in rank_by_opening; 0 (off) without it."""
+# --- what the niche's big shorts have in common, weighed (9-oct-2026, decoding of OptimalHealth) ---------------
+# etude2/decodage/rapport.md + RECETTE_REFERENCES.md §8-9: 250k-1.6M views on a thing everyone does or uses (sleep,
+# calming down, melatonin, shower water, ibuprofen), 11-20k on niche things; their hits cut to the other person
+# 5.8 times a minute, their flops 0.7; their flops' face is 12 % of the frame height against 26 % (a 16:9 band, a
+# conference filmed from afar). Points added to (or taken from) predicted_score in rank_by_opening — weights,
+# never filters (the user's reserve: « ne ferme pas la sélection »). SELECTION_WEIGHTS (plus.SELECTION["weights"],
+# JSON) sets them; without it every weight is 0 and the ranking is unchanged.
+SELECTION_WEIGHT_KEYS = ("everyday", "everyone", "many", "practical", "two_voices", "face_small")
+AUDIENCE_REACH = playbook.AUDIENCE_REACH
+
+
+def selection_weights():
+    """{key: points} of SELECTION_WEIGHTS (0 for a key it does not give), each clamped to ±30."""
     try:
-        return max(0.0, min(20.0, float(os.environ.get("EVERYDAY_WEIGHT") or 0)))
+        raw = json.loads(os.environ.get("SELECTION_WEIGHTS") or "{}")
     except ValueError:
-        return 0.0
+        raw = {}
+    out = {}
+    for k in SELECTION_WEIGHT_KEYS:
+        try:
+            out[k] = max(-30.0, min(30.0, float(raw.get(k) or 0)))
+        except (TypeError, ValueError, AttributeError):
+            out[k] = 0.0
+    return out
+
+
+def everyday_weight():
+    """Points a moment about an everyday thing gets (selection_weights' "everyday")."""
+    return selection_weights()["everyday"]
+
+
+def _weights_for(clip):
+    """{reason: points} that apply to ``clip`` (see above)."""
+    w = selection_weights()
+    out = {}
+    if str(clip.get("everyday_thing") or "").strip() and clip.get("everyday_said", True):
+        out["everyday"] = w["everyday"]
+    reach = str(clip.get("audience_reach") or "").strip().lower()
+    if reach in ("everyone", "many"):
+        out[reach] = w[reach]
+        if clip.get("practical") is True:
+            out["practical"] = w["practical"]
+    if clip.get("two_voices") is True:
+        out["two_voices"] = w["two_voices"]
+    if clip.get("face_small"):
+        out["face_small"] = -abs(w["face_small"])
+    return {k: v for k, v in out.items() if v}
+
+
+# The face in the source frame (FACE_CHECK=1, plus.SELECTION["face_check"]): the largest face's height over the
+# frame's, on FACE_SAMPLES frames spread over the clip, median. A frame without a face found falls back on the
+# largest person (YOLO; a head is about FACE_OF_PERSON of the box detect_person_yolo returns, its top 40 %): a
+# speaker seen in profile is missed by the face detector (JRE #2553 c02, Joe reading a screen side-on, the week's
+# best "stayed" at 64.5 %) but not by YOLO. A frame with neither (a screen, a picture) does not count. Under
+# FACE_SMALL_SHARE the clip is ``face_small``: a wide shot, a stage, a 16:9 band. Local detection, no AI call.
+# Measured on JRE #2553-004: 0.26-0.32 on every clip of the week and every minute of the episode.
+FACE_SAMPLES = 5
+FACE_SMALL_SHARE = 0.15
+FACE_OF_PERSON = 0.6
+
+
+def face_share(video_path, start, end, n=FACE_SAMPLES):
+    """Median share of the frame height the speaker's face takes over ``n`` frames of [start, end] (None when no
+    frame shows a face or a person)."""
+    cap = cv2.VideoCapture(video_path)
+    shares = []
+    try:
+        for i in range(n):
+            t = start + (end - start) * (i + 0.5) / n
+            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            h = float(frame.shape[0])
+            faces = detect_face_candidates(frame)
+            if faces:
+                shares.append(max(f["box"][3] for f in faces) / h)
+                continue
+            person = detect_person_yolo(frame)
+            if person:
+                shares.append(FACE_OF_PERSON * person[3] / h)
+    finally:
+        cap.release()
+    return round(float(np.median(shares)), 3) if shares else None
+
+
+def check_faces(shorts, video_path):
+    """Sets ``face_share`` and ``face_small`` on each clip (FACE_CHECK=1). Never fails the selection."""
+    if not video_path or not os.path.exists(video_path):
+        return
+    for s in shorts:
+        try:
+            share = face_share(video_path, float(s["start"]), float(s["end"]))
+        except Exception as e:
+            print(f"      ⚠️ Face check skipped at {float(s.get('start', 0)):.0f}s ({type(e).__name__}: {e})")
+            continue
+        s["face_share"] = share
+        s["face_small"] = share is not None and share < FACE_SMALL_SHARE
 
 
 def _score(v):
@@ -2480,14 +2571,14 @@ def rank_by_opening(clip):
     base = moment if opening is None else opening
     base = max(0.0, base - sum(OPENING_PENALTY.get(f, 0) for f in clip.get("opening_flags") or []))
     score = (1 - OPENING_WEIGHT) * moment + OPENING_WEIGHT * base
-    # 9-oct-2026: a moment about an everyday thing the viewer knows (the model's everyday_thing, once checked as
-    # said in the clip by rank_openings) — a weight at equal quality, never a filter.
-    bonus = everyday_weight() if str(clip.get("everyday_thing") or "").strip() and clip.get("everyday_said", True) else 0
-    if bonus:
-        clip["everyday_bonus"] = bonus
-        score += bonus
+    # 9-oct-2026: what the niche's big shorts have in common (an everyday thing, everyone concerned, a practical
+    # tip, two voices) and against them (a small face) — weights at equal quality, never filters (_weights_for).
+    applied = _weights_for(clip)
+    if applied:
+        clip["selection_weights"] = applied
+        score += sum(applied.values())
     else:
-        clip.pop("everyday_bonus", None)
+        clip.pop("selection_weights", None)
     if clip.get("already_clipped"):
         score -= already_clipped.PENALTY
     score = int(round(max(0.0, score)))
@@ -2499,10 +2590,13 @@ def rank_by_opening(clip):
     return clip["predicted_score"]
 
 
-def rank_openings(shorts, words):
-    """Once the cuts are final: check_opening on each clip, the already-clipped search (when switched on,
-    already_clipped.py), rank_by_opening, and what was found in the log."""
+def rank_openings(shorts, words, video_path=None):
+    """Once the cuts are final: check_opening on each clip, the face in the source (FACE_CHECK=1, check_faces),
+    the already-clipped search (when switched on, already_clipped.py), rank_by_opening, and what was found in
+    the log."""
     import already_clipped
+    if os.environ.get("FACE_CHECK") == "1":
+        check_faces(shorts, video_path)
     for s in shorts:
         check_opening(s, words)
         if str(s.get("everyday_thing") or "").strip():
@@ -2525,7 +2619,7 @@ def rank_openings(shorts, words):
             heard = _sentence_text(words, k0, 14)[:80] if k0 is not None else ""
             print(f"      🎬 {float(s['start']):.0f}s: opening {s.get('opening_score', '?')}"
                   f"{' (' + ', '.join(flags) + ')' if flags else ''}, moment {s.get('moment_score')}"
-                  f"{', +' + format(s['everyday_bonus'], 'g') + ' everyday thing (' + str(s.get('everyday_thing')) + ')' if s.get('everyday_bonus') else ''}, "
+                  f"{', ' + ' '.join(f'{v:+g} {k}' for k, v in s['selection_weights'].items()) if s.get('selection_weights') else ''}, "
                   f"score {before} -> {s['predicted_score']}: \"{heard}\"")
     clean = sum(not s.get("opening_flags") for s in shorts)
     print(f"   🎬 Openings: {clean}/{len(shorts)} clip(s) open clean (sentence start, stands alone, subject said "
@@ -3599,7 +3693,7 @@ def get_viral_clips(transcript_result, video_duration, video_path=None):
             print(f"   ✂️  Cut-outs for the montage: {kept} passage(s) kept on "
                   f"{sum(bool(s.get('cut_out')) for s in shorts)} clip(s), {dropped} dropped.")
             # 5-oct-2026: the final cut's opening checked in code, the ranking weighed again.
-            rank_openings(shorts, words)
+            rank_openings(shorts, words, video_path)
         if dedupe:
             shorts = _dedupe(shorts, "final cuts")
         print(f"   ⏱️ Clip lengths: {clip_selection.duration_summary(shorts, target_secs)}")
