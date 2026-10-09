@@ -12,9 +12,15 @@ import broll_animate
 import plus
 
 
-def test_off_by_default():
-    assert plus.BROLL["animate"] is False
+def test_on_in_this_branch_and_read_from_the_job(monkeypatch):
+    # references-v3 (the final bench of 9-oct-2026): on; production keeps it off until the user validates it
+    monkeypatch.delenv("PLUS_BROLL_JSON", raising=False)
+    assert plus.BROLL["animate"] is True and plus.BROLL["animate_engine"] == "ltxv"
+    assert broll_animate.enabled() is True and broll_animate.engine() == "ltxv"
+    monkeypatch.setenv("PLUS_BROLL_JSON", json.dumps({**plus.BROLL, "animate": False}))
     assert broll_animate.enabled() is False
+    assert broll_animate.enabled({"animate": True, "animate_engine": "wan22"}) is True
+    assert broll_animate.engine({"animate_engine": "wan22"}) == "wan22"
 
 
 @pytest.mark.parametrize("seconds,frames", [(2.0, 49), (2.5, 57), (3.0, 73), (0.1, 9)])

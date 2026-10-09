@@ -21,6 +21,18 @@ output/_stepup/etude2/references, the user's RECETTE_REFERENCES.md § 1), as plu
      one small look (locate: Sonnet, low effort). A person in it: dressed (the dressing sentence, then the dress check
      of the « dessin » chain: one more render, then dropped).
 
+  5. (9-oct-2026 evening, the integration of the « références » recipe) what a still cannot be:
+     - an ACTION, a PLACE or a STATE LIVED (rules 3 and 5 of the decoding: 31 of 55 nouns and 16 of 17 states are real
+       footage full screen) comes as 1-3 s of Pexels footage (broll_video.videos_for_clip, plus.BROLL["video"]): the
+       director gives such a scene a "footage" query; nothing found -> the generated picture, as before;
+     - a 3D render of the INSIDE of the body moves lightly (broll_animate, plus.BROLL["animate"], engine "ltxv" by
+       default): a light that pulses or a slow flow along it, never an organ that must change shape (the director says
+       "pulse", "flow" or "none");
+     - an object fills its card (fill_object: about OBJECT_FILL of it, the bench's lidocaine vial filled 15 %), its label
+       blank;
+     - 41 % of the pictures come in with a 0.2 s transition (a flash of light on a full-screen one, a blur on a card), the
+       rest on a dry cut (transitions(): the measures of 9 hits, etude2/mesures/rapport.md).
+
 The old chain stays: plus.BROLL "chain": "dessin" (broll_draw, its own texts in charte-dessin.md, directeur-dessin.md,
 principes-dessin.md). broll_litteral_banc.py runs this chain on real clips without a job."""
 import os
@@ -64,8 +76,21 @@ DRESSED = "Anyone in this picture is fully dressed in everyday clothes that cove
 DRESSED_PATIENT = ("Anyone in this picture is fully dressed: a patient wears a closed long-sleeved hospital gown from the "
                    "neck to the knees, anyone else their usual clothes.")
 DRESSED_MORE = "The clothes stay closed from the neck to the knees."
-OBJECT_LINE = ("Alone in the centre of the frame on a plain seamless {bg} background, studio product shot, soft even light, "
-               "a soft shadow beneath it, the object large, filling most of the frame.")
+# The object large in its frame and its label blank (bench of 9-oct-2026: the lidocaine vial of c10 filled 15 % of its
+# card, with « Liidocaine » printed on it). fill_object() then crops the render so the object fills OBJECT_FILL of it.
+OBJECT_LINE = ("Alone in the centre of the frame on a plain seamless {bg} background, studio product shot, close-up, soft "
+               "even light, a soft shadow beneath it, the object very large, filling about three quarters of the frame's "
+               "height, its edges inside the frame. Any label or sticker on it is blank and plain, with no writing, no "
+               "letters and no numbers.")
+OBJECT_FILL = 0.70       # of the card's height (or width, a wide object) the object fills (theirs: the melatonin bottle)
+OBJECT_ZOOM_MAX = 2.6    # never cropped tighter than this (the card is ~650 px wide, the render 1024)
+# The transitions (measured on 9 hits, frame by frame: 41 % of the picture changes come in with a 0.2 s flash of light or
+# a blurred arrival of the card, the rest on a dry cut).
+TRANSITION_SHARE, TRANSITION_S = 0.41, 0.2
+# The light motions of an animated 3D render of the inside of the body (broll_animate): the shape never moves.
+MOTIONS = {"pulse": "A soft light pulses slowly inside it, glowing brighter then dimmer, the shape itself does not move",
+           "flow": "Tiny points of light flow slowly along it, the shape itself does not move"}
+ANIMATE_MAX_S = 3.2      # s of an animated shot at most (the picture's time on screen + a margin)
 DEFAULT_BG = "light blue"
 SPLIT_LINE = "Close-up filling the whole frame edge to edge, seen from slightly above, nothing else in view."
 
@@ -129,6 +154,13 @@ gibberish on it. Show the hands or the person holding it from the side, or leave
   "inside": the organ or the cells, whole and clean. No style word, no camera word, nothing to read (no text, no
   number, no label);
 - "background": for an object, ONE plain colour that contrasts with it (e.g. "sky blue", "warm yellow"); else "";
+- "footage": for a "scene" that is an ACTION (someone doing it: driving, sleeping, running), a PLACE (a hospital, a
+  factory) or a STATE someone lives (tired, stressed, ill, in pain), on its FIRST entry: 2-5 plain English words to find
+  real stock footage of it ("exhausted doctor night shift hospital", "person scrolling phone in bed"), anonymous people
+  only, nothing that evokes a death or its means; else "" (the code then makes the picture);
+- "motion": for "inside" only, on its FIRST entry: "pulse" (a light pulses in it) or "flow" (light flows along it) when
+  the organ can stay perfectly still while that light moves; "none" when showing it would need the organ itself to
+  move or change shape (a heart that beats, a lung that breathes, a muscle that contracts, a needle going in); else "";
 - "priority": 3 = the thing the clip is about, 2 = clearly worth showing, 1 = minor.
 "sequences": [] unless the guest explains HOW to do something or HOW something works, step by step (a gesture of the
 eyes, a breath, a signal along a nerve, a cord that pulses). Then ONE sequence for that passage:
@@ -141,7 +173,7 @@ eyes, a breath, a signal along a nerve, a cord that pulses). Then ONE sequence f
   {{"kind": "arrow" | "circle" | "glow", "at": one of the points, "dir": "left" | "right" | "up" | "down" | "in"
   (toward the figure's middle) | "out" | "cw" | "ccw" (for a circle, as seen on the screen) | "" (a glow)}}.
 Return JSON: {{"nouns": [{{"i": 12, "word": "...", "key": "...", "format": "object", "picture": "...",
-"background": "...", "priority": 2}}], "sequences": [{{"key": "...", "figure": "...", "points": ["..."],
+"background": "...", "footage": "", "motion": "", "priority": 2}}], "sequences": [{{"key": "...", "figure": "...", "points": ["..."],
 "steps": [{{"i": 40, "word": "...", "marks": [{{"kind": "arrow", "at": "...", "dir": "in"}}]}}]}}]}}"""
 _MARK = {"type": "object", "properties": {"kind": {"type": "string", "enum": list(MARK_KINDS)}, "at": {"type": "string"},
                                           "dir": {"type": "string"}}, "required": ["kind", "at"]}
@@ -150,6 +182,8 @@ DA_SCHEMA = {"type": "object", "properties": {
         "type": "object", "properties": {"i": {"type": "integer"}, "word": {"type": "string"}, "key": {"type": "string"},
                                          "format": {"type": "string", "enum": list(FORMATS)},
                                          "picture": {"type": "string"}, "background": {"type": "string"},
+                                         "footage": {"type": "string"},
+                                         "motion": {"type": "string", "enum": ["pulse", "flow", "none", ""]},
                                          "priority": {"type": "integer"}},
         "required": ["i", "word", "key", "format", "picture", "priority"]}},
     "sequences": {"type": "array", "items": {
@@ -208,6 +242,24 @@ LOCATE_SCHEMA = {"type": "object", "properties": {"points": {"type": "array", "i
 LOCATE_PX = 512
 
 
+# What the last run() spent beyond the image renders (add_broll times those): Pexels footage used, animated shots and
+# their GPU seconds — for the bench's cost line.
+LAST_COST = {}
+
+
+def _still_of(video, out):
+    """The middle frame of ``video`` as a jpg (the picture kept next to the clip, the trace's), or None."""
+    import subprocess
+    try:
+        dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
+                                    "default=nw=1:nk=1", video], capture_output=True, text=True, check=True).stdout)
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{dur / 2:.3f}", "-i", video, "-frames:v", "1", "-q:v",
+                        "3", out], check=True, capture_output=True)
+        return out if os.path.exists(out) else None
+    except Exception:
+        return None
+
+
 def _clean(text, n=400):
     return re.sub(r"\s+", " ", str(text or "")).strip()[:n]
 
@@ -235,8 +287,9 @@ def word_lines(words, per_line=14):
 
 
 def nouns_of(data, words):
-    """The director's nouns, cleaned: [{"i", "word", "key", "format", "picture", "background", "priority"}] in the
-    clip's order, one per word; a key's picture/format/background are its first entry's. Entries outside the words,
+    """The director's nouns, cleaned: [{"i", "word", "key", "format", "picture", "background", "footage", "motion",
+    "priority"}] in the clip's order, one per word; a key's picture/format/background/footage/motion are its first
+    entry's. Entries outside the words,
     without a key, or of a key with no picture, are dropped."""
     seen, out, used = {}, [], set()
     rows = [r for r in (data or {}).get("nouns") or [] if isinstance(r, dict)]
@@ -254,7 +307,11 @@ def nouns_of(data, words):
                 continue
             fmt = r.get("format") if r.get("format") in FORMATS else "scene"
             seen[key] = {"picture": picture, "format": fmt,
-                         "background": _clean(r.get("background"), 40) if fmt == "object" else ""}
+                         "background": _clean(r.get("background"), 40) if fmt == "object" else "",
+                         # real footage for an action, a place, a state lived (a scene only); a light motion for a 3D
+                         # render of the inside of the body
+                         "footage": _clean(r.get("footage"), 60) if fmt == "scene" else "",
+                         "motion": r.get("motion") if fmt == "inside" and r.get("motion") in MOTIONS else ""}
         try:
             prio = int(r.get("priority") or 1)
         except (TypeError, ValueError):
@@ -630,14 +687,138 @@ def _render_key(n, styles, tmp, render, k, checks):
     return None, None, text
 
 
-def run(clip_path, clip, words, avoid, block, tmp, render, duration=None, head=HEAD, plan=None):
+def object_bbox(path):
+    """(x0, y0, x1, y1) of the object on its plain background in the picture at ``path``, or None (no plain background,
+    nothing found): the pixels away from the border's colour in hue (a shadow is the same hue, darker) or much brighter /
+    darker, cleaned, the parts at least 15 % the size of the biggest."""
+    import cv2
+    import numpy as np
+    from PIL import Image
+    a = np.asarray(Image.open(path).convert("RGB"), dtype=np.float32)
+    h, w = a.shape[:2]
+    b = max(4, int(min(h, w) * 0.04))
+    border = np.concatenate([a[:b].reshape(-1, 3), a[-b:].reshape(-1, 3), a[:, :b].reshape(-1, 3),
+                             a[:, -b:].reshape(-1, 3)])
+    bg = np.median(border, axis=0)
+    if float(np.median(np.abs(border - bg).sum(-1))) > 45:
+        return None                       # the border is not one plain colour: not a product shot
+    lum = a.mean(-1) + 1.0
+    dc = np.sqrt(((a / lum[..., None] - bg / (bg.mean() + 1.0)) ** 2).sum(-1))
+    dl = a.mean(-1) - bg.mean()
+    m = ((dc > 0.18) | (dl > 70) | (dl < -110)).astype(np.uint8) * 255
+    m = cv2.morphologyEx(cv2.medianBlur(m, 7), cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
+    n, _lab, st, _c = cv2.connectedComponentsWithStats(m, 8)
+    if n <= 1:
+        return None
+    areas = st[1:, cv2.CC_STAT_AREA]
+    keep = [k + 1 for k in range(n - 1) if areas[k] >= 0.15 * areas.max()]
+    x0, y0 = min(st[k, 0] for k in keep), min(st[k, 1] for k in keep)
+    x1, y1 = max(st[k, 0] + st[k, 2] for k in keep), max(st[k, 1] + st[k, 3] for k in keep)
+    if (x1 - x0) * (y1 - y0) < 0.002 * w * h:
+        return None
+    return int(x0), int(y0), int(x1), int(y1)
+
+
+def fill_object(path, fill=OBJECT_FILL, zoom_max=OBJECT_ZOOM_MAX):
+    """Crops an object's render in place (same shape) so the object fills ``fill`` of its height — or of its width, a
+    wide object — centred on it, never more than ``zoom_max`` tighter. Returns the zoom applied (1.0: left as is: the
+    object fills it already, or no plain background found)."""
+    from PIL import Image
+    try:
+        box = object_bbox(path)
+    except Exception:
+        return 1.0
+    if not box:
+        return 1.0
+    im = Image.open(path).convert("RGB")
+    w, h = im.size
+    bw, bh = box[2] - box[0], box[3] - box[1]
+    zoom = min(fill * h / max(bh, 1), fill * w / max(bw, 1), zoom_max)
+    if zoom <= 1.05:
+        return 1.0
+    cw, ch = w / zoom, h / zoom
+    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+    x0 = min(max(cx - cw / 2, 0.0), w - cw)
+    y0 = min(max(cy - ch / 2, 0.0), h - ch)
+    im.resize((w, h), Image.LANCZOS, box=(x0, y0, x0 + cw, y0 + ch)).save(path, quality=94)
+    return round(zoom, 2)
+
+
+def transitions(picks, share=TRANSITION_SHARE):
+    """For each pick (time order), how it comes in: "flash" (a full-screen picture, 0.2 s of light), "blur" (a card
+    arriving blurred) or "" (a dry cut) — ``share`` of the picture changes get one, spread evenly; a sequence's later
+    steps (the same figure) never do."""
+    out, k = [], 0
+    for p in picks:
+        if p.get("format") == "sequence" and p.get("step", 0) > 0:
+            out.append("")
+            continue
+        on = int((k + 1) * share) > int(k * share)
+        k += 1
+        out.append(("blur" if p.get("format") in ("object", "split") else "flash") if on else "")
+    return out
+
+
+def _sentence_around(words, i, n=10):
+    return " ".join(str(w.get("text") or "") for w in words[max(0, i - n):i + n + 1])
+
+
+def footage_for(picks, words, duration, tmp, cfg=None):
+    """Real footage for the scenes the director gave a "footage" query (an action, a place, a state lived): one moment
+    per key (its first time on screen, as long as its longest), through broll_video.videos_for_clip (Pexels: one judge
+    call on the previews for the clip). {key: placement} — a key without footage keeps its generated picture."""
+    import broll_video
+    first = {}
+    for p in picks:
+        if p.get("format") == "scene" and p.get("footage"):
+            if p["key"] not in first:
+                first[p["key"]] = {"t": float(p["t"]), "word": p["word"], "key": p["key"], "kind": "action",
+                                   "sentence": _sentence_around(words, p["i"]), "query": p["footage"],
+                                   "dur": float(p["dur"])}
+            else:
+                first[p["key"]]["dur"] = max(first[p["key"]]["dur"], float(p["dur"]))
+    if not first:
+        return {}
+    try:
+        got = broll_video.videos_for_clip(list(first.values()), words, duration, tmp, cfg=cfg, gap=0.0)
+    except Exception as e:
+        print(f"   ⚠️ B-roll vidéo : {type(e).__name__} — les images générées restent.")
+        return {}
+    return {g["key"]: g for g in got if g.get("key")}
+
+
+def animate_inside(path, n, seconds, tmp, cfg=None):
+    """A 3D render of the inside of the body made a short silent shot with its light motion (broll_animate: "pulse",
+    "flow"), or None (off, no motion, ComfyUI said no). {"path", "gpu_s", "engine"}."""
+    import broll_animate
+    if n.get("motion") not in MOTIONS or not broll_animate.enabled(cfg):
+        return None
+    import inspect
+    out = os.path.join(tmp, f"anim_{_key(n['key'])}.mp4")
+    eng = broll_animate.engine(cfg)
+    # the engine is passed when this broll_animate knows several (the « wan22 » one, branch references-animate)
+    extra = {"engine": eng} if "engine" in inspect.signature(broll_animate.animate).parameters else {}
+    try:
+        r = broll_animate.animate(path, MOTIONS[n["motion"]], out, scene=n["picture"],
+                                  seconds=min(ANIMATE_MAX_S, max(1.0, float(seconds) + 0.1)), **extra)
+    except Exception as e:
+        print(f"   ⚠️ B-roll animé : « {n['key']} » reste une image ({str(e)[:120]}).")
+        return None
+    print(f"   🎞️ B-roll animé : « {n['key']} » ({n['motion']}), {r.get('seconds')} s, GPU {r.get('gpu_s')} s.")
+    return {"path": r["path"], "gpu_s": r.get("gpu_s"), "engine": r.get("engine") or ("ltxv" if not extra else eng)}
+
+
+def run(clip_path, clip, words, avoid, block, tmp, render, duration=None, head=HEAD, plan=None, cfg=None):
     """The « littéral » chain for one clip; ``render(text, out_path, layout) -> (path or None, seed)`` is add_broll's.
     Returns (cands, picks) — cands in broll_v20's shape (one per picture shown, a key shown twice is two cands on the
     same file, a sequence one cand per step on its figure, with its "marks"), layout "hero" (a scene, a sequence) or
-    "object"; picks: the schedule. ``plan``: (nouns, sequences, styles) already decided (the bench), no Claude call."""
+    "object"; picks: the schedule. ``plan``: (nouns, sequences, styles) already decided (the bench), no Claude call.
+    A cand may carry "video" (an mp4 shown in place of its picture: Pexels footage or an animated render), "credit"
+    and "transition" ("flash", "blur" or ""); ``cfg``: the job's plus.BROLL (its "video" and "animate" switches)."""
     import broll
     import broll_v20
     del broll_v20.LAST_CHECKS[:]
+    LAST_COST.clear()
     if len(words) < 3:
         return [], []
     duration = float(duration or _end_of(words, len(words) - 1))
@@ -658,7 +839,15 @@ def run(clip_path, clip, words, avoid, block, tmp, render, duration=None, head=H
             broll_v20.LAST_CHECKS.append({"key": names.get(key, key), "file": "", "verdict": "refused", "why": why})
     ok = [n for j, n in enumerate(nouns) if verdicts.get(mention_id(j), ("refuse",))[0] == "pass"]
     seqs = [s for s in sequences if verdicts.get(s["key"], ("refuse",))[0] == "pass"]
-    made, failed, where = {}, set(), {}
+    made, failed, where, videos = {}, set(), {}, {}
+    # the actions, places and states lived first: real footage where Pexels has it (no picture to make for those)
+    first_picks = schedule(ok, words, duration, avoid, block, head=head, sequences=seqs)
+    for key, g in footage_for(first_picks, words, duration, tmp, cfg).items():
+        still = _still_of(g["path"], os.path.join(tmp, f"lit_video_{_key(key)}.jpg"))
+        if still:
+            made[key] = (still, None, f"Pexels footage: {g.get('query')}")
+            videos[key] = {**g, "kind": "pexels"}
+    LAST_COST["videos"] = len(videos)
     while True:
         picks = schedule([n for n in ok if n["key"] not in failed], words, duration, avoid, block, head=head,
                          sequences=[s for s in seqs if s["key"] not in failed])
@@ -673,6 +862,24 @@ def run(clip_path, clip, words, avoid, block, tmp, render, duration=None, head=H
                     where[p["key"]] = locate(got, p.get("points") or [], tmp)
             else:
                 failed.add(p["key"])
+    # an object fills its card; a 3D render of the inside of the body moves lightly (its light, never its shape)
+    longest = {}
+    for p in picks:
+        longest[p["key"]] = max(longest.get(p["key"], 0.0), float(p["dur"]))
+    for key, p in dict((p["key"], p) for p in picks).items():
+        if key in videos:
+            continue
+        if p["format"] == "object":
+            z = fill_object(made[key][0])
+            if z > 1.0:
+                print(f"   🔍 B-roll « littéral » : « {key} » recadré ×{z:g} pour remplir sa carte.")
+        elif p["format"] == "inside" and p.get("motion"):
+            anim = animate_inside(made[key][0], p, longest[key], tmp, cfg)
+            if anim:
+                videos[key] = {**anim, "kind": "animate"}
+                LAST_COST["animate_gpu_s"] = round(LAST_COST.get("animate_gpu_s", 0.0) + float(anim.get("gpu_s") or 0), 1)
+                LAST_COST["animated"] = LAST_COST.get("animated", 0) + 1
+    enters = transitions(picks)
     cands = []
     for k, p in enumerate(picks):
         got, seed, text = made[p["key"]]
@@ -684,14 +891,30 @@ def run(clip_path, clip, words, avoid, block, tmp, render, duration=None, head=H
              "art": True, "literal": True}
         if p["format"] == "sequence":
             m.update(seq=p["key"], step=p["step"], marks=marks_at(p["marks"], where.get(p["key"]) or {}))
-        cands.append({"k": k, "m": m, "style": "photo", "file": got, "source": "local", "credit": None,
-                      "layout": layout, "seed": seed, "model": "turbo", "score": 5, "verdict": "keep"})
+        m["transition"] = enters[k]
+        vid = videos.get(p["key"])
+        cand = {"k": k, "m": m, "style": "photo", "file": got, "source": "local", "credit": None,
+                "layout": layout, "seed": seed, "model": "turbo", "score": 5, "verdict": "keep"}
+        if vid:
+            cand.update(video=vid["path"], video_kind=vid["kind"])
+            if vid["kind"] == "pexels":
+                cand.update(source="pexels", credit=vid.get("credit"), seed=None, model="pexels")
+                m["footage"] = vid.get("query")
+            else:
+                cand["model"] = f"turbo+{vid.get('engine') or 'ltxv'}"
+        cands.append(cand)
         broll_v20.LAST_CHECKS.append({"key": p["key"], "t": p["t"], "dur": p["dur"], "word": p["word"],
                                       "file": os.path.basename(got), "verdict": "keep", "why": "", "prompt": text,
-                                      "seed": seed, "layout": layout, **({"marks": m["marks"]} if "marks" in m else {})})
+                                      "seed": seed, "layout": layout, "transition": enters[k],
+                                      **({"video": vid["kind"]} if vid else {}),
+                                      **({"marks": m["marks"]} if "marks" in m else {})})
     broll.LAST_PICTURED[:] = picks
+    LAST_COST["pictures"] = len([k for k in made if videos.get(k, {}).get("kind") != "pexels"])
     print(f"   📸 B-roll « littéral »: {len(nouns)} concrete nouns, {len(sequences)} sequence(s), {len(made)} pictures "
-          f"made, {len(cands)} shown, {100 * coverage(picks, duration):.0f} % of the clip off the face"
+          f"made ({sum(1 for v in videos.values() if v['kind'] == 'pexels')} Pexels footage, "
+          f"{sum(1 for v in videos.values() if v['kind'] == 'animate')} animated), "
+          f"{len(cands)} shown, {sum(1 for e in enters if e)} with a transition, "
+          f"{100 * coverage(picks, duration):.0f} % of the clip off the face"
           + (f", {sum(1 for v, _w in verdicts.values() if v != 'pass')} refused by the verifier" if verdicts else ""))
     try:
         broll_v20.trace(clip_path, clip, tmp, cands)

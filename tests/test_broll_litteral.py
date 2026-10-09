@@ -255,3 +255,133 @@ def test_a_split_picture_is_cut_in_as_such(add):
     (it,) = rep["items"]
     assert it["layout"] == "split" and made[0][0] == broll.SPLIT_GEN
     assert made[0][1].endswith(bl.SPLIT_LINE)
+
+
+# --- the integration of the « références » recipe (9-oct-2026 evening): footage, animation, transitions, full cards ----
+
+def _ffmpeg_colour(path, colour, seconds, size="216x384", audio=False):
+    import subprocess
+    cmd = ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"color=c={colour}:s={size}:r=30:d={seconds}"]
+    if audio:
+        cmd += ["-f", "lavfi", "-i", f"sine=frequency=300:duration={seconds}", "-c:a", "aac", "-shortest"]
+    subprocess.run(cmd + ["-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)], check=True)
+    return str(path)
+
+
+def test_the_director_s_footage_and_motion_are_kept_per_key():
+    data = {"nouns": [
+        {"i": 3, "word": "drive", "key": "driving", "format": "scene", "picture": "a tired man driving at night",
+         "footage": "tired man driving at night", "motion": "pulse", "priority": 2},
+        {"i": 5, "word": "nerve", "key": "nerve", "format": "inside", "picture": "a glowing nerve", "motion": "flow",
+         "footage": "nerve", "priority": 2},
+        {"i": 7, "word": "heart", "key": "heart", "format": "inside", "picture": "a heart", "motion": "none",
+         "priority": 1},
+        {"i": 9, "word": "bottle", "key": "bottle", "format": "object", "picture": "a bottle", "footage": "bottle",
+         "priority": 1},
+        {"i": 11, "word": "driving", "key": "driving", "format": "scene", "picture": "", "footage": "", "priority": 1}]}
+    by = {}
+    for n in bl.nouns_of(data, WORDS):
+        by.setdefault(n["key"], []).append(n)
+    assert by["driving"][0]["footage"] == "tired man driving at night" and by["driving"][0]["motion"] == ""
+    assert by["driving"][1]["footage"] == "tired man driving at night", "a key said again keeps its footage"
+    assert by["nerve"][0]["motion"] == "flow" and by["nerve"][0]["footage"] == ""
+    assert by["heart"][0]["motion"] == "", "an organ that must move stays a still"
+    assert by["bottle"][0]["footage"] == ""
+    assert '"footage"' in bl.DA_PROMPT and '"motion"' in bl.DA_PROMPT
+    assert set(bl.DA_SCHEMA["properties"]["nouns"]["items"]["properties"]) >= {"footage", "motion"}
+
+
+def test_41_percent_of_the_pictures_come_in_with_a_transition():
+    picks = [{"format": "scene" if k % 3 else "object", "t": k * 2.0} for k in range(100)]
+    enters = bl.transitions(picks)
+    assert 40 <= sum(1 for e in enters if e) <= 42
+    assert all(e in ("", "flash") for p, e in zip(picks, enters) if p["format"] == "scene")
+    assert all(e in ("", "blur") for p, e in zip(picks, enters) if p["format"] == "object")
+    seq = [{"format": "sequence", "step": s, "t": 10 + s} for s in range(4)]
+    assert all(e == "" for e in bl.transitions([{"format": "scene"}] * 7 + seq)[8:]), "the same figure: no transition"
+
+
+def test_an_object_fills_its_card_and_its_label_is_blank(tmp_path):
+    import numpy as np
+    from PIL import ImageDraw
+    p = tmp_path / "vial.jpg"
+    im = Image.new("RGB", broll.OBJECT_GEN, (70, 175, 220))
+    ImageDraw.Draw(im).rectangle((470, 260, 560, 480), fill=(235, 235, 240))      # a small vial: 29 % of the height
+    im.save(p, quality=95)
+    z = bl.fill_object(str(p))
+    assert z > 2.0
+    out = Image.open(p)
+    assert out.size == broll.OBJECT_GEN
+    x0, y0, x1, y1 = bl.object_bbox(str(p))
+    assert 0.62 <= (y1 - y0) / out.height <= 0.78
+    # a picture without a plain background is left alone
+    noisy = tmp_path / "scene.jpg"
+    Image.fromarray(np.random.default_rng(1).integers(0, 255, (768, 1024, 3), dtype=np.uint8)).save(noisy)
+    assert bl.fill_object(str(noisy)) == 1.0
+    _t, styles, _m = bl.charter()
+    obj = bl.picture_text(styles, {"picture": "a single vial of lidocaine", "format": "object", "background": "blue"})
+    assert "no writing" in obj.split(styles["picture"])[1] and "three quarters of the frame" in obj
+
+
+def test_footage_and_an_animated_render_are_cut_in_with_their_credit(add, monkeypatch, tmp_path):
+    import broll_animate
+    import broll_video
+    asked = {}
+
+    def fake_videos(moments, words, clip_end, tmp, cfg=None, session=None, fps=30, gap=None):
+        asked["moments"], asked["gap"], asked["cfg"] = moments, gap, cfg
+        out = []
+        for m in moments:
+            path = _ffmpeg_colour(tmp_path / f"v_{m['key']}.mp4", "green", m["dur"])
+            out.append({"t": m["t"], "dur": m["dur"], "path": path, "word": m["word"], "query": m["query"],
+                        "credit": {"author": "Jane Doe", "license": broll_video.LICENSE}, "kind": "video",
+                        "key": m["key"]})
+        return out
+
+    def fake_animate(image_path, motion, out_path, *, scene="", seconds=2.5, **kw):
+        asked["animate"] = (motion, seconds)
+        _ffmpeg_colour(out_path, "blue", seconds)
+        return {"path": str(out_path), "seconds": seconds, "gpu_s": 31.0}
+
+    monkeypatch.setattr(broll_video, "videos_for_clip", fake_videos)
+    monkeypatch.setattr(broll_animate, "animate", fake_animate)
+    rep, made, _cut = add([
+        {**_row("physician", "driving", picture="a tired doctor driving home at night"),
+         "footage": "tired doctor driving at night"},
+        {**_row("melatonin", "nerve", "inside", "a glowing nerve fibre, whole and clean"), "motion": "pulse"},
+        _row("corridor", "hall", picture="a quiet hospital corridor")])
+    assert asked["gap"] == 0.0 and asked["cfg"]["video"] is True
+    assert [m["key"] for m in asked["moments"]] == ["driving"] and asked["moments"][0]["query"].startswith("tired")
+    assert asked["animate"][0] == bl.MOTIONS["pulse"] and asked["animate"][1] <= bl.ANIMATE_MAX_S
+    # the footage is not made by ComfyUI: two renders (the nerve, the corridor)
+    assert len(made) == 2
+    items = {it["anchor"]: it for it in rep["items"]}
+    assert items["physician"]["video_kind"] == "pexels" and items["physician"]["video"].endswith(".mp4")
+    assert items["melatonin"]["video_kind"] == "animate" and items["melatonin"]["video"].endswith(".mp4")
+    assert "video" not in items["corridor"]
+    assert rep["credits"] and rep["credits"][0]["author"] == "Jane Doe"
+    assert all(it.get("transition", "") in ("", "flash", "blur") for it in rep["items"])
+    assert bl.LAST_COST["videos"] == 1 and bl.LAST_COST["animated"] == 1 and bl.LAST_COST["animate_gpu_s"] == 31.0
+
+
+def test_a_video_comes_out_of_a_flash_and_a_still_too(tmp_path):
+    import subprocess
+    clip = _ffmpeg_colour(tmp_path / "clip.mp4", "red", 2.0, audio=True)
+    vid = _ffmpeg_colour(tmp_path / "v.mp4", "0x0000C0", 1.0)
+    still = tmp_path / "s.jpg"
+    Image.new("RGB", (216, 384), (0, 160, 0)).save(still)
+    out = tmp_path / "out.mp4"
+    broll.overlay_items(clip, str(out), [
+        {"t": 0.5, "dur": 0.8, "layout": "hero", "_video": vid, "transition": "flash"},
+        {"t": 1.4, "dur": 0.5, "layout": "hero", "_img": str(still), "transition": "flash"}])
+
+    def at(t):
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t}", "-i", str(out), "-frames:v", "1", "-vf",
+                              "scale=1:1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True,
+                             check=True).stdout
+        return tuple(raw[:3])
+    assert at(0.2)[0] > 180 and at(0.2)[2] < 80                     # the face (red)
+    assert min(at(0.52)) > 150                                       # the flash: near white
+    assert at(1.0)[2] > 150 and at(1.0)[0] < 60                      # the footage (blue)
+    assert at(1.75)[1] > 100 and at(1.75)[0] < 90                    # the still (green), after its flash
+    assert broll._media_seconds(str(out)) >= 1.9

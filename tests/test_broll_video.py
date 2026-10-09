@@ -62,9 +62,13 @@ def cache(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_switch_off_by_default_and_read_from_the_job(monkeypatch):
+def test_switch_on_in_this_branch_and_read_from_the_job(monkeypatch):
     import plus
-    assert plus.BROLL["video"] is False
+    monkeypatch.delenv("PLUS_BROLL_JSON", raising=False)
+    # references-v3 (the final bench of 9-oct-2026): on; production keeps it off until the user validates it
+    assert plus.BROLL["video"] is True
+    assert bv.enabled() is True
+    monkeypatch.setenv("PLUS_BROLL_JSON", json.dumps({**plus.BROLL, "video": False}))
     assert bv.enabled() is False
     monkeypatch.setenv("PLUS_BROLL_JSON", json.dumps({**plus.BROLL, "video": True}))
     assert bv.enabled() is True
@@ -74,7 +78,7 @@ def test_switch_off_by_default_and_read_from_the_job(monkeypatch):
 def test_job_env_carries_the_switch():
     import plus
     env = plus.job_env({"name": "x", "broll": {"enabled": True}})
-    assert json.loads(env["PLUS_BROLL_JSON"])["video"] is False
+    assert json.loads(env["PLUS_BROLL_JSON"])["video"] is True
 
 
 def test_action_or_object():
@@ -184,6 +188,7 @@ def test_choose_one_call_per_clip(monkeypatch, tmp_path):
 
 
 def test_videos_for_clip_off_does_nothing(monkeypatch, tmp_path):
+    monkeypatch.setenv("PLUS_BROLL_JSON", json.dumps({"video": False}))     # the job switched it off
     monkeypatch.setattr(bv, "plan_clip", lambda *a, **k: pytest.fail("must not search"))
     assert bv.videos_for_clip([{"t": 1, "word": "running", "kind": "action"}], [], 10, str(tmp_path)) == []
 

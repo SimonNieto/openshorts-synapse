@@ -43,13 +43,32 @@ NEGATIVE = ("worst quality, low quality, blurry, jittery, flickering, inconsiste
             "scene change, text, letters, watermark, logo")
 
 
-def enabled():
-    """plus.BROLL["animate"]: off by default (9-oct-2026, before the user has seen a bench)."""
+def _cfg(cfg=None):
+    """The job's B-roll recipe: ``cfg``, else the one the job carries (PLUS_BROLL_JSON), else plus.BROLL."""
+    if isinstance(cfg, dict):
+        return cfg
+    try:
+        got = json.loads(os.environ.get("PLUS_BROLL_JSON") or "null")
+        if isinstance(got, dict):
+            return got
+    except ValueError:
+        pass
     try:
         import plus
-        return bool(plus.BROLL.get("animate", False))
+        return plus.BROLL
     except Exception:
-        return False
+        return {}
+
+
+def enabled(cfg=None):
+    """plus.BROLL["animate"] as the job carries it (9-oct-2026: off in production until the user has seen a bench; on
+    on the references-v3 branch)."""
+    return bool(_cfg(cfg).get("animate", False))
+
+
+def engine(cfg=None):
+    """The animation engine asked by the recipe (plus.BROLL["animate_engine"]), "ltxv" by default."""
+    return str(_cfg(cfg).get("animate_engine") or "ltxv")
 
 
 def _comfy_url():

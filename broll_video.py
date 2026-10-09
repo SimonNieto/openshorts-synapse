@@ -34,6 +34,7 @@ PREVIEW_HOST = "images.pexels.com"
 SRC_MIN, SRC_MAX = 3.0, 15.0      # s: the stock video's own length
 SHOW_MIN, SHOW_MAX = 1.5, 3.0     # s: the excerpt on screen
 SHOW_TAIL = 0.2                   # s kept after the last word of the clause
+DUR_GIVEN_MIN = 1.0               # s: a moment whose time on screen the caller gives (broll_litteral) may be this short
 OUT_W, OUT_H = 1080, 1920
 CROP_MIN_W = 720                  # a 9:16 crop narrower than this is too soft once scaled to 1080 (HD floor)
 MAX_MB = 20                       # never download a bigger file (a 1080x1920 file of 10 s weighs 3-11 MB; a 4K
@@ -528,25 +529,27 @@ def spaced(moments, gap=VIDEO_GAP):
     return out
 
 
-def plan_clip(moments, tmp, session=None):
+def plan_clip(moments, tmp, session=None, gap=VIDEO_GAP):
     """Without downloading any video: for every ACTION moment its candidates and the judge's choice ->
     [{"moment", "choice" (or None), "candidates"}]."""
-    acts = spaced([m for m in moments or [] if wants_video(m)])
+    acts = spaced([m for m in moments or [] if wants_video(m)], gap)
     cands = [search(m.get("query") or m.get("word") or "", session=session) for m in acts]
     picks = choose(acts, cands, os.path.join(tmp, "broll_video"), session) if acts else []
     return [{"moment": m, "choice": c, "candidates": cs[:CANDIDATES]} for m, c, cs in zip(acts, picks, cands)]
 
 
-def videos_for_clip(moments, words, clip_end, tmp, cfg=None, session=None, fps=30):
+def videos_for_clip(moments, words, clip_end, tmp, cfg=None, session=None, fps=30, gap=VIDEO_GAP):
     """The integration's entry: ``moments`` = [{"t", "word", "sentence", "kind", "query"}] (spot() writes them; kind
     and query may be missing). Returns the placements for the ACTION moments that found footage:
     [{"t", "dur", "path", "word", "query", "credit", "kind": "video"}] — the other moments are left to the generated
-    pictures. [] when plus.BROLL["video"] is off, without a key, or on any failure."""
+    pictures. A moment may carry its own "dur" (the « littéral » chain placed it: kept, from DUR_GIVEN_MIN s) and a "key"
+    (given back in its placement); ``gap``: the least time between two footage moments (0: the caller spaced them).
+    [] when plus.BROLL["video"] is off, without a key, or on any failure."""
     if not enabled(cfg) or not api_key():
         return []
     out = []
     try:
-        plan = plan_clip(moments, tmp, session)
+        plan = plan_clip(moments, tmp, session, gap)
     except Exception as e:
         print(f"   ⚠️ B-roll vidéo : plan impossible ({type(e).__name__}).")
         return []
@@ -557,8 +560,10 @@ def videos_for_clip(moments, words, clip_end, tmp, cfg=None, session=None, fps=3
         if not c:
             continue
         t = float(m["t"])
-        dur = span(words, t, clip_end)
-        if dur < SHOW_MIN:
+        # a moment placed by the caller (broll_litteral.schedule: its "dur") keeps its time on screen
+        dur = (round(min(float(m["dur"]), SHOW_MAX + 0.5, max(0.0, clip_end - t) if clip_end is not None else 1e9), 2)
+               if m.get("dur") else span(words, t, clip_end))
+        if dur < (DUR_GIVEN_MIN if m.get("dur") else SHOW_MIN):
             continue
         if any(t < q["t"] + q["dur"] and q["t"] < t + dur for q in out):
             continue
@@ -569,7 +574,7 @@ def videos_for_clip(moments, words, clip_end, tmp, cfg=None, session=None, fps=3
             print(f"   ⚠️ B-roll vidéo : « {m.get('word')} » abandonné ({type(e).__name__}).")
             continue
         out.append({"t": t, "dur": dur, "path": path, "word": m.get("word"), "query": m.get("query"),
-                    "credit": c["credit"], "kind": "video"})
+                    "credit": c["credit"], "kind": "video", **({"key": m["key"]} if m.get("key") else {})})
         print(f"   🎞️ B-roll vidéo : « {m.get('word')} » à {t:.2f} s, {dur:.1f} s — {c['title']} "
               f"(Pexels, {c['credit'].get('author')})")
     return out

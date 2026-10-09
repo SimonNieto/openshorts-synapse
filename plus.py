@@ -146,12 +146,17 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          # 6 without, published 5-8 oct) is good at 48 h.
          "opening": False,
          # Animated pictures (9-oct-2026, references recipe): a picture becomes a 2-3 s silent shot with one light
-         # motion (broll_animate: LTX-Video 2B distilled in ComfyUI). OFF until the user has seen the bench.
-         "animate": False}
+         # motion (broll_animate: LTX-Video 2B distilled in ComfyUI) — in the « littéral » chain, a 3D render of the inside
+         # of the body whose light pulses or flows (never an organ that changes shape). ON on the references-v3 branch
+         # only (9-oct-2026, the final bench): production keeps it off until the user validates it ("animate_engine":
+         # "ltxv" by default; "wan22" comes with the references-animate branch).
+         "animate": True, "animate_engine": "ltxv"}
 # B-roll « vidéo » (9-oct-2026, recette références): on an ACTION said in the clip (drinking, pouring, running,
 # sleeping...), 1.5-3 s of real stock footage from Pexels instead of a generated picture, cut on the word, full screen,
-# 9:16, no sound; the objects stay generated (broll_video.py). OFF until the user validates it on a board.
-BROLL["video"] = False
+# 9:16, no sound; the objects stay generated (broll_video.py) — in the « littéral » chain, the scenes the director gives a
+# "footage" query (an action, a place, a state lived: rules 3 and 5 of the decoding). ON on the references-v3 branch only
+# (the final bench); production keeps it off until the user validates it on a board.
+BROLL["video"] = True
 # The sound (9-oct-2026, recette « références », music_bed.py): OptimalHealth's 9 hits measured
 # (etude2/mesures/rapport.md) — a soft music bed held ~14 dB under the voice in 6 of 9, steady (no ducking they
 # could measure), NO whoosh nor sound effect, the whole at -16.6 LUFS; ours was the voice alone, a whoosh on the first

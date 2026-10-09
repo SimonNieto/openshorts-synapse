@@ -3354,10 +3354,20 @@ def object_box(W=1080, H=1920, size_pct=None, aspect=None):
     return (W - cw) // 2, top, cw, ch
 
 
-def _object_frames(src, folder, fps, dur, W, H, size_pct=None):
+# How a « littéral » picture comes in (9-oct-2026, measured frame by frame on 9 OptimalHealth hits: 41 % of the picture
+# changes have a transition of ~0.2 s, the rest a dry cut): "flash" = a full-screen picture (still or video) arrives out
+# of a flash of light, "blur" = a card arrives blurred and sharpens.
+TRANSITIONS = ("flash", "blur")
+TRANSITION_S = 0.2
+FLASH_COLOUR = (255, 246, 232)     # a warm white (theirs: white / orange flashes in Calm Down)
+BLUR_MAX = 0.035                   # of the card's width: the blur radius at its first frame
+
+
+def _object_frames(src, folder, fps, dur, W, H, size_pct=None, enter=None):
     """PNG sequence (RGBA) of an object card (the « littéral » chain): the picture as a big card with rounded corners
-    and a light shadow, a hard cut in and out, no move (the frames are one image repeated). Returns (pattern, x, y) of
-    the canvas (card + shadow margin)."""
+    and a light shadow, a hard cut in and out, no move (the frames are one image repeated) — ``enter`` "blur": its
+    first TRANSITION_S s go from blurred and faint to sharp. Returns (pattern, x, y) of the canvas (card + shadow
+    margin)."""
     img = Image.open(src).convert("RGB")
     img = ImageEnhance.Sharpness(img).enhance(1.1)
     x, y, cw, ch = object_box(W, H, size_pct, img.height / img.width)
@@ -3375,10 +3385,18 @@ def _object_frames(src, folder, fps, dur, W, H, size_pct=None):
     card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
     card.paste(img, (0, 0), mask)
     canvas.alpha_composite(card, (pad, pad))
-    first = os.path.join(folder, "c000.png")
-    canvas.save(first, compress_level=1)
-    for f in range(1, max(2, int(round(dur * fps)))):
-        shutil.copyfile(first, os.path.join(folder, f"c{f:03d}.png"))
+    n = max(2, int(round(dur * fps)))
+    sharp_from = max(1, int(round(TRANSITION_S * fps))) if enter == "blur" else 0
+    sharp = os.path.join(folder, f"c{sharp_from:03d}.png")
+    canvas.save(sharp, compress_level=1)
+    for f in range(sharp_from):
+        k = 1.0 - f / sharp_from                                  # 1 at the first frame, -> 0
+        frame = canvas.filter(ImageFilter.GaussianBlur(max(0.5, cw * BLUR_MAX * k)))
+        a = frame.getchannel("A").point(lambda v, g=0.35 + 0.65 * (1.0 - k): int(v * g))
+        frame.putalpha(a)
+        frame.save(os.path.join(folder, f"c{f:03d}.png"), compress_level=1)
+    for f in range(sharp_from + 1, n):
+        shutil.copyfile(sharp, os.path.join(folder, f"c{f:03d}.png"))
     return os.path.join(folder, "c%03d.png"), x - pad, y - pad, canvas.height
 
 
@@ -3465,7 +3483,18 @@ def _draw_marks(W, H, marks, t):
     return out
 
 
-def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None, push=None, marks=None):
+def _flash(arr, t):
+    """A full-screen frame ``t`` s into a "flash" entrance: blended toward FLASH_COLOUR, all light at 0 s, none at
+    TRANSITION_S (H x W x 3 float)."""
+    import numpy as np
+    k = max(0.0, 1.0 - t / TRANSITION_S)
+    if k <= 0:
+        return arr
+    k = 0.9 * k * k
+    return arr * (1.0 - k) + np.asarray(FLASH_COLOUR, dtype=np.float32) * k
+
+
+def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None, push=None, marks=None, enter=None):
     """PNG sequence (RGBA) of a full-screen "hero" picture, the way a cutaway is
     cut in a documentary: the image covers the frame (centre crop), pushes in
     slowly (1.00 -> HERO_PUSH, eased over its whole time on screen) and
@@ -3542,6 +3571,8 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None, push=None, m
         if noise is not None:
             # The same grain field moved around: new grain every frame for the price of a copy.
             arr += np.roll(noise, (int(rng.integers(0, H)), int(rng.integers(0, W))), axis=(0, 1))
+        if enter == "flash" and t < TRANSITION_S:
+            arr = _flash(arr, t)                              # « littéral »: it comes out of a flash of light
         out = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
         if px_marks:
             out = out.convert("RGBA")
@@ -3856,7 +3887,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
 
             if literal:
                 import broll_litteral
-                cands, moments = broll_litteral.run(clip_path, clip, words, avoid, block, tmp, render)
+                cands, moments = broll_litteral.run(clip_path, clip, words, avoid, block, tmp, render, cfg=cfg)
             elif cfg.get("chain") == "dessin":
                 # v26 « dessin » (4-oct-2026): the art director in the episode's style charter, a safety verifier, one
                 # render per moment — no judge, no render loop (broll_draw); in full width (5-oct-2026) every one 9:16
@@ -4205,6 +4236,13 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     item["format"] = m.get("format") or ""
                     if obj:
                         item.update(size=OBJECT_SIZE, background=m.get("background") or "")
+                    if m.get("transition") in TRANSITIONS:
+                        item["transition"] = m["transition"]     # 41 % come in with 0.2 s of light or blur
+                    if c.get("video"):
+                        # real footage (Pexels) or the animated render, shown in place of its still
+                        item.update(_video=c["video"], video_kind=c.get("video_kind") or "")
+                        if m.get("footage"):
+                            item["footage"] = m["footage"]
                 elif not hero:
                     item.update(look="premium", size=CARD_SIZE, position=CARD_POSITION)
                     if cfg.get("label"):
@@ -4222,6 +4260,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 name = f"{keep_prefix}broll_{c['k']}.jpg"
                 shutil.copy2(c["file"], os.path.join(keep_dir, name))
                 item["image"] = name
+                if c.get("video"):
+                    vname = f"{keep_prefix}broll_{c['k']}.mp4"
+                    shutil.copy2(c["video"], os.path.join(keep_dir, vname))
+                    item["video"] = vname
             items.append(item)
             drawn.append((item, c))
             sources.append(c["source"])
@@ -4272,6 +4314,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             overlay_items(clip_path, out_path, items)
         for it in items:
             it.pop("_img", None)
+            it.pop("_video", None)
         duration = words[-1]["end"]
         covered = sum(float(it["dur"]) for it in items)
         print(f"   🖼️ B-roll {cfg.get('layout') or 'full'}: {len(items)} image(s)"
@@ -4366,6 +4409,13 @@ def sfx_gain(clip_path, t):
     return round(max(lo, min(hi, voice - SFX_UNDER_VOICE_DB - own)), 1)
 
 
+def _media_seconds(path):
+    """A media file's length in s (ffprobe)."""
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1",
+                          path], capture_output=True, text=True, check=True).stdout
+    return float(out.strip())
+
+
 def overlay_items(clip_path, out_path, items, img_dir=None):
     """Cut already-made B-roll images into ``clip_path``. Each item: t, layout
     ("rise" | "full"), size / position for "rise", and the image
@@ -4382,6 +4432,17 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
             folder = os.path.join(tmp, f"card_{k}")
             os.makedirs(folder)
             src = it.get("_img") or (os.path.join(img_dir, it["image"]) if img_dir and it.get("image") else None)
+            video = it.get("_video") or (os.path.join(img_dir, it["video"]) if img_dir and it.get("video") else None)
+            if video and os.path.exists(video):
+                # « littéral »: real footage or an animated render, full screen, cut to its time (never past its end:
+                # the face comes back rather than a frozen frame)
+                try:
+                    dur = min(float(it.get("dur") or 2.0), _media_seconds(video))
+                except Exception:
+                    continue
+                layers.append({"t": it["t"], "dur": dur, "rise": False, "hero": True, "video": video, "x": 0, "y": 0,
+                               "flash": it.get("transition") == "flash"})
+                continue
             if not src or not os.path.exists(src):
                 continue
             rise = it.get("layout") in ("rise", "card")
@@ -4394,7 +4455,8 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
             dur = max(0.4 if it.get("seq") else 1.0, min(SCREEN_DUR_MAX if screen else 4.0, dur))
             grade = it.get("grade") if _grade_params(it.get("grade")) else "off"
             if it.get("layout") == "object":
-                pattern, x, y, cvh = _object_frames(src, folder, fps, dur, w, h, int(it.get("size") or OBJECT_SIZE))
+                pattern, x, y, cvh = _object_frames(src, folder, fps, dur, w, h, int(it.get("size") or OBJECT_SIZE),
+                                                    enter=it.get("transition"))
                 # it rises from below and settles (the overlay's y expression of the rising cards, canvas centres)
                 ye = y + cvh / 2
                 layers.append({"t": it["t"], "dur": dur, "rise": True, "object": True, "pattern": pattern, "x": x,
@@ -4409,7 +4471,8 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                 still = HERO_STILL_EVERY > 0 and heroes % HERO_STILL_EVERY == HERO_STILL_EVERY - 1
                 # a « littéral » sequence step holds still: its marks are drawn where its points are
                 pattern = _hero_frames(src, folder, fps, dur, w, h, grade=grade, fx=fx,
-                                       push=1.0 if still or it.get("marks") else None, marks=it.get("marks"))
+                                       push=1.0 if still or it.get("marks") else None, marks=it.get("marks"),
+                                       enter=it.get("transition"))
                 layers.append({"t": it["t"], "dur": dur, "rise": False, "hero": True, "pattern": pattern, "x": 0, "y": 0})
             elif rise:
                 pattern, x, motion = _rise_frames(src, folder, fps, dur, w, h, int(it.get("size") or RISE_SIZE),
@@ -4448,8 +4511,18 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                       f"[sa][stop]overlay=0:0:enable='{windows}'[bgs]"]
             cur = "[bgs]"
         for k, ly in enumerate(layers):
-            inputs += ["-itsoffset", f"{ly['t']:.3f}", "-framerate", str(fps), "-i", ly["pattern"]]
             win = f"between(t,{ly['t']:.3f},{ly['t'] + ly['dur']:.3f})"
+            if ly.get("video"):
+                # an mp4 (no sound used): shifted to its time, sized to the frame, at the clip's rate; "flash": its
+                # first TRANSITION_S s come out of a flash of light (the input's timestamps start at its time)
+                inputs += ["-itsoffset", f"{ly['t']:.3f}", "-i", ly["video"]]
+                fade = (f",fade=t=in:st={ly['t']:.3f}:d={TRANSITION_S}:color=0x{''.join(f'{c:02X}' for c in FLASH_COLOUR)}"
+                        if ly.get("flash") else "")
+                graph.append(f"[{k + 1}:v]scale={w}:{h}:flags=lanczos,setsar=1,fps={fps}{fade}[mv{k}]")
+                graph.append(f"{cur}[mv{k}]overlay=0:0:eof_action=pass:enable='{win}'[b{k}]")
+                cur = f"[b{k}]"
+                continue
+            inputs += ["-itsoffset", f"{ly['t']:.3f}", "-framerate", str(fps), "-i", ly["pattern"]]
             if ly["rise"]:
                 ys, ye, drift, cvh = ly["y"][:4]
                 rise_s = ly["y"][4] if len(ly["y"]) > 4 else RISE_IN
