@@ -26,7 +26,9 @@ montre chacun tel quel.**
 5. Une description courte (30 mots au plus), au présent, au positif, en mots simples : ce qui remplit l'image, un
    ou deux détails vrais tirés de ce qui est dit (« trois heures du matin », « au bout de quinze heures de garde »).
    « A single » pour ce qui est seul. Aucun mot de style ni d'appareil photo (le code les ajoute), aucun texte à
-   lire, aucune comparaison.
+   lire, aucune comparaison. Une personne fait toujours quelque chose qui se voit (elle se frotte les yeux, elle
+   conduit, elle écrit), jamais une pose face à l'objectif : debout les bras le long du corps, c'est une photo de
+   catalogue (vu au banc du 9 octobre).
 6. Une même chose qui revient garde la même clé : son image revient, sans être refaite.
 7. Proposer large : un nom concret à chaque fois qu'il est dit, un par élément d'une liste. Le code choisit (environ une image toutes les 5 s, 40 % du clip hors visage, pile
    sur le mot) ; la priorité dit ce qui compte le plus (3 = la chose dont parle le clip).

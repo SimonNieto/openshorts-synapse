@@ -130,6 +130,7 @@ def main():
     args = ap.parse_args()
     os.environ.setdefault("EDIT_STYLE", "premium")        # the object card sits under the premium captions' band
     os.environ.setdefault("BROLL_TRACE", "0")             # the bench keeps its own trace (c<N>_plan.json)
+    os.environ["PLUS_HQ_CHAIN"] = "0"                     # a viewing copy (crf 19), not a near-lossless layer
     os.makedirs(args.out, exist_ok=True)
     fixes = json.load(open(args.fix, encoding="utf-8")) if args.fix else {}
     import ai_brain
@@ -171,6 +172,9 @@ def main():
         checks = list(broll_v20.LAST_CHECKS)
         items = items_of(cands)
         kept_files = {}
+        for old in glob.glob(os.path.join(args.out, f"c{n:02d}_*.jpg")):
+            if not old.endswith("_planche.jpg"):
+                os.remove(old)                            # this bench's own pictures of an earlier run
         for c in cands:
             key = c["m"]["query"]
             if key not in kept_files:

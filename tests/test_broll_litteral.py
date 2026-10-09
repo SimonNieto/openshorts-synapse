@@ -202,7 +202,7 @@ class TestAddBroll:
 
     def test_a_refused_key_is_never_made(self, add):
         rep, made, _cut = add([_row("physician", "er", picture="an emergency room"),
-                               _row("car", "car", "object", "a car key", "yellow")], refuse=["car"])
+                               _row("car", "car", "object", "a car key", "yellow")], refuse=["m1"])
         assert len(made) == 1 and [it["anchor"] for it in rep["items"]] == ["physician"]
 
     def test_a_sequence_s_steps_carry_their_marks_end_to_end(self, add):

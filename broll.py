@@ -202,7 +202,7 @@ OBJECT_RISE_FROM = 0.10    # of the height
 # top half (from SPLIT_FACE_FROM of the height: the face of a tracked podcast frame lands in the middle of it), the
 # thing filling the bottom half (SPLIT_GEN, made 9:8 like the half), the captions on the line between them.
 SPLIT_GEN = (1152, 1024)
-SPLIT_FACE_FROM = 0.14
+SPLIT_FACE_FROM = 0.08
 # Pace of the "mixed" layout: few images, far apart (one hero + two or three cards on 30 s), whatever the
 # profile's max / density say; nothing in the hook's seconds nor in the last MIXED_TAIL s.
 MIXED_MAX = int(_knob("BROLL_MIXED_MAX", 4))     # density "normal" / "more": one hero + three cards
@@ -3408,12 +3408,12 @@ def _draw_marks(W, H, marks, t):
     import math
     sharp = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(sharp)
-    lw = max(4, int(W * 0.009))
+    lw = max(6, int(W * 0.014))
     for mk in marks:
         x, y = mk["px"], mk["py"]
         if mk["kind"] == "arrow":
             vx, vy = _mark_vec(mk, W / 2)
-            L = W * 0.10
+            L = W * 0.17
             s = L * 0.35 * ((t / 0.9) % 1.0)                     # it slides along its way, again and again
             x0, y0 = x - vx * L * 0.5 + vx * s, y - vy * L * 0.5 + vy * s
             x1, y1 = x0 + vx * L, y0 + vy * L
@@ -3422,7 +3422,7 @@ def _draw_marks(W, H, marks, t):
             d.polygon([(x1 + vx * lw, y1 + vy * lw), (x1 + hx - vy * a, y1 + hy + vx * a),
                        (x1 + hx + vy * a, y1 + hy - vx * a)], fill=MARK_COLOUR + (255,))
         elif mk["kind"] == "circle":
-            r = W * 0.055
+            r = W * 0.085
             sign = 1.0 if mk.get("dir") != "ccw" else -1.0       # PIL's angles turn clockwise on the screen
             a0 = (sign * 360.0 * t / 1.6) % 360.0
             if sign > 0:
@@ -3438,7 +3438,7 @@ def _draw_marks(W, H, marks, t):
             d.polygon([(tx + vx * a * 1.4, ty + vy * a * 1.4), (tx - vy * a, ty + vx * a), (tx + vy * a, ty - vx * a)],
                       fill=MARK_COLOUR + (255,))
         elif mk["kind"] == "glow":
-            r = W * (0.05 + 0.02 * (0.5 + 0.5 * math.sin(2 * math.pi * t / 1.2)))
+            r = W * (0.07 + 0.03 * (0.5 + 0.5 * math.sin(2 * math.pi * t / 1.2)))
             d.ellipse((x - r, y - r, x + r, y + r), fill=MARK_GLOW + (200,))
     glow = sharp.filter(ImageFilter.GaussianBlur(max(6, int(W * 0.012))))
     out = Image.new("RGBA", (W, H), (0, 0, 0, 0))

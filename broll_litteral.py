@@ -65,7 +65,7 @@ DRESSED_PATIENT = ("Anyone in this picture is fully dressed: a patient wears a c
                    "neck to the knees, anyone else their usual clothes.")
 DRESSED_MORE = "The clothes stay closed from the neck to the knees."
 OBJECT_LINE = ("Alone in the centre of the frame on a plain seamless {bg} background, studio product shot, soft even light, "
-               "a soft shadow beneath it, the whole object in view with space around it.")
+               "a soft shadow beneath it, the object large, filling most of the frame.")
 DEFAULT_BG = "light blue"
 SPLIT_LINE = "Close-up filling the whole frame edge to edge, seen from slightly above, nothing else in view."
 
@@ -104,11 +104,13 @@ Its words, each with its number in brackets:
 You do NOT look for an idea. List the CONCRETE NOUNS said in this clip, each time one is said and worth showing: an
 object, a substance, an organ, a place, a gesture, a type of person — a thing a camera can film. For each one its
 LITERAL picture: the thing itself, as anyone recognises it. No symbol, no allegory, no metaphor, no figure of speech,
-nothing to decode. A real person's name never gets a picture. Nothing concrete in the clip: an empty list.
+nothing to decode. A real person's name never gets a picture, nor does a common noun said of that person ("he's a
+physician" about a named man). An expression is not a noun ("my finger on the pulse", "a puddle of tears", "the bright
+lights"). Nothing concrete in the clip: an empty list.
 Offer MANY: every concrete noun worth seeing, each time it is said (a 30 s clip usually has 10 to 20); the code keeps
 about one picture every 5 s and 40 % of the clip off the face. A list (A, B, C) gets one entry per element.
 People are ordinary Americans (the podcasts are American): give each one an age and a look ("a man in his forties
-in navy scrubs").
+in navy scrubs"), and always DOING something visible (rubbing his eyes, driving, writing) — never posing for the camera.
 "nouns", one entry each:
 - "i": the number of the noun itself (not its article nor its adjective): the picture comes up on that word;
 - "word": that word;
@@ -447,9 +449,22 @@ def schedule(nouns, words, duration, avoid=(), block=(), head=HEAD, tail=TAIL, s
         return sum(durs) <= COVER_HI * total + 1e-6
 
     picks = []
-    for c in seqs + sorted(cands, key=lambda c: (-c["priority"], c["t"])):
+    for c in seqs + sorted([c for c in cands if c["priority"] >= 3], key=lambda c: c["t"]):
         if fits(c, picks):
             picks.append(c)
+    # then the others, spread: the one furthest from the pictures already kept first (a long stretch on the face is
+    # what loses the viewer — the decoded shorts never stay 7 s without a change), its priority counting too
+    rest = [c for c in cands if c["priority"] < 3]
+    while rest:
+        def score(c):
+            near = min((abs(c["t"] - a["t"]) for a in picks), default=6.0)
+            return c["priority"] + min(near, 6.0) / 2.0
+        ok = [c for c in rest if fits(c, picks)]
+        if not ok:
+            break
+        best = max(ok, key=lambda c: (score(c), -c["t"]))
+        picks.append(best)
+        rest.remove(best)
     picks, durs = trimmed(picks)
     for c, d in zip(picks, durs):
         c["dur"] = d
@@ -492,22 +507,24 @@ def _around_word(words, i, n=8):
     return " ".join(str(w.get("text") or "") for w in words[max(0, i - n):i + n + 1])
 
 
+def mention_id(j):
+    return f"m{j}"
+
+
 def verify(nouns, sequences, clip, words=None):
-    """{key: (verdict, reason)} for every key with a picture and every sequence: one Sonnet pass, each with what is said
-    around its words (``words``); a key it does not answer is refused."""
-    keys, said = {}, {}
-    for n in nouns:
-        keys.setdefault(n["key"], f'({n["format"]}) picture: "{broll_ideas._q(n["picture"], 60)}"')
+    """{id: (verdict, reason)} — id mention_id(j) for every noun mention (its picture where it is said: a « physician »
+    said of a named man is refused there only), a sequence's key for a sequence: one Sonnet pass, each with what is
+    said around it (``words``); an id it does not answer is refused."""
+    keys = {}
+    for j, n in enumerate(nouns):
+        keys[mention_id(j)] = f'({n["format"]}) picture: "{broll_ideas._q(n["picture"], 60)}"'
         if words:
-            said.setdefault(n["key"], []).append(_around_word(words, n["i"]))
+            keys[mention_id(j)] += f'; said around it: "…{_around_word(words, n["i"])}…"'
     for s in sequences:
         keys[s["key"]] = f'(a 3D figure held while the guest explains) figure: "{broll_ideas._q(s["figure"], 60)}"'
         if words:
-            said[s["key"]] = [_around_word(words, s["steps"][0]["i"], 4) + " … "
-                              + _around_word(words, s["steps"][-1]["i"], 4)]
-    for k in keys:
-        if said.get(k):
-            keys[k] += "; said around it: " + " | ".join(f'"…{x}…"' for x in said[k][:3])
+            keys[s["key"]] += (f'; said around it: "…{_around_word(words, s["steps"][0]["i"], 4)} … '
+                               f'{_around_word(words, s["steps"][-1]["i"], 4)}…"')
     if not keys:
         return {}
     q = broll_ideas._q
@@ -622,11 +639,13 @@ def run(clip_path, clip, words, avoid, block, tmp, render, duration=None, head=H
         print("   ℹ️ B-roll « littéral »: nothing concrete said in this clip — no picture.")
         return [], []
     verdicts = verify(nouns, sequences, clip, words)
+    names = {mention_id(j): f'{n["key"]} « {n["word"]} » at {float(words[n["i"]]["start"]):.1f} s'
+             for j, n in enumerate(nouns)}
     for key, (v, why) in verdicts.items():
         if v != "pass":
-            broll.filter_hit("litteral: refused by the verifier", f'"{key}": {why}')
-            broll_v20.LAST_CHECKS.append({"key": key, "file": "", "verdict": "refused", "why": why})
-    ok = [n for n in nouns if verdicts.get(n["key"], ("refuse",))[0] == "pass"]
+            broll.filter_hit("litteral: refused by the verifier", f'"{names.get(key, key)}": {why}')
+            broll_v20.LAST_CHECKS.append({"key": names.get(key, key), "file": "", "verdict": "refused", "why": why})
+    ok = [n for j, n in enumerate(nouns) if verdicts.get(mention_id(j), ("refuse",))[0] == "pass"]
     seqs = [s for s in sequences if verdicts.get(s["key"], ("refuse",))[0] == "pass"]
     made, failed, where = {}, set(), {}
     while True:
