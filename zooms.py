@@ -75,17 +75,21 @@ EYE = 0.12              # of the face box height above its centre: the eyes
 MOVE_SOFT = (0.06, 0.30)  # head travel (of the crop width) over a stretch: from the first, the punch shrinks...
 MOVE_KEEP = 0.45        # ...down to this share of itself at the second
 
-# The continuous mode (10-oct-2026, the user: « les zooms ça va pas, c'est un genre de zoom progressif », measured frame
-# by frame at 10 i/s on 8 OptimalHealth shorts, etude2/mesures/zoom_continu.py): on their face shots NO dry reframe at
-# all — every shot between two real changes (a camera cut, a cut to the listener, a picture) creeps slowly and
-# steadily, +0.3 to +0.7 %/s mostly (up to 1.4-1.9), backwards now and then (-0.1 to -0.7 %/s). So in "continuous":
-# no punch-in, no back-wide cut, not on a strong word, a number, the punchline nor a join; each stretch (between two
-# camera cuts or picture ends) gets one linear zoom at RATE_RANGE (drawn per stretch), backwards one stretch in
-# BACK_EVERY, about the eyes, capped so the face stays in the frame; it runs through the montage's silence cuts
-# (one scale on both sides of a join). "punch" brings the dry reframes of 9-oct back.
+# The continuous mode (10-oct-2026, the user: « les zooms ça va pas, c'est pas comme eux », then « je ne vois aucun
+# zoom »). The size of their face measured shot by shot (MediaPipe, etude2/mesures/zoom_visage.py, 6 shorts): their
+# face shots are short (1-4 s) and EACH zooms fast and steadily, ~2-6 %/s (median 3-4), in most often, out now and
+# then; at every change of shot (the camera, a picture, a silence cut) the size starts again from another one — the
+# « zoom progressif permanent ». So in "continuous": no punch-in in the middle of a shot; a stretch ends at every real
+# change (a camera cut, a picture's end) AND at every montage join; each one zooms linearly at RATE_RANGE (drawn per
+# stretch), out one stretch in BACK_EVERY, by STRETCH_CAP at most (then it holds), about the eyes, the face kept in the
+# frame; the next stretch starts at least JUMP_MIN away from where the last one ended (the natural jump between two
+# shots, which also hides the join), within 1..1+LEVEL_MAX. "punch" brings the dry reframes of 9-oct back.
 MODE = "punch"
-RATE_RANGE = (0.003, 0.007)   # per second, drawn per stretch (theirs: +0.3 to +0.7 %/s)
+RATE_RANGE = (0.03, 0.06)    # per second, drawn per stretch (theirs: ~2-6 %/s, median 3-4)
 BACK_EVERY = 3               # one stretch in this many zooms out
+STRETCH_CAP = 0.15           # a stretch zooms by this much at most (a long one then holds)
+JUMP_MIN = 0.08              # the size jump at least between two stretches (hides a montage join like the dry reframe)
+LEVEL_MAX = 0.30             # the zoom never goes past 1 + this over the premium framing
 
 NUMBER_WORDS = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
                 "twelve", "thirteen", "fifteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty",
@@ -117,7 +121,8 @@ def style():
 
 def configure():
     """plus.ZOOMS as the job carries it (PLUS_ZOOMS_JSON) over the numbers above."""
-    global PUNCH, PUNCH_HI, SLOW_RATE, SLOW_MAX, MIN_GAP, RELAUNCH, MODE, RATE_RANGE, BACK_EVERY
+    global PUNCH, PUNCH_HI, SLOW_RATE, SLOW_MAX, MIN_GAP, RELAUNCH
+    global MODE, RATE_RANGE, BACK_EVERY, STRETCH_CAP, JUMP_MIN, LEVEL_MAX
     try:
         cfg = json.loads(os.environ.get("PLUS_ZOOMS_JSON") or "{}") or {}
     except ValueError:
@@ -132,6 +137,9 @@ def configure():
     if isinstance(cfg.get("rate_range"), (list, tuple)) and len(cfg["rate_range"]) == 2:
         RATE_RANGE = (float(cfg["rate_range"][0]), float(cfg["rate_range"][1]))
     BACK_EVERY = int(cfg.get("back_every", BACK_EVERY))
+    STRETCH_CAP = float(cfg.get("stretch_cap", STRETCH_CAP))
+    JUMP_MIN = float(cfg.get("jump_min", JUMP_MIN))
+    LEVEL_MAX = float(cfg.get("level_max", LEVEL_MAX))
 
 
 def punch_for(source_height):
@@ -483,10 +491,8 @@ def _word_at(words, t):
 def hide_spacing(joins, duration, cuts=()):
     """With the smart zooms, a montage join to hide needs only its dry cut: the indices of the joins (clip
     seconds, sorted) that cannot get one — within MIN_GAP of the previous kept one, within CUT_GAP of a
-    camera cut, or too close to the clip's ends (montage.settle then keeps their pause). In the continuous mode
-    no dry cut hides a join (it would be a jump of scale): every join that would show keeps its pause."""
-    if MODE == "continuous":
-        return list(range(len(joins)))
+    camera cut, or too close to the clip's ends (montage.settle then keeps their pause). The continuous mode hides
+    a join the same way: a new stretch starts on it, JUMP_MIN away in size."""
     refused, last = [], -1e9
     for n, t in enumerate(joins):
         t = float(t)
@@ -560,12 +566,52 @@ def continuous_rates(start):
     return out
 
 
-def shot_boxes(base, heads, tight, start, fps, crop_h, orig_h, report=None, slow=None, rates=None):
+def continuous_zoom(start, fps, rates=None):
+    """The continuous mode's zoom per frame (over the premium framing) and its stretches: each stretch (frames with
+    one ``start``) zooms linearly at its rate (continuous_rates), by STRETCH_CAP at most then holds; it starts at
+    least JUMP_MIN away from where the previous one ended — in from 1.0 (or from just over the last end when that
+    was near 1.0), out down to its own floor — always within 1..1+LEVEL_MAX. Returns (array, [{"frame", "frames",
+    "rate", "from", "to", "out"}])."""
+    start = np.asarray(start)
+    n = len(start)
+    rates = rates if rates is not None else continuous_rates(start)
+    z = np.ones(n, dtype=float)
+    plan_, prev, f = [], None, 0
+    while f < n:
+        e = f
+        while e < n and start[e] == start[f]:
+            e += 1
+        rate = float(rates.get(int(start[f]), RATE_RANGE[0]))
+        d = min(abs(rate) * (e - f) / fps, STRETCH_CAP)
+        top = 1.0 + LEVEL_MAX
+        back = rate < 0
+        if not back:
+            s0 = 1.0
+            if prev is not None and abs(s0 - prev) < JUMP_MIN:
+                s0 = prev + JUMP_MIN                  # the last one ended near 1.0: this one starts tighter
+                if s0 + d > top:
+                    s0, back = None, True
+        if back:
+            s0 = max(1.0 + d, (prev + JUMP_MIN) if prev is not None else 1.0 + d)
+            if s0 > top:
+                s0 = 1.0 + d if prev is None or abs(1.0 + d - prev) >= JUMP_MIN else top
+            d = min(d, s0 - 1.0)
+        k = np.arange(e - f) / fps
+        step = np.minimum(abs(rate) * k, d)
+        z[f:e] = s0 - step if back else s0 + step
+        plan_.append({"frame": f, "frames": e - f, "rate": round(-abs(rate) if back else abs(rate), 4),
+                      "from": round(float(z[f]), 3), "to": round(float(z[e - 1]), 3), "out": back})
+        prev, f = float(z[e - 1]), e
+    return z, plan_
+
+
+def shot_boxes(base, heads, tight, start, fps, crop_h, orig_h, report=None, slow=None, zoom=None):
     """Float boxes (x, y, w, h) per frame of one shot, from its premium framing ``base`` [(w, h, x, y)] and its
     tracked head per frame (``heads``: (cx, cy, w, h, yaw) or None, source px); ``tight``/``start``: this
     shot's slice of frame_states; ``slow``: the stretches that push in (slow_starts; None = all). Zoom =
-    (punch on tight stretches) x (slow push), about the eyes. ``rates`` (the continuous mode, continuous_rates):
-    each stretch zooms linearly at its own signed rate — in from 1.0, or out down to 1.0 — and nothing else."""
+    (punch on tight stretches) x (slow push), about the eyes. ``zoom`` (the continuous mode, continuous_zoom: this
+    shot's slice): the zoom of each frame as given, nothing else — capped where the face would leave the frame or
+    the upscale go past TOTAL_MAX (it then holds)."""
     import framing
     n = len(base)
     obs = framing.fill(heads)
@@ -574,10 +620,10 @@ def shot_boxes(base, heads, tight, start, fps, crop_h, orig_h, report=None, slow
     for s, e, is_tight in _runs(tight, start, 0, n):
         L = (e - s) / fps
         z_end = 1.0 + min(SLOW_MAX, SLOW_RATE * L) if slow is None or int(start[s]) in slow else 1.0
-        rate = None
-        if rates is not None:
-            rate, is_tight = float(rates.get(int(start[s]), 0.0)), False
-            z_end = 1.0 + min(SLOW_MAX, abs(rate) * L)
+        zrun = None
+        if zoom is not None:
+            zrun, is_tight = np.asarray(zoom[s:e], dtype=float), False
+            z_end = float(zrun.max())
         bw, bh = float(base[s][0]), float(base[s][1])
         base_zoom = crop_h / bh
         p = 1.0
@@ -622,16 +668,19 @@ def shot_boxes(base, heads, tight, start, fps, crop_h, orig_h, report=None, slow
                 p = min(punch, total_max / (base_zoom * z_end))
         u, v = min(max(u, 0.0), 1.0), min(max(v, 0.0), 1.0)
         m = e - s
-        back = rate is not None and rate < 0
+        if zrun is not None:
+            z_end = min(z_end, max(1.0, total_max / base_zoom))
         for k in range(m):
-            f = k / max(1, m - 1)
-            z = p * (1.0 + (z_end - 1.0) * ((1.0 - f) if back else f))
+            if zrun is not None:
+                z = min(float(zrun[k]), z_end)
+            else:
+                z = p * (1.0 + (z_end - 1.0) * (k / max(1, m - 1)))
             w0, h0, x0, y0 = (float(c) for c in base[s + k])
             w, h = w0 / z, h0 / z
             out[s + k] = (x0 + u * (w0 - w), y0 + v * (h0 - h), w, h)
         info.update({"punch": round(p, 3), "slow": round(z_end, 3), "u": round(u, 3), "v": round(v, 3)})
-        if rate is not None:
-            info.update(rate=round(rate * 100, 2), out=back, seconds=round(L, 2))
+        if zrun is not None:
+            info.update(seconds=round(L, 2), cap=round(z_end, 3))
         if report is not None:
             report.append(info)
     return out
@@ -755,24 +804,26 @@ def clip_boxes(input_video, n, fps, premium, heads, scene_boundaries, crop_h, or
         pros = None
     cuts = [s / fps for s, _ in scene_boundaries[1:]]
     if MODE == "continuous":
-        # no dry cut at all: one linear zoom per stretch between two real changes (a camera cut of the source, the
-        # end of a full-screen picture), through the montage's joins
-        tight, start = frame_states(n, fps, [], cuts, restarts=[b for _, b in cues.get("pictures") or ()])
-        rates = continuous_rates(start)
+        # no punch-in inside a shot: one linear zoom per stretch, a stretch ending at every real change (a camera cut
+        # of the source, the end of a full-screen picture) and at every montage join (the size jump hides it)
+        joins = [float(t) for t in list(cues.get("joins") or ()) + list(cues.get("silences") or ())]
+        tight, start = frame_states(n, fps, [], cuts + joins, restarts=[b for _, b in cues.get("pictures") or ()])
+        zarr, stretches = continuous_zoom(start, fps)
         out, report = {}, []
         for s_f, base in premium.items():
             e_f = min(n, s_f + len(base))
             if e_f > s_f:
                 k0 = len(report)
                 out[s_f] = shot_boxes(base[:e_f - s_f], heads[s_f:e_f], tight[s_f:e_f], start[s_f:e_f], fps, crop_h,
-                                      orig_h, report, rates=rates)
+                                      orig_h, report, zoom=zarr[s_f:e_f])
                 for r in report[k0:]:
                     r["frame"] += s_f              # the clip's frame (shot_boxes counts in its shot)
-        runs = [r for r in report if "rate" in r]
-        log(f"   🔎 Continuous zooms: {len(runs)} stretch(es), no dry cut — "
-            + ", ".join(f"{r['frame'] / fps:.1f}s {'-' if r['out'] else '+'}{abs(r['rate']):.2f} %/s over "
-                        f"{r['seconds']:.1f}s (x{r['slow']:.3f})" for r in runs))
-        return out, []
+        log(f"   🔎 Continuous zooms: {len(stretches)} stretch(es) ({len(joins)} joins, {len(cuts)} camera cuts), "
+            f"{sum(1 for p in stretches if p['out'])} out — "
+            + ", ".join(f"{p['frame'] / fps:.1f}s {p['rate'] * 100:+.1f} %/s x{p['from']:.2f}->x{p['to']:.2f}"
+                        for p in stretches))
+        return out, [{"t": round(p["frame"] / fps, 3), "to": "out" if p["out"] else "in",
+                      "why": f"{p['rate'] * 100:+.1f} %/s x{p['from']:.2f}->x{p['to']:.2f}"} for p in stretches]
     sw = plan(n / fps, words, pros, joins=cues.get("joins") or (), cuts=cuts, punch=cues.get("punch"),
               pictures=cues.get("pictures") or (), silences=cues.get("silences") or ())
     tight, start = frame_states(n, fps, sw, cuts, restarts=[b for _, b in cues.get("pictures") or ()])

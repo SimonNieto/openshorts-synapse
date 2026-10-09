@@ -96,11 +96,13 @@ FX = {"smart_framing": True, "smooth_camera": True, "reactions": True, "hq_chain
 # a slow push of 2 %/s on the longest quarter of the face shots only (theirs: 23 % of them; the others hold still);
 # two dry cuts 1.2 s apart at least; a relaunch when 7 s pass without a change (theirs: 8 s at most, median).
 ZOOMS = {"punch": 1.12, "punch_hi": 1.12, "slow_rate": 0.02, "slow_max": 0.10, "min_gap": 1.2, "relaunch": 7.0,
-         # 10-oct-2026 (the user: « les zooms ça va pas, c'est pas comme eux »; their face shots measured at 10 i/s,
-         # etude2/mesures/zoom_continu.py): NO dry reframe; every stretch between two real changes zooms slowly and
-         # steadily, 0.3-0.7 %/s drawn per stretch, out one stretch in three, through the montage joins (a join that
-         # would show keeps its pause). "mode": "punch" brings the dry reframes above back.
-         "mode": "continuous", "rate_range": [0.003, 0.007], "back_every": 3}
+         # 10-oct-2026 (the user: « c'est pas comme eux », then « je ne vois aucun zoom »; the size of their face
+         # measured shot by shot, etude2/mesures/zoom_visage.py): no punch-in inside a shot; every stretch between two
+         # changes (a camera cut, a picture, a montage join) zooms fast and steadily, 3-6 %/s drawn per stretch, out one
+         # stretch in three, 15 % at most then it holds; the next starts 8 % away in size at least (the natural jump
+         # between two shots, which hides the join), within x1.00-1.30. "mode": "punch" brings the dry reframes back.
+         "mode": "continuous", "rate_range": [0.03, 0.06], "back_every": 3, "stretch_cap": 0.15, "jump_min": 0.08,
+         "level_max": 0.30}
 # The pictures with the "references" zooms (broll knobs): a full-screen drawing pushes in STILL_RATE a second,
 # linear over its time on screen (theirs: +1.4 %/s on a still photo), one in STILL_EVERY holds still (theirs: about
 # one in three); a card's picture pushes CARD_PUSH inside its frame while the face behind it keeps its own zoom.
