@@ -120,6 +120,10 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          # The opening drawing, 0-1.2 s under the hook (decision 8): coded, OFF until the A/B test (6 clips with /
          # 6 without, published 5-8 oct) is good at 48 h.
          "opening": False}
+# B-roll « vidéo » (9-oct-2026, recette références): on an ACTION said in the clip (drinking, pouring, running,
+# sleeping...), 1.5-3 s of real stock footage from Pexels instead of a generated picture, cut on the word, full screen,
+# 9:16, no sound; the objects stay generated (broll_video.py). OFF until the user validates it on a board.
+BROLL["video"] = False
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set
