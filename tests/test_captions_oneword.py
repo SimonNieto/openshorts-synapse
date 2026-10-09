@@ -191,7 +191,7 @@ class TestDrawnByLibass:
         assert 54 <= white.max() - white.min() + 1 <= 66                  # capitals ~58 px (theirs 58, measured on the videos)
         assert abs((white.min() + white.max()) / 2 - 1114) <= 12
         left, right, _, _ = self._ink(person, 800, 1200)
-        assert 0.26 <= (right - left) / 1080 <= 0.34                       # "PERSON" ~30 % of the width in theirs
+        assert 0.30 <= (right - left) / 1080 <= 0.38                       # "PERSON" ~35 % with their measured 58 px capitals
 
     def test_a_very_long_word_stays_inside_84_percent(self, frames):
         _, long_word = frames
