@@ -57,7 +57,7 @@ class TestSchedule:
         picks = bl.schedule(nouns, WORDS, 60.0)
         full = [p for p in picks if p["format"] in bl.FULL]
         assert full and all(p["t"] >= bl.FULL_HEAD for p in full), "nothing full screen in the first 3 s"
-        assert full[0]["key"] == "morning" and full[0]["t"] == WORDS[IDX["morning"]]["start"]
+        assert full[0]["key"] == "morning" and full[0]["t"] == round(WORDS[IDX["morning"]]["start"] - bl.LEAD, 2)
         early = [p for p in picks if p["t"] < bl.FULL_HEAD]
         assert len(early) == 1 and early[0]["format"] == "object"
         # an object card rises CARD_LEAD s before its word (it is settled on it), never before HEAD
@@ -197,8 +197,9 @@ class TestAddBroll:
         items = rep["items"]
         assert [it["layout"] for it in items] == ["hero", "object", "object", "hero"]
         assert items[1]["image"] != items[2]["image"] and items[1]["size"] == broll.OBJECT_SIZE
-        assert items[0]["t"] == WORDS[IDX["physician"]]["start"]
+        assert items[0]["t"] == round(WORDS[IDX["physician"]]["start"] - bl.LEAD, 2)
         assert cut and cut[0] == items
+        assert not any(it.get("sfx") for it in items), "no whoosh (none measurable on the references)"
 
     def test_a_refused_key_is_never_made(self, add):
         rep, made, _cut = add([_row("physician", "er", picture="an emergency room"),

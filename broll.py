@@ -4209,7 +4209,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             sources.append(c["source"])
             if c["credit"]:
                 credits.append(c["credit"])
-        if mixed and cfg.get("sfx"):
+        if mixed and cfg.get("sfx") and not literal:     # « littéral »: no whoosh (none measurable on the references)
             # The whoosh (5-oct-2026, decision 3): on the first full-screen picture of the clip only, the others
             # come in silent.
             first = min((it for it in items if it["layout"] == "hero"), key=lambda it: float(it["t"]), default=None)
