@@ -188,6 +188,14 @@ CARD_OUT = _knob("BROLL_CARD_OUT", 0.25)    # s: fades out, shrinking CARD_OUT_S
 CARD_OUT_SHRINK = 0.02
 CARD_PUSH = _knob("BROLL_CARD_PUSH", 1.03)  # push-in inside the card over its time on screen
 TOP_BAND = (0.05, 0.34)                     # of the height: above the head of a tracked speaker (crown at ~0.34 H)
+# The « littéral » chain's OBJECT card (9-oct-2026, after OptimalHealth's melatonin bottle): the thing alone on a plain
+# colour, made 4:3 (OBJECT_GEN: ~9 s on the 3060), shown as a big card OBJECT_SIZE % of the width wide, rounded
+# corners and a light shadow, in the lower half of the frame over the bottom of the face: its top just under the
+# captions when they sit in the middle, held within OBJECT_TOP (fractions of the height). A hard cut in and out, no
+# move, the speaker stays sharp around it. (The references measure ~85 % of the width: a matter of taste, the knob.)
+OBJECT_GEN = (1024, 768)
+OBJECT_SIZE = int(_knob("BROLL_OBJECT_SIZE", 60))
+OBJECT_TOP = (0.55, 0.62)
 # Pace of the "mixed" layout: few images, far apart (one hero + two or three cards on 30 s), whatever the
 # profile's max / density say; nothing in the hook's seconds nor in the last MIXED_TAIL s.
 MIXED_MAX = int(_knob("BROLL_MIXED_MAX", 4))     # density "normal" / "more": one hero + three cards
@@ -2401,6 +2409,8 @@ def _gen_size(layout, hero_res="std"):
         return HERO_GEN.get(hero_res) or HERO_GEN["std"]
     if layout == "card":
         return CARD_GEN
+    if layout == "object":
+        return OBJECT_GEN
     if layout == "half":
         return (1024, 1024)       # one half of a pair (v21, broll_v20._make): a square, cropped and composed by code
     return (768, 1344)
@@ -3314,7 +3324,110 @@ def _fx_shift(rng, room_x, room_y, w):
     return dx, dy
 
 
-def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None):
+def object_box(W=1080, H=1920, size_pct=None, aspect=None):
+    """(x, y, w, h) of the « littéral » chain's object card in a W x H frame: OBJECT_SIZE % of the width, the
+    generated picture's shape (OBJECT_GEN), centred, its top just under the captions (_caption_band) held within
+    OBJECT_TOP of the height — under captions in the middle of the frame, else over the bottom of the face."""
+    cw = int(W * max(30, min(95, int(size_pct or OBJECT_SIZE))) / 100)
+    ch = int(cw * (aspect or OBJECT_GEN[1] / OBJECT_GEN[0]))
+    _cap_top, cap_bottom = _caption_band(H)
+    top = int(min(max(cap_bottom + H * 0.012, H * OBJECT_TOP[0]), H * OBJECT_TOP[1]))
+    top = min(top, int(H * RISE_HARD_BOTTOM) - ch)
+    return (W - cw) // 2, top, cw, ch
+
+
+def _object_frames(src, folder, fps, dur, W, H, size_pct=None):
+    """PNG sequence (RGBA) of an object card (the « littéral » chain): the picture as a big card with rounded corners
+    and a light shadow, a hard cut in and out, no move (the frames are one image repeated). Returns (pattern, x, y) of
+    the canvas (card + shadow margin)."""
+    img = Image.open(src).convert("RGB")
+    img = ImageEnhance.Sharpness(img).enhance(1.1)
+    x, y, cw, ch = object_box(W, H, size_pct, img.height / img.width)
+    img = img.resize((cw, ch), Image.LANCZOS)
+    radius = int(cw * 0.06)
+    shadow = max(8, int(W * 0.014))
+    pad = shadow * 2
+    mask = Image.new("L", (cw, ch), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, cw - 1, ch - 1), radius, fill=255)
+    canvas = Image.new("RGBA", (cw + 2 * pad, ch + 2 * pad), (0, 0, 0, 0))
+    shade = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(shade).rounded_rectangle((pad, pad + shadow // 2, pad + cw, pad + ch + shadow // 2), radius,
+                                            fill=(0, 0, 0, 110))
+    canvas.alpha_composite(shade.filter(ImageFilter.GaussianBlur(shadow * 0.8)))
+    card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    card.paste(img, (0, 0), mask)
+    canvas.alpha_composite(card, (pad, pad))
+    first = os.path.join(folder, "c000.png")
+    canvas.save(first, compress_level=1)
+    for f in range(1, max(2, int(round(dur * fps)))):
+        shutil.copyfile(first, os.path.join(folder, f"c{f:03d}.png"))
+    return os.path.join(folder, "c%03d.png"), x - pad, y - pad
+
+
+MARK_COLOUR = (255, 255, 255)
+MARK_GLOW = (150, 220, 255)
+
+
+def _mark_vec(mk, cx):
+    """The unit direction of an arrow mark in frame space ("in": toward the frame's middle line ``cx``)."""
+    d = mk.get("dir")
+    if d in ("in", "out"):
+        sx = 1.0 if mk["px"] < cx else -1.0
+        return (sx, 0.0) if d == "in" else (-sx, 0.0)
+    return {"left": (-1.0, 0.0), "right": (1.0, 0.0), "up": (0.0, -1.0), "down": (0.0, 1.0)}.get(d, (1.0, 0.0))
+
+
+def _draw_marks(W, H, marks, t):
+    """RGBA layer of a « littéral » sequence step's marks at ``t`` s into the step, drawn by the code (exact, never asked
+    from the image model), glowing white: an arrow that slides along its direction, a circle arrow that turns
+    (cw / ccw as seen), a glow that pulses. ``marks``: [{"kind", "dir", "px", "py"}] in frame pixels."""
+    import math
+    sharp = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(sharp)
+    lw = max(4, int(W * 0.009))
+    for mk in marks:
+        x, y = mk["px"], mk["py"]
+        if mk["kind"] == "arrow":
+            vx, vy = _mark_vec(mk, W / 2)
+            L = W * 0.10
+            s = L * 0.35 * ((t / 0.9) % 1.0)                     # it slides along its way, again and again
+            x0, y0 = x - vx * L * 0.5 + vx * s, y - vy * L * 0.5 + vy * s
+            x1, y1 = x0 + vx * L, y0 + vy * L
+            d.line((x0, y0, x1, y1), fill=MARK_COLOUR + (255,), width=lw)
+            hx, hy, a = -vx * lw * 3.2, -vy * lw * 3.2, lw * 2.4
+            d.polygon([(x1 + vx * lw, y1 + vy * lw), (x1 + hx - vy * a, y1 + hy + vx * a),
+                       (x1 + hx + vy * a, y1 + hy - vx * a)], fill=MARK_COLOUR + (255,))
+        elif mk["kind"] == "circle":
+            r = W * 0.055
+            sign = 1.0 if mk.get("dir") != "ccw" else -1.0       # PIL's angles turn clockwise on the screen
+            a0 = (sign * 360.0 * t / 1.6) % 360.0
+            if sign > 0:
+                start, end = a0, a0 + 290.0
+            else:
+                start, end = a0 - 290.0, a0
+            d.arc((x - r, y - r, x + r, y + r), start, end, fill=MARK_COLOUR + (255,), width=lw)
+            tip = math.radians(end if sign > 0 else start)
+            tx, ty = x + r * math.cos(tip), y + r * math.sin(tip)
+            # the head points along the way it turns
+            vx, vy = -math.sin(tip) * sign, math.cos(tip) * sign
+            a = lw * 2.2
+            d.polygon([(tx + vx * a * 1.4, ty + vy * a * 1.4), (tx - vy * a, ty + vx * a), (tx + vy * a, ty - vx * a)],
+                      fill=MARK_COLOUR + (255,))
+        elif mk["kind"] == "glow":
+            r = W * (0.05 + 0.02 * (0.5 + 0.5 * math.sin(2 * math.pi * t / 1.2)))
+            d.ellipse((x - r, y - r, x + r, y + r), fill=MARK_GLOW + (200,))
+    glow = sharp.filter(ImageFilter.GaussianBlur(max(6, int(W * 0.012))))
+    out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    out.alpha_composite(glow)
+    out.alpha_composite(glow)
+    if any(mk["kind"] != "glow" for mk in marks):
+        out.alpha_composite(sharp)
+    else:
+        out.alpha_composite(sharp.filter(ImageFilter.GaussianBlur(max(3, int(W * 0.006)))))
+    return out
+
+
+def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None, marks=None):
     """PNG sequence (RGBA) of a full-screen "hero" picture, the way a cutaway is
     cut in a documentary: the image covers the frame (centre crop), pushes in
     slowly (1.00 -> HERO_PUSH, eased over its whole time on screen) and
@@ -3355,6 +3468,15 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None):
     n = max(2, int(round(dur * fps)))
     fx_rng = np.random.default_rng(13)
     still = None      # the picture never moves (no push, no effect): resampled once
+    # A « littéral » sequence step's marks (fractions of the source picture) in frame pixels, through the crop.
+    px_marks = []
+    for mk in marks or ():
+        try:
+            u, v = float(mk["x"]), float(mk["y"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        cx0, cy0 = (iw - sw) / 2, (ih - sh) / 2
+        px_marks.append({**mk, "px": (u * iw - cx0) / sw * W, "py": (v * ih - cy0) / sh * H})
     for f in range(n):
         t = f / fps
         z = 1.0 + (HERO_PUSH - 1.0) * _smooth(t / dur)
@@ -3379,6 +3501,10 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None):
             # The same grain field moved around: new grain every frame for the price of a copy.
             arr += np.roll(noise, (int(rng.integers(0, H)), int(rng.integers(0, W))), axis=(0, 1))
         out = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
+        if px_marks:
+            out = out.convert("RGBA")
+            out.alpha_composite(_draw_marks(W, H, px_marks, t))
+            out = out.convert("RGB")
         # A hard cut when HERO_FADE is 0 (5-oct-2026), else a crossfade in and out.
         alpha = min(_smooth(t / HERO_FADE), _smooth((dur - t) / HERO_FADE)) if HERO_FADE > 0 else 1.0
         out.putalpha(int(round(255 * max(0.0, min(1.0, alpha)))))
@@ -3594,6 +3720,9 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
     # The « dessin » chain in full width (5-oct-2026, decision 5): every drawing made 9:16 and shown alone, full screen,
     # HERO_DUR_MIN..MAX s, hard cut in and out — never a card on the head (the source's own picture stays a card).
     full = mixed and cfg.get("chain") == "dessin" and bool(cfg.get("full_width"))
+    # The « littéral » chain (9-oct-2026, broll_litteral): the concrete nouns said, each shown on its word, a scene full
+    # screen or an object card; it places its pictures and their times itself.
+    literal = mixed and cfg.get("chain") == "litteral"
     dur_range = (HERO_DUR_MIN, HERO_DUR_MAX) if full else (CARD_DUR_MIN, CARD_DUR_MAX) if mixed else None
     # The pace of the mixed layout: MIXED_GAP between images, the last MIXED_TAIL s to the face, and a card above
     # the head never overlaps a hook longer than the usual head room.
@@ -3656,7 +3785,7 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
 
     _comfy_enter()
     try:
-        if mixed and cfg.get("chain") in ("spec", "dessin"):
+        if mixed and cfg.get("chain") in ("spec", "dessin", "litteral"):
             # v20 « la fiche »: the editor's shot specs, the prompt written by the code, a blind check per batch
             # (broll_v20). No Gemini fallback: without Claude, no B-roll — a wrong picture is worse than none.
             if not claude_ready():
@@ -3683,7 +3812,10 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                         gpu[0] += time.time() - t0
                 return None, None
 
-            if cfg.get("chain") == "dessin":
+            if literal:
+                import broll_litteral
+                cands, moments = broll_litteral.run(clip_path, clip, words, avoid, block, tmp, render)
+            elif cfg.get("chain") == "dessin":
                 # v26 « dessin » (4-oct-2026): the art director in the episode's style charter, a safety verifier, one
                 # render per moment — no judge, no render loop (broll_draw); in full width (5-oct-2026) every one 9:16
                 import broll_draw
@@ -3954,9 +4086,12 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # A real photo (a place, a flag) is shown BIG: a small card shows a tower or a flag badly. Big
             # pictures cover the speaker, so they stay short.
             hero = mixed and c["layout"] == "hero"
+            obj = mixed and c["layout"] == "object"
             big = (not rise and not mixed) or (c["source"] == "free" and not mixed)
             dur = m.get("dur") or (SEG_DUR if big else RISE_DUR)
-            if hero:
+            if literal:
+                dur = round(float(m["dur"]), 2)            # broll_litteral.schedule's: its clause, the pace, the cover
+            elif hero:
                 # its sentence, HERO_DUR_MIN..MAX s; in full width it also leaves before the punchline
                 dur = full_dur(m, avoid) if full else hero_dur(m)
             elif _hold(cfg.get("hold")) and not mixed:
@@ -3968,7 +4103,8 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                     "query": m["query"], "prompt": m["prompt"],
                     "source": c["source"],
                     "style": c["style"] if c["source"] in ("local", "gemini") else "photo",
-                    "layout": "hero" if hero else ("full" if big else ("card" if mixed else "rise")), "_img": c["file"]}
+                    "layout": "hero" if hero else "object" if obj else ("full" if big else ("card" if mixed else "rise")),
+                    "_img": c["file"]}
             reg = register_of(c["style"])
             if reg:
                 item["register"] = reg["look"]       # not a photograph: a manual redo paints it in its register again
@@ -4020,7 +4156,12 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
                 # The premium drawing is fixed: premium edge, fade in, no exit zoom, cards CARD_SIZE % wide at
                 # CARD_POSITION. The rise layout's hold / enter / zoom / border / size / position / y do not apply.
                 item["border"] = "premium"
-                if not hero:
+                if m.get("seq"):
+                    # a step of a « littéral » sequence: the same figure, its marks drawn over it (_draw_marks)
+                    item.update(seq=m["seq"], step=m.get("step", 0), marks=list(m.get("marks") or []))
+                if obj:
+                    item.update(size=OBJECT_SIZE, format="object", background=m.get("background") or "")
+                elif not hero:
                     item.update(look="premium", size=CARD_SIZE, position=CARD_POSITION)
                     if cfg.get("label"):
                         item["label"] = m.get("subject") or m.get("key") or m["anchor"]
@@ -4068,6 +4209,9 @@ def add_broll(clip_path, out_path, clip, transcript, start, end, cfg, api_key=No
             # A fixed time on screen (or a hero longer than its sentence): two pictures never overlap, the
             # first one leaves a little early
             for a, b in zip(items, items[1:]):
+                if a.get("seq") and a.get("seq") == b.get("seq"):
+                    a["dur"] = round(min(a["dur"], b["t"] - a["t"]), 2)     # a sequence's steps: end to end
+                    continue
                 a["dur"] = round(max(1.0, min(a["dur"], b["t"] - a["t"] - 0.25)), 2)
         clip.pop("opening_image", None)
         if full and cfg.get("opening"):
@@ -4202,11 +4346,15 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                 dur = float(it.get("dur") or (RISE_DUR if rise else SEG_DUR))
             except (TypeError, ValueError):
                 dur = RISE_DUR if rise else SEG_DUR
-            dur = max(1.0, min(SCREEN_DUR_MAX if screen else 4.0, dur))
+            dur = max(0.4 if it.get("seq") else 1.0, min(SCREEN_DUR_MAX if screen else 4.0, dur))
             grade = it.get("grade") if _grade_params(it.get("grade")) else "off"
-            if hero:
+            if it.get("layout") == "object":
+                pattern, x, y = _object_frames(src, folder, fps, dur, w, h, int(it.get("size") or OBJECT_SIZE))
+                layers.append({"t": it["t"], "dur": dur, "rise": False, "object": True, "pattern": pattern, "x": x,
+                               "y": y})
+            elif hero:
                 fx = it.get("fx") if it.get("fx") in FX_KINDS else None
-                pattern = _hero_frames(src, folder, fps, dur, w, h, grade=grade, fx=fx)
+                pattern = _hero_frames(src, folder, fps, dur, w, h, grade=grade, fx=fx, marks=it.get("marks"))
                 layers.append({"t": it["t"], "dur": dur, "rise": False, "hero": True, "pattern": pattern, "x": 0, "y": 0})
             elif rise:
                 pattern, x, motion = _rise_frames(src, folder, fps, dur, w, h, int(it.get("size") or RISE_SIZE),
@@ -4225,7 +4373,7 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                 layers.append({"t": it["t"], "dur": dur, "rise": False, "pattern": pattern, "x": x, "y": y})
         if not layers:
             raise RuntimeError("no B-roll image to cut in")
-        big = [ly for ly in layers if not ly["rise"] and not ly.get("hero")]
+        big = [ly for ly in layers if not ly["rise"] and not ly.get("hero") and not ly.get("object")]
         if big:
             # Behind a big card, the podcast keeps playing — blurred and dimmed,
             # so the photo reads as "in front of" the conversation. A small

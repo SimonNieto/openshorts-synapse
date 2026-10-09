@@ -92,7 +92,8 @@ def run(monkeypatch, tmp_path):
             c["screen_inset"] = {**screen, "image": "screen.jpg"}
         go.clip = c
         tr = _transcript(TEXT)
-        conf = {**plus.BROLL, "enabled": True, "planner": "claude", **(cfg or {})}
+        # the « dessin » chain (production's until 9-oct-2026, now plus.BROLL "chain": "dessin")
+        conf = {**plus.BROLL, "enabled": True, "planner": "claude", "chain": "dessin", **(cfg or {})}
         rep = broll.add_broll(str(keep / "c_clip_1.mp4"), str(tmp_path / "out.mp4"), c, tr, 0.0, 40.0, conf,
                               keep_dir=str(keep), keep_prefix="c_clip_1_")
         return rep, made, cut, keep
@@ -100,7 +101,8 @@ def run(monkeypatch, tmp_path):
 
 
 def test_the_recipe_draws_full_width_with_the_opening_off():
-    assert plus.BROLL["chain"] == "dessin" and plus.BROLL["full_width"] is True
+    # 9-oct-2026: production runs « littéral »; full_width stays set for the « dessin » chain when it is chosen
+    assert plus.BROLL["chain"] == "litteral" and plus.BROLL["full_width"] is True
     assert plus.BROLL["opening"] is False, "decision 8: coded, OFF until the A/B test is good"
     assert plus.BROLL["sfx"] is True
     assert broll.OPENING_SECONDS == 1.2 and broll.HEAD_FREE == 4.3

@@ -76,7 +76,8 @@ FX = {"smart_framing": True, "smooth_camera": True, "reactions": True, "hq_chain
 # change on screen (punch_in.py); up to 3 reactions in the holes, never under a picture, never the same second
 # twice in a job (reactions.py). No join that shows: a jump is hidden by a frame switch, or the pause is kept.
 MONTAGE = {"enabled": True, "silences": True, "cut_out": True, "hide_joins": True, "tight_frames": True}
-# B-roll when the profile wants images: made on this PC (ComfyUI, Z-Image
+# B-roll when the profile wants images (since 9-oct-2026 the « littéral » chain: "chain" below; the notes of the
+# older chains follow): made on this PC (ComfyUI, Z-Image
 # Turbo), "mixed" ideas (the thing named first), one hero + three wide cards,
 # each picture's look read from what is said (visual_mood: its mood's words for
 # the image model, its grade when it is cut in), a soft whoosh on the hero.
@@ -100,7 +101,11 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          # verifier, viewer on the channel's own text), the hero chosen among the ideas kept.
          # v26 « dessin » (4-oct-2026, validated by the user as the final version): every picture drawn in the
          # episode's style charter by the art director, a safety verifier, one render per moment (broll_draw).
-         "chain": "dessin", "ideas": True,
+         # « littéral » (9-oct-2026, after the channels that work — OptimalHealth, Clip Storm): the concrete nouns said
+         # in the clip, each shown literally ON its word (photo, film still or 3D medical render), a scene full screen
+         # or an object as a big card in the lower half, from 0.8 s, one every 3-5 s, 1-3 s each, 35-60 % of the clip
+         # off the face (broll_litteral). "dessin" brings the drawn chain back as it was (its own texts, *-dessin.md).
+         "chain": "litteral", "ideas": True,
          # Step up (5-oct-2026, validated by the user): every drawing made 9:16 and shown alone, full screen,
          # 2.0-2.5 s, hard cut in and out, no push-in — never a card on the head (decision 5; the source's own
          # picture stays a card); the whoosh on the first drawing only, ~12 dB under the voice (decision 3,

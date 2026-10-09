@@ -60,8 +60,10 @@ def chain(monkeypatch, tmp_path):
     return setup
 
 
-def test_production_runs_the_drawn_chain():
-    assert plus.BROLL["chain"] == "dessin"
+def test_the_drawn_chain_stays_one_switch_away():
+    # 9-oct-2026: production runs the « littéral » chain (test_broll_litteral); "dessin" still names this one
+    assert plus.BROLL["chain"] == "litteral"
+    assert broll_draw.CHARTER_FILE == "charte-dessin.md" and broll_draw.PRINCIPLES_FILE == "directeur-dessin.md"
 
 
 def test_the_charter_style_heads_the_prompt_word_for_word_and_the_hero_is_full_screen(chain):
