@@ -23,7 +23,7 @@ def test_a_profile_without_the_block_sets_nothing_of_its_own():
     env = _env()
     assert not [k for k in CHANNEL_VARS if k in env]
     assert {k: env[k] for k in RECIPE_VARS} == RECIPE_VARS
-    assert (env["CLIP_TARGET_MIN_SECONDS"], env["CLIP_TARGET_MAX_SECONDS"]) == ("25", "40"), "the standard format"
+    assert (env["CLIP_TARGET_MIN_SECONDS"], env["CLIP_TARGET_MAX_SECONDS"]) == ("35", "58"), "the default format (OptimalHealth, 9-oct-2026)"
     assert plus.sanitize({})["selection"] == plus.DEFAULT_PROFILE["selection"]
 
 
@@ -31,7 +31,7 @@ def test_garbage_falls_back_to_the_defaults():
     assert plus.sanitize({"selection": "x"})["selection"] == plus.DEFAULT_PROFILE["selection"]
     assert plus.sanitize({"selection": {"clip_target": "x", "min_clips": None}})["selection"] \
         == plus.DEFAULT_PROFILE["selection"]
-    assert plus.sanitize({"format": "huge"})["format"] == "standard"
+    assert plus.sanitize({"format": "huge"})["format"] == plus.DEFAULT_PROFILE["format"] == "references"
 
 
 def test_the_recipe_cannot_be_switched_off_by_a_profile():
@@ -58,7 +58,7 @@ def test_an_old_profile_s_numbers_become_the_nearest_format():
     assert plus.sanitize({"selection": {"clip_target": [45, 60]}})["format"] == "long"
     assert plus.sanitize({"clip_min": 15, "clip_max": 35})["format"] == "short"
     assert plus.sanitize({"format": "long", "clip_min": 10, "clip_max": 20})["format"] == "long", "the format wins"
-    assert plus.sanitize({"selection": {"clip_target": "x"}, "clip_min": "y"})["format"] == "standard"
+    assert plus.sanitize({"selection": {"clip_target": "x"}, "clip_min": "y"})["format"] == plus.DEFAULT_PROFILE["format"]
 
 
 SYNAPSE_TOPICS = ["brain_danger", "substances", "psychosis_mental_illness", "mind_psychology",

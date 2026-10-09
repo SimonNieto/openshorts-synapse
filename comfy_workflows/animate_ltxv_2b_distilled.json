@@ -1,0 +1,16 @@
+{
+  "_about": "Image -> short video with LTX-Video 2B 0.9.8 distilled (Lightricks), native ComfyUI nodes only (ComfyUI 0.37, no custom node). API format. broll_animate.py fills the inputs marked null and the prompts; node ids are read by name. Sigmas: the 8-step schedule Lightricks publishes for the 0.9.8 distilled models, cfg 1 (distilled: no guidance).",
+  "ckpt": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "ltxv-2b-0.9.8-distilled.safetensors"}},
+  "clip": {"class_type": "CLIPLoader", "inputs": {"clip_name": "t5xxl_fp8_e4m3fn_scaled.safetensors", "type": "ltxv", "device": "default"}},
+  "pos": {"class_type": "CLIPTextEncode", "inputs": {"text": null, "clip": ["clip", 0]}},
+  "neg": {"class_type": "CLIPTextEncode", "inputs": {"text": null, "clip": ["clip", 0]}},
+  "load": {"class_type": "LoadImage", "inputs": {"image": null}},
+  "pre": {"class_type": "LTXVPreprocess", "inputs": {"image": ["load", 0], "img_compression": 35}},
+  "i2v": {"class_type": "LTXVImgToVideo", "inputs": {"positive": ["pos", 0], "negative": ["neg", 0], "vae": ["ckpt", 2], "image": ["pre", 0], "width": null, "height": null, "length": null, "batch_size": 1, "strength": 1.0}},
+  "cond": {"class_type": "LTXVConditioning", "inputs": {"positive": ["i2v", 0], "negative": ["i2v", 1], "frame_rate": null}},
+  "sampler": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}},
+  "sigmas": {"class_type": "ManualSigmas", "inputs": {"sigmas": "1.0, 0.9937, 0.9875, 0.9812, 0.975, 0.9094, 0.725, 0.4219, 0.0"}},
+  "sample": {"class_type": "SamplerCustom", "inputs": {"model": ["ckpt", 0], "add_noise": true, "noise_seed": null, "cfg": 1.0, "positive": ["cond", 0], "negative": ["cond", 1], "sampler": ["sampler", 0], "sigmas": ["sigmas", 0], "latent_image": ["i2v", 2]}},
+  "decode": {"class_type": "VAEDecode", "inputs": {"samples": ["sample", 0], "vae": ["ckpt", 2]}},
+  "out": {"class_type": "PreviewImage", "inputs": {"images": ["decode", 0]}}
+}

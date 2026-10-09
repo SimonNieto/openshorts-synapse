@@ -95,6 +95,16 @@ class DetailClipModelPlaybook(DetailClipModelV2):
     # it misses (playbook.OPENING_CRITERIA). main.rank_by_opening weighs it into predicted_score.
     opening_score: Optional[int] = None
     opening_misses: List[str] = Field(default_factory=list)
+    # Recette « références » (9-oct-2026): the words naming the clip's thing / event, verbatim — main.open_on_subject
+    # checks they are heard within OPENING_SUBJECT_SECONDS, else opens on the later sentence that says them; and
+    # the everyday thing the moment turns on ("" when none), a small weight in main.rank_by_opening, never a filter.
+    subject_words: str = ""
+    everyday_thing: str = ""
+    # Who the moment concerns (playbook.AUDIENCE_REACH), a practical tip or a myth broken, the other speaker heard
+    # (decoding of OptimalHealth, 9-oct-2026): weights in main.rank_by_opening, never filters.
+    audience_reach: str = ""
+    practical: bool = False
+    two_voices: bool = False
 
 
 class DetailResponsePlaybook(BaseModel):
@@ -156,9 +166,9 @@ clip inside the target: choose for quality). Pick, per clip, the opening that:
 - hooks: a claim, a stake, a number, a question in the air; never a filler
   nor an aside;
 - keeps the clip's point: the payoff must still land from there.
-- names the subject and sets the tension within ~5 seconds: the concrete
-  thing (the drug, the illness, the person, the number) and what is at stake
-  are SAID early — in the action, not a run-up.
+- names the subject and sets the tension within ~5 seconds (the subject itself
+  within ~3): the concrete thing (the drug, the illness, the person, the
+  number) and what is at stake are SAID early — in the action, not a run-up.
 The opening decides whether viewers stay; the length hardly does. Each clip
 also gives its `current_opening` and its `current_opening_score`: when no
 candidate opens at least as well, answer `open_on` 0 and the clip keeps its
@@ -287,6 +297,90 @@ SYNAPSE CUT PLAYBOOK — TITLE AND HOOK (strict, wins over any other title or ho
   testosterone therapy?", which only repeats the title).
 """
 
+# Recette « références » (9-oct-2026, RECETTE_REFERENCES.md §4, plus.SELECTION["title_style"] = "references"):
+# the titles of OptimalHealth (387 k subscribers, the channel's own niche, 15 of its last 48 Shorts over 100 k).
+# "The Hidden Problem With Melatonin" (749 k) is cut from the SAME Huberman episode on Rogan as this channel's
+# clips: same footage, another package. Their titles name ONE everyday thing the viewer knows (melatonin, shower
+# water, ibuprofen, the eye) — the week of 5-8 oct asked closed questions about a DEBATE ("Should outdated experts
+# retire?") and none left its test audience. "Is Big Pharma scared of microdosers?" (a prescription drug shared)
+# got 9 views: a filter on that short. Replaces QUESTION_TITLE_ADDENDUM when the style is "references"
+# (title_rules below); same no-name, sensitive-word, drug and hook rules.
+REFERENCES_TITLE_ADDENDUM = """
+SYNAPSE CUT PLAYBOOK — TITLE AND HOOK (strict, wins over any other title or hook rule above):
+- `video_title_for_youtube_short`: 4 to 8 words, max 60 characters, Title Case,
+  no emoji, no hashtag. A question OR a statement.
+- THE SUBJECT IS ONE THING THE VIEWER KNOWS: an object, a substance, a food, a
+  body part or an everyday gesture the viewer has at home or does every day
+  (melatonin, ibuprofen, shower water, your phone, coffee, the eyes, breathing,
+  falling asleep). Name it with the word people search for ("melatonin", not
+  "a sleep supplement"). When the clip turns on no such thing, name the
+  concrete thing it does turn on (the condition, the scan, the doctor at 3 a.m.),
+  never a debate or an abstract idea ("Should experts retire?" is wrong).
+- THE SHAPES THAT WORK in this niche (real titles, views in brackets) — use
+  one of them, filled with THIS clip's thing:
+  "The Hidden Problem With Melatonin" (749k)
+  "The Eye Trick That Helps You Fall Asleep" (1.6M)
+  "What's Really In Your Shower Water?" (635k)
+  "What Ibuprofen Really Does To Your Body" (108k)
+  "The Fastest Way To Calm Down" (389k)
+  "Can Alzheimer's Actually Be Reversed?" (300k)
+  The words Hidden, Really, Actually, Trick, Fastest, Truth, Myth carry these
+  titles: use ONE of them when it is TRUE of the clip (a "trick" is a thing
+  the viewer can do; "hidden" is something people do not know; "myth" is a
+  belief the clip proves wrong), never as decoration.
+- THE TITLE ECHOES THE FIRST SENTENCE: when the clip's first sentence names
+  the thing, the title takes its words almost verbatim ("the fastest way to
+  calm down is..." -> "The Fastest Way To Calm Down"; "melatonin is a hormone
+  that..." -> "The Hidden Problem With Melatonin"): what the viewer reads in
+  the feed is what they hear first.
+- TRUE TO THE CLIP: the title promises only what this clip says and shows. No
+  fake claim, no number, cure or danger the clip does not state. A question is
+  one the clip answers or explores.
+- NO NAMES in the title or the hook: not the guest, not the host, not the
+  podcast, not any expert ("Huberman explains...", "Rogan on..." are wrong).
+  Names belong to the description only.
+- WORDS THAT GET A SHORT HELD BACK: never "Big Pharma"; never a title or a hook
+  about sharing, splitting, selling or microdosing a prescription drug, nor
+  about getting one without a doctor.
+- SENSITIVE WORDS: never write "suicide", "suicidal", "kill myself/yourself",
+  "self-harm", "cutting" or any other explicit word for suicide or self-injury in
+  the title or the hook. Say it soberly instead ("his darkest moment", "a mental
+  health crisis").
+- DRUGS (any substance, psychedelic, kratom, alcohol, medication): the angle is
+  always educational or preventive — what it does to the brain or the body, the
+  risk, what people don't know ("What Kratom Really Does To Your Brain"). Never
+  fun or cool, never how to get, dose or use it.
+- `viral_hook_text` NEVER REPHRASES THE TITLE: it adds what the title does not
+  say — a stake, a tension or a promise. Max 8 words. Not a question. No name.
+  Same sensitive-word, drug and held-back-word rules as the title.
+"""
+
+# The set rule of the "references" titles: the signal words ARE the formula there (20 of OptimalHealth's 48
+# titles carry one), so each may come back — twice per job at most, the same shape not every time.
+REFERENCES_VARIETY_ADDENDUM = """
+TITLES AS A SET (strict): the clips you return are posted one after the other
+on the same channel. Read together, their titles must not look like one short
+posted four times:
+- the same key word (a substance, an organ, a condition, a thing) carries at
+  most TWO titles; the other clips on that subject take another angle;
+- each signal word (Hidden, Really, Actually, Trick, Fastest, Truth, Myth) is
+  in TWO titles of the batch at most, and the same shape ("The Hidden Problem
+  With ...") is not used twice;
+- "truly", "just", "ever", "literally" pad a title: at most ONE title uses one.
+"""
+
+
+def title_rules() -> str:
+    """The title + hook block every place that writes a title appends (detail pass, hook grounding,
+    regenerate-copy): the house recipe's style (playbook.title_style)."""
+    import playbook
+    return REFERENCES_TITLE_ADDENDUM if playbook.title_style() == "references" else QUESTION_TITLE_ADDENDUM
+
+
+def title_variety_rules() -> str:
+    import playbook
+    return REFERENCES_VARIETY_ADDENDUM if playbook.title_style() == "references" else TITLE_VARIETY_ADDENDUM
+
 # Clip Generator++ (profile: selection.title_variety -> TITLE_VARIETY=1, with
 # the playbook): JRE #2515 (1-oct-2026) came back with "DMT" in 4 titles of 6
 # and "really / truly / just / ever" in 4 of 6 — each title fine alone, the
@@ -380,6 +474,11 @@ SYNAPSE CUT PLAYBOOK — CUT, DESCRIPTIONS, TOPIC:
   thing"); never on a request to someone in the room ("can you put that into
   Perplexity", "pull that up"): the viewer is not the one asked. Return that
   sentence VERBATIM (exact transcript words) in `hook_line`.
+- NO TITLE ON SCREEN: the viewer reads nothing before the first words — the
+  first sentence heard IS the hook. It holds alone and SAYS the event or the
+  thing the clip is about ("If you go to the emergency room at three in the
+  morning...", "took a rifle, went up into the tower and shot 14 people"),
+  never a run-up to it ("We had a gentleman the other day on that was...").
 - THE FIRST 5 SECONDS DECIDE: on this channel the share of viewers who do not
   swipe away in the first seconds decides whether a short ever leaves its
   first test audience — the same passage went from 48% to 78% of viewers
@@ -393,7 +492,9 @@ SYNAPSE CUT PLAYBOOK — CUT, DESCRIPTIONS, TOPIC:
      middle of a sentence, no "they", "he", "that" nobody has met, no answer
      to a question nobody heard;
   2. name the subject: the concrete thing (the drug, the illness, the person,
-     the number) is SAID within ~5 seconds;
+     the number) is SAID in the first sentence, within ~3 seconds — when the
+     word for it only comes later, open on the later mark where it is said
+     (the run-up goes, the payoff stays);
   3. set the tension: a stake, a danger, a question in the air within ~5
      seconds — in the action (the man, the tower, the rifle), never a run-up
      ("this is such an amazing case").
@@ -435,6 +536,51 @@ SYNAPSE CUT PLAYBOOK — CUT, DESCRIPTIONS, TOPIC:
      deaths a year").
   `moment_nature`: exactly one of threat_to_you, person_at_stake, your_mind,
   debate, other — which of these the moment is.
+- ONE EVERYDAY THING, AT EQUAL QUALITY: when two moments are about as strong,
+  prefer the one that turns on one concrete thing of the viewer's daily life —
+  an object, a substance, a food or a gesture they know (melatonin, ibuprofen,
+  shower water, their phone, coffee, falling asleep). The niche's biggest
+  shorts are about such a thing, rarely about a debate. A PREFERENCE, never a
+  filter: a strong moment without one is still returned, and `predicted_score`
+  is NOT changed for it — fill `everyday_thing` with that thing in plain words
+  ("melatonin", "your phone"), or "" when there is none; the code weighs it.
+  Only a thing the viewer HAS or DOES: a hospital, a scan, a doctor, a drug
+  company, an AI or a disease is not one (an object the clip mentions in
+  passing is not one either).
+- WHO IS CONCERNED, AT EQUAL QUALITY: the niche's shorts at 250k-1.6M views are
+  about a thing EVERYONE does, uses or feels (sleep, calming down, stress, food,
+  a common drug like ibuprofen or melatonin, the phone, exercise, ageing), the
+  ones at 11-20k about niche things (glutathione after anaesthesia, the vagus
+  nerve, fibre); a debate about the medical system reaches fewer still. Fill
+  `audience_reach` — be strict, most podcast moments are not "everyone":
+  "everyone": the moment is ABOUT something most viewers do, use or feel in
+    their own day (sleeping, eating, coffee, the phone, stress, a headache,
+    exercise, ageing, ibuprofen, melatonin) and they can recognise it in their
+    own life;
+  "many": a large group does or uses it (parents, people on a weight-loss
+    drug, people with ADHD, drinkers, people who scroll social media);
+  "few": anything else — the medical system and its debates (doctors on call,
+    medical errors, scans, experts, drug companies, prices), research, AI, a
+    rare disease, one person's story. A story that "could happen to anyone"
+    is still "few" when it is about the system, not about the viewer's day.
+  And `practical`: true when the moment gives a practical tip about that thing
+  (a gesture, a question to ask, what to do) or breaks a myth about it. Again
+  a PREFERENCE weighed in code, never a filter, `predicted_score` unchanged.
+- TWO VOICES, AT EQUAL QUALITY: the niche's big shorts cut to the other person
+  about 6 times a minute (their question, "wow", a laugh, a push-back), its
+  flops almost never. Prefer a passage where the other speaker is heard asking,
+  reacting or pushing back over a monologue; `two_voices`: true when the other
+  speaker says more than "yeah / right" inside the clip. When the other
+  speaker's question is what launches the subject ("What does melatonin
+  actually do?"), opening ON that question is good.
+- THE END: stop dead on the last strong sentence or on the other speaker's
+  short reaction to it — no conclusion, no "anyway", no wrap-up; never on a
+  question left without its answer, nor on "I don't know" / "I'm making up a
+  story here".
+- `subject_words`: the 1 to 3 words, copied VERBATIM from the transcript inside
+  the clip, that name the thing or the event the clip is about — what its
+  title names ("emergency room", "lidocaine", "escaped"). The code checks
+  they are heard within the first ~3 seconds.
 - `cut_out`: 0 to 3 passages INSIDE the clip that a tight edit takes out: the
   other speaker's aside ("I saw that episode announced"), someone reading a
   screen aloud, a hesitation ("and... um... I"), a digression that leaves the

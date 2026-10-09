@@ -9,7 +9,7 @@ const SELECTED_KEY = 'os_plus_profile';
 // One-line recap of what a profile will do, under its name.
 const recap = (p) => [
     p.show,
-    `${p.format || 'standard'} clips`,
+    `${p.format || 'references'} clips`,
     p.selection?.niche_topics?.length && `${p.selection.niche_topics.length} topic${p.selection.niche_topics.length === 1 ? '' : 's'}`,
     p.broll?.enabled && 'B-roll',
     p.watermark && `“${p.watermark}”`,

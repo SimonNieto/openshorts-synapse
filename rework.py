@@ -458,7 +458,7 @@ def generate_clip_copy(transcript_text: str, language: str, api_key: str, model:
                                  hashtag_guidance=hashtag_guidance)
     if playbook:
         import gemini_worker
-        prompt += gemini_worker.QUESTION_TITLE_ADDENDUM + gemini_worker.PLAYBOOK_COPY_ADDENDUM
+        prompt += gemini_worker.title_rules() + gemini_worker.PLAYBOOK_COPY_ADDENDUM
     data = _generate_json_with_fallback(prompt, ClipCopy, api_key, model, brain=brain, reuse=reuse,
                                         stage="writing the hook, title and descriptions")
     return {

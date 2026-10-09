@@ -1134,10 +1134,12 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
         return None
 
 
-def viral_caption_clip(clip_path, transcript, clip_start, clip_end, style, watermark=None, clip=None):
+def viral_caption_clip(clip_path, transcript, clip_start, clip_end, style, watermark=None, clip=None, show=None):
     """The edit style's captions (viral_fx) instead of the default caption
     profile, written as ``subtitled_<ts>_<clip>`` like auto_caption_clip so a
-    restyle from the subtitle editor still replaces them. None on skip/fail."""
+    restyle from the subtitle editor still replaces them. None on skip/fail.
+    ``show``: the show named by the « CREDIT: » line of the one-word captions
+    (playbook.show_name) — left out over a burned hook, which holds the top."""
     if os.environ.get("AUTO_CAPTIONS", "1").strip() == "0":
         return None
     try:
@@ -1154,7 +1156,8 @@ def viral_caption_clip(clip_path, transcript, clip_start, clip_end, style, water
         from hooks import captions_start_at
         hooked = os.path.basename(clip_path).startswith("hooked_")
         after = captions_start_at((clip or {}).get('auto_hook')) if hooked else 0.0
-        viral_fx.apply_captions(clip_path, words, style, out, watermark=watermark, topic=topic, after=after)
+        viral_fx.apply_captions(clip_path, words, style, out, watermark=watermark, topic=topic, after=after,
+                                credit=None if hooked else show)
         print(f"   💬 {style} captions burned: {os.path.basename(out)}")
         return out
     except Exception as e:
@@ -2217,7 +2220,8 @@ def _playbook_start(clip, words, start, end, min_secs, max_secs):
 OPENING_WEIGHT = 0.5            # share of predicted_score carried by the opening
 OPENING_TOPIC_SECONDS = 5.0     # the subject of the title or the hook is said within this
 # Points the opening loses for what the code finds in the final cut (a flag ×1 each).
-OPENING_PENALTY = {"mid_sentence": 25, "points_back": 15, "request": 15, "pronoun": 8, "topic_late": 8}
+OPENING_PENALTY = {"mid_sentence": 25, "points_back": 15, "request": 15, "pronoun": 8, "topic_late": 8,
+                   "subject_late": 10}
 # A first word pointing at someone or something the viewer has not met ("They have side effects.", JRE
 # #2553 c04; "Those are the ones..."): flagged, never moved — the on-screen hook may name them.
 _OPENS_ON_PRONOUN = re.compile(r"^(?:they|them|he|she|him|her|those|these|that['’]s|that was|that is)\b")
@@ -2294,13 +2298,253 @@ def check_opening(clip, words, seconds=None):
             hook = [playbook._singular(w) for w in playbook._hook_words(clip.get("viral_hook_text"))]
             if not (m.group(0) in _PERSONAL and any(w in playbook._HOOK_PERSONS for w in hook)):
                 flags.append("pronoun")
-        topic = {_stem(w) for w in playbook._sig_words(f"{clip.get('video_title_for_youtube_short') or ''} "
-                                                       f"{clip.get('viral_hook_text') or ''}")}
-        said = " ".join(w["w"] for w in words[k0:] if w["s"] < start + seconds)
-        if topic and not topic & {_stem(w) for w in playbook._sig_words(said)}:
-            flags.append("topic_late")
+        if _subject_stems(clip):
+            at = subject_said_at(clip, words)
+            # 9-oct-2026: the model named the clip's thing (subject_words): it is heard within
+            # OPENING_SUBJECT_SECONDS, or the opening is late (never heard in the clip counts as late).
+            if at is None or at > OPENING_SUBJECT_SECONDS:
+                flags.append("subject_late")
+        else:
+            topic = {_stem(w) for w in playbook._sig_words(f"{clip.get('video_title_for_youtube_short') or ''} "
+                                                           f"{clip.get('viral_hook_text') or ''}")}
+            said = " ".join(w["w"] for w in words[k0:] if w["s"] < start + seconds)
+            if topic and not topic & {_stem(w) for w in playbook._sig_words(said)}:
+                flags.append("topic_late")
     clip["opening_flags"] = flags
     return flags
+
+
+# --- the first sentence says the thing (9-oct-2026, recette « références », RECETTE_REFERENCES.md §3) -----------
+# No title on screen any more (OptimalHealth, Clip Storm: none has one): the first sentence heard IS the hook. The
+# spectator of 9-oct (etude2/spectateur/rapport.md): 9 clips of 12 opened mid-thought and 10 made the viewer wait
+# more than 10 s for the thing promised (c11: « 700 escaped » at 27 s); the same tumour passage went from 47.7 % to
+# 77.8 % of viewers staying when the rifle moved from 26 s to 6 s. The model names the clip's thing
+# (subject_words); the target: heard within OPENING_SUBJECT_SECONDS (else flagged subject_late, OPENING_PENALTY).
+# When the first sentence does not say it, the clip opens on the sentence around its FIRST mention that says it
+# within SUBJECT_MOVE_SECONDS — never on a mention more than OPENING_SUBJECT_SECONDS after the first one (bench of
+# 9-oct, c10: "now lidocaine is standard", 7 s after the first "lidocaine", would cut the finding itself). The end
+# (the payoff) never moves; the clip never goes under its minimum nor drops more than SUBJECT_MAX_SKIP s of its
+# start, never opens on a line pointing back, a request or "that's / it's"; else it stays as it was.
+OPENING_SUBJECT_SECONDS = 3.0
+SUBJECT_MOVE_SECONDS = 5.0
+SUBJECT_MAX_SKIP = 25.0
+# A sentence opening on these points at something the viewer has not met: never moved onto (a personal pronoun
+# is, when the sentence names the thing; check_opening still flags it).
+_OPENS_ON_POINTER = re.compile(r"^(?:those|these|that['’]s|that was|that is|this is|it['’]s|it was)\b")
+
+
+def _bare(word):
+    return re.sub(r"[^a-z0-9]", "", (word or "").lower())
+
+
+def _word_stems(text):
+    return {_stem(w) for w in playbook._sig_words(str(text or ""))}
+
+
+def _subject_stems(clip, key="subject_words"):
+    return _word_stems(clip.get(key))
+
+
+def _subject_phrase(text):
+    """The stems of ``text``'s significant words, in the order said."""
+    out = []
+    for w in str(text or "").split():
+        for s in sorted(_word_stems(w)):
+            if s not in out:
+                out.append(s)
+    return out
+
+
+def _sentence_last(words, k, max_words=40):
+    """Index of the last word of the sentence opening on word ``k`` (_sentence_text's)."""
+    for j in range(k, min(len(words), k + max_words)):
+        if _is_boundary(words, j):
+            return j
+    return min(len(words), k + max_words) - 1
+
+
+def _subject_hits(words, text, k0, end):
+    """Indices of the words (from ``k0``, said before ``end``) where ``text`` is said: its first significant
+    word, with all the others within the next few words. A bench of 9-oct-2026 had "people should retire" hit
+    on any "people" and "cured his own Castleman's disease" on any "own" when any word counted."""
+    phrase = _subject_phrase(text)
+    if not phrase:
+        return []
+    reach = len(phrase) + 3
+    hits = []
+    for i in range(k0, len(words)):
+        if words[i]["s"] >= end:
+            break
+        if phrase[0] not in _word_stems(words[i]["w"]):
+            continue
+        near = set().union(*(_word_stems(w["w"]) for w in words[i:i + reach]))
+        if all(t in near for t in phrase[1:]):
+            hits.append(i)
+    return hits
+
+
+def subject_said_at(clip, words, start=None):
+    """Seconds from the first word heard to the first word of ``subject_words`` (None: no subject words, or
+    never said in the clip)."""
+    start = float(clip.get("start", 0)) if start is None else start
+    k0 = _first_heard(words, start)
+    if not _subject_stems(clip) or k0 is None:
+        return None
+    hits = _subject_hits(words, clip.get("subject_words"), k0, float(clip.get("end", 0)))
+    return round(words[hits[0]]["s"] - words[k0]["s"], 2) if hits else None
+
+
+def open_on_subject(clip, words, min_secs, seconds=None):
+    """OPENING_SUBJECT_FIRST=1: when ``subject_words`` is heard later than ``seconds`` (OPENING_SUBJECT_SECONDS)
+    after the first word and the first sentence does not say it, open on the sentence around its first mention
+    that says it within SUBJECT_MOVE_SECONDS of its start (see above). Sets ``subject_said_at`` (seconds, None
+    when never heard) and, on a move, ``opening_moved_for_subject``. Returns the new start, or None when the clip
+    keeps its start."""
+    seconds = OPENING_SUBJECT_SECONDS if seconds is None else seconds
+    start, end = float(clip.get("start", 0)), float(clip.get("end", 0))
+    k0 = _first_heard(words, start)
+    if not _subject_stems(clip) or k0 is None:
+        return None
+    hits = _subject_hits(words, clip.get("subject_words"), k0, end)
+    t0 = words[k0]["s"]
+    clip["subject_said_at"] = round(words[hits[0]]["s"] - t0, 2) if hits else None
+    if not hits or words[hits[0]]["s"] - t0 <= seconds or hits[0] <= _sentence_last(words, k0):
+        # Said in time — or said in the first sentence, only late in a long one: that sentence does say the
+        # thing. Kept; flagged by check_opening.
+        return None
+    span = _payoff_span(words, clip.get("punchline"), start, end)
+    payoff_start = words[span[0]]["s"] if span else end
+    first_said = words[hits[0]]["s"]
+    for j in range(k0 + 1, len(words)):
+        if (words[j]["s"] > first_said + seconds or words[j]["s"] - t0 > SUBJECT_MAX_SKIP
+                or words[j]["s"] >= payoff_start or end - _start_at(words, j) < min_secs):
+            break
+        if not _opens_sentence(words, j):
+            continue
+        k, verdict = _opening_start(words, j)
+        if verdict or words[k]["s"] > first_said + seconds:
+            continue
+        # The thing is said in the new FIRST sentence, within SUBJECT_MOVE_SECONDS.
+        h = next((i for i in hits if i >= k), None)
+        if h is None or h > _sentence_last(words, k) or words[h]["s"] - words[k]["s"] > SUBJECT_MOVE_SECONDS:
+            continue
+        if _OPENS_ON_POINTER.match(_sentence_text(words, k).lower().lstrip("\"'“‘(")):
+            continue
+        new_start = _start_at(words, k)
+        if end - new_start < min_secs:
+            break
+        clip["opening_moved_for_subject"] = {
+            "from": round(start, 2), "to": round(new_start, 2), "subject": clip.get("subject_words"),
+            "said_at_before": clip["subject_said_at"], "said_at_after": round(words[h]["s"] - words[k]["s"], 2),
+            "hook_line_before": clip.get("hook_line")}
+        clip["start"] = new_start
+        clip["hook_line"] = _sentence_text(words, k, 40)
+        clip["hook_aligned"] = True
+        clip["subject_said_at"] = round(words[h]["s"] - words[k]["s"], 2)
+        for flag in ("start_mid_sentence", "opens_on_before", "opens_on_request"):
+            clip.pop(flag, None)
+        return new_start
+    return None
+
+
+# --- what the niche's big shorts have in common, weighed (9-oct-2026, decoding of OptimalHealth) ---------------
+# etude2/decodage/rapport.md + RECETTE_REFERENCES.md §8-9: 250k-1.6M views on a thing everyone does or uses (sleep,
+# calming down, melatonin, shower water, ibuprofen), 11-20k on niche things; their hits cut to the other person
+# 5.8 times a minute, their flops 0.7; their flops' face is 12 % of the frame height against 26 % (a 16:9 band, a
+# conference filmed from afar). Points added to (or taken from) predicted_score in rank_by_opening — weights,
+# never filters (the user's reserve: « ne ferme pas la sélection »). SELECTION_WEIGHTS (plus.SELECTION["weights"],
+# JSON) sets them; without it every weight is 0 and the ranking is unchanged.
+SELECTION_WEIGHT_KEYS = ("everyday", "everyone", "many", "practical", "two_voices", "face_small")
+AUDIENCE_REACH = playbook.AUDIENCE_REACH
+
+
+def selection_weights():
+    """{key: points} of SELECTION_WEIGHTS (0 for a key it does not give), each clamped to ±30."""
+    try:
+        raw = json.loads(os.environ.get("SELECTION_WEIGHTS") or "{}")
+    except ValueError:
+        raw = {}
+    out = {}
+    for k in SELECTION_WEIGHT_KEYS:
+        try:
+            out[k] = max(-30.0, min(30.0, float(raw.get(k) or 0)))
+        except (TypeError, ValueError, AttributeError):
+            out[k] = 0.0
+    return out
+
+
+def everyday_weight():
+    """Points a moment about an everyday thing gets (selection_weights' "everyday")."""
+    return selection_weights()["everyday"]
+
+
+def _weights_for(clip):
+    """{reason: points} that apply to ``clip`` (see above)."""
+    w = selection_weights()
+    out = {}
+    if str(clip.get("everyday_thing") or "").strip() and clip.get("everyday_said", True):
+        out["everyday"] = w["everyday"]
+    reach = str(clip.get("audience_reach") or "").strip().lower()
+    if reach in ("everyone", "many"):
+        out[reach] = w[reach]
+        if clip.get("practical") is True:
+            out["practical"] = w["practical"]
+    if clip.get("two_voices") is True:
+        out["two_voices"] = w["two_voices"]
+    if clip.get("face_small"):
+        out["face_small"] = -abs(w["face_small"])
+    return {k: v for k, v in out.items() if v}
+
+
+# The face in the source frame (FACE_CHECK=1, plus.SELECTION["face_check"]): the largest face's height over the
+# frame's, on FACE_SAMPLES frames spread over the clip, median. A frame without a face found falls back on the
+# largest person (YOLO; a head is about FACE_OF_PERSON of the box detect_person_yolo returns, its top 40 %): a
+# speaker seen in profile is missed by the face detector (JRE #2553 c02, Joe reading a screen side-on, the week's
+# best "stayed" at 64.5 %) but not by YOLO. A frame with neither (a screen, a picture) does not count. Under
+# FACE_SMALL_SHARE the clip is ``face_small``: a wide shot, a stage, a 16:9 band. Local detection, no AI call.
+# Measured on JRE #2553-004: 0.26-0.32 on every clip of the week and every minute of the episode.
+FACE_SAMPLES = 5
+FACE_SMALL_SHARE = 0.15
+FACE_OF_PERSON = 0.6
+
+
+def face_share(video_path, start, end, n=FACE_SAMPLES):
+    """Median share of the frame height the speaker's face takes over ``n`` frames of [start, end] (None when no
+    frame shows a face or a person)."""
+    cap = cv2.VideoCapture(video_path)
+    shares = []
+    try:
+        for i in range(n):
+            t = start + (end - start) * (i + 0.5) / n
+            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            h = float(frame.shape[0])
+            faces = detect_face_candidates(frame)
+            if faces:
+                shares.append(max(f["box"][3] for f in faces) / h)
+                continue
+            person = detect_person_yolo(frame)
+            if person:
+                shares.append(FACE_OF_PERSON * person[3] / h)
+    finally:
+        cap.release()
+    return round(float(np.median(shares)), 3) if shares else None
+
+
+def check_faces(shorts, video_path):
+    """Sets ``face_share`` and ``face_small`` on each clip (FACE_CHECK=1). Never fails the selection."""
+    if not video_path or not os.path.exists(video_path):
+        return
+    for s in shorts:
+        try:
+            share = face_share(video_path, float(s["start"]), float(s["end"]))
+        except Exception as e:
+            print(f"      ⚠️ Face check skipped at {float(s.get('start', 0)):.0f}s ({type(e).__name__}: {e})")
+            continue
+        s["face_share"] = share
+        s["face_small"] = share is not None and share < FACE_SMALL_SHARE
 
 
 def _score(v):
@@ -2327,6 +2571,14 @@ def rank_by_opening(clip):
     base = moment if opening is None else opening
     base = max(0.0, base - sum(OPENING_PENALTY.get(f, 0) for f in clip.get("opening_flags") or []))
     score = (1 - OPENING_WEIGHT) * moment + OPENING_WEIGHT * base
+    # 9-oct-2026: what the niche's big shorts have in common (an everyday thing, everyone concerned, a practical
+    # tip, two voices) and against them (a small face) — weights at equal quality, never filters (_weights_for).
+    applied = _weights_for(clip)
+    if applied:
+        clip["selection_weights"] = applied
+        score += sum(applied.values())
+    else:
+        clip.pop("selection_weights", None)
     if clip.get("already_clipped"):
         score -= already_clipped.PENALTY
     score = int(round(max(0.0, score)))
@@ -2338,12 +2590,19 @@ def rank_by_opening(clip):
     return clip["predicted_score"]
 
 
-def rank_openings(shorts, words):
-    """Once the cuts are final: check_opening on each clip, the already-clipped search (when switched on,
-    already_clipped.py), rank_by_opening, and what was found in the log."""
+def rank_openings(shorts, words, video_path=None):
+    """Once the cuts are final: check_opening on each clip, the face in the source (FACE_CHECK=1, check_faces),
+    the already-clipped search (when switched on, already_clipped.py), rank_by_opening, and what was found in
+    the log."""
     import already_clipped
+    if os.environ.get("FACE_CHECK") == "1":
+        check_faces(shorts, video_path)
     for s in shorts:
         check_opening(s, words)
+        if str(s.get("everyday_thing") or "").strip():
+            k0 = _first_heard(words, float(s.get("start", 0)))
+            s["everyday_said"] = bool(k0 is not None and any(
+                _subject_hits(words, w, k0, float(s.get("end", 0))) for w in str(s["everyday_thing"]).split()))
     try:
         n = already_clipped.check(shorts, (os.environ.get("PLAYBOOK_SHOW") or "").strip())
         if n:
@@ -2359,7 +2618,8 @@ def rank_openings(shorts, words):
             k0 = _first_heard(words, float(s["start"]))
             heard = _sentence_text(words, k0, 14)[:80] if k0 is not None else ""
             print(f"      🎬 {float(s['start']):.0f}s: opening {s.get('opening_score', '?')}"
-                  f"{' (' + ', '.join(flags) + ')' if flags else ''}, moment {s.get('moment_score')}, "
+                  f"{' (' + ', '.join(flags) + ')' if flags else ''}, moment {s.get('moment_score')}"
+                  f"{', ' + ' '.join(f'{v:+g} {k}' for k, v in s['selection_weights'].items()) if s.get('selection_weights') else ''}, "
                   f"score {before} -> {s['predicted_score']}: \"{heard}\"")
     clean = sum(not s.get("opening_flags") for s in shorts)
     print(f"   🎬 Openings: {clean}/{len(shorts)} clip(s) open clean (sentence start, stands alone, subject said "
@@ -3035,8 +3295,8 @@ def playbook_detail_rules(max_secs):
     cut + descriptions, off-limits topics, the niche when there is one)."""
     if not playbook.enabled():
         return ""
-    return (gemini_worker.QUESTION_TITLE_ADDENDUM
-            + (gemini_worker.TITLE_VARIETY_ADDENDUM if playbook.title_variety_enabled() else "")
+    return (gemini_worker.title_rules()
+            + (gemini_worker.title_variety_rules() if playbook.title_variety_enabled() else "")
             + gemini_worker.PLAYBOOK_DETAIL_ADDENDUM.replace("{max_secs}", f"{max_secs:g}")
             + gemini_worker.SAFETY_TOPICS_ADDENDUM
             + playbook_niche_rules(detail=True))
@@ -3407,6 +3667,21 @@ def get_viral_clips(transcript_result, video_duration, video_path=None):
             if s.get("payoff_outside"):
                 print(f"      ⚠️ {s['start']:.0f}s: the PAYOFF IS OUTSIDE the clip ({s['payoff_outside']}) — "
                       f"kept, but left out of the auto-publish: \"{str(s.get('punchline') or '')[:70]}\"")
+        if playbook_on and os.environ.get("OPENING_SUBJECT_FIRST") == "1":
+            # 9-oct-2026: the first sentence says the clip's thing (open_on_subject), once the end is final.
+            moved = 0
+            for s in shorts:
+                before = float(s["start"])
+                if open_on_subject(s, words, min_secs) is not None:
+                    moved += 1
+                    m = s["opening_moved_for_subject"]
+                    print(f"      🗣️ {before:.0f}s: \"{s.get('subject_words')}\" was said at {m['said_at_before']:.1f}s — "
+                          f"opens {s['start'] - before:.1f}s later, said at {m['said_at_after']:.1f}s: "
+                          f"\"{str(s.get('hook_line') or '')[:70]}\"")
+            said = [s.get("subject_said_at") for s in shorts if s.get("subject_words")]
+            early = sum(a is not None and a <= OPENING_SUBJECT_SECONDS for a in said)
+            print(f"   🗣️ Subject first: {early}/{len(said)} clip(s) say their thing within "
+                  f"{OPENING_SUBJECT_SECONDS:g}s ({moved} opened later for it).")
         if playbook_on:
             kept = dropped = 0
             for s in shorts:
@@ -3418,7 +3693,7 @@ def get_viral_clips(transcript_result, video_duration, video_path=None):
             print(f"   ✂️  Cut-outs for the montage: {kept} passage(s) kept on "
                   f"{sum(bool(s.get('cut_out')) for s in shorts)} clip(s), {dropped} dropped.")
             # 5-oct-2026: the final cut's opening checked in code, the ranking weighed again.
-            rank_openings(shorts, words)
+            rank_openings(shorts, words, video_path)
         if dedupe:
             shorts = _dedupe(shorts, "final cuts")
         print(f"   ⏱️ Clip lengths: {clip_selection.duration_summary(shorts, target_secs)}")
@@ -3881,7 +4156,30 @@ if __name__ == '__main__':
                             print(f"   ⚠️ On-screen picture check failed ({type(e).__name__}: {e}) — "
                                   f"clip framed as usual.")
 
+                    # Smart zooms (zooms.py, plus.FX["zoom_style"] = "references"): the reframe punches in
+                    # on the strong words, so it gets the clip's words, the joins to hide and the punchline.
+                    import zooms as _zooms
+                    zoom_cues = (_zooms.style() == "references" and bool(transcript)
+                                 and output_format != "horizontal")
+                    if zoom_cues:
+                        try:
+                            import viral_fx as _vfx
+                            pt = clip.get("punchline_time")
+                            _zooms.write_cues(
+                                clip_temp_path, _vfx.clip_words(c_transcript, c_start, c_end),
+                                joins=[j["t"] for j in (mont or {}).get("joins") or [] if j.get("verdict") == "hide"],
+                                punch=(mont or {}).get("punch") or ((pt, pt + 3.0) if pt is not None else None))
+                        except Exception as e:
+                            print(f"   ⚠️ Zoom cues failed ({type(e).__name__}: {e}) — fixed framing.")
                     success = render_clip(clip_temp_path, clip_final_path, output_format)
+                    if zoom_cues:
+                        applied = (_zooms.read_cues(clip_temp_path) or {}).get("applied")
+                        if os.path.exists(_zooms.cues_path(clip_temp_path)):
+                            os.remove(_zooms.cues_path(clip_temp_path))
+                        # Only zooms the reframe really rendered stand in for the tight frames below.
+                        zoom_cues = applied is not None
+                        if zoom_cues:
+                            clip['zooms'] = applied
                     # Layer order: watermark burns into the canonical (so any
                     # later hook replacement, which re-derives from it, keeps
                     # the branding), background music mixes into the canonical
@@ -3923,12 +4221,12 @@ if __name__ == '__main__':
                                 clip['reactions'] = rep
                         except Exception as e:
                             print(f"   ⚠️ Reactions failed ({type(e).__name__}: {e}) — clip kept without them.")
-                    # Edit style (EDIT_STYLE=natural|premium, Clip Generator++):
+                    # Edit style (EDIT_STYLE=natural|premium|oneword, Clip Generator++):
                     # the look layer (grade, vignette) goes INTO the canonical,
                     # under the hook, so the hook text is never touched; its
                     # captions replace the default ones as the last layer.
                     edit_style = os.environ.get("EDIT_STYLE", "").strip()
-                    if success and edit_style in ("natural", "premium"):
+                    if success and edit_style in ("natural", "premium", "oneword"):
                         try:
                             import viral_fx
                             # Pristine copy (music included, no motion): the
@@ -4005,7 +4303,9 @@ if __name__ == '__main__':
                     # on screen, a dry cut to a tighter frame and back; and on the very
                     # frame of every montage join that would show. Last layer before the
                     # hook and the captions: every other change is known by now.
-                    if success and mont_cfg and mont_cfg.get("tight_frames", True):
+                    # With the smart zooms the reframe already changed the frame on the strong words and on
+                    # every join to hide: a tight frame on top would stack two zooms.
+                    if success and mont_cfg and mont_cfg.get("tight_frames", True) and not zoom_cues:
                         try:
                             import punch_in
                             import viral_fx
@@ -4046,8 +4346,11 @@ if __name__ == '__main__':
                         captioned = None
                         if clip.get('edit_style'):
                             wm = (json.loads(os.environ.get("PLUS_FX_JSON") or "{}") or {}).get("watermark")
+                            credit_show = playbook.show_name(clips_data.get('source_video'),
+                                                             os.environ.get("PLAYBOOK_SHOW") or "")
                             captioned = viral_caption_clip(deliver_path, c_transcript, c_start, c_end,
-                                                           clip['edit_style'], watermark=wm, clip=clip)
+                                                           clip['edit_style'], watermark=wm, clip=clip,
+                                                           show=credit_show)
                         if not captioned:
                             captioned = auto_caption_clip(
                                 deliver_path, c_transcript, c_start, c_end,

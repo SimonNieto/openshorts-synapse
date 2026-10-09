@@ -52,8 +52,9 @@ class TestJobEnv:
     def test_every_job_gets_the_recipe_whatever_the_profile_said(self):
         for profile in ({}, OLD_PROFILE):
             env = plus.job_env(profile)
-            assert env["EDIT_STYLE"] == "premium"
-            assert (env["AUTO_HOOK"], env["AUTO_HOOK_STYLE"], env["AUTO_HOOK_SECONDS"]) == ("1", "docline", "3.3")
+            # 9-oct-2026 (« références »): one word at a time, no hook title on screen.
+            assert env["EDIT_STYLE"] == "oneword"
+            assert (env["AUTO_HOOK"], env["AUTO_HOOK_STYLE"], env["AUTO_HOOK_SECONDS"]) == ("0", "docline", "3.3")
             assert env["SMOOTH_CAMERA"] == env["PLUS_REACTIONS"] == env["PLUS_HQ_CHAIN"] == "1"
             assert env["SYNAPSE_PLAYBOOK"] == env["HOOK_CHECK"] == env["AUDIO_SIGNALS"] == env["TITLE_VARIETY"] == "1"
             assert (env["CLIP_DEDUPE_OVERLAP"], env["CLIP_DEDUPE_SECONDS"]) == ("0.2", "8")
@@ -66,6 +67,12 @@ class TestJobEnv:
             fx = json.loads(env["PLUS_FX_JSON"])
             assert fx["smooth_camera"] and fx["reactions"] and fx["hq_chain"] and fx["smart_framing"]
             assert "look" not in fx and "spotlight" not in fx and "streaks" not in fx
+            # 9-oct-2026 (the user: copy the references' zooms): the fixed camera of 1-5 oct gives way to the smart
+            # zooms (zooms.py) — they replace the montage's tight frames, the drawings push in slowly.
+            assert fx["zoom_style"] == "references"
+            assert (env["BROLL_HERO_PUSH"], env["BROLL_HERO_PUSH_CURVE"]) == ("1.1", "linear")
+            assert (env["BROLL_HERO_STILL_EVERY"], env["BROLL_CARD_PUSH"]) == ("3", "1.06")
+            assert json.loads(env["PLUS_ZOOMS_JSON"]) == plus.ZOOMS
 
     def test_the_watermark_travels_with_the_fx(self):
         assert json.loads(plus.job_env(OLD_PROFILE)["PLUS_FX_JSON"])["watermark"] == "@TheSynapseCut"

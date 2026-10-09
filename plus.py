@@ -37,8 +37,9 @@ DEFAULT_PROFILE = {
     # line when the episode's title does not (playbook.split_show).
     "show": "",
     # The clip length, one of CLIP_FORMATS (4-oct-2026, instead of six numbers).
-    "format": "standard",
-    # The channel's name under the captions (blank = none).
+    "format": "references",
+    # The channel's name: small at the top right with the one-word captions
+    # ("@TheSynapseCut" -> THE SYNAPSE CUT), under the words with "premium" (blank = none).
     "watermark": "",
     # Images when something concrete is named (broll.py, the recipe in BROLL).
     # Off by default: it needs ComfyUI running on this PC, and a job without
@@ -58,18 +59,44 @@ DEFAULT_PROFILE = {
 }
 
 # --- the house recipe: what every Clip Generator++ job does -----------------------------
-# Captions: the natural look set in Montserrat ExtraBold (viral_fx.PRESETS["premium"]).
-EDIT_STYLE = "premium"
+# Captions (9-oct-2026, the « références » recipe, OptimalHealth as the model): "oneword" = one word at a
+# time in capitals, mid-screen, a golden strong word now and then, the « CREDIT: <show> » line and the
+# channel's name small at the top (viral_fx.PRESETS["oneword"], CORNER). "premium" = the 2-3 lit words
+# at 66 % of the height and the channel's name under them, the house style of 2-9 oct (one switch back).
+CAPTION_STYLE = "oneword"
+EDIT_STYLE = CAPTION_STYLE
 # Hook at the top: the documentary line (hooks.HOOK_STYLES["docline"], H3 of
 # the hook study of 2-oct-2026): the topic as a small yellow eyebrow, a short
 # rule, the hook in sentence case with its payoff word in yellow (the brain's
 # hook_accent); the title leaves at 3.3 s, the eyebrow and the rule stay.
 HOOK_STYLE, HOOK_SECONDS = "docline", 3.3
+# Whether the hook is burned at all (9-oct-2026, « références »: neither OptimalHealth nor Clip Storm puts a
+# title on screen; the first sentence said is the hook, the captioned word the only text, with the credit and
+# the channel's name small at the top, drawn by the "oneword" captions). False = no hook title (AUTO_HOOK 0):
+# the hook text is still written (titles, the spectator, publishing), just not drawn. True brings the
+# docline above back.
+HOOK_ON_SCREEN = False
 # The picture: zooms aimed at the measured face; the premium framing of the
 # reframe (framing.py, SMOOTH_CAMERA); reaction shots of the listener after a
 # strong line (reactions.py); every layer before the captions encoded
 # near-lossless (ffmpeg_utils.layer_encode_args).
-FX = {"smart_framing": True, "smooth_camera": True, "reactions": True, "hq_chain": True}
+#
+# The zooms (9-oct-2026, the user: copy OptimalHealth / Clip Storm, « zoom intelligent »; the decoding of 12
+# OptimalHealth Shorts, etude2/decodage/rapport.md rules 11, 12, 15): "references" = a dry punch-in on the strong
+# moments — a word said louder or higher, a number, a shock or emotion word, the punchline, every montage join to
+# hide — and to relaunch a stretch with no change for RELAUNCH s; back wide (x0.83) on a new sentence after a
+# pause and on the clip's last sentence; a slow push on every stretch; cropped from the source (zooms.py,
+# reframe_v2). It replaces the tight frames of MONTAGE. "fixed" = the fixed camera of 1-5 oct: one framing per
+# shot, the tight frame past 6 s without a change (punch_in.finish), still drawings.
+FX = {"smart_framing": True, "smooth_camera": True, "reactions": True, "hq_chain": True, "zoom_style": "references"}
+# The numbers of the "references" zooms (zooms.configure reads them, PLUS_ZOOMS_JSON): the punch on a 1080p source
+# and from 1440p up (theirs: x1.13-1.26), the slow push per second and its most over a stretch, the least time
+# between two dry cuts, the stretch without a change that earns a relaunch punch.
+ZOOMS = {"punch": 1.20, "punch_hi": 1.25, "slow_rate": 0.02, "slow_max": 0.10, "min_gap": 1.2, "relaunch": 5.0}
+# The pictures with the "references" zooms (broll knobs): a full-screen drawing pushes in 1.00 -> STILL_PUSH,
+# linear over its time on screen (theirs: 6-12 % over the picture), one in STILL_EVERY holds still (theirs: about
+# one in three); a card's picture pushes CARD_PUSH inside its frame while the face behind it keeps its own zoom.
+STILL_PUSH, STILL_EVERY, CARD_PUSH = 1.10, 3, 1.06
 # The montage (5-oct-2026, the user's decisions 2, 4 and 6 and her reservation 9, « go pour tout »): the clip
 # re-cut from the source — every silence over 0.35 s down to a breath, the clip choice's cut_out passages
 # taken out, the clip opening on the voice (montage.py); a dry cut to a 1.2x tighter frame past 6 s without a
@@ -102,9 +129,10 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          # v26 « dessin » (4-oct-2026, validated by the user as the final version): every picture drawn in the
          # episode's style charter by the art director, a safety verifier, one render per moment (broll_draw).
          # « littéral » (9-oct-2026, after the channels that work — OptimalHealth, Clip Storm): the concrete nouns said
-         # in the clip, each shown literally ON its word (photo, film still or 3D medical render), a scene full screen
-         # or an object as a big card in the lower half, from 0.8 s, one every 3-5 s, 1-3 s each, 35-60 % of the clip
-         # off the face (broll_litteral). "dessin" brings the drawn chain back as it was (its own texts, *-dessin.md).
+         # in the clip, each shown literally ON its word (photo, film still or 3D medical render): a scene full screen,
+         # an object as a big card in the lower half, a substance in a split screen, a mechanism as a 3D sequence with
+         # arrows drawn by the code; the face alone 0-3 s, 1-3 s each, ~40 % of the clip off the face, the clip ending
+         # on a face (broll_litteral; the rules of 12 OptimalHealth shorts decoded). "dessin" brings the drawn chain back as it was (its own texts, *-dessin.md).
          "chain": "litteral", "ideas": True,
          # Step up (5-oct-2026, validated by the user): every drawing made 9:16 and shown alone, full screen,
          # 2.0-2.5 s, hard cut in and out, no push-in — never a card on the head (decision 5; the source's own
@@ -113,13 +141,33 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          "full_width": True,
          # The opening drawing, 0-1.2 s under the hook (decision 8): coded, OFF until the A/B test (6 clips with /
          # 6 without, published 5-8 oct) is good at 48 h.
-         "opening": False}
+         "opening": False,
+         # Animated pictures (9-oct-2026, references recipe): a picture becomes a 2-3 s silent shot with one light
+         # motion (broll_animate: LTX-Video 2B distilled in ComfyUI). OFF until the user has seen the bench.
+         "animate": False}
+# B-roll « vidéo » (9-oct-2026, recette références): on an ACTION said in the clip (drinking, pouring, running,
+# sleeping...), 1.5-3 s of real stock footage from Pexels instead of a generated picture, cut on the word, full screen,
+# 9:16, no sound; the objects stay generated (broll_video.py). OFF until the user validates it on a board.
+BROLL["video"] = False
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set
 # (playbook.title_set_problems). All with the Synapse Cut playbook on.
+# Recette « références » (9-oct-2026, RECETTE_REFERENCES.md §3-4), NOT IN PROD until she validates it:
+# title_style "references" = OptimalHealth's titles (one everyday thing, 4-8 words, Hidden / Really / Trick...;
+# "question" = the closed yes/no question of 1-oct, back with one word); subject_first = the words naming the
+# clip's thing heard within main.OPENING_SUBJECT_SECONDS, else the clip opens on the later sentence that says them
+# (no title on screen any more: the first sentence IS the hook).
+# weights = points added to a clip's score in the ranking (main._weights_for), never filters (her reserve: « ne
+# ferme pas la sélection »), from the decoding of OptimalHealth (etude2/decodage/rapport.md): a moment about an
+# everyday thing; about a thing everyone / many people do, use or feel (their hits: sleep, melatonin, ibuprofen;
+# their 11-20k: niche things); a practical tip or a myth broken on it; the other speaker heard (hits 5.8 cuts to
+# them a minute, flops 0.7); and taken off when the face is small in the source (flops 12 % of the height, hits 26 %:
+# face_check measures it, main.FACE_SMALL_SHARE).
 SELECTION = {"dedupe_overlap": 0.2, "dedupe_seconds": 8.0, "hook_check": True, "audio_signals": True,
-             "title_variety": True, "playbook": True}
+             "title_variety": True, "playbook": True,
+             "title_style": "references", "subject_first": True, "face_check": True,
+             "weights": {"everyday": 5, "everyone": 6, "many": 2, "practical": 3, "two_voices": 4, "face_small": 20}}
 # The spectator (5-oct-2026, the user: « Brancher tout de suite », before any calibration): at the end of the job
 # every rendered clip's first 3 seconds are judged once by a blind viewer (hook_jury.py: frames of the final clip,
 # the words as edited, the hook; 1 vote, Sonnet) — a 0-100 chance to stay, stop yes/maybe/no, a verdict, a fix,
@@ -135,6 +183,11 @@ CLIP_FORMATS = {
     "short": {"clip_min": 10, "clip_max": 40, "clip_target": [15, 30]},
     "standard": {"clip_min": 15, "clip_max": 60, "clip_target": [25, 40]},
     "long": {"clip_min": 30, "clip_max": 90, "clip_target": [40, 60]},
+    # OptimalHealth's length (9-oct-2026, the user: « la durée faisant comme lui ») — their 48 last Shorts:
+    # 21-139 s, quartiles 35 / 51 / 60 s, the same median (56 s) for their hits and their flops. Capped at
+    # 60 s like "standard" (main.SHORTS_CEILING: a Short over a minute with a Content ID claim is blocked
+    # everywhere); 37 of their 48 fit under it.
+    "references": {"clip_min": 20, "clip_max": 60, "clip_target": [35, 58]},
 }
 # How many clips (4-oct-2026, validated by the user: « s'il y en a plus que deux de bons, on est bloqué à deux »): no
 # number in the profile, the AI keeps every clip good enough to publish. The fewest the clip-choice prompt asks for
@@ -295,7 +348,7 @@ def job_env(profile):
         # --- the house recipe (EDIT_STYLE, HOOK_*, FX, SELECTION above) ---
         "EDIT_STYLE": EDIT_STYLE,
         "PLUS_FX_JSON": json.dumps({**FX, "watermark": p["watermark"] or None}),
-        "AUTO_HOOK": "1",
+        "AUTO_HOOK": "1" if HOOK_ON_SCREEN else "0",
         "AUTO_HOOK_STYLE": HOOK_STYLE,
         "AUTO_HOOK_SECONDS": str(HOOK_SECONDS),
         "PLUS_REACTIONS": "1",
@@ -305,6 +358,11 @@ def job_env(profile):
         "PLUS_HQ_CHAIN": "1",
         # Read by montage.config (main._process_one_clip): the re-cut, the tight frames, the reactions' holes.
         "PLUS_MONTAGE_JSON": json.dumps(MONTAGE),
+        # Read by broll at import: the full-screen drawings push in slowly with the "references" zooms.
+        **({"BROLL_HERO_PUSH": f"{STILL_PUSH:g}", "BROLL_HERO_PUSH_CURVE": "linear",
+            "BROLL_HERO_STILL_EVERY": str(STILL_EVERY), "BROLL_CARD_PUSH": f"{CARD_PUSH:g}",
+            "PLUS_ZOOMS_JSON": json.dumps(ZOOMS)}
+           if FX.get("zoom_style") == "references" else {}),
         # Every clip ends on a full stop (main.end_on_sentence): a clip
         # stopping on a dangling "cause..." is never wanted.
         "CLEAN_END": "1",
@@ -314,6 +372,11 @@ def job_env(profile):
         "HOOK_CHECK": "1",
         "AUDIO_SIGNALS": "1",
         "TITLE_VARIETY": "1",
+        # Read by playbook.title_style, main.open_on_subject and main.rank_by_opening (SELECTION above).
+        "TITLE_STYLE": SELECTION["title_style"],
+        "OPENING_SUBJECT_FIRST": "1" if SELECTION["subject_first"] else "0",
+        "SELECTION_WEIGHTS": json.dumps(SELECTION["weights"]),
+        "FACE_CHECK": "1" if SELECTION["face_check"] else "0",
         # Read by main.spectate_clips once every clip is rendered (SPECTATOR above).
         "PLUS_SPECTATOR": "1" if SPECTATOR else "0",
         # --- the channel's own facts ---

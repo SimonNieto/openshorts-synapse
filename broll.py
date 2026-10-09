@@ -162,6 +162,11 @@ def _knob(name, default):
 # cut, like a cut between two cameras, and does not move. Was a 0.35 s crossfade and a 6 % push-in.
 HERO_FADE = _knob("BROLL_HERO_FADE", 0.0)           # s: crossfade in and out; 0 = a hard cut
 HERO_PUSH = _knob("BROLL_HERO_PUSH", 1.0)           # push-in over the time on screen; 1.0 = none
+# The push's curve: "ease" (slow, faster, slow) or "linear" (the references' steady creep, plus.FX "zoom_style"
+# "references" since 9-oct-2026: it starts moving on the cut's very frame).
+HERO_PUSH_CURVE = os.environ.get("BROLL_HERO_PUSH_CURVE", "ease")
+# One full-screen picture in this many holds still (OptimalHealth: about one in three does not move); 0 = all move.
+HERO_STILL_EVERY = int(_knob("BROLL_HERO_STILL_EVERY", 0))
 HERO_VIGNETTE = _knob("BROLL_HERO_VIGNETTE", 0.30)  # darkening at the corners (0-1): keeps the eye in the middle
 HERO_GRADIENT = _knob("BROLL_HERO_GRADIENT", 0.45)  # darkening at the very bottom (0-1): the captions stay readable on a bright picture
 HERO_GRAIN = _knob("BROLL_HERO_GRAIN", 5.0)         # film grain, sigma in 8-bit levels: hides the upscale and the AI smoothness
@@ -3023,7 +3028,8 @@ def _caption_band(H, style=None, watermark=None):
     bottom = p["caption_y"] + 0.6 * size
     try:
         wm = watermark if watermark is not None else json.loads(os.environ.get("PLUS_FX_JSON") or "{}").get("watermark")
-        if wm:
+        # A "corner" preset (oneword) puts the channel's name at the top, not under the words.
+        if wm and not p.get("corner"):
             bottom = p["caption_y"] + 0.95 * size + max(18, size // 4) * 0.6
     except ValueError:
         pass
@@ -3451,7 +3457,7 @@ def _draw_marks(W, H, marks, t):
     return out
 
 
-def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None, marks=None):
+def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None, push=None, marks=None):
     """PNG sequence (RGBA) of a full-screen "hero" picture, the way a cutaway is
     cut in a documentary: the image covers the frame (centre crop), pushes in
     slowly (1.00 -> HERO_PUSH, eased over its whole time on screen) and
@@ -3466,8 +3472,10 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None, marks=None):
     Since 5-oct-2026 (« caméra fixe ») HERO_PUSH is 1.0 and HERO_FADE 0: a hard
     cut in and out and no move — the picture is then resampled once, only the
     grain changes from frame to frame.
+    ``push``: this picture's own push (HERO_PUSH when None; 1.0 = it holds still).
     Returns the frame pattern."""
     import numpy as np
+    push = HERO_PUSH if push is None else push
     img = Image.open(src).convert("RGB")
     if _grade_params(grade):
         img = _grade_colour(img, grade)
@@ -3503,7 +3511,8 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None, marks=None):
         px_marks.append({**mk, "px": (u * iw - cx0) / sw * W, "py": (v * ih - cy0) / sh * H})
     for f in range(n):
         t = f / fps
-        z = 1.0 + (HERO_PUSH - 1.0) * _smooth(t / dur)
+        z = 1.0 + (push - 1.0) * (min(1.0, f / max(1, n - 1)) if HERO_PUSH_CURVE == "linear"
+                                       else _smooth(t / dur))
         if fx == "tremble":
             z *= 1.025                                        # room for the shake inside the picture
         bw, bh = sw / z, sh / z
@@ -3519,7 +3528,7 @@ def _hero_frames(src, folder, fps, dur, W, H, grade="off", fx=None, marks=None):
             if fx == "double":
                 arr = _fx_double(arr, t)
             arr = arr * shade
-            if abs(HERO_PUSH - 1.0) < 1e-9 and fx is None:
+            if abs(push - 1.0) < 1e-9 and fx is None:
                 still = arr.copy()
         if noise is not None:
             # The same grain field moved around: new grain every frame for the price of a copy.
@@ -4387,7 +4396,11 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                                "y": h // 2})
             elif hero:
                 fx = it.get("fx") if it.get("fx") in FX_KINDS else None
-                pattern = _hero_frames(src, folder, fps, dur, w, h, grade=grade, fx=fx, marks=it.get("marks"))
+                heroes = sum(1 for ly in layers if ly.get("hero"))
+                still = HERO_STILL_EVERY > 0 and heroes % HERO_STILL_EVERY == HERO_STILL_EVERY - 1
+                # a « littéral » sequence step holds still: its marks are drawn where its points are
+                pattern = _hero_frames(src, folder, fps, dur, w, h, grade=grade, fx=fx,
+                                       push=1.0 if still or it.get("marks") else None, marks=it.get("marks"))
                 layers.append({"t": it["t"], "dur": dur, "rise": False, "hero": True, "pattern": pattern, "x": 0, "y": 0})
             elif rise:
                 pattern, x, motion = _rise_frames(src, folder, fps, dur, w, h, int(it.get("size") or RISE_SIZE),

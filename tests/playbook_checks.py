@@ -10,6 +10,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
 sys.path.insert(0, ROOT)
 os.environ.pop("SYNAPSE_PLAYBOOK", None)
+# The closed-question titles (playbook.title_style "question"); the "references" style: tests/test_references_recipe.py.
+os.environ["TITLE_STYLE"] = "question"
 import gemini_worker as gw
 import playbook
 import plus
