@@ -148,8 +148,9 @@ BROLL = {"source": "local", "engine": "zimage", "style": "auto", "mode": "mixed"
          # Animated pictures (9-oct-2026, references recipe): a picture becomes a 2-3 s silent shot with one light
          # motion (broll_animate: LTX-Video 2B distilled in ComfyUI) — in the « littéral » chain, a 3D render of the inside
          # of the body whose light pulses or flows (never an organ that changes shape). ON on the references-v3 branch
-         # only (9-oct-2026, the final bench): production keeps it off until the user validates it ("animate_engine":
-         # "ltxv" by default; "wan22" comes with the references-animate branch).
+         # only (9-oct-2026, the final bench): production keeps it off until the user validates it. "animate_engine":
+         # "ltxv" (LTX-Video 2B distilled, ~35 s a shot, the default) or "wan22" (Wan 2.2 TI2V 5B, ~7 min a shot: too
+         # slow for a job of 12 clips).
          "animate": True, "animate_engine": "ltxv"}
 # B-roll « vidéo » (9-oct-2026, recette références): on an ACTION said in the clip (drinking, pouring, running,
 # sleeping...), 1.5-3 s of real stock footage from Pexels instead of a generated picture, cut on the word, full screen,
