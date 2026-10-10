@@ -21,7 +21,7 @@ const PLATFORM_OPTIONS = [
  * "Schedule" then sends POST /api/social/post clip by clip — exactly ScheduleComposer's request
  * (lib/schedulePost.js), with each clip's OWN project account and niche, as in the Publish plan.
  *
- * A post whose time has passed can be sent NOW instead (10-oct-2026, the user: « si j'ai passé 12h, je veux le mettre
+ * Any post can be sent NOW instead of at its time (a passed time can only go now) (10-oct-2026, the user: « si j'ai passé 12h, je veux le mettre
  * en now puis les autres normal ») — « Post now » on its row; the others keep their times.
  *
  * items: [{ date, time, clip, project }] — project = { niche, upload_profile } of the clip's project (the
@@ -53,7 +53,7 @@ export default function ScheduleConfirm({ isOpen, onClose, items, uploadPostKey,
     const choice = savedNicheChoice(it.project, uploadUserId);
     const key = `${it.clip.job_id}:${it.clip.clip_index}`;
     const passed = slotPassed(it, now);
-    const postNow = passed && nowKeys.has(key);
+    const postNow = nowKeys.has(key);
     const blocker = !choice
       ? "No niche confirmed for this clip's project: confirm it once in Publish plan."
       : passed && !postNow
@@ -176,7 +176,7 @@ export default function ScheduleConfirm({ isOpen, onClose, items, uploadPostKey,
                         Account {r.choice.profile || '—'} · niche {r.choice.niche}
                       </p>
                     )}
-                    {r.passed && r.choice && !done && (
+                    {r.choice && !done && (
                       <button type="button" onClick={() => toggleNow(r.key)} disabled={sending}
                         className={`${r.postNow ? 'btn-ghost' : 'btn-accent'} px-3 py-1.5 text-xs inline-flex items-center gap-1.5`}>
                         {r.postNow
