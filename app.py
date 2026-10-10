@@ -4164,7 +4164,17 @@ def _captions_from_pool(clip: dict, title: Optional[str], description: Optional[
     instagram_text = clip.get('video_description_for_instagram') or clip.get('video_description_for_tiktok')
     base_title = title or clip.get('video_title_for_youtube_short') or 'Viral Short'
     # B-roll photos under CC BY must be credited where the video is posted.
-    credits = clip.get('broll_credits') or []
+    # A credit is a line of text (CC BY photos) or, since the Pexels footage (10-oct-2026), a dict
+    # {author, page, licence…}: « <author> (Pexels) ». One line per author, in order.
+    credits = []
+    for cr in clip.get('broll_credits') or []:
+        if isinstance(cr, dict):
+            who = str(cr.get('author') or '').strip()
+            line = f"{who} (Pexels)" if who else ''
+        else:
+            line = str(cr or '').strip()
+        if line and line not in credits:
+            credits.append(line)
     credit_line = ("\n\nImages: " + " · ".join(credits)) if credits and not description else ""
     tags = _pick_clip_hashtags(clip, pool, niche)
     if description:
