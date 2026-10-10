@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Calendar, CheckCircle, AlertCircle, Loader2, Video, Instagram, Youtube } from 'lucide-react';
+import { AlertTriangle, Calendar, CheckCircle, AlertCircle, Loader2, Send, Undo2, Video, Instagram, Youtube } from 'lucide-react';
 import Modal from '../ui/Modal';
 import SegmentedControl from '../ui/SegmentedControl';
 import TikTokDraftNotice from '../TikTokDraftNotice';
@@ -21,6 +21,9 @@ const PLATFORM_OPTIONS = [
  * "Schedule" then sends POST /api/social/post clip by clip — exactly ScheduleComposer's request
  * (lib/schedulePost.js), with each clip's OWN project account and niche, as in the Publish plan.
  *
+ * A post whose time has passed can be sent NOW instead (10-oct-2026, the user: « si j'ai passé 12h, je veux le mettre
+ * en now puis les autres normal ») — « Post now » on its row; the others keep their times.
+ *
  * items: [{ date, time, clip, project }] — project = { niche, upload_profile } of the clip's project (the
  * catalogue sends them on each clip; /api/local-projects otherwise), null when unknown.
  */
@@ -29,10 +32,17 @@ export default function ScheduleConfirm({ isOpen, onClose, items, uploadPostKey,
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState({});
   const [now, setNow] = useState(() => new Date());
+  const [nowKeys, setNowKeys] = useState(() => new Set());
+  const toggleNow = (key) => setNowKeys((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
 
   useEffect(() => {
     if (!isOpen) return undefined;
     setResults({});
+    setNowKeys(new Set());
     setNow(new Date());
     setPlatforms(loadSchedulePrefs().platforms || DEFAULT_PLATFORMS);
     const t = setInterval(() => setNow(new Date()), 30000);
@@ -41,13 +51,16 @@ export default function ScheduleConfirm({ isOpen, onClose, items, uploadPostKey,
 
   const rows = useMemo(() => (items || []).map((it) => {
     const choice = savedNicheChoice(it.project, uploadUserId);
+    const key = `${it.clip.job_id}:${it.clip.clip_index}`;
+    const passed = slotPassed(it, now);
+    const postNow = passed && nowKeys.has(key);
     const blocker = !choice
       ? "No niche confirmed for this clip's project: confirm it once in Publish plan."
-      : slotPassed(it, now)
-        ? 'This time has passed — suggest the order again.'
+      : passed && !postNow
+        ? 'This time has passed — post it now, or suggest the order again.'
         : '';
-    return { ...it, choice, blocker, key: `${it.clip.job_id}:${it.clip.clip_index}` };
-  }), [items, uploadUserId, now]);
+    return { ...it, choice, blocker, key, passed, postNow };
+  }), [items, uploadUserId, now, nowKeys]);
 
   const sendable = rows.filter((r) => !r.blocker);
   const canPost = !!(isManaged || (uploadPostKey && sendable.every((r) => r.choice?.profile)));
@@ -73,7 +86,7 @@ export default function ScheduleConfirm({ isOpen, onClose, items, uploadPostKey,
             uploadPostKey,
             profile: r.choice.profile,
             platforms,
-            slot: { date: r.date, time: r.time },
+            slot: r.postNow ? { now: true } : { date: r.date, time: r.time },
             niche: r.choice.niche,
             timezone,
           })),
@@ -146,8 +159,14 @@ export default function ScheduleConfirm({ isOpen, onClose, items, uploadPostKey,
               return (
                 <li key={r.key} className={`tray p-3 flex items-start gap-3 ${r.blocker ? 'opacity-80' : ''}`}>
                   <div className="w-[5.5rem] shrink-0">
-                    <p className="text-sm text-ink">{fmtDay(r.date)}</p>
-                    <p className="readout !text-ink2">{r.time}</p>
+                    {r.postNow ? (
+                      <p className="text-sm text-accent font-medium">Now</p>
+                    ) : (
+                      <>
+                        <p className="text-sm text-ink">{fmtDay(r.date)}</p>
+                        <p className="readout !text-ink2">{r.time}</p>
+                      </>
+                    )}
                   </div>
                   <div className="min-w-0 flex-1 space-y-1">
                     <p className="text-sm text-ink leading-snug line-clamp-2 break-words">{r.clip.title}</p>
@@ -156,6 +175,14 @@ export default function ScheduleConfirm({ isOpen, onClose, items, uploadPostKey,
                       <p className="readout normal-case tracking-[0.04em]">
                         Account {r.choice.profile || '—'} · niche {r.choice.niche}
                       </p>
+                    )}
+                    {r.passed && r.choice && !done && (
+                      <button type="button" onClick={() => toggleNow(r.key)} disabled={sending}
+                        className={`${r.postNow ? 'btn-ghost' : 'btn-accent'} px-3 py-1.5 text-xs inline-flex items-center gap-1.5`}>
+                        {r.postNow
+                          ? <><Undo2 size={13} aria-hidden="true" /> Don't post now</>
+                          : <><Send size={13} aria-hidden="true" /> Post now</>}
+                      </button>
                     )}
                     {r.blocker && (
                       <p className="text-xs text-warn flex items-start gap-1.5">
