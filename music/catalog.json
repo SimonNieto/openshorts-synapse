@@ -1,0 +1,211 @@
+{
+  "note": "Pistes Pixabay Music relevées le 09/10/2026 : aucune n'affiche « Content ID Registered » sur sa page (vérifié dans les données de la page). Licence Pixabay Content License (usage commercial, sans crédit obligatoire). La piste apalonbeats (phonk) n'est pas au catalogue : statut Content ID inconnu.",
+  "tracks": [
+    {
+      "file": "morgan-ambient-calm-ambient-dreamscape-529861.mp3",
+      "title": "Calm Ambient Dreamscape",
+      "author": "morgan-ambient",
+      "url": "https://pixabay.com/music/ambient-calm-ambient-dreamscape-529861/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "calm",
+        "dark"
+      ],
+      "duration": 222.1,
+      "bpm": 87,
+      "lufs": -10.4
+    },
+    {
+      "file": "alex-morgan-ambient-background-soft-air-drift-575882.mp3",
+      "title": "Ambient Background Soft Air Drift",
+      "author": "alex-morgan",
+      "url": "https://pixabay.com/music/ambient-ambient-background-soft-air-drift-575882/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "calm",
+        "curious"
+      ],
+      "duration": 189.9,
+      "bpm": 140,
+      "lufs": -10.9
+    },
+    {
+      "file": "atlasaudio-ambient-ambient-music-576612.mp3",
+      "title": "Ambient Music",
+      "author": "AtlasAudio",
+      "url": "https://pixabay.com/music/ambient-ambient-ambient-music-576612/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "calm",
+        "dark"
+      ],
+      "duration": 124.0,
+      "bpm": 146,
+      "lufs": -13.5
+    },
+    {
+      "file": "jonasblakewood-lofi-chill-lofi-chill-music-573480.mp3",
+      "title": "Lofi Chill Music",
+      "author": "JonasBlakewood",
+      "url": "https://pixabay.com/music/lofi-lofi-chill-lofi-chill-music-573480/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "calm",
+        "uplifting"
+      ],
+      "duration": 47.9,
+      "bpm": 92,
+      "lufs": -7.8
+    },
+    {
+      "file": "alex-morgan-lofi-chill-vlog-beats-573883.mp3",
+      "title": "Lofi Chill Vlog Beats",
+      "author": "alex-morgan",
+      "url": "https://pixabay.com/music/lofi-lofi-chill-vlog-beats-573883/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "uplifting",
+        "curious"
+      ],
+      "duration": 145.4,
+      "bpm": 75,
+      "lufs": -9.7
+    },
+    {
+      "file": "alex-morgan-lofi-midnight-club-568164.mp3",
+      "title": "Lofi Midnight Club",
+      "author": "alex-morgan",
+      "url": "https://pixabay.com/music/lofi-lofi-midnight-club-568164/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "dark",
+        "tense"
+      ],
+      "duration": 137.4,
+      "bpm": 78,
+      "lufs": -10.1
+    },
+    {
+      "file": "alex-morgan-chillhop-jazz-coffee-shop-552792.mp3",
+      "title": "Chillhop Jazz Coffee Shop",
+      "author": "alex-morgan",
+      "url": "https://pixabay.com/music/lofi-chillhop-jazz-coffee-shop-552792/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "uplifting",
+        "calm"
+      ],
+      "duration": 173.3,
+      "bpm": 60,
+      "lufs": -9.3
+    },
+    {
+      "file": "alex-morgan-lofi-coffee-shop-568150.mp3",
+      "title": "Lofi Coffee Shop",
+      "author": "alex-morgan",
+      "url": "https://pixabay.com/music/lofi-lofi-coffee-shop-568150/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "calm",
+        "uplifting"
+      ],
+      "duration": 113.9,
+      "bpm": 70,
+      "lufs": -10.7
+    },
+    {
+      "file": "kulakovka-lofi-relax-570489.mp3",
+      "title": "LoFi Relax",
+      "author": "Kulakovka",
+      "url": "https://pixabay.com/music/lofi-lofi-relax-570489/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "calm"
+      ],
+      "duration": 140.0,
+      "bpm": null,
+      "lufs": -11.6
+    },
+    {
+      "file": "alex-morgan-lofi-study-session-568160.mp3",
+      "title": "Lofi Study Session",
+      "author": "alex-morgan",
+      "url": "https://pixabay.com/music/lofi-lofi-study-session-568160/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "curious",
+        "calm"
+      ],
+      "duration": 131.3,
+      "bpm": 78,
+      "lufs": -10.4
+    },
+    {
+      "file": "alex-morgan-documentary-571649.mp3",
+      "title": "Documentary",
+      "author": "alex-morgan",
+      "url": "https://pixabay.com/music/corporate-documentary-571649/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "curious",
+        "tense"
+      ],
+      "duration": 51.3,
+      "bpm": 111,
+      "lufs": -9.6
+    },
+    {
+      "file": "solarflex-soft-soft-music-589025.mp3",
+      "title": "Soft Music",
+      "author": "SolarFLEX",
+      "url": "https://pixabay.com/music/soft-house-soft-soft-music-589025/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "uplifting",
+        "calm"
+      ],
+      "duration": 108.0,
+      "bpm": 75,
+      "lufs": -19.2
+    },
+    {
+      "file": "prettyjohn1-science-576219.mp3",
+      "title": "Science",
+      "author": "prettyjohn1",
+      "url": "https://pixabay.com/music/corporate-science-576219/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "curious",
+        "uplifting"
+      ],
+      "duration": 108.9,
+      "bpm": 70,
+      "lufs": -8.3
+    },
+    {
+      "file": "apalonbeats-phonk-tiktok-instagram-youtube-music-509949.mp3",
+      "title": "",
+      "author": "",
+      "url": "",
+      "licence": "",
+      "content_id": null,
+      "mood": [],
+      "duration": 30.1,
+      "bpm": 140,
+      "lufs": -4.6
+    }
+  ]
+}
