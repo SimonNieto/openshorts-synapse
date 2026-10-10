@@ -1,5 +1,5 @@
 {
-  "note": "Pistes Pixabay Music relevées le 09/10/2026 : aucune n'affiche « Content ID Registered » sur sa page (vérifié dans les données de la page). Licence Pixabay Content License (usage commercial, sans crédit obligatoire). La piste apalonbeats (phonk) n'est pas au catalogue : statut Content ID inconnu.",
+  "note": "10/10/2026 : bibliothèque refaite à sa demande (« trop enfantin ») : ambiance sombre / mystère / drones / piano, aucune lofi. Toutes vérifiées sans « Content ID Registered » sur leur page. Les anciennes pistes sont dans music/_retirees (non utilisées).",
   "tracks": [
     {
       "file": "morgan-ambient-calm-ambient-dreamscape-529861.mp3",
@@ -47,165 +47,214 @@
       "lufs": -13.5
     },
     {
-      "file": "jonasblakewood-lofi-chill-lofi-chill-music-573480.mp3",
-      "title": "Lofi Chill Music",
-      "author": "JonasBlakewood",
-      "url": "https://pixabay.com/music/lofi-lofi-chill-lofi-chill-music-573480/",
+      "file": "universfield-dark-mysterious-soundscape-286848.mp3",
+      "title": "Dark Mysterious Soundscape",
+      "author": "Universfield",
+      "url": "https://pixabay.com/music/ambient-dark-mysterious-soundscape-286848/",
       "licence": "Pixabay Content License",
       "content_id": false,
       "mood": [
-        "calm",
-        "uplifting"
+        "curious",
+        "dark"
       ],
-      "duration": 47.9,
-      "bpm": 92,
-      "lufs": -7.8
+      "duration": 124.4,
+      "bpm": null,
+      "lufs": -18.1
     },
     {
-      "file": "alex-morgan-lofi-chill-vlog-beats-573883.mp3",
-      "title": "Lofi Chill Vlog Beats",
-      "author": "alex-morgan",
-      "url": "https://pixabay.com/music/lofi-lofi-chill-vlog-beats-573883/",
+      "file": "openmindaudio-night-interior-background-silent-suspense-underscore-464810.mp3",
+      "title": "Night Interior Background – Silent Suspense Underscore",
+      "author": "OpenMindAudio",
+      "url": "https://pixabay.com/music/ambient-night-interior-background-silent-suspense-underscore-464810/",
       "licence": "Pixabay Content License",
       "content_id": false,
       "mood": [
-        "uplifting",
+        "tense",
         "curious"
       ],
-      "duration": 145.4,
-      "bpm": 75,
-      "lufs": -9.7
+      "duration": 125.0,
+      "bpm": 115,
+      "lufs": -17.5
     },
     {
-      "file": "alex-morgan-lofi-midnight-club-568164.mp3",
-      "title": "Lofi Midnight Club",
-      "author": "alex-morgan",
-      "url": "https://pixabay.com/music/lofi-lofi-midnight-club-568164/",
+      "file": "chestnutmusicstudios-1-piece-by-piece-590345.mp3",
+      "title": "1 Piece by Piece",
+      "author": "ChestnutMusicStudios",
+      "url": "https://pixabay.com/music/crime-scene-1-piece-by-piece-590345/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "tense",
+        "dark"
+      ],
+      "duration": 69.9,
+      "bpm": 115,
+      "lufs": -14.1
+    },
+    {
+      "file": "chestnutmusicstudios-11-unstable-ground-597895.mp3",
+      "title": "11 Unstable Ground",
+      "author": "ChestnutMusicStudios",
+      "url": "https://pixabay.com/music/ambient-11-unstable-ground-597895/",
       "licence": "Pixabay Content License",
       "content_id": false,
       "mood": [
         "dark",
         "tense"
       ],
-      "duration": 137.4,
-      "bpm": 78,
-      "lufs": -10.1
+      "duration": 144.6,
+      "bpm": 146,
+      "lufs": -13.7
     },
     {
-      "file": "alex-morgan-chillhop-jazz-coffee-shop-552792.mp3",
-      "title": "Chillhop Jazz Coffee Shop",
-      "author": "alex-morgan",
-      "url": "https://pixabay.com/music/lofi-chillhop-jazz-coffee-shop-552792/",
-      "licence": "Pixabay Content License",
-      "content_id": false,
-      "mood": [
-        "uplifting",
-        "calm"
-      ],
-      "duration": 173.3,
-      "bpm": 60,
-      "lufs": -9.3
-    },
-    {
-      "file": "alex-morgan-lofi-coffee-shop-568150.mp3",
-      "title": "Lofi Coffee Shop",
-      "author": "alex-morgan",
-      "url": "https://pixabay.com/music/lofi-lofi-coffee-shop-568150/",
-      "licence": "Pixabay Content License",
-      "content_id": false,
-      "mood": [
-        "calm",
-        "uplifting"
-      ],
-      "duration": 113.9,
-      "bpm": 70,
-      "lufs": -10.7
-    },
-    {
-      "file": "kulakovka-lofi-relax-570489.mp3",
-      "title": "LoFi Relax",
-      "author": "Kulakovka",
-      "url": "https://pixabay.com/music/lofi-lofi-relax-570489/",
-      "licence": "Pixabay Content License",
-      "content_id": false,
-      "mood": [
-        "calm"
-      ],
-      "duration": 140.0,
-      "bpm": null,
-      "lufs": -11.6
-    },
-    {
-      "file": "alex-morgan-lofi-study-session-568160.mp3",
-      "title": "Lofi Study Session",
-      "author": "alex-morgan",
-      "url": "https://pixabay.com/music/lofi-lofi-study-session-568160/",
-      "licence": "Pixabay Content License",
-      "content_id": false,
-      "mood": [
-        "curious",
-        "calm"
-      ],
-      "duration": 131.3,
-      "bpm": 78,
-      "lufs": -10.4
-    },
-    {
-      "file": "alex-morgan-documentary-571649.mp3",
-      "title": "Documentary",
-      "author": "alex-morgan",
-      "url": "https://pixabay.com/music/corporate-documentary-571649/",
+      "file": "chestnutmusicstudios-2-the-first-question-590346.mp3",
+      "title": "2 The First Question",
+      "author": "ChestnutMusicStudios",
+      "url": "https://pixabay.com/music/crime-scene-2-the-first-question-590346/",
       "licence": "Pixabay Content License",
       "content_id": false,
       "mood": [
         "curious",
         "tense"
       ],
-      "duration": 51.3,
-      "bpm": 111,
-      "lufs": -9.6
+      "duration": 104.8,
+      "bpm": 167,
+      "lufs": -14.2
     },
     {
-      "file": "solarflex-soft-soft-music-589025.mp3",
-      "title": "Soft Music",
-      "author": "SolarFLEX",
-      "url": "https://pixabay.com/music/soft-house-soft-soft-music-589025/",
+      "file": "alexgrohl-documentary-497499.mp3",
+      "title": "Documentary",
+      "author": "AlexGrohl",
+      "url": "https://pixabay.com/music/main-title-documentary-497499/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "curious",
+        "calm"
+      ],
+      "duration": 88.0,
+      "bpm": 90,
+      "lufs": -18.0
+    },
+    {
+      "file": "soundreality-space-drone-599272.mp3",
+      "title": "Space Drone",
+      "author": "SoundReality",
+      "url": "https://pixabay.com/music/ambient-space-drone-599272/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "calm",
+        "curious"
+      ],
+      "duration": 48.0,
+      "bpm": null,
+      "lufs": -11.2
+    },
+    {
+      "file": "universfield-ambient-space-background-350710.mp3",
+      "title": "Ambient Space Background",
+      "author": "Universfield",
+      "url": "https://pixabay.com/music/ambient-ambient-space-background-350710/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "curious",
+        "calm"
+      ],
+      "duration": 112.1,
+      "bpm": 80,
+      "lufs": -18.8
+    },
+    {
+      "file": "soundreality-cinematic-drone-599274.mp3",
+      "title": "Cinematic Drone",
+      "author": "SoundReality",
+      "url": "https://pixabay.com/music/high-drones-cinematic-drone-599274/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "calm",
+        "curious"
+      ],
+      "duration": 64.0,
+      "bpm": 120,
+      "lufs": -12.3
+    },
+    {
+      "file": "bearstockmusic-dark-drone-588593.mp3",
+      "title": "Dark Drone",
+      "author": "bearstockmusic",
+      "url": "https://pixabay.com/music/ambient-dark-drone-588593/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "dark",
+        "tense"
+      ],
+      "duration": 136.0,
+      "bpm": null,
+      "lufs": -12.7
+    },
+    {
+      "file": "everything_is_dead-dark-drone-ambient-586134.mp3",
+      "title": "Dark Drone Ambient",
+      "author": "everything_is_dead",
+      "url": "https://pixabay.com/music/ambient-dark-drone-ambient-586134/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "dark",
+        "calm"
+      ],
+      "duration": 259.8,
+      "bpm": 115,
+      "lufs": -14.1
+    },
+    {
+      "file": "universfield-deep-space-ambient-153309.mp3",
+      "title": "Deep Space Ambient",
+      "author": "Universfield",
+      "url": "https://pixabay.com/music/ambient-deep-space-ambient-153309/",
+      "licence": "Pixabay Content License",
+      "content_id": false,
+      "mood": [
+        "calm",
+        "curious"
+      ],
+      "duration": 141.7,
+      "bpm": 105,
+      "lufs": -25.5
+    },
+    {
+      "file": "paulyudin-piano-piano-music-508963.mp3",
+      "title": "Piano Music",
+      "author": "PaulYudin",
+      "url": "https://pixabay.com/music/solo-piano-piano-piano-music-508963/",
       "licence": "Pixabay Content License",
       "content_id": false,
       "mood": [
         "uplifting",
         "calm"
       ],
-      "duration": 108.0,
-      "bpm": 75,
-      "lufs": -19.2
+      "duration": 130.9,
+      "bpm": 125,
+      "lufs": -14.4
     },
     {
-      "file": "prettyjohn1-science-576219.mp3",
-      "title": "Science",
-      "author": "prettyjohn1",
-      "url": "https://pixabay.com/music/corporate-science-576219/",
+      "file": "everything_is_dead-dark-ambient-atmosphere-566701.mp3",
+      "title": "Dark Ambient Atmosphere",
+      "author": "everything_is_dead",
+      "url": "https://pixabay.com/music/ambient-dark-ambient-atmosphere-566701/",
       "licence": "Pixabay Content License",
       "content_id": false,
       "mood": [
-        "curious",
-        "uplifting"
+        "dark",
+        "calm"
       ],
-      "duration": 108.9,
+      "duration": 160.0,
       "bpm": 70,
-      "lufs": -8.3
-    },
-    {
-      "file": "apalonbeats-phonk-tiktok-instagram-youtube-music-509949.mp3",
-      "title": "",
-      "author": "",
-      "url": "",
-      "licence": "",
-      "content_id": null,
-      "mood": [],
-      "duration": 30.1,
-      "bpm": 140,
-      "lufs": -4.6
+      "lufs": -14.6
     }
   ]
 }

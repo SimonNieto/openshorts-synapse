@@ -173,8 +173,8 @@ BROLL["video"] = True
 # "music_db_under_voice" = the gap measured the study's way (speech frames vs the bed between the syllables);
 # "duck_db" = a light ducking under the voice (1.5 dB ~ inside their ±2-3 dB, 0 = none); "target_lufs" = the
 # delivered loudness (None = the app's -14); "sfx" = the whoosh on the first drawing (plus.BROLL["sfx"]).
-# NOT IN PROD until she validates it on the bench (etude2/v3/son).
-AUDIO = {"music": True, "music_db_under_voice": 14, "target_lufs": -16.6, "sfx": False, "duck_db": 1.5}
+# 10-oct-2026, the user on the first job (JRE #1109): « le son est un peu trop fort » -> 20 dB under the voice (was 14).
+AUDIO = {"music": True, "music_db_under_voice": 20, "target_lufs": -16.6, "sfx": False, "duck_db": 1.5}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set

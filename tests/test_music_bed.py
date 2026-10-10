@@ -27,7 +27,7 @@ def _track(name, mood, content_id=False, licence="Pixabay Content License"):
 # --- the recipe ---------------------------------------------------------------------------------------------------
 
 def test_the_recipe_copies_their_sound():
-    assert plus.AUDIO["music"] is True and plus.AUDIO["music_db_under_voice"] == 14
+    assert plus.AUDIO["music"] is True and plus.AUDIO["music_db_under_voice"] == 20
     assert plus.AUDIO["target_lufs"] == -16.6 and plus.AUDIO["sfx"] is False
     assert 0 < plus.AUDIO["duck_db"] <= 2, "light: their bed is steady within 2-3 dB"
 
