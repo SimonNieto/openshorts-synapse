@@ -78,6 +78,7 @@ export default function LineupTab({ uploadPostKey, uploadUserId, isManaged, onOp
   const [planning, setPlanning] = useState(null);
   const [planError, setPlanError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [postNowClip, setPostNowClip] = useState(null);
   const [sentSome, setSentSome] = useState(false);
   const [playing, setPlaying] = useState(null);
   const [editing, setEditing] = useState(null);
@@ -288,6 +289,12 @@ export default function LineupTab({ uploadPostKey, uploadUserId, isManaged, onOp
     if (gone) setSelected((prev) => prev.filter((k) => k !== `${gone.job_id}:${gone.clip_index}`));
     setPlanEdited(true);
   };
+  // The single « Post now » row: today, this minute (shown as « Now », sent without a time).
+  const nowSlot = () => {
+    const d = new Date();
+    const p2 = (n) => String(n).padStart(2, '0');
+    return { date: `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`, time: `${p2(d.getHours())}:${p2(d.getMinutes())}` };
+  };
   const confirmItems = (plan?.plan || []).map((p) => {
     const clip = byRef[p.ref] || byKey[`${p.job_id}:${p.clip_index}`];
     return clip ? { date: p.date, time: p.time, clip, project: nicheSource(clip) } : null;
@@ -295,6 +302,7 @@ export default function LineupTab({ uploadPostKey, uploadUserId, isManaged, onOp
 
   const closeConfirm = () => {
     setConfirmOpen(false);
+    setPostNowClip(null);
     if (sentSome) { clearAll(); setSentSome(false); }
   };
 
@@ -547,6 +555,7 @@ export default function LineupTab({ uploadPostKey, uploadUserId, isManaged, onOp
                         planned={plannedByKey[k]}
                         weekTo={weekTo}
                         spectatorOn={spectatorOn}
+                        onPostNow={c.status === 'available' ? () => setPostNowClip(c) : undefined}
                       />
                     </li>
                   );
@@ -605,9 +614,9 @@ export default function LineupTab({ uploadPostKey, uploadUserId, isManaged, onOp
       )}
 
       <ScheduleConfirm
-        isOpen={confirmOpen}
+        isOpen={confirmOpen || !!postNowClip}
         onClose={closeConfirm}
-        items={confirmItems}
+        items={postNowClip ? [{ ...nowSlot(), clip: postNowClip, project: nicheSource(postNowClip), now: true }] : confirmItems}
         uploadPostKey={uploadPostKey}
         uploadUserId={uploadUserId}
         isManaged={isManaged}

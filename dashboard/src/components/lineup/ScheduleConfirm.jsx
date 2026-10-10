@@ -42,12 +42,12 @@ export default function ScheduleConfirm({ isOpen, onClose, items, uploadPostKey,
   useEffect(() => {
     if (!isOpen) return undefined;
     setResults({});
-    setNowKeys(new Set());
+    setNowKeys(new Set((items || []).filter((it) => it.now).map((it) => `${it.clip.job_id}:${it.clip.clip_index}`)));
     setNow(new Date());
     setPlatforms(loadSchedulePrefs().platforms || DEFAULT_PLATFORMS);
     const t = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(t);
-  }, [isOpen]);
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps -- the window resets when it opens, not on each refresh of items
 
   const rows = useMemo(() => (items || []).map((it) => {
     const choice = savedNicheChoice(it.project, uploadUserId);

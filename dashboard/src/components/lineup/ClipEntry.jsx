@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { Check, Clock, CalendarPlus } from 'lucide-react';
+import { Check, Clock, CalendarPlus, Send } from 'lucide-react';
 import ClipThumb from './ClipThumb';
 import TopicTag from './TopicTag';
 import ScoreBlock from './ScoreBlock';
@@ -56,8 +56,14 @@ function SelectBox({ clip, selected, onToggle }) {
  */
 export default function ClipEntry({
   clip, layout = 'row', rank, selectable, selected, onToggle, onPlay, onEditTopic,
-  onRetest, retesting, running, planned, weekTo, spectatorOn = false,
+  onRetest, retesting, running, planned, weekTo, spectatorOn = false, onPostNow,
 }) {
+  // (10-oct-2026, the user: « je veux pouvoir poster une tout de suite ») one clip straight to Upload-Post, now.
+  const postNow = onPostNow ? (
+    <button type="button" onClick={onPostNow} className="btn-accent px-3 py-1.5 text-xs inline-flex items-center gap-1.5">
+      <Send size={13} aria-hidden="true" /> Post now<span className="sr-only"> “{clip.title}”</span>
+    </button>
+  ) : null;
   const titleId = useId();
   // The scores live in ScoreBlock (with where each comes from); this line is the episode, the length and,
   // quietly, how old the project is (nothing is deleted on its own: the Projects panel does it by hand).
@@ -96,6 +102,7 @@ export default function ClipEntry({
             {selectable && <SelectBox clip={clip} selected={selected} onToggle={onToggle} />}
           </div>
           {words}
+          {postNow}
           <StatusLine clip={clip} planned={planned} weekTo={weekTo} />
           <div className="pt-2 border-t border-rule">
             <ScoreBlock clip={clip} running={running} size="md" spectatorOn={spectatorOn} />
@@ -123,6 +130,7 @@ export default function ClipEntry({
           {selectable && <span className="ml-auto"><SelectBox clip={clip} selected={selected} onToggle={onToggle} /></span>}
         </div>
         {words}
+        {postNow}
         {spectator}
       </div>
       <div className="col-span-2 md:col-span-1 md:border-l md:border-rule md:pl-4 pt-3 md:pt-0 border-t border-rule md:border-t-0">
