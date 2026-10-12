@@ -377,6 +377,38 @@ CALM_GAP_S = 4.0           # at least this long between two moves...
 CALM_URGENT = 0.38         # ...unless the face is about to leave the frame
 CALM_URGENT_GAP_S = 1.0
 SOFT_CUT_S = 0.13          # ~4 frames: the last frame of a shot dissolves into the next
+# 12-oct-2026 (her choice): a DRY cut when the person changes — the 0.13 s dissolve laid Joe's face over Walker's
+# (JRE #1109 c05 at 6 s, c08 at 0.7 s), the source and the niche cut hard. The dissolve stays for a change of
+# angle on the same person. Same person: the HSV histograms of the two crops (face, clothes, what is behind)
+# closer than PERSON_CHANGE (Bhattacharyya, reactions.py's "same person" bound).
+PERSON_CHANGE = 0.35
+
+
+def _crop_look(video, t, x, crop_w, crop_h, orig_w, orig_h):
+    """HSV histogram of the crop [x, x + crop_w] of the frame at ``t`` s of ``video`` (None when unreadable)."""
+    import numpy as np
+    import cv2
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t):.3f}", "-i", video, "-frames:v", "1",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, timeout=60).stdout
+    if len(raw) < orig_w * orig_h * 3:
+        return None
+    img = np.frombuffer(raw[:orig_w * orig_h * 3], dtype=np.uint8).reshape(orig_h, orig_w, 3)
+    x = int(min(max(0, x), max(0, orig_w - crop_w)))
+    y = max(0, (orig_h - crop_h) // 2)
+    hsv = cv2.cvtColor(np.ascontiguousarray(img[y:y + crop_h, x:x + crop_w]), cv2.COLOR_RGB2HSV)
+    hist = cv2.calcHist([hsv], [0, 1, 2], None, [12, 8, 8], [0, 180, 0, 256, 0, 256])
+    return cv2.normalize(hist, hist).flatten()
+
+
+def same_person(video, t_before, t_after, x_before, x_after, crop_w, crop_h, orig_w, orig_h):
+    """True when the crops on both sides of a cut look like the same person (PERSON_CHANGE); False when not,
+    or when it cannot be read (a dry cut is the safe side)."""
+    import cv2
+    a = _crop_look(video, t_before, x_before, crop_w, crop_h, orig_w, orig_h)
+    b = _crop_look(video, t_after, x_after, crop_w, crop_h, orig_w, orig_h)
+    if a is None or b is None:
+        return False
+    return cv2.compareHist(a, b, cv2.HISTCMP_BHATTACHARYYA) < PERSON_CHANGE
 
 
 def _smootherstep(u):
@@ -719,6 +751,7 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
         raise RuntimeError("no usable scene ranges")
     workdir = tempfile.mkdtemp(prefix="reframe_v2_")
     segments = []
+    dry_cuts = 0
     try:
         for idx, (start_f, end_f, strategy) in enumerate(ranges):
             seg_path = os.path.join(workdir, f"seg_{idx:03d}.mp4")
@@ -784,7 +817,19 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
                 )
 
             extra_in = []
-            if smooth and segments and dur > SOFT_CUT_S * 2:
+            soft = smooth and segments and dur > SOFT_CUT_S * 2
+            if soft:
+                cw_ = min(crop_w, orig_w)
+                x_prev = xs[start_f - 1] if start_f > 0 and xs[start_f - 1] is not None else (orig_w - cw_) // 2
+                x_next = xs[start_f] if xs[start_f] is not None else (orig_w - cw_) // 2
+                try:
+                    soft = same_person(input_video, ss - 1.5 / fps, ss + 1.5 / fps, x_prev, x_next, cw_,
+                                       min(crop_h, orig_h), orig_w, orig_h)
+                except Exception:
+                    soft = False
+                if not soft:
+                    dry_cuts += 1
+            if soft:
                 # Soft cut: the previous shot's last frame dissolves into this
                 # one over ~4 frames. The source cuts hard, so there is no
                 # "after" for the old shot; holding its last frame for 0.13 s
@@ -820,6 +865,8 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
             ])
             segments.append(seg_path)
 
+        if dry_cuts:
+            print(f"   ✂️ Person changes: {dry_cuts} dry cut(s), no dissolve.")
         list_path = os.path.join(workdir, "concat.txt")
         with open(list_path, "w") as f:
             f.write(concat_list_content(segments))

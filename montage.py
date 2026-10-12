@@ -70,6 +70,12 @@ CELL_SCALE = 0.75    # the worst of 3x3 cells of the crop: 8 (a hand popping in 
 WIDE_SLACK = 0.45    # s: when no clean pair is found, the breath may grow this much (a longer breath beats a jump)
 CAMERA_DIFF = 22.0   # mean |diff| of 32x18 grey thumbnails (0-255): the two frames of a join are two shots
 MIN_SHOT = 0.60      # s: no join leaves a shot shorter than this on screen (a flash)
+# The clip's first shot (12-oct-2026): JRE #1109 c08 opened 0.63 s on Joe, finger on his lips, while Walker said
+# "Sleep is the greatest..." — the source's camera only cut to him after. A first shot shorter than OPEN_SHOT_MIN
+# is covered by the first frame of the next one (held, the words untouched): the first picture is the one who
+# speaks. OPEN_HOLD_PAD past the cut, so the held frame is surely the new shot's.
+OPEN_SHOT_MIN = 1.0
+OPEN_HOLD_PAD = 0.04
 # The source's camera cuts, frame by frame: two JRE cameras on the same side of the table differ by only
 # 10.4 (c02, 755.9 s), while a big gesture moves a thumbnail 3.6 at most from one frame to the next (c02,
 # c04, c07, 5-oct-2026). At 10 a second, the same gesture reached 6.4 and the cut was missed at 22.
@@ -778,11 +784,22 @@ def _rate(fps):
     return f"{fps:.6f}".rstrip("0").rstrip(".")
 
 
-def cut_command(src, segments, out, fade=FADE, normalize=True, video_args=None, fps=None):
+def open_hold(cams, segments):
+    """Clip seconds the first picture is held over (OPEN_SHOT_MIN), or None: the first camera cut ``cams``
+    (clip seconds) comes before OPEN_SHOT_MIN, inside the first segment."""
+    first = next((c for c in sorted(cams) if c > 0.05), None)
+    if first is None or first >= OPEN_SHOT_MIN or not segments:
+        return None
+    hold = round(first + OPEN_HOLD_PAD, 3)
+    return hold if hold < float(segments[0]["end"]) - float(segments[0]["start"]) - 0.1 else None
+
+
+def cut_command(src, segments, out, fade=FADE, normalize=True, video_args=None, fps=None, hold=None):
     """One ffmpeg pass: every segment of ``src`` (source seconds, on the frame grid) back to back, a ``fade``
     fade in and out on each piece's sound (no click), loudness normalised like every cut (ffmpeg_utils).
     ``fps``: the source's rate, written as the output's constant rate (the frames already sit on it; the
-    reframe reads its scene times from it)."""
+    reframe reads its scene times from it). ``hold`` (open_hold): the picture of the first ``hold`` seconds is
+    the first frame after them, held; the sound runs as it is."""
     from ffmpeg_utils import LOUDNORM_FILTER, METADATA_SCRUB, QUALITY_FAST, video_encode_args
     t0 = max(0.0, min(s["start"] for s in segments) - 1.0)
     parts, labels = [], []
@@ -790,7 +807,11 @@ def cut_command(src, segments, out, fade=FADE, normalize=True, video_args=None, 
         a, b = s["start"] - t0, s["end"] - t0
         d = b - a
         f = min(fade, d / 4)
-        parts.append(f"[0:v]trim=start={a:.6f}:end={b:.6f},setpts=PTS-STARTPTS[v{k}]")
+        if k == 0 and hold:
+            parts.append(f"[0:v]trim=start={a + hold:.6f}:end={b:.6f},setpts=PTS-STARTPTS,"
+                         f"tpad=start_mode=clone:start_duration={hold:.6f}[v{k}]")
+        else:
+            parts.append(f"[0:v]trim=start={a:.6f}:end={b:.6f},setpts=PTS-STARTPTS[v{k}]")
         parts.append(f"[0:a]atrim=start={a:.6f}:end={b:.6f},asetpts=PTS-STARTPTS,"
                      f"afade=t=in:st=0:d={f:.4f},afade=t=out:st={max(0.0, d - f):.6f}:d={f:.4f}[a{k}]")
         labels.append(f"[v{k}][a{k}]")
@@ -804,10 +825,10 @@ def cut_command(src, segments, out, fade=FADE, normalize=True, video_args=None, 
             "-movflags", "+faststart", out]
 
 
-def cut(src, segments, out, fps=None):
+def cut(src, segments, out, fps=None, hold=None):
     """Write the re-cut clip. Raises with ffmpeg's own words when it fails."""
     normalize = os.environ.get("AUDIO_NORMALIZE", "1").strip() != "0"
-    r = subprocess.run(cut_command(src, segments, out, normalize=normalize, fps=fps), capture_output=True,
+    r = subprocess.run(cut_command(src, segments, out, normalize=normalize, fps=fps, hold=hold), capture_output=True,
                        text=True, errors="replace", timeout=1800)
     if r.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) < 1024:
         raise RuntimeError(f"montage cut failed: {(r.stderr or '')[-600:]}")
@@ -870,6 +891,7 @@ def prepare(src, clip, transcript, start, end, cfg=None, log=print):
              silences=cfg.get("silences", True), passages=cfg.get("cut_out", True), log=log)
     segs, joins, windows, events = settle(p, shots, hide=cfg.get("hide_joins", True))
     duration = recut.total_duration(segs)
+    hold = open_hold([a for a, _ in events], segs)
     punch = None
     if p.get("punch_span"):
         a = recut.source_to_clip(segs, p["punch_span"][0])
@@ -885,12 +907,14 @@ def prepare(src, clip, transcript, start, end, cfg=None, log=print):
         "joins": [{"t": t, "kind": r["kind"], "why": r["why"], "verdict": r["verdict"], "jump": r["jump"],
                    "kept": r["kept"], "src": [round(r["a"], 3), round(r["b"], 3)]} for r, t in joins],
         "hide_windows": [list(w) for w in windows],
-        "camera_cuts": [a for a, _ in events],
+        # A cut under the held first picture no longer shows: not a change on screen any more.
+        "camera_cuts": [a for a, _ in events if not (hold and a <= hold)],
+        "open_hold": hold,
         "refused": p["refused"],
         "punch": punch,
         "fps": grid.fps,
     }
-    if len(segs) == 1 and abs(report["saved"]) < 0.05:
+    if len(segs) == 1 and abs(report["saved"]) < 0.05 and not hold:
         return None
     return report
 
@@ -908,7 +932,7 @@ def apply(src, clip, transcript, start, end, out_path, cfg=None, log=print):
         if not report:
             log("   ✂️ Montage: nothing to tighten — the clip is cut as it is.")
             return None
-        cut(src, report["segments"], out_path, fps=report["fps"])
+        cut(src, report["segments"], out_path, fps=report["fps"], hold=report.get("open_hold"))
     except Exception as e:
         log(f"   ⚠️ Montage failed ({type(e).__name__}: {e}) — the clip is cut as it is.")
         return None
@@ -967,6 +991,8 @@ def describe(report):
         kinds[x["verdict"]] = kinds.get(x["verdict"], 0) + 1
     ref = report.get("refused") or []
     bits = [f"{report.get('saved', 0):.1f} s saved", f"{len(j)} join(s)"]
+    if report.get("open_hold"):
+        bits.append(f"first {report['open_hold']:.2f} s on the next shot's first frame (a flash of the other camera)")
     if kinds:
         bits.append(", ".join(f"{n} {k}" for k, n in sorted(kinds.items())))
     if ref:

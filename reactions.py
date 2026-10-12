@@ -21,6 +21,13 @@ strongest words — never in the first 2 s or the last 1.5 s, >= 6 s apart,
 about one per 12 s (max 3). The clip's timing and audio never change.
 
 Nothing is inserted when the source has no second camera / no listener.
+
+12-oct-2026 (audit of JRE #1109, 5 reactions of 6 showed Joe TALKING): the mouth test is blind when a microphone
+hides the mouth — Joe's lips read closed and still, so he always passed for a listener. Now the VOICE decides
+(voice_print): JRE's director cuts to whoever talks, so a long shot with speech gives its person's voice; a listening
+moment is kept only when the voice heard then is someone else's (VOICE_MARGIN). And: never a moment of the clip
+itself (it would be shown twice), a pause ends a sentence in an unpunctuated transcript, no dissolve (a person
+change is a dry cut, her choice).
 """
 import math
 import os
@@ -43,6 +50,18 @@ FACE_MIN_H = 0.18       # dominant face height (fraction of frame) — a close s
 SMOOTH_MAX_N = 3
 SMOOTH_EVERY = 10
 SMOOTH_GAP = 7
+# A reaction is a change of person: a dry cut in and out (12-oct-2026, her choice), no dissolve.
+REACT_DISSOLVE = False
+# Unpunctuated transcript (Whisper often gives long runs without a full stop): a pause this long ends a sentence.
+PAUSE_END = 0.35
+# --- who speaks, by the voice ------------------------------------------------------------------------------------
+VOICE_SR = 16000
+VOICE_MIN_SPEECH = 0.6   # s of speech for a voice print
+VOICE_SHOT_MIN = 3.0     # s: a shot this long, with speech, shows the one who speaks (the director's cut)
+VOICE_MARGIN = 0.8       # a listener: the voice heard is this much closer to another person's than to theirs...
+VOICE_MAX = 0.85         # ...and that close to it at most (JRE #1109: a speaker's own long shots sit at 0.1-0.47 of
+                         # their voice, the other's at 0.64-1.18; a laugh or two voices at once: both over 1)
+SAME_LOOK = 0.35         # Bhattacharyya distance of two looks under which they are the same person
 
 
 def _encode_args():
@@ -89,6 +108,104 @@ def _appearance(img, box):
     hsv = cv2.cvtColor(img[ry0:ry1, rx0:rx1], cv2.COLOR_RGB2HSV)
     hist = cv2.calcHist([hsv], [0, 1, 2], None, [12, 8, 8], [0, 180, 0, 256, 0, 256])
     return cv2.normalize(hist, hist).flatten()
+
+
+def _audio(src, t0, t1):
+    """Mono VOICE_SR samples of [t0, t1] (float32, -1..1)."""
+    import numpy as np
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t0:.3f}", "-t", f"{t1 - t0:.3f}", "-i", src, "-vn",
+                          "-ac", "1", "-ar", str(VOICE_SR), "-f", "s16le", "-"], capture_output=True, timeout=600).stdout
+    return np.frombuffer(raw, dtype=np.int16).astype("float32") / 32768.0
+
+
+_MEL = {}
+
+
+def _mel_bank(n_fft=512, n_mels=40, fmin=60.0, fmax=7600.0):
+    import numpy as np
+    if n_mels not in _MEL:
+        mel = lambda f: 2595.0 * np.log10(1.0 + f / 700.0)  # noqa: E731
+        hz = lambda m: 700.0 * (10 ** (m / 2595.0) - 1.0)  # noqa: E731
+        bins = np.floor((n_fft + 1) * hz(np.linspace(mel(fmin), mel(fmax), n_mels + 2)) / VOICE_SR).astype(int)
+        fb = np.zeros((n_mels, n_fft // 2 + 1), dtype="float32")
+        for m in range(1, n_mels + 1):
+            lo, c, hi = bins[m - 1], bins[m], bins[m + 1]
+            for k in range(lo, c):
+                fb[m - 1, k] = (k - lo) / max(1, c - lo)
+            for k in range(c, hi):
+                fb[m - 1, k] = (hi - k) / max(1, hi - c)
+        _MEL[n_mels] = fb
+    return _MEL[n_mels]
+
+
+def voice_print(audio, t0, a, b, words_abs):
+    """The voice heard in [a, b] (source s; ``audio`` starts at ``t0``): the mean shape of the log-mel spectrum
+    of the loud frames inside words, each frame's level taken out (the timbre and the speaker's own mic, not how
+    loud). None under VOICE_MIN_SPEECH s of speech."""
+    import numpy as np
+    if audio is None:
+        return None
+    hop, win = 160, 400
+    starts = set()
+    for w in words_abs:
+        s_, e_ = max(a, w["start"]), min(b, w["end"])
+        if e_ - s_ > 0.02:
+            starts.update(range(max(0, int((s_ - t0) * VOICE_SR)), max(0, int((e_ - t0) * VOICE_SR) - win), hop))
+    starts = sorted(i for i in starts if i + win <= len(audio))
+    if len(starts) * hop / VOICE_SR < VOICE_MIN_SPEECH:
+        return None
+    frames = np.stack([audio[i:i + win] for i in starts]) * np.hanning(win).astype("float32")
+    logmel = np.log((np.abs(np.fft.rfft(frames, n=512)) ** 2) @ _mel_bank().T + 1e-9)
+    level = logmel.mean(axis=1)
+    loud = level >= np.percentile(level, 30)
+    return (logmel[loud] - level[loud, None]).mean(axis=0)
+
+
+def voice_gap(u, v):
+    import numpy as np
+    return float(np.linalg.norm(u - v) / math.sqrt(len(u)))
+
+
+def people(shots):
+    """Shots grouped by look (SAME_LOOK): sets each shot's ``person`` (an int, None without a look). Returns how
+    many people."""
+    import cv2
+    reps = []
+    for s in shots:
+        s["person"] = None
+        if s.get("look") is None:
+            continue
+        for k, lk in enumerate(reps):
+            if cv2.compareHist(s["look"], lk, cv2.HISTCMP_BHATTACHARYYA) < SAME_LOOK:
+                s["person"] = k
+                break
+        else:
+            reps.append(s["look"])
+            s["person"] = len(reps) - 1
+    return len(reps)
+
+
+def speaking_voices(shots):
+    """{person: mean voice print} from the shots that show their speaker: VOICE_SHOT_MIN s or longer, mostly
+    speech (JRE's director cuts to whoever talks)."""
+    import numpy as np
+    by = {}
+    for s in shots:
+        if (s.get("person") is not None and s.get("voice") is not None and s["end"] - s["start"] >= VOICE_SHOT_MIN
+                and s["speech"] >= 0.6):
+            by.setdefault(s["person"], []).append(s["voice"])
+    return {p: np.mean(v, axis=0) for p, v in by.items()}
+
+
+def heard_voice_is_other(voice, person, voices):
+    """(verdict, own gap, other gap): True when ``voice`` is closer to another person's speaking voice than
+    to ``person``'s own by VOICE_MARGIN; False when it is theirs; None when it cannot be told (no voice heard,
+    the person's own or nobody else's voice unknown)."""
+    if voice is None or person not in voices or len(voices) < 2:
+        return None, None, None
+    own = voice_gap(voice, voices[person])
+    other = min(voice_gap(voice, v) for p, v in voices.items() if p != person)
+    return other < VOICE_MARGIN * own and other <= VOICE_MAX, round(own, 3), round(other, 3)
 
 
 def analyze(src, t0, t1, words_abs):
@@ -155,6 +272,15 @@ def find_reactions(src, clip_start, clip_end, words_abs, pad=60.0, log=print):
     shots, size = analyze(src, t0, t1, words_abs)
     if not shots:
         return [], size, [], None
+    audio = None
+    try:
+        audio = _audio(src, t0, t1)
+    except Exception as e:
+        log(f"   ⚠️ Reactions: the sound could not be read ({type(e).__name__}) — no reaction, the voice is not checked.")
+    people(shots)
+    for s in shots:
+        s["voice"] = voice_print(audio, t0, s["start"], s["end"], words_abs)
+    voices = speaking_voices(shots)
     talks = sorted(s["talk"] for s in shots if s["speech"] > 0.5)
     if not talks:
         return [], size, shots, None
@@ -164,7 +290,7 @@ def find_reactions(src, clip_start, clip_end, words_abs, pad=60.0, log=print):
     speaker_shots = [s for s in shots if s["start"] < clip_end and s["end"] > clip_start
                      and s["talk"] >= 0.6 * ref and s["look"] is not None]
     speaker_looks = [s["look"] for s in speaker_shots]
-    out = []
+    out, voice_refused = [], []
     for s in shots:
         if s["speech"] < 0.5 or s["talk"] > 0.45 * ref or s["look"] is None:
             continue
@@ -184,6 +310,13 @@ def find_reactions(src, clip_start, clip_end, words_abs, pad=60.0, log=print):
         # and a lip gap <= 0.008 of the face height; interjections at 0.007+
         # and 0.02+). Expressiveness then comes from the head and the smile
         # only, never from the lips.
+        if audio is None:
+            continue
+        # A shot whose voice is the person's own shows them TALKING (the director cut to them): no listening
+        # moment in it, whatever a 2 s window says (JRE #1109: every "listener" the old test found was there).
+        if heard_voice_is_other(s["voice"], s["person"], voices)[0] is False:
+            voice_refused.append((round(s["start"], 1), "own shot", None))
+            continue
         dom, n = s["dom"], max(1, int(REACT_LEN * FPS))
         still_talk = min(0.0035, 0.4 * ref)
         wins = []
@@ -205,15 +338,24 @@ def find_reactions(src, clip_start, clip_end, words_abs, pad=60.0, log=print):
                 start = max(s["start"], s["end"] - REACT_LEN)
             if any(abs(start - q) < 4 for q in taken):
                 continue
+            # The voice heard around the moment must be someone else's: the person on screen is listening.
+            heard = voice_print(audio, t0, start - 0.4, start + REACT_LEN + 0.4, words_abs)
+            other, own_gap, other_gap = heard_voice_is_other(heard if heard is not None else s["voice"],
+                                                             s["person"], voices)
+            if not other:
+                voice_refused.append((round(start, 1), own_gap, other_gap))
+                continue
             taken.append(start)
             out.append({"start": round(start, 2), "dur": REACT_LEN, "cx": s["cx"], "cy": s["cy"],
                         "score": round(e + (0.2 if dist and dist > 0.5 else 0), 4), "look": s["look"],
                         "shot": (round(s["start"], 1), round(s["end"], 1)), "talk": round(s["talk"], 4),
-                        "look_dist": round(dist, 3) if dist is not None else None})
+                        "look_dist": round(dist, 3) if dist is not None else None,
+                        "voice": {"own": own_gap, "other": other_gap}})
             if len(taken) >= 2:
                 break
     out.sort(key=lambda r: -r["score"])
-    log(f"   👀 Reactions: {len(shots)} shots read, {len(out)} listening moment(s) of another person")
+    log(f"   👀 Reactions: {len(shots)} shots read, {len(voices)} voice(s) known, {len(out)} listening moment(s) of "
+        f"another person, {len(voice_refused)} refused by the voice (the one on screen was talking)")
     return out, size, shots, ref
 
 
@@ -235,9 +377,11 @@ def insertion_points(words_rel, duration, punchline_time=None, max_n=None, event
     gap = (SMOOTH_GAP if events is not None else 12) if SMOOTH else 6
     ends = []
     sent = []
-    for w in words_rel:
+    bare = not any(re.search(r"[.?!]$", w["text"].strip()) for w in words_rel)
+    for k, w in enumerate(words_rel):
         sent.append(w)
-        if re.search(r"[.?!]$", w["text"].strip()):
+        nxt = words_rel[k + 1]["start"] if k + 1 < len(words_rel) else None
+        if re.search(r"[.?!]$", w["text"].strip()) or (bare and nxt is not None and nxt - w["end"] >= PAUSE_END):
             strength = max(keyword_score(x["text"]) for x in sent)
             ends.append((w["end"], strength))
             sent = []
@@ -283,6 +427,11 @@ def insertion_points(words_rel, duration, punchline_time=None, max_n=None, event
 # (main.CLIP_WORKERS), so choosing a moment and taking it happen under one lock. One job per process.
 _JOB_USED = []
 _JOB_LOCK = threading.Lock()
+
+
+def outside(cands, ranges):
+    """The listener moments that overlap none of ``ranges`` ((from, to) source seconds)."""
+    return [c for c in cands if all(c["start"] + c["dur"] <= a or c["start"] >= b for a, b in ranges)]
 
 
 def _overlaps_used(c, used):
@@ -341,10 +490,15 @@ def add_reactions(src, clip_path, clip_start, clip_end, transcript, out_path,
             cands, (sw, sh), shots, ref = wider
     if avoid:
         before = len(cands)
-        cands = [c for c in cands
-                 if all(c["start"] + c["dur"] <= a or c["start"] >= b for a, b in avoid)]
+        cands = outside(cands, avoid)
         if len(cands) < before:
             log(f"   👀 Reactions: {before - len(cands)} moment(s) dropped — taken while a picture was on the feed.")
+    # Never a moment the clip itself shows: it would be seen twice (JRE #1109 c04: 452.7 s at 21.7 s and 44.5 s).
+    own = [(float(sg["start"]), float(sg["end"])) for sg in segments] if segments else [(clip_start, clip_end)]
+    before = len(cands)
+    cands = outside(cands, own)
+    if len(cands) < before:
+        log(f"   👀 Reactions: {before - len(cands)} moment(s) dropped — inside the clip itself.")
 
     def covering(t_abs):
         return next((s for s in shots if s["start"] <= t_abs < s["end"]), None)
@@ -404,7 +558,7 @@ def add_reactions(src, clip_path, clip_start, clip_end, transcript, out_path,
                 raise RuntimeError(r.stderr[-400:])
             inputs += ["-itsoffset", f"{t:.3f}", "-i", seg]
             src_label = f"[{k + 1}:v]"
-            if SMOOTH:
+            if SMOOTH and REACT_DISSOLVE:
                 # Both pictures exist during the fade (the speaker's shot runs
                 # underneath), so this is a true dissolve, in and out.
                 graph.append(f"{src_label}format=rgba,fade=t=in:st={t:.3f}:d={REACT_FADE}:alpha=1,"
