@@ -78,6 +78,13 @@ class TestStallCut:
         assert main.check_cut_out(c, w, 10) == (0, 1)
         assert c["cut_out_dropped"][0]["reason"] == "holds a negation or a nuance"
 
+    def test_the_montage_lets_a_whole_not_just_but_go_too(self):
+        montage = pytest.importorskip("montage")
+        toks = montage.tokens("wow and not just for your physical performance but actually skill learning")
+        assert not any(montage.is_negation(t) for t in montage.additive_not_out(toks) if t)
+        assert any(montage.is_negation(t) for t in montage.additive_not_out(montage.tokens("not just for you")) if t)
+        assert any(montage.is_negation(t) for t in montage.additive_not_out(montage.tokens("it's not going to work")))
+
     def test_nuance_words(self):
         toks = main._ptoks
         assert not main._has_nuance(toks("and not just for your body but actually your memory"))
