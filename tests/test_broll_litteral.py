@@ -523,3 +523,14 @@ def test_no_long_face_while_something_showable_is_said():
     only = bl.schedule([dict(nouns[0], i=7)], quiet, quiet[-1]["end"] + 2.0)
     assert [p["key"] for p in only] == ["scientist"] and bl.face_gaps(only, quiet[-1]["end"] + 2.0)
     assert bl.same_word("scientific", "scientists") and not bl.same_word("physical", "physicians")
+
+
+def test_the_picture_reads_the_sentence_and_keeps_one_subject():
+    # 12-oct-2026 (bench of JRE #1109): a woman asleep on "sleep machismo attitude", a young man knotting his tie on
+    # "age you by a decade", a woman asleep in a clip about men's testosterone.
+    flat = " ".join(bl.DA_PROMPT.split())
+    assert "READ THE WHOLE SENTENCE" in flat and "ONE SUBJECT PER CLIP" in flat
+    assert "no entry" in flat and "never shows a woman asleep" in flat
+    import broll_video
+    judge = " ".join(broll_video.JUDGE_PROMPT.split())
+    assert "THE ONE DESCRIBED" in judge and "A wrong person is worse than no footage" in judge

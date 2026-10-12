@@ -163,6 +163,13 @@ image model makes everyone East Asian — and always DOING something visible (ru
 never posing for the camera.
 Never a thing made to be read (a newspaper, a book, a sign, a label, what a screen shows): the image model writes
 gibberish on it. Show the hands or the person holding it from the side, or leave it out.
+READ THE WHOLE SENTENCE. A picture shows the thing as THIS sentence says it: who, doing what, in what state — "men who
+sleep five to six hours a night" is a man in his forties lying awake in bed at dawn, never just "a man"; "it will age
+you by a decade" is a man in his sixties, visibly older. A noun that only names an idea, an attitude or a debate
+("the sleep machismo attitude", "the sleep debate", "drug culture") is nothing a camera can film: no entry.
+ONE SUBJECT PER CLIP: the person the clip is about keeps ONE casting (sex, age, look) in every picture and every
+footage of them — a clip about men's testosterone never shows a woman asleep; write that casting into each of
+their "picture" and "footage".
 "nouns", one entry each:
 - "i": the number of the noun itself (not its article nor its adjective): the picture comes up on that word;
 - "word": that word;
@@ -181,9 +188,10 @@ gibberish on it. Show the hands or the person holding it from the side, or leave
 - "family": for an object, the plain name of the kind of thing it is, the same for its close variants and parts (a
   needle, a syringe and its plunger: "syringe"; a pill, a tablet, a capsule: "pill"); else "";
 - "footage": for a "scene" that is an ACTION (someone doing it: driving, sleeping, running), a PLACE (a hospital, a
-  factory) or a STATE someone lives (tired, stressed, ill, in pain), on its FIRST entry: 2-5 plain English words to find
-  real stock footage of it ("exhausted doctor night shift hospital", "person scrolling phone in bed"), anonymous people
-  only, nothing that evokes a death or its means; else "" (the code then makes the picture);
+  factory) or a STATE someone lives (tired, stressed, ill, in pain), on its FIRST entry: 2-7 plain English words to find
+  real stock footage of it ("exhausted doctor night shift hospital", "man in his forties awake in bed at dawn"), the
+  person's sex and age group in it when there is a person, anonymous people only, nothing that evokes a death or its
+  means; else "" (the code then makes the picture);
 - "motion": for "inside" only, on its FIRST entry: "pulse" (a light pulses in it) or "flow" (light flows along it) when
   the organ can stay perfectly still while that light moves; "none" when showing it would need the organ itself to
   move or change shape (a heart that beats, a lung that breathes, a muscle that contracts, a needle going in); else "";

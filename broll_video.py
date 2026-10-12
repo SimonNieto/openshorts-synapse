@@ -374,6 +374,9 @@ none does. A candidate is NEVER chosen when it shows:
 - a toy, an animal, an object or a cartoon standing in for the person or the action said (never literal);
 - black and white, sepia or washed-out footage: the channel shows COLOR footage only, vivid and natural.
 Prefer real anonymous people doing exactly the action said, in a plain natural setting.
+The person must be THE ONE DESCRIBED in "looking for" and the sentence: the same sex, the same age group (an "older man"
+looks sixty or more, never a young man), in the state said (awake, asleep, exhausted). A wrong person is worse than no
+footage: when no candidate matches clearly, answer -1 — a picture is then made instead.
 Also say which frame (a, b or c) is the best moment to cut to (it will be the middle of the excerpt).
 
 {moments}
