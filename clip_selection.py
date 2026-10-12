@@ -251,7 +251,9 @@ def clip_target_bounds():
 def duration_summary(shorts, target=None):
     """One log line on how long the clips of a job came out — the prompt asks
     for short clips, this is where it shows whether it got them."""
-    durs = sorted(float(c["end"]) - float(c["start"]) for c in shorts
+    # 12-oct-2026: what the viewer hears (main.heard_seconds: the cut_out passages out) when it is known.
+    durs = sorted(float(c["heard_seconds"]) if c.get("heard_seconds") is not None
+                  else float(c["end"]) - float(c["start"]) for c in shorts
                   if c.get("start") is not None and c.get("end") is not None)
     if not durs:
         return "no clips"

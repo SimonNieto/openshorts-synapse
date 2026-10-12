@@ -150,7 +150,9 @@ when a moment runs long, open LATER, on a later sentence that still stands
 alone, never earlier. One sentence of setup is all a cold viewer needs; the
 payoff stays, the run-up goes. And {lo:g}s is a floor as much as {hi:g}s is a
 ceiling: a clip under {lo:g}s has cut into its setup or its payoff, do not
-go under it to be safe.
+go under it to be safe. These lengths count what the viewer HEARS: once the
+`cut_out` passages are taken out. A clip that loses a 10 s stall may run 10 s
+further in the transcript — choose `start` and `end` for that.
 """
 
 # Clip Generator++ (selection.clip_target, playbook): the clips still over

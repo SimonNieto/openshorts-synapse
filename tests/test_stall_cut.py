@@ -126,3 +126,28 @@ class TestPromptAndSchema:
         item = gw.DetailResponsePlaybook.model_json_schema()["$defs"]["DetailClipModelPlaybook"]["properties"]
         assert "fact_words" in item
         assert "fact_words" in json.dumps(ai_brain.json_schema(gw.DetailResponsePlaybook))
+
+
+class TestHeardLength:
+    """12-oct-2026, her: « les vidéos seront plus courtes ? il faut l'ajouter au calcul » — the target and the limit
+    count what the viewer hears, the stall out (JRE #1109 c05: 33 s in the source, 23 s heard)."""
+
+    def test_what_the_cuts_take_out_is_counted_without_touching_the_clip(self):
+        w, c = clip_of(HOOK5, STALL5, FACT5)
+        c["cut_out"] = [{"first_words": "Yeah yeah. It's the", "last_words": "know that then.", "why": "stall"}]
+        raw = json.dumps(c, sort_keys=True)
+        took = main.cut_out_seconds(c, w, 10)
+        assert 7.0 < took < 9.0 and json.dumps(c, sort_keys=True) == raw
+        main.check_cut_out(c, w, 10)
+        assert main.heard_seconds(c, w) == pytest.approx(c["end"] - c["start"] - took, abs=0.01)
+        assert main.cut_out_seconds({**c, "cut_out": []}, w, 10) == 0.0
+
+    def test_the_length_line_says_what_is_heard(self):
+        import clip_selection
+        line = clip_selection.duration_summary([{"start": 0, "end": 40, "heard_seconds": 30.0},
+                                                {"start": 0, "end": 45}], (35, 58))
+        assert "30-45s" in line and "1 under" in line
+
+    def test_the_model_is_told(self):
+        flat = " ".join(gw.TARGET_LENGTH_ADDENDUM.split())
+        assert "These lengths count what the viewer HEARS" in flat

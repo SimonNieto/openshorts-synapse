@@ -2851,6 +2851,7 @@ def open_later_candidates(clip, words, min_secs, target, max_words=25):
     start, end = float(clip["start"]), float(clip["end"])
     span = _payoff_span(words, clip.get("punchline"), start - 0.05, end + 0.05)
     stop = min(end, words[span[0]]["s"]) if span else end
+    cuts = cut_out_spans(clip, words)
     out, seen = [], set()
     for k, w in enumerate(words):
         if w["s"] <= start + 0.5:
@@ -2863,7 +2864,8 @@ def open_later_candidates(clip, words, min_secs, target, max_words=25):
         k, verdict = _opening_start(words, k)
         if verdict or k >= len(words) or k in seen:
             continue
-        left = end - _start_at(words, k)
+        # 12-oct-2026: what is heard from there — the cut_out passages after the new start are out.
+        left = end - _start_at(words, k) - sum(e - s for s, e in cuts if s >= words[k]["s"])
         if left > hi or left < max(lo, min_secs):
             continue
         seen.add(k)
@@ -3154,6 +3156,23 @@ def cut_out_spans(clip, words):
         if t is not None:
             spans.append((words[f]["s"], words[t + len(tt) - 1]["e"]))
     return spans
+
+
+def cut_out_seconds(clip, words, min_secs):
+    """Seconds the clip's cut_out passages take out, checked on a copy (check_cut_out) so nothing is changed:
+    what the montage will remove, for the length the viewer hears (12-oct-2026, her: « les vidéos seront plus
+    courtes ? il faut l'ajouter au calcul »)."""
+    probe = {k: clip.get(k) for k in ("start", "end", "hook_line", "hook_aligned", "punchline", "cut_out")}
+    if not probe.get("cut_out"):
+        return 0.0
+    check_cut_out(probe, words, min_secs)
+    return round(sum(e - s for s, e in cut_out_spans(probe, words)), 2)
+
+
+def heard_seconds(clip, words):
+    """How long the clip lasts once its (checked) cut_out passages are out — the silences the montage tightens
+    aside (a few % more)."""
+    return round(float(clip["end"]) - float(clip["start"]) - sum(e - s for s, e in cut_out_spans(clip, words)), 2)
 
 
 def fact_said_at(clip, words):
@@ -3711,10 +3730,17 @@ def get_viral_clips(transcript_result, video_duration, video_path=None):
         if target_secs or playbook_on:
             # 5-oct-2026 (the user: « la chute toujours dans le clip ; finir sur la
             # chute »): every clip ends on its payoff, not only the ones over the target.
+            # 12-oct-2026: the target and the limit count what the viewer HEARS — the cut_out passages (the
+            # stall) out: a clip that loses 10 s of stall may run 10 s further in the source.
             cut = ran_on = located = 0
             for s in shorts:
                 before = float(s["end"]) - float(s["start"])
-                moved = trim_to_target(s, words, min_secs, target_secs, pauses=playbook_on, max_secs=max_secs)
+                extra = cut_out_seconds(s, words, min_secs) if playbook_on else 0.0
+                if extra:
+                    s["cut_out_seconds"] = extra
+                moved = trim_to_target(s, words, min_secs,
+                                       (target_secs[0] + extra, target_secs[1] + extra) if target_secs else None,
+                                       pauses=playbook_on, max_secs=(max_secs + extra) if max_secs else max_secs)
                 located += bool(s.get("end_on_payoff"))
                 length = float(s["end"]) - float(s["start"])
                 if s.get("end_to_payoff"):
@@ -3778,6 +3804,9 @@ def get_viral_clips(transcript_result, video_duration, video_path=None):
             rank_openings(shorts, words, video_path)
         if dedupe:
             shorts = _dedupe(shorts, "final cuts")
+        for s in shorts:
+            if s.get("cut_out"):
+                s["heard_seconds"] = heard_seconds(s, words)
         print(f"   ⏱️ Clip lengths: {clip_selection.duration_summary(shorts, target_secs)}")
 
         # content_niche describes the whole video, not any one clip (see
