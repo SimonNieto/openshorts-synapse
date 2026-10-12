@@ -200,7 +200,7 @@ def test_videos_for_clip_places_actions_only(monkeypatch, tmp_path):
     monkeypatch.setattr(bv, "_ask", lambda p, s, a, st: {"moments": [{"k": 0, "pick": 0, "frame": "b"},
                                                                       {"k": 1, "pick": 0, "frame": "b"}]})
     cut = []
-    monkeypatch.setattr(bv, "cut", lambda src, start, dur, out, fps=30: cut.append((src, start, dur)) or out)
+    monkeypatch.setattr(bv, "cut", lambda src, start, dur, out, fps=30, tint=None: cut.append((src, start, dur)) or out)
     words = [(1.0, "drinking"), (1.5, "water."), (3.0, "a"), (3.2, "bottle"), (3.4, "and"), (5.6, "running.")]
     moments = [{"t": 1.0, "word": "drinking", "kind": "action", "query": "man drinking water"},
                {"t": 3.2, "word": "bottle", "kind": "object", "query": "bottle"},

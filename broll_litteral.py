@@ -53,13 +53,19 @@ FULL = ("scene", "inside", "sequence")        # the formats that hide the face
 MARK_KINDS = ("arrow", "circle", "glow")
 MARK_DIRS = ("left", "right", "up", "down", "in", "out", "cw", "ccw")
 
-HEAD = 0.8          # s: no picture before (the clip opens on the voice and the face) — a card at most before FULL_HEAD
-FULL_HEAD = 3.0     # s: no full-screen picture before (12/12 shorts decoded: the face alone for 0-3 s)
+HEAD = 0.8          # s: no picture before (the clip opens on the voice and the face) — cards only before FULL_HEAD
+# s: no full-screen picture before (12/12 shorts decoded: the face alone for 0-3 s; 12-oct-2026, their Melatonin keeps
+# the guest on screen with cards under him until 15 s, Eye Trick until 8.5 s — ours went full screen at 6-7 s)
+FULL_HEAD = 6.0
+EARLY_CARDS = 2     # cards at most before FULL_HEAD (Melatonin: the bottle at 1 s, the marbles at 5.5 s)
 HEAD_GRACE = 0.3    # s: a word said this long before HEAD still gets its picture, at HEAD
 LEAD = 0.17         # s a picture comes up before its word starts (measured on 9 hits: median 0.17 s, middle half -0.43/+0.13)
 CARD_LEAD = 0.5     # s an object card starts rising before its word (it is settled on the word)
 DUR_MIN, DUR_MAX = 1.0, 3.0   # decoded: median 2 s, 112 of 130 pictures at most 3 s
 DUR_AIM = 2.0       # s on screen when the clause gives no end
+# The picture of what the clip is about (priority 3) stays longer (12-oct-2026, OptimalHealth: a card that carries the
+# fact holds 2.5-3 s, the 3D head of a method 5 s)
+FACT_DUR, FACT_DUR_MAX = 3.0, 3.5
 STEP = 1.0          # s at least between two pictures' starts (an enumeration changes picture about every second)
 JOIN = 0.4          # s: a gap of face shorter than this between two pictures is closed (picture to picture)
 TAIL = 1.5          # the last s stay on the face (10/12 decoded shorts end on a face)
@@ -170,6 +176,16 @@ you by a decade" is a man in his sixties, visibly older. A noun that only names 
 ONE SUBJECT PER CLIP: the person the clip is about keeps ONE casting (sex, age, look) in every picture and every
 footage of them — a clip about men's testosterone never shows a woman asleep; write that casting into each of
 their "picture" and "footage".
+A LEVEL, A HORMONE OR A NUMBER is shown by the person who lives it ("your testosterone drops" -> a tired man in his
+forties rubbing his face), never by the organ: "inside" is only for what THIS sentence says happens inside the body
+(a nerve firing, a vessel narrowing).
+A COMPARISON OR A SIZE said is shown as said, one "object" card per term: "from the size of marbles to grains of rice"
+-> a hand holding marbles, then a hand holding one grain of rice; "shrivel like raisins" -> a few raisins.
+THE FIRST SECONDS KEEP THE FACE: what is said before second 6 gets "object" or "split" cards (the face stays above
+them); full-screen pictures only after.
+"palette": ONE light for the whole clip, the mood of its subject — "night_blue" (sleep, night, the brain), "warm_morning"
+(energy, food, the body awake), "clinical_white" (medicine, hospitals, studies) or "dusk_violet" (the mind, dreams,
+stress); the code lights every picture with it and tints every footage.
 "nouns", one entry each:
 - "i": the number of the noun itself (not its article nor its adjective): the picture comes up on that word;
 - "word": that word;
@@ -206,13 +222,16 @@ eyes, a breath, a signal along a nerve, a cord that pulses). Then ONE sequence f
 - "steps": 3 to 6, in order, each on the word that says it: "i", "word", and "marks": what shows at that step, 0-2 of
   {{"kind": "arrow" | "circle" | "glow", "at": one of the points, "dir": "left" | "right" | "up" | "down" | "in"
   (toward the figure's middle) | "out" | "cw" | "ccw" (for a circle, as seen on the screen) | "" (a glow)}}.
-Return JSON: {{"nouns": [{{"i": 12, "word": "...", "key": "...", "format": "object", "picture": "...",
+Return JSON: {{"palette": "night_blue", "nouns": [{{"i": 12, "word": "...", "key": "...", "format": "object", "picture": "...",
 "background": "...", "family": "", "footage": "", "motion": "", "priority": 2}}],
 "sequences": [{{"key": "...", "figure": "...", "points": ["..."],
 "steps": [{{"i": 40, "word": "...", "marks": [{{"kind": "arrow", "at": "...", "dir": "in"}}]}}]}}]}}"""
+from broll_video import PALETTES as _PALETTES  # noqa: E402  (one light per clip, shared with the footage)
+
 _MARK = {"type": "object", "properties": {"kind": {"type": "string", "enum": list(MARK_KINDS)}, "at": {"type": "string"},
                                           "dir": {"type": "string"}}, "required": ["kind", "at"]}
 DA_SCHEMA = {"type": "object", "properties": {
+    "palette": {"type": "string", "enum": list(_PALETTES)},
     "nouns": {"type": "array", "items": {
         "type": "object", "properties": {"i": {"type": "integer"}, "word": {"type": "string"}, "key": {"type": "string"},
                                          "format": {"type": "string", "enum": list(FORMATS)},
@@ -578,8 +597,11 @@ def schedule(nouns, words, duration, avoid=(), block=(), head=HEAD, tail=TAIL, s
         if room is None or room < least - 1e-6:
             return None
         lead = max(0.0, word_t - t)
-        return {**n, "i": i, "t": t, "dur": round(min(natural_dur(words, i, word_t) + lead, DUR_MAX + lead, room), 2),
-                "room": room, "max": DUR_MAX + lead}
+        base, top = natural_dur(words, i, word_t), DUR_MAX
+        if int(n.get("priority") or 1) >= 3:
+            base, top = max(base, FACT_DUR), FACT_DUR_MAX
+        return {**n, "i": i, "t": t, "dur": round(min(base + lead, top + lead, room), 2),
+                "room": room, "max": top + lead}
 
     cands, spare = [], []
     for n in nouns:
@@ -626,7 +648,7 @@ def schedule(nouns, words, duration, avoid=(), block=(), head=HEAD, tail=TAIL, s
                 if "seq" in s and s["t"] - 1e-6 <= o["t"] < s["t"] + s["dur"] + JOIN:
                     return False
         early = [a for a in picks + [c] if a["t"] < full_head - 1e-6]
-        if len(early) > 1:
+        if len(early) > EARLY_CARDS:
             return False
         if len(picks) + 1 > max(1, int(PER_MIN * total / 60.0 + 0.5)):
             return False
@@ -751,7 +773,19 @@ def direct(words, clip):
     data = broll_ideas._call(prompt, DA_SCHEMA, "broll_ideas", broll_ideas._model("broll_ideas", "opus"),
                              effort=os.environ.get("CLAUDE_EFFORT_BROLL_LITERAL") or "medium")
     nouns = nouns_of(data, words)
-    return nouns, sequences_of(data, words, taken={n["key"] for n in nouns}), styles
+    return nouns, sequences_of(data, words, taken={n["key"] for n in nouns}), lit(styles, (data or {}).get("palette"))
+
+
+def lit(styles, palette):
+    """The style sentences with the clip's light (PALETTES) after them, and the palette kept under "palette" (the
+    footage is tinted with it); the styles as they were without a known palette."""
+    if palette not in _PALETTES:
+        return styles
+    if isinstance(styles, str):
+        styles = {"picture": styles, "sequence": styles}
+    words = _PALETTES[palette][0]
+    return {**styles, "picture": f"{styles['picture'].rstrip('. ')}, {words}.",
+            "sequence": f"{styles['sequence'].rstrip('. ')}, {words}.", "palette": palette}
 
 
 def _around_word(words, i, n=8, before=24):
@@ -1080,7 +1114,7 @@ def _sentence_around(words, i, n=10):
     return " ".join(str(w.get("text") or "") for w in words[max(0, i - n):i + n + 1])
 
 
-def footage_for(picks, words, duration, tmp, cfg=None):
+def footage_for(picks, words, duration, tmp, cfg=None, palette=None):
     """Real footage for the scenes the director gave a "footage" query (an action, a place, a state lived): one moment
     per key (its first time on screen, as long as its longest), through broll_video.videos_for_clip (Pexels: one judge
     call on the previews for the clip). {key: placement} — a key without footage keeps its generated picture."""
@@ -1091,7 +1125,7 @@ def footage_for(picks, words, duration, tmp, cfg=None):
             if p["key"] not in first:
                 first[p["key"]] = {"t": float(p["t"]), "word": p["word"], "key": p["key"], "kind": "action",
                                    "sentence": _sentence_around(words, p["i"]), "query": p["footage"],
-                                   "dur": float(p["dur"])}
+                                   "dur": float(p["dur"]), **({"palette": palette} if palette else {})}
             else:
                 first[p["key"]]["dur"] = max(first[p["key"]]["dur"], float(p["dur"]))
     if not first:
@@ -1159,7 +1193,8 @@ def run(clip_path, clip, words, avoid, block, tmp, render, duration=None, head=H
     made, failed, where, videos = {}, set(), {}, {}
     # the actions, places and states lived first: real footage where Pexels has it (no picture to make for those)
     first_picks = schedule(ok, words, duration, avoid, block, head=head, sequences=seqs)
-    for key, g in footage_for(first_picks, words, duration, tmp, cfg).items():
+    palette = styles.get("palette") if isinstance(styles, dict) else None
+    for key, g in footage_for(first_picks, words, duration, tmp, cfg, palette=palette).items():
         still = _still_of(g["path"], os.path.join(tmp, f"lit_video_{_key(key)}.jpg"))
         if still:
             made[key] = (still, None, f"Pexels footage: {g.get('query')}")

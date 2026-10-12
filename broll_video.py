@@ -31,6 +31,17 @@ LICENSE = "Pexels License — free to use, no attribution required (https://www.
 FILE_HOST = "videos.pexels.com"
 PREVIEW_HOST = "images.pexels.com"
 
+# ONE light per clip (12-oct-2026, OptimalHealth: Eye Trick all night blue, Melatonin one pale blue for every card):
+# the director picks it, the generated pictures are lit with its words, the judge prefers footage in it, and every
+# excerpt gets its colour laid over it in soft light (TINT_OPACITY) so stock from five sources looks like one clip.
+PALETTES = {
+    "night_blue": ("lit by deep night-blue light, cool blue shadows", "0x1d3b8b"),
+    "warm_morning": ("lit by warm golden morning light", "0xd9902b"),
+    "clinical_white": ("lit by clean cool white light", "0xb8d4e8"),
+    "dusk_violet": ("lit by soft dusky violet light", "0x6b4fa0"),
+}
+TINT_OPACITY = 0.35
+
 SRC_MIN, SRC_MAX = 3.0, 15.0      # s: the stock video's own length
 SHOW_MIN, SHOW_MAX = 1.5, 3.0     # s: the excerpt on screen
 SHOW_TAIL = 0.2                   # s kept after the last word of the clause
@@ -377,6 +388,8 @@ Prefer real anonymous people doing exactly the action said, in a plain natural s
 The person must be THE ONE DESCRIBED in "looking for" and the sentence: the same sex, the same age group (an "older man"
 looks sixty or more, never a young man), in the state said (awake, asleep, exhausted). A wrong person is worse than no
 footage: when no candidate matches clearly, answer -1 — a picture is then made instead.
+When a moment gives the clip's light, prefer — between candidates that both fit — the one whose light and colours are
+closest to it: the clip must look like one film, not five stock sources.
 Also say which frame (a, b or c) is the best moment to cut to (it will be the middle of the excerpt).
 
 {moments}
@@ -418,8 +431,9 @@ def choose(moments, cands, folder, session=None):
         sheet(cs, path, f"{k} · {m.get('word', '')}", session)
         sheets.append(path)
         titles = "; ".join(f"{i}: {_q(c['title'], 10)} ({c['duration']:.0f} s)" for i, c in enumerate(cs))
+        light = f'; the clip\'s light: "{PALETTES[m["palette"]][0]}"' if m.get("palette") in PALETTES else ""
         lines.append(f'k={k} — word "{_q(m.get("word"), 4)}" in "{_q(m.get("sentence"))}"; looking for: '
-                     f'"{_q(m.get("query"), 8)}", color footage\n  candidates (page titles): {titles}')
+                     f'"{_q(m.get("query"), 8)}", color footage{light}\n  candidates (page titles): {titles}')
         asked.append(k)
     out = [None] * len(moments)
     if not asked:
@@ -482,16 +496,21 @@ def download(cand, session=None):
     return _fetch(f["link"], path, FILE_HOST, session, timeout=120)
 
 
-def cut_cmd(src, start, dur, out, fps=30):
+def cut_cmd(src, start, dur, out, fps=30, tint=None):
     vf = (f"crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale={OUT_W}:{OUT_H}:flags=lanczos,"
           f"fps={fps},setsar=1,format=yuv420p")
+    if tint:
+        # the clip's light (PALETTES) laid over the footage in soft light: one look for the whole clip
+        vf = (f"crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale={OUT_W}:{OUT_H}:flags=lanczos,fps={fps},setsar=1,"
+              f"format=gbrp,split[a][b];[b]drawbox=x=0:y=0:w=iw:h=ih:color={tint}@1:t=fill[c];"
+              f"[a][c]blend=all_mode=softlight:all_opacity={TINT_OPACITY},format=yuv420p")
     return ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", src, "-t", f"{dur:.3f}", "-an",
             "-vf", vf, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", out]
 
 
-def cut(src, start, dur, out, fps=30):
-    """The excerpt: ``dur`` s from ``start``, centre-cropped to 9:16, 1080x1920, no sound."""
-    subprocess.run(cut_cmd(src, start, dur, out, fps), check=True, capture_output=True)
+def cut(src, start, dur, out, fps=30, tint=None):
+    """The excerpt: ``dur`` s from ``start``, centre-cropped to 9:16, 1080x1920, no sound; ``tint``: the clip's light."""
+    subprocess.run(cut_cmd(src, start, dur, out, fps, tint), check=True, capture_output=True)
     return out
 
 
@@ -622,7 +641,9 @@ def videos_for_clip(moments, words, clip_end, tmp, cfg=None, session=None, fps=3
             continue
         try:
             src = download(c, session)
-            path = cut(src, excerpt_start(c, dur), dur, os.path.join(folder, f"v_{t:06.2f}_{c['id']}.mp4"), fps)
+            tint = PALETTES[m["palette"]][1] if m.get("palette") in PALETTES else None
+            path = cut(src, excerpt_start(c, dur), dur, os.path.join(folder, f"v_{t:06.2f}_{c['id']}.mp4"), fps,
+                       tint)
         except Exception as e:
             print(f"   ⚠️ B-roll vidéo : « {m.get('word')} » abandonné ({type(e).__name__}).")
             continue

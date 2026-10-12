@@ -51,15 +51,17 @@ def test_the_charter_gives_one_style_for_pictures_and_one_for_sequences():
 class TestSchedule:
     """The rules of the 12 OptimalHealth shorts decoded (output/_stepup/etude2/decodage/rapport.md § 4)."""
 
-    def test_on_the_word_the_face_alone_for_3_s_but_one_card(self):
+    def test_on_the_word_the_face_first_with_cards_only(self):
+        # 12-oct-2026: nothing full screen before FULL_HEAD (6 s: their Melatonin keeps the guest until 15 s), at most
+        # EARLY_CARDS cards before it.
         nouns = [_noun("if"), _noun("emergency"), _noun("morning"), _noun("physician"),
                  _noun("go", fmt="object", bg="yellow"), _noun("room", fmt="object", bg="yellow")]
         picks = bl.schedule(nouns, WORDS, 60.0)
         full = [p for p in picks if p["format"] in bl.FULL]
-        assert full and all(p["t"] >= bl.FULL_HEAD for p in full), "nothing full screen in the first 3 s"
-        assert full[0]["key"] == "morning" and full[0]["t"] == round(WORDS[IDX["morning"]]["start"] - bl.LEAD, 2)
+        assert full and all(p["t"] >= bl.FULL_HEAD for p in full), "nothing full screen in the first seconds"
+        assert full[0]["t"] == round(WORDS[full[0]["i"]]["start"] - bl.LEAD, 2)
         early = [p for p in picks if p["t"] < bl.FULL_HEAD]
-        assert len(early) == 1 and early[0]["format"] == "object"
+        assert 1 <= len(early) <= bl.EARLY_CARDS and all(p["format"] == "object" for p in early)
         # an object card rises CARD_LEAD s before its word (it is settled on it), never before HEAD
         assert early[0]["t"] >= bl.HEAD and early[0]["t"] == round(WORDS[early[0]["i"]]["start"] - bl.CARD_LEAD, 2)
 
@@ -518,9 +520,9 @@ def test_no_long_face_while_something_showable_is_said():
     assert all(p["t"] + p["dur"] <= duration - bl.TAIL + 1e-6 for p in picks), "the clip still ends on the face"
     assert (bl.FILL_DUR_MIN, bl.GAP_MAX) == before == (0.8, 8.0)
     # nothing of the clip said in a long stretch: it stays on the face (no picture invented)
-    quiet = _words(" ".join(["so", "I", "think", "that", "the", "very", "nice", "scientists"] + ["word"] * 80),
+    quiet = _words(" ".join(["so", "I", "think", "that", "the", "very", "nice"] * 2 + ["scientists"] + ["word"] * 80),
                    step=0.45)
-    only = bl.schedule([dict(nouns[0], i=7)], quiet, quiet[-1]["end"] + 2.0)
+    only = bl.schedule([dict(nouns[0], i=14)], quiet, quiet[-1]["end"] + 2.0)
     assert [p["key"] for p in only] == ["scientist"] and bl.face_gaps(only, quiet[-1]["end"] + 2.0)
     assert bl.same_word("scientific", "scientists") and not bl.same_word("physical", "physicians")
 
@@ -534,3 +536,27 @@ def test_the_picture_reads_the_sentence_and_keeps_one_subject():
     import broll_video
     judge = " ".join(broll_video.JUDGE_PROMPT.split())
     assert "THE ONE DESCRIBED" in judge and "A wrong person is worse than no footage" in judge
+
+
+
+def test_one_light_per_clip_the_fact_held_longer():
+    # 12-oct-2026 (OptimalHealth: Eye Trick all night blue; a card carrying the fact holds 2.5-3 s)
+    import broll_video
+    styles = {"picture": "Photorealistic cinematic photograph.", "sequence": "High-end 3D medical visualization."}
+    lit = bl.lit(styles, "night_blue")
+    assert lit["palette"] == "night_blue" and lit["picture"].endswith("cool blue shadows.")
+    assert lit["sequence"].startswith("High-end 3D medical visualization, lit by deep night-blue light")
+    assert bl.lit(styles, "neon_pink") is styles and "palette" in bl.DA_SCHEMA["properties"]
+    flat = " ".join(bl.DA_PROMPT.split())
+    assert "A LEVEL, A HORMONE OR A NUMBER" in flat and "A COMPARISON OR A SIZE" in flat
+    assert "THE FIRST SECONDS KEEP THE FACE" in flat and '"palette": ONE light for the whole clip' in flat
+    cmd = " ".join(broll_video.cut_cmd("in.mp4", 1.0, 2.0, "out.mp4", 30, tint="0x1d3b8b"))
+    assert "color=0x1d3b8b@1:t=fill" in cmd and "blend=all_mode=softlight" in cmd
+    assert "blend" not in " ".join(broll_video.cut_cmd("in.mp4", 1.0, 2.0, "out.mp4", 30))
+    words = _words(" ".join(["word"] * 30 + ["melatonin", "is", "a", "hormone", "word"] + ["word"] * 30), step=0.3)
+    i = _at(words, "melatonin")
+    main_pick = bl.schedule([{"i": i, "word": "melatonin", "key": "m", "format": "object", "picture": "a bottle",
+                              "background": "blue", "priority": 3}], words, words[-1]["end"] + 2)
+    minor = bl.schedule([{"i": i, "word": "melatonin", "key": "m", "format": "object", "picture": "a bottle",
+                          "background": "blue", "priority": 1}], words, words[-1]["end"] + 2)
+    assert main_pick[0]["dur"] > minor[0]["dur"] and main_pick[0]["dur"] >= bl.FACT_DUR
