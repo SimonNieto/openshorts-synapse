@@ -1026,6 +1026,10 @@ def export_clip(clip: dict, output_dir: str, clip_filename: str, tokens, transcr
         "subject_words": clip.get("subject_words") or "",
         "subject_said_at": clip.get("subject_said_at"),
         "opening_moved_for_subject": clip.get("opening_moved_for_subject") or None,
+        # 12-oct-2026: the fact the title promises and when it is heard, the cut_out passages (the stall) out.
+        "fact_words": clip.get("fact_words") or "",
+        "fact_said_at": clip.get("fact_said_at"),
+        "cut_out_why": [c.get("why") for c in clip.get("cut_out") or []],
         "everyday_thing": clip.get("everyday_thing") or "",
         # Who the moment concerns, a practical tip / a myth broken, the other speaker heard, the face in the source
         # frame, and the points each one added to the score (main._weights_for).

@@ -68,7 +68,7 @@ class DetailResponseV2(BaseModel):
 
 # A passage a tight edit takes out of the clip (5-oct-2026): its first and
 # last words, verbatim, and why (aside, screen_reading, hesitation,
-# digression). main.check_cut_out checks it against the words and stores it
+# digression, stall — 12-oct-2026). main.check_cut_out checks it against the words and stores it
 # as clip["cut_out"] = [{"from", "to", "why"}] for the montage, which cuts it.
 class CutOutModel(BaseModel):
     first_words: str
@@ -99,6 +99,10 @@ class DetailClipModelPlaybook(DetailClipModelV2):
     # checks they are heard within OPENING_SUBJECT_SECONDS, else opens on the later sentence that says them; and
     # the everyday thing the moment turns on ("" when none), a small weight in main.rank_by_opening, never a filter.
     subject_words: str = ""
+    # 12-oct-2026: the first words, verbatim, of the sentence that delivers the concrete fact the title promises
+    # (a number, a consequence, a mechanism) — main.fact_said_at checks when it is heard once the cut_out passages
+    # are out (fact_late past FACT_LATE_SECONDS); "" when the opening sentence is that fact.
+    fact_words: str = ""
     everyday_thing: str = ""
     # Who the moment concerns (playbook.AUDIENCE_REACH), a practical tip or a myth broken, the other speaker heard
     # (decoding of OptimalHealth, 9-oct-2026): weights in main.rank_by_opening, never filters.
@@ -581,17 +585,32 @@ SYNAPSE CUT PLAYBOOK — CUT, DESCRIPTIONS, TOPIC:
   the clip, that name the thing or the event the clip is about — what its
   title names ("emergency room", "lidocaine", "escaped"). The code checks
   they are heard within the first ~3 seconds.
+- `fact_words`: the first 3 to 6 words, copied VERBATIM from the transcript
+  inside the clip, of the sentence that delivers the CONCRETE FACT the title
+  promises — the number, the consequence, the mechanism ("men who sleep five
+  to six hours", "your time to physical exhaustion drops"). "" when the
+  opening sentence itself is that fact. The code checks when it is heard once
+  the clip is cut: the channel's viewers leave between 5 and 13 s when it
+  only comes at 17-20 s.
 - `cut_out`: 0 to 3 passages INSIDE the clip that a tight edit takes out: the
   other speaker's aside ("I saw that episode announced"), someone reading a
   screen aloud, a hesitation ("and... um... I"), a digression that leaves the
-  story and comes back. For each one, its `first_words` and `last_words` (3-6
-  words each, copied VERBATIM from the transcript, in order) and `why`: aside,
-  screen_reading, hesitation or digression. NEVER a negation or a nuance ("it's
-  not going to cure breast cancer" stays: cutting it changes what the clip
-  claims; a passage with "not", "no", "never", "but", "only" in it is never
-  cut), never the opening sentence (`hook_line`), never the payoff
-  (`punchline`). What is left must still make sense heard straight through.
-  Most clips need none: [].
+  story and comes back, and THE STALL: when `fact_words` is heard more than
+  ~10 s in, what stands between the opening sentence and the sentence that
+  leads into the fact — reactions and banter ("yeah yeah", "wow", "there's a
+  lot of that, right?", "I like sleep"), a setup that only says the opening
+  again, a vague list that delays the fact ("and memory, and the recuperative
+  benefits"). Cut it from the first word after the opening sentence to the
+  last word before the sentence that leads into the fact, so the opening is
+  followed straight by it. For each one, its `first_words` and `last_words`
+  (3-6 words each, copied VERBATIM from the transcript, in order) and `why`:
+  aside, screen_reading, hesitation, digression or stall. NEVER a negation or
+  a nuance ("it's not going to cure breast cancer" stays: cutting it changes
+  what the clip claims; a passage with "not", "no", "never", "but", "only" in
+  it is never cut — except a whole "not just X but Y", both halves inside the
+  passage: it adds, it never denies), never the opening sentence
+  (`hook_line`), never the payoff (`punchline`). What is left must still make
+  sense heard straight through. Most clips need none: [].
 - DESCRIPTIONS (TikTok + Instagram): 1-2 sentences that tease the payoff
   without spoiling it, then ONE short question to the viewer that invites a
   comment ("Would you have noticed the signs?"), then 3-5 hashtags. Do not

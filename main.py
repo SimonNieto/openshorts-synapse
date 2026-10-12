@@ -2221,7 +2221,7 @@ OPENING_WEIGHT = 0.5            # share of predicted_score carried by the openin
 OPENING_TOPIC_SECONDS = 5.0     # the subject of the title or the hook is said within this
 # Points the opening loses for what the code finds in the final cut (a flag ×1 each).
 OPENING_PENALTY = {"mid_sentence": 25, "points_back": 15, "request": 15, "pronoun": 8, "topic_late": 8,
-                   "subject_late": 10}
+                   "subject_late": 10, "fact_late": 15}
 # A first word pointing at someone or something the viewer has not met ("They have side effects.", JRE
 # #2553 c04; "Those are the ones..."): flagged, never moved — the on-screen hook may name them.
 _OPENS_ON_PRONOUN = re.compile(r"^(?:they|them|he|she|him|her|those|these|that['’]s|that was|that is)\b")
@@ -2275,8 +2275,8 @@ def check_opening(clip, words, seconds=None):
     """What the code can tell of the final cut's first seconds, without AI: ``opening_flags`` =
     mid_sentence (no sentence start there), points_back / request (_OPENS_ON_BEFORE / _OPENS_ON_REQUEST),
     pronoun (_OPENS_ON_PRONOUN; a personal one is fine when the hook names a person), topic_late (no
-    significant word of the title or the on-screen hook said in the first OPENING_TOPIC_SECONDS s).
-    Returns the flags."""
+    significant word of the title or the on-screen hook said in the first OPENING_TOPIC_SECONDS s),
+    fact_late (fact_said_at past FACT_LATE_SECONDS, the cut_out passages out). Returns the flags."""
     seconds = OPENING_TOPIC_SECONDS if seconds is None else seconds
     start = float(clip.get("start", 0))
     k0 = _first_heard(words, start)
@@ -2310,6 +2310,10 @@ def check_opening(clip, words, seconds=None):
             said = " ".join(w["w"] for w in words[k0:] if w["s"] < start + seconds)
             if topic and not topic & {_stem(w) for w in playbook._sig_words(said)}:
                 flags.append("topic_late")
+        # 12-oct-2026: the fact the title promises, heard once the cut_out passages are out (FACT_LATE_SECONDS).
+        at = fact_said_at(clip, words)
+        if at is not None and at > FACT_LATE_SECONDS:
+            flags.append("fact_late")
     clip["opening_flags"] = flags
     return flags
 
@@ -2621,6 +2625,11 @@ def rank_openings(shorts, words, video_path=None):
                   f"{' (' + ', '.join(flags) + ')' if flags else ''}, moment {s.get('moment_score')}"
                   f"{', ' + ' '.join(f'{v:+g} {k}' for k, v in s['selection_weights'].items()) if s.get('selection_weights') else ''}, "
                   f"score {before} -> {s['predicted_score']}: \"{heard}\"")
+    timed = [s["fact_said_at"] for s in shorts if s.get("fact_said_at") is not None]
+    if timed:
+        print(f"   ⏱️ Fact promised by the title: heard within {FACT_LATE_SECONDS:g}s in "
+              f"{sum(a <= FACT_LATE_SECONDS for a in timed)}/{len(timed)} clip(s), the cut-outs out "
+              f"({', '.join(f'{a:.0f}s' for a in timed)}).")
     clean = sum(not s.get("opening_flags") for s in shorts)
     print(f"   🎬 Openings: {clean}/{len(shorts)} clip(s) open clean (sentence start, stands alone, subject said "
           f"within {OPENING_TOPIC_SECONDS:g}s); the ranking weighs the opening at {OPENING_WEIGHT:.0%}.")
@@ -2988,8 +2997,10 @@ def shorten_to_target(shorts, words, min_secs, target, language="en", ask=None):
 # The model names them (gemini_worker.PLAYBOOK_DETAIL_ADDENDUM), the montage cuts them
 # (lot L3); here each one is checked against the words of the final clip. Interface:
 # clip["cut_out"] = [{"from": <first words, verbatim>, "to": <last words, verbatim>,
-# "why": aside|screen_reading|hesitation|digression}], 0 to CUT_OUT_MAX of them.
-CUT_OUT_WHY = ("aside", "screen_reading", "hesitation", "digression")
+# "why": aside|screen_reading|hesitation|digression|stall}], 0 to CUT_OUT_MAX of them.
+# "stall" (12-oct-2026): what stands between the opening sentence and the fact the title promises (see
+# FACT_LATE_SECONDS).
+CUT_OUT_WHY = ("aside", "screen_reading", "hesitation", "digression", "stall")
 CUT_OUT_MAX = 3
 # A longer "passage" is a second clip, or two quotes matched far apart.
 CUT_OUT_MAX_SECONDS = 30.0
@@ -3005,6 +3016,16 @@ _NUANCE_WORDS = {"not", "no", "never", "nobody", "nothing", "none", "nor", "neit
 
 
 def _has_nuance(toks):
+    """A negation or a nuance in ``toks`` — but a whole "not just X but Y" / "not only X but also Y" (its "but"
+    inside ``toks`` too) adds, it never denies: taken out whole, it removes an addition and never turns the
+    claim around (12-oct-2026, "wow, and not just for your physical performance but actually skill learning...",
+    the stall of JRE #1109 c08)."""
+    toks = list(toks)
+    for i in range(len(toks) - 1):
+        if toks[i] == "not" and toks[i + 1] in ("just", "only", "merely", "simply"):
+            j = next((x for x in range(i + 2, len(toks)) if toks[x] == "but"), None)
+            if j is not None:
+                toks[i] = toks[i + 1] = toks[j] = ""
     return any(t in _NUANCE_WORDS for t in toks)
 
 
@@ -3028,7 +3049,13 @@ def check_cut_out(clip, words, min_secs):
         # The opening sentence (the hook): never cut.
         hook_last = next((x for x in range(a, b + 1) if _is_boundary(words, x)), b)
         if clip.get("hook_aligned") and clip.get("hook_line"):
-            hook_last = max(hook_last, min(b, a + len(_ptoks(clip["hook_line"])) - 1))
+            quoted = min(b, a + len(_ptoks(clip["hook_line"])) - 1)
+            if hook_last > quoted and not any(_ends_sentence(words, x) for x in range(a, hook_last + 1)):
+                # 12-oct-2026: an unpunctuated transcript (JRE #1109 c05, c08) has no full stop and few long
+                # pauses: its first "boundary" lands deep in the clip and nothing could ever be cut before it.
+                # There the opening sentence the model quoted, found at the start, is the opening sentence.
+                hook_last = quoted
+            hook_last = max(hook_last, quoted)
         span = _payoff_span(words, clip.get("punchline"), start - 0.05, end + 0.05, wt)
         if span and words[span[1]]["e"] > end + 0.05:
             span = None
@@ -3092,6 +3119,61 @@ def check_cut_out(clip, words, min_secs):
     else:
         clip.pop("cut_out_dropped", None)
     return len(kept), len(dropped)
+
+
+# --- the stall: the fact the title promises, heard early (12-oct-2026) ------------------------------------
+# YouTube Studio of the first two shorts of the « références » recipe (JRE #1109, published 10-oct): 65 % of
+# the viewers stayed past the first seconds — then of those still there at 4 s, 41-46 % were left at 15 s
+# (the channel's record: 63 %). Both clips: a strong first sentence, then banter ("yeah yeah... it's the sort
+# of sleep machismo attitude... there's a lot of that, right") or a vague list before the fact the title
+# promises, heard at 17-20 s. The clip choice names that fact (``fact_words``, verbatim) and may mark the stall
+# as a cut_out passage (why "stall"); here: when the fact is heard once the cut_out passages are out, and
+# fact_late (OPENING_PENALTY) past FACT_LATE_SECONDS. A preference, never a filter.
+FACT_LATE_SECONDS = 10.0
+
+
+def _quote_at(wt, toks, lo, hi):
+    """First index in [lo, hi] where ``toks`` is said word for word (None: nowhere)."""
+    return next((x for x in range(lo, hi - len(toks) + 2) if wt[x:x + len(toks)] == toks), None)
+
+
+def cut_out_spans(clip, words):
+    """(start, end) in seconds of the clip's cut_out passages (check_cut_out's format), found again in the
+    words inside the clip; a passage no longer found is left out."""
+    start, end = float(clip.get("start", 0)), float(clip.get("end", 0))
+    inside = [i for i, w in enumerate(words) if w["s"] >= start - 0.05 and w["e"] <= end + 0.05]
+    if not inside:
+        return []
+    a, b = inside[0], inside[-1]
+    wt = _word_toks(words)
+    spans = []
+    for item in clip.get("cut_out") or []:
+        ft, tt = _ptoks(item.get("from")), _ptoks(item.get("to"))
+        f = _quote_at(wt, ft, a, b) if ft else None
+        t = _quote_at(wt, tt, f, b) if f is not None and tt else None
+        if t is not None:
+            spans.append((words[f]["s"], words[t + len(tt) - 1]["e"]))
+    return spans
+
+
+def fact_said_at(clip, words):
+    """Seconds from the first word heard to the first of ``fact_words`` (matched on its first 4 words), the
+    cut_out passages said before it taken out. Sets ``fact_said_at``; None (and no key) when the clip has no
+    fact_words or they are not said in it."""
+    toks = _ptoks(clip.get("fact_words"))[:4]
+    start, end = float(clip.get("start", 0)), float(clip.get("end", 0))
+    k0 = _first_heard(words, start)
+    hit = None
+    if len(toks) >= 2 and k0 is not None:
+        last = max((i for i, w in enumerate(words) if w["s"] < end), default=k0)
+        hit = _quote_at(_word_toks(words), toks, k0, last)
+    if hit is None:
+        clip.pop("fact_said_at", None)
+        return None
+    said = words[hit]["s"]
+    out = sum(e - s for s, e in cut_out_spans(clip, words) if e <= said + 0.05)
+    clip["fact_said_at"] = round(max(0.0, said - words[k0]["s"] - out), 2)
+    return clip["fact_said_at"]
 
 
 def target_length_rules(target, min_secs, max_secs, payoff=False):
