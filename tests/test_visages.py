@@ -27,10 +27,14 @@ class TestOpenHold:
 
     def test_the_picture_is_held_the_sound_runs(self):
         segs = [{"start": 100.0, "end": 106.0}, {"start": 107.0, "end": 110.0}]
-        cmd = " ".join(montage.cut_command("src.mp4", segs, "out.mp4", hold=0.67))
-        assert "trim=start=1.670000:end=7.000000,setpts=PTS-STARTPTS,tpad=start_mode=clone:start_duration=0.670000[v0]" in cmd
+        cmd = " ".join(montage.cut_command("src.mp4", segs, "out.mp4", fps=60000 / 1001, hold=0.67))
+        # 40 whole frames at 59.94 (0.667 s), the rate set on the link before tpad: the bench of 12-oct had the
+        # picture 0.4 s ahead of the voice when tpad guessed the rate.
+        assert ("trim=start=1.667333:end=7.000000,setpts=PTS-STARTPTS,fps=60000/1001,"
+                "tpad=start_mode=clone:start=40[v0]") in cmd
         assert "[0:a]atrim=start=1.000000:end=7.000000" in cmd           # the sound from the very start
-        assert "tpad" not in " ".join(montage.cut_command("src.mp4", segs, "out.mp4"))
+        assert "tpad" not in " ".join(montage.cut_command("src.mp4", segs, "out.mp4", fps=60000 / 1001))
+        assert "tpad" not in " ".join(montage.cut_command("src.mp4", segs, "out.mp4", hold=0.67))  # no rate, no hold
 
     def test_the_report_says_it(self):
         assert "next shot's first frame" in montage.describe({"saved": 1.0, "joins": [], "open_hold": 0.67})
@@ -162,3 +166,34 @@ class TestPausesFromTheSource:
         assert rel[11]["gap"] >= R.PAUSE_END and rel[3]["gap"] < R.PAUSE_END
         pts = R.insertion_points(rel, 11.0, events=[])
         assert pts and abs(pts[0] - 0.08 - rel[11]["end"]) < 1e-6
+
+
+class TestHoldKeepsTheVoiceInStep:
+    """A real cut (ffmpeg): after the held first picture, every frame is the source's at clip_to_source(t) —
+    the bench of 12-oct-2026 had the picture 0.4 s ahead of the voice until the first join."""
+
+    def test_frames_after_the_hold_are_on_time(self):
+        import recut
+        with tempfile.TemporaryDirectory() as d:
+            src, out = os.path.join(d, "src.mp4"), os.path.join(d, "out.mp4")
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=60000/1001:d=10",
+                            "-f", "lavfi", "-i", "sine=f=440:d=10", "-c:v", "libx264", "-g", "30", "-pix_fmt",
+                            "yuv420p", "-c:a", "aac", "-shortest", src], check=True)
+            segs = [{"start": 1.0, "end": 4.0}, {"start": 5.0, "end": 8.0}]
+            fps = 60000 / 1001
+            r = subprocess.run(montage.cut_command(src, segs, out, normalize=False, fps=fps, hold=0.67),
+                               capture_output=True, text=True)
+            assert r.returncode == 0, r.stderr[-400:]
+
+            def frame(path, t, accurate=True):
+                cmd = (["ffmpeg", "-v", "error", "-i", path, "-ss", f"{t:.4f}"] if accurate
+                       else ["ffmpeg", "-v", "error", "-ss", f"{t:.4f}", "-i", path])
+                raw = subprocess.run(cmd + ["-frames:v", "1", "-vf", "scale=80:45,format=gray", "-f", "rawvideo",
+                                            "-"], capture_output=True).stdout
+                return np.frombuffer(raw, dtype=np.uint8).astype("float32")
+
+            for t in (1.0, 2.2, 4.5):
+                got = frame(out, t)
+                on_time = float(np.mean(np.abs(got - frame(src, recut.clip_to_source(segs, t)))))
+                early = float(np.mean(np.abs(got - frame(src, recut.clip_to_source(segs, t) + 0.4))))
+                assert on_time < 2.0 and on_time < early / 3, (t, on_time, early)

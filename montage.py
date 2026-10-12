@@ -820,9 +820,13 @@ def cut_command(src, segments, out, fade=FADE, normalize=True, video_args=None, 
         a, b = s["start"] - t0, s["end"] - t0
         d = b - a
         f = min(fade, d / 4)
-        if k == 0 and hold:
-            parts.append(f"[0:v]trim=start={a + hold:.6f}:end={b:.6f},setpts=PTS-STARTPTS,"
-                         f"tpad=start_mode=clone:start_duration={hold:.6f}[v{k}]")
+        if k == 0 and hold and fps:
+            # Whole frames at the source's rate, the rate set on the link first: without it tpad spaced its
+            # copies at a guessed rate and padded 0.27 s for 0.67 — the picture ran 0.4 s ahead of the voice
+            # until the first join (bench of 12-oct-2026, JRE #1109 c08).
+            n = max(1, int(round(hold * fps)))
+            parts.append(f"[0:v]trim=start={a + n / fps:.6f}:end={b:.6f},setpts=PTS-STARTPTS,"
+                         f"fps={_rate(fps)},tpad=start_mode=clone:start={n}[v{k}]")
         else:
             parts.append(f"[0:v]trim=start={a:.6f}:end={b:.6f},setpts=PTS-STARTPTS[v{k}]")
         parts.append(f"[0:a]atrim=start={a:.6f}:end={b:.6f},asetpts=PTS-STARTPTS,"
