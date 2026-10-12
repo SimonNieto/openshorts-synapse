@@ -120,6 +120,17 @@ def is_negation(token):
     return t in NEGATIONS or token.endswith("n't")
 
 
+def additive_not_out(toks):
+    """``toks`` with the "not" of a whole "not just / only X but Y" blanked: taken out whole, it removes an
+    addition and never turns the claim around (12-oct-2026, the stall of JRE #1109 c08: "wow, and not just for
+    your physical performance but actually skill learning..."; main._has_nuance, the same rule)."""
+    toks = list(toks)
+    for i in range(len(toks) - 1):
+        if toks[i] == "not" and toks[i + 1] in ("just", "only", "merely", "simply") and "but" in toks[i + 2:]:
+            toks[i] = ""
+    return toks
+
+
 def _match_at(wt, i, toks):
     return wt[i:i + len(toks)] == toks
 
@@ -462,7 +473,9 @@ def plan(start, end, words, levels, grid, *, hook_line=None, punchline=None, cut
         if punch_span and _overlaps(ws, we, *punch_span):
             refused.append({"kind": "passage", "what": label, "reason": "punchline"})
             continue
-        near = [_tok(inside[k]["w"]) for k in range(max(0, i - 1), min(len(inside), j + 2))]
+        near = ([_tok(inside[k]["w"]) for k in range(max(0, i - 1), i)]
+                + additive_not_out(_tok(inside[k]["w"]) for k in range(i, j + 1))
+                + [_tok(inside[k]["w"]) for k in range(j + 1, min(len(inside), j + 2))])
         if any(is_negation(t) for t in near if t):
             refused.append({"kind": "passage", "what": label, "reason": "negation"})
             continue
