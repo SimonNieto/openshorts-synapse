@@ -381,7 +381,11 @@ def insertion_points(words_rel, duration, punchline_time=None, max_n=None, event
     for k, w in enumerate(words_rel):
         sent.append(w)
         nxt = words_rel[k + 1]["start"] if k + 1 < len(words_rel) else None
-        if re.search(r"[.?!]$", w["text"].strip()) or (bare and nxt is not None and nxt - w["end"] >= PAUSE_END):
+        # The pause as said in the SOURCE when known ("gap", source_gaps): the montage has tightened every pause
+        # of the clip to a breath (0.12 s), none would reach PAUSE_END any more.
+        pause = w.get("gap", (nxt - w["end"]) if nxt is not None else None)
+        if re.search(r"[.?!]$", w["text"].strip()) or (bare and nxt is not None and pause is not None
+                                                       and pause >= PAUSE_END):
             strength = max(keyword_score(x["text"]) for x in sent)
             ends.append((w["end"], strength))
             sent = []
@@ -429,6 +433,19 @@ _JOB_USED = []
 _JOB_LOCK = threading.Lock()
 
 
+def source_gaps(words_rel, words_abs, to_source):
+    """Sets ``gap`` on each clip word: the pause after it in the SOURCE (the word found again by its source
+    start, ``to_source`` mapping clip seconds)."""
+    import bisect
+    starts = [w["start"] for w in words_abs]
+    for w in words_rel:
+        t = to_source(w["start"])
+        i = bisect.bisect_left(starts, t - 0.03)
+        if i + 1 < len(words_abs) and abs(words_abs[i]["start"] - t) <= 0.06:
+            w["gap"] = round(words_abs[i + 1]["start"] - words_abs[i]["end"], 3)
+    return words_rel
+
+
 def outside(cands, ranges):
     """The listener moments that overlap none of ``ranges`` ((from, to) source seconds)."""
     return [c for c in cands if all(c["start"] + c["dur"] <= a or c["start"] >= b for a, b in ranges)]
@@ -471,6 +488,8 @@ def add_reactions(src, clip_path, clip_start, clip_end, transcript, out_path,
 
         def to_source(t):
             return recut.clip_to_source(segments, t)
+
+        source_gaps(words_rel, words_abs, to_source)
     else:
         words_rel = [{"text": w["text"], "start": w["start"] - clip_start, "end": w["end"] - clip_start}
                      for w in words_abs if clip_start <= w["start"] < clip_end]

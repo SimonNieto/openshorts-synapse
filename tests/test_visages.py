@@ -146,3 +146,19 @@ class TestDryCut:
             _two_colours(q, "0x8a5a3c", "0x8b5b3d")      # the same, from another angle
             assert reframe_v2.same_person(q, 0.5, 1.5, 0, 50, 100, 180, 320, 180) is True
             assert reframe_v2.same_person(os.path.join(d, "none.mp4"), 0.5, 1.5, 0, 0, 100, 180, 320, 180) is False
+
+
+class TestPausesFromTheSource:
+    def test_the_montage_tightened_pauses_still_end_sentences(self):
+        # Source: a 0.6 s pause after word 11; the montage left 0.12 s of it in the clip.
+        words_abs = [{"text": "w", "start": 100 + k * 0.3 + (0.6 if k >= 12 else 0), "end": 100 + k * 0.3 + 0.25
+                      + (0.6 if k >= 12 else 0)} for k in range(40)]
+        segs = [{"start": 100.0, "end": 103.6}, {"start": 104.08, "end": 112.6}]
+        import recut
+        rel = [{"text": w["text"], "start": recut.source_to_clip(segs, w["start"]),
+                "end": recut.source_to_clip(segs, w["start"]) + 0.25} for w in words_abs]
+        assert max(rel[k + 1]["start"] - rel[k]["end"] for k in range(len(rel) - 1)) < R.PAUSE_END
+        R.source_gaps(rel, words_abs, lambda t: recut.clip_to_source(segs, t))
+        assert rel[11]["gap"] >= R.PAUSE_END and rel[3]["gap"] < R.PAUSE_END
+        pts = R.insertion_points(rel, 11.0, events=[])
+        assert pts and abs(pts[0] - 0.08 - rel[11]["end"]) < 1e-6
