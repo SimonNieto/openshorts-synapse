@@ -262,7 +262,7 @@ class TestContinuous:
             assert np.all(np.sign(moving) == (-1 if p["out"] else 1))
             assert np.ptp(moving[:-1]) < 1e-9, "linear: no acceleration while it moves (the last step meets the cap)"
             assert abs(abs(moving[0]) * fps - abs(p["rate"])) < 1e-3
-            assert abs(run[-1] - run[0]) <= zooms.STRETCH_CAP + 1e-9                  # 8 s: capped, then holds
+            assert abs(run[-1] - run[0]) <= zooms.STRETCH_CAP + 1e-9   # 8 s: the cap spread over the whole stretch (13-oct)
             assert 1.0 - 1e-9 <= run.min() and run.max() <= 1.0 + zooms.LEVEL_MAX + 1e-9
             f += m
         for a, b in zip(plan_, plan_[1:]):

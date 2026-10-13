@@ -106,7 +106,11 @@ ZOOMS = {"punch": 1.12, "punch_hi": 1.12, "slow_rate": 0.02, "slow_max": 0.10, "
          # stretch in three, 15 % at most then it holds; the next starts 8 % away in size at least (the natural jump
          # between two shots, which hides the join), within x1.00-1.30. "mode": "punch" brings the dry reframes back.
          "mode": "continuous", "rate_range": [0.03, 0.06], "back_every": 3, "stretch_cap": 0.15, "jump_min": 0.08,
-         "level_max": 0.30}
+         "level_max": 0.30,
+         # 13-oct-2026 (the user: « peut mieux faire pour rendre accro », the Shorts expert's measures on JRE #1513):
+         # a long stretch spreads its 15 % over its whole length, never under 1.5 %/s (it never freezes: 40-50 s of
+         # still face per job before), and the punchline opens its own stretch, forced in, 12 % tighter at least.
+         "rate_floor": 0.015, "payoff_jump": 0.12}
 # The pictures with the "references" zooms (broll knobs): a full-screen drawing pushes in STILL_RATE a second,
 # linear over its time on screen (theirs: +1.4 %/s on a still photo), one in STILL_EVERY holds still (theirs: about
 # one in three); a card's picture pushes CARD_PUSH inside its frame while the face behind it keeps its own zoom.

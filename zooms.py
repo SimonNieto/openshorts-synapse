@@ -90,6 +90,13 @@ BACK_EVERY = 3               # one stretch in this many zooms out
 STRETCH_CAP = 0.15           # a stretch zooms by this much at most (a long one then holds)
 JUMP_MIN = 0.08              # the size jump at least between two stretches (hides a montage join like the dry reframe)
 LEVEL_MAX = 0.30             # the zoom never goes past 1 + this over the premium framing
+# 13-oct-2026 (the user: « c'est pas mal les zooms mais peut mieux faire pour rendre accro »; the Shorts expert's
+# measures on JRE #1513, output/_broll_experts/zooms/rapport_zooms.md): a stretch hit STRETCH_CAP after ~4 s and then
+# held — 16 % of the face time frozen, and the punchline landed on a still frame in 4 clips of 6. Now a long stretch
+# spreads its STRETCH_CAP over its whole length, never slower than RATE_FLOOR (it never stops); and the punchline's
+# first word opens a new stretch, forced IN, PAYOFF_JUMP tighter at least than where the camera was.
+RATE_FLOOR = 0.015           # per second: the slowest a long stretch may push (it never holds still)
+PAYOFF_JUMP = 0.12           # the size jump at the punchline (theirs x1.12 on the strong moments, etude2)
 
 NUMBER_WORDS = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
                 "twelve", "thirteen", "fifteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty",
@@ -122,7 +129,7 @@ def style():
 def configure():
     """plus.ZOOMS as the job carries it (PLUS_ZOOMS_JSON) over the numbers above."""
     global PUNCH, PUNCH_HI, SLOW_RATE, SLOW_MAX, MIN_GAP, RELAUNCH
-    global MODE, RATE_RANGE, BACK_EVERY, STRETCH_CAP, JUMP_MIN, LEVEL_MAX
+    global MODE, RATE_RANGE, BACK_EVERY, STRETCH_CAP, JUMP_MIN, LEVEL_MAX, RATE_FLOOR, PAYOFF_JUMP
     try:
         cfg = json.loads(os.environ.get("PLUS_ZOOMS_JSON") or "{}") or {}
     except ValueError:
@@ -140,6 +147,8 @@ def configure():
     STRETCH_CAP = float(cfg.get("stretch_cap", STRETCH_CAP))
     JUMP_MIN = float(cfg.get("jump_min", JUMP_MIN))
     LEVEL_MAX = float(cfg.get("level_max", LEVEL_MAX))
+    RATE_FLOOR = float(cfg.get("rate_floor", RATE_FLOOR))
+    PAYOFF_JUMP = float(cfg.get("payoff_jump", PAYOFF_JUMP))
 
 
 def punch_for(source_height):
@@ -566,7 +575,7 @@ def continuous_rates(start):
     return out
 
 
-def continuous_zoom(start, fps, rates=None):
+def continuous_zoom(start, fps, rates=None, forced_in=()):
     """The continuous mode's zoom per frame (over the premium framing) and its stretches: each stretch (frames with
     one ``start``) zooms linearly at its rate (continuous_rates), by STRETCH_CAP at most then holds; it starts at
     least JUMP_MIN away from where the previous one ended — in from 1.0 (or from just over the last end when that
@@ -582,10 +591,21 @@ def continuous_zoom(start, fps, rates=None):
         while e < n and start[e] == start[f]:
             e += 1
         rate = float(rates.get(int(start[f]), RATE_RANGE[0]))
-        d = min(abs(rate) * (e - f) / fps, STRETCH_CAP)
+        dur = (e - f) / fps
+        if abs(rate) * dur > STRETCH_CAP:             # a long stretch: spread the cap, never below RATE_FLOOR
+            rate = math.copysign(max(RATE_FLOOR, STRETCH_CAP / dur), rate)
+        d = abs(rate) * dur
         top = 1.0 + LEVEL_MAX
-        back = rate < 0
-        if not back:
+        payoff = int(start[f]) in forced_in
+        back = rate < 0 and not payoff
+        if payoff:
+            # the punchline: always in, PAYOFF_JUMP tighter than the camera was (from 1.0 when it was wide open)
+            s0 = 1.0 if prev is None else prev + PAYOFF_JUMP
+            if s0 + d > top:
+                # too tight to push the whole way: the jump first (it is the punch), then what room is left
+                s0 = min(s0, top - 0.03)
+                d = max(0.0, min(d, top - s0))
+        elif not back:
             s0 = 1.0
             if prev is not None and abs(s0 - prev) < JUMP_MIN:
                 s0 = prev + JUMP_MIN                  # the last one ended near 1.0: this one starts tighter
@@ -597,9 +617,12 @@ def continuous_zoom(start, fps, rates=None):
                 s0 = 1.0 + d if prev is None or abs(1.0 + d - prev) >= JUMP_MIN else top
             d = min(d, s0 - 1.0)
         k = np.arange(e - f) / fps
-        step = np.minimum(abs(rate) * k, d)
+        # spread what this stretch may travel over its whole length: it never reaches its end early and holds
+        span = max(1, e - f - 1) / fps                # the last frame of the stretch lands on its end
+        speed = d / span if dur > 0 else 0.0
+        step = np.minimum(speed * k, d)
         z[f:e] = s0 - step if back else s0 + step
-        plan_.append({"frame": f, "frames": e - f, "rate": round(-abs(rate) if back else abs(rate), 4),
+        plan_.append({"frame": f, "frames": e - f, "rate": round(-speed if back else speed, 4),
                       "from": round(float(z[f]), 3), "to": round(float(z[e - 1]), 3), "out": back})
         prev, f = float(z[e - 1]), e
     return z, plan_
@@ -807,8 +830,19 @@ def clip_boxes(input_video, n, fps, premium, heads, scene_boundaries, crop_h, or
         # no punch-in inside a shot: one linear zoom per stretch, a stretch ending at every real change (a camera cut
         # of the source, the end of a full-screen picture) and at every montage join (the size jump hides it)
         joins = [float(t) for t in list(cues.get("joins") or ()) + list(cues.get("silences") or ())]
-        tight, start = frame_states(n, fps, [], cuts + joins, restarts=[b for _, b in cues.get("pictures") or ()])
-        zarr, stretches = continuous_zoom(start, fps)
+        # the punchline's first word opens its own stretch, forced in (unless a change already falls within 0.4 s)
+        punch, pay = cues.get("punch"), []
+        if punch and isinstance(punch, (list, tuple)) and punch[0] is not None:
+            p0 = float(punch[0])
+            if 0.5 < p0 < n / fps - 1.0 and all(abs(p0 - c) > 0.4 for c in cuts + joins):
+                pay = [p0]
+        tight, start = frame_states(n, fps, [], cuts + joins, restarts=[b for _, b in cues.get("pictures") or ()] + pay)
+        forced = set()
+        for p0 in pay:
+            forced.add(int(start[min(n - 1, frame_index(p0, fps))]))
+        for p0 in [p for c in cuts + joins for p in [c] if punch and abs(c - float(punch[0] or -9)) <= 0.4]:
+            forced.add(int(start[min(n - 1, frame_index(p0, fps))]))   # a change right on the punchline: that one goes in
+        zarr, stretches = continuous_zoom(start, fps, forced_in=forced)
         out, report = {}, []
         for s_f, base in premium.items():
             e_f = min(n, s_f + len(base))
