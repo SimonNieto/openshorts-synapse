@@ -428,9 +428,15 @@ export default function PlusPanel({ onProcess, onQueue = null, queuedJobs = [], 
                     <p className="text-xs text-muted">Les épisodes passent l'un après l'autre. Les terminés s'ouvrent dans la Bibliothèque, et le Plan de publication mélange leurs clips.</p>
                     <ul className="space-y-1">
                         {queuedJobs.map((j) => (
-                            <li key={j.job_id} className="flex items-center justify-between gap-3 text-sm">
+                            <li key={j.job_id} className="text-sm"><div className="flex items-center justify-between gap-3">
                                 <span className="truncate text-ink2" title={j.label}>{j.label}</span>
-                                <span className="readout shrink-0">{({ queued: 'en attente', processing: 'en cours', completed: 'terminé', failed: 'échec', cancelled: 'annulé', gone: 'introuvable' })[j.status] || j.status}</span>
+                                <span className="readout shrink-0">{({ queued: 'en attente', processing: 'en cours', completed: 'terminé', failed: 'échec', cancelled: 'annulé', gone: 'introuvable' })[j.status] || j.status}{j.status === 'processing' ? ` · ${j.percent || 0} %${j.stage ? ` (${({ downloading: 'téléchargement', transcribing: 'transcription', analyzing: 'analyse', rendering: 'montage des clips' })[j.stage] || j.stage})` : ''}` : ''}</span>
+                                </div>
+                                {j.status === 'processing' && (
+                                    <div className="mt-1 h-1 rounded-full bg-paper3 overflow-hidden" role="progressbar" aria-valuenow={j.percent || 0} aria-valuemin={0} aria-valuemax={100}>
+                                        <div className="h-full bg-accent transition-all" style={{ width: `${j.percent || 0}%` }} />
+                                    </div>
+                                )}
                             </li>
                         ))}
                     </ul>

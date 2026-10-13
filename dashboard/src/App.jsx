@@ -1060,13 +1060,13 @@ function App() {
           const res = await apiFetch(`/api/status/${j.job_id}`);
           if (res.status === 404) return { ...j, status: 'gone' };
           const d = await res.json();
-          return { ...j, status: d.status || j.status };
+          return { ...j, status: d.status || j.status, percent: Math.round(d.progress?.percent ?? j.percent ?? 0), stage: d.progress?.stage || j.stage };
         } catch { return j; }
       }));
       setQueuedJobs((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next));
     };
     tick();
-    const id = setInterval(tick, 15000);
+    const id = setInterval(tick, 10000);
     return () => clearInterval(id);
   }, [queuedJobs]);
   const handleQueue = (data) => handleProcess(data, false, { queue: true });
