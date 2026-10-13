@@ -183,7 +183,10 @@ BROLL["video"] = True
 # "fondu" = the 0.2 s alpha fade in and out of the plan (broll.overlay_items, the motion item only).
 MOTION = {"model": "opus", "effort": "high", "fps": 30, "tabs": 1, "timeout": 150, "fondu": 0.2,
           "render_url": "http://renderer:3100/motion", "output_root": "/app/output"}
-AUDIO = {"music": True, "music_db_under_voice": 20, "target_lufs": -16.6, "sfx": False, "duck_db": 1.5}
+# 13-oct-2026, the user: « la 1 pour tout ! pas très fort en son » -> "only" = one track of the library (no Content
+# ID) on every clip, 22 dB under the voice (was 20).
+AUDIO = {"music": True, "music_db_under_voice": 22, "target_lufs": -16.6, "sfx": False, "duck_db": 1.5,
+         "only": ["alexgrohl-documentary-497499.mp3"]}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
 # audio (audio_signals.py); the titles of a job are read as a set

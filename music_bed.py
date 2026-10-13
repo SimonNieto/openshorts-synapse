@@ -423,8 +423,13 @@ def plan_job(shorts, cfg, seed=""):
         print(f"   🎵 Music on, but no usable track in {music_dir(cfg)}/{CATALOG} "
               f"(a licence and \"content_id\": false) — clips without music.")
         return 0
+    # "only" (her choice, 13-oct-2026): a short list of files that alternate in that order, clip after clip, whatever
+    # the subject; a listed file missing or unusable is skipped, an empty result falls back to the whole library.
+    only = [f for f in (cfg.get("only") or []) if isinstance(f, str)]
+    chosen = [t for f in only for t in library if t["file"] == f]
+    picks = ([chosen[i % len(chosen)] for i in range(len(shorts))] if chosen else plan(shorts, library, seed))
     n = 0
-    for clip, t in zip(shorts, plan(shorts, library, seed)):
+    for clip, t in zip(shorts, picks):
         if t:
             clip["music"] = {k: t.get(k) for k in ("file", "path", "title", "author", "url", "licence", "start")}
             n += 1
