@@ -66,7 +66,12 @@ const motionRequestSchema = z.object({
 });
 app.post("/motion", async (req, res) => {
   const parsed = motionRequestSchema.safeParse(req.body);
-  if (!parsed.success || parsed.data.page.includes("..") || parsed.data.out.includes("..")) {
+  // every path stays inside /output once resolved — the page's #spec is written relative to the engine (../../<job>/...)
+  const { posix } = await import("path");
+  const inside = (p: string) => posix.normalize(p).startsWith("/output/");
+  const [pageFile, specRel = ""] = parsed.success ? parsed.data.page.split("#") : [""];
+  if (!parsed.success || !inside(pageFile) || !inside(posix.join(posix.dirname(pageFile), specRel)) ||
+      !inside(parsed.data.out) || (parsed.data.still && !inside(parsed.data.still))) {
     res.status(400).json({ ok: false, error: "Invalid motion request", details: parsed.success ? undefined : parsed.error.issues });
     return;
   }
