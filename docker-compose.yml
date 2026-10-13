@@ -8,6 +8,9 @@ services:
       - .:/app
       - /app/__pycache__
       - ./output:/app/output
+    environment:
+      # 13-oct-2026: the episodes she queues run one after the other (the PC renders one job at a time well)
+      - MAX_CONCURRENT_JOBS=1
     restart: unless-stopped
 
   frontend:

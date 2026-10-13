@@ -279,7 +279,7 @@ function PlusStats({ uploadPostKey, accounts }) {
  * Synapse Cut (ex Clip Generator++): the classic generator, driven by a saved channel profile.
  * Nothing here touches the classic Clip Generator's own settings.
  */
-export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [], defaultProfile = '', canAutoPublish, uploadPostKey, onProfileChange }) {
+export default function PlusPanel({ onProcess, onQueue = null, queuedJobs = [], onClearQueued = null, isProcessing, publishProfiles = [], defaultProfile = '', canAutoPublish, uploadPostKey, onProfileChange }) {
     const [profiles, setProfiles] = useState(null);
     const [defaults, setDefaults] = useState(null);
     const [choices, setChoices] = useState({ formats: {}, topics: [] });
@@ -407,12 +407,33 @@ export default function PlusPanel({ onProcess, isProcessing, publishProfiles = [
                     </h3>
                     <MediaInput
                         onProcess={onProcess}
+                        onQueue={onQueue}
                         isProcessing={isProcessing}
                         publishProfiles={publishProfiles}
                         defaultProfile={defaultProfile}
                         canAutoPublish={canAutoPublish}
                         plusProfile={selected}
                     />
+                </section>
+            )}
+
+            {queuedJobs.length > 0 && (
+                <section aria-labelledby="plus-queue-title" className="tray px-4 py-3 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                        <h3 id="plus-queue-title" className="font-display text-base text-ink">File d'attente</h3>
+                        {onClearQueued && queuedJobs.some((j) => ['completed', 'failed', 'cancelled', 'gone'].includes(j.status)) && (
+                            <button type="button" className="btn-quiet text-xs" onClick={onClearQueued}>Retirer les terminés</button>
+                        )}
+                    </div>
+                    <p className="text-xs text-muted">Les épisodes passent l'un après l'autre. Les terminés s'ouvrent dans la Bibliothèque, et le Plan de publication mélange leurs clips.</p>
+                    <ul className="space-y-1">
+                        {queuedJobs.map((j) => (
+                            <li key={j.job_id} className="flex items-center justify-between gap-3 text-sm">
+                                <span className="truncate text-ink2" title={j.label}>{j.label}</span>
+                                <span className="readout shrink-0">{({ queued: 'en attente', processing: 'en cours', completed: 'terminé', failed: 'échec', cancelled: 'annulé', gone: 'introuvable' })[j.status] || j.status}</span>
+                            </li>
+                        ))}
+                    </ul>
                 </section>
             )}
 

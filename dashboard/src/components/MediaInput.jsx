@@ -22,7 +22,7 @@ const formatSize = (bytes) => {
     return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb >= 10 ? Math.round(mb) : mb.toFixed(1)} MB`;
 };
 
-export default function MediaInput({ onProcess, isProcessing, publishProfiles = [], defaultProfile = '', canAutoPublish = false, plusProfile = null }) {
+export default function MediaInput({ onProcess, onQueue = null, isProcessing, publishProfiles = [], defaultProfile = '', canAutoPublish = false, plusProfile = null }) {
     const [youtubeUrlEnabled, setYoutubeUrlEnabled] = useState(true);
     // File upload is the primary path; the link is secondary.
     const [mode, setMode] = useState('file'); // 'file' | 'url'
@@ -110,7 +110,8 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
         }
     }, []);
 
-    const handleSubmit = (e) => {
+    // queue: the job goes to the server's queue and the page stays here, ready for the next episode (13-oct-2026)
+    const handleSubmit = (e, queue = false) => {
         e.preventDefault();
         if (!acknowledged) return;
         const advanced = {
@@ -149,10 +150,13 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
             localStorage.setItem('os_layout', layout);
         } catch { /* ignore */ }
         saveAutoPublish(autoPublish);
+        const send = queue && onQueue ? onQueue : onProcess;
         if (mode === 'url' && url) {
-            onProcess({ type: 'url', payload: url, acknowledged: true, outputFormat, ...advanced });
+            send({ type: 'url', payload: url, acknowledged: true, outputFormat, ...advanced });
+            if (queue) setUrl('');
         } else if (mode === 'file' && file) {
-            onProcess({ type: 'file', payload: file, acknowledged: true, outputFormat, ...advanced });
+            send({ type: 'file', payload: file, acknowledged: true, outputFormat, ...advanced });
+            if (queue) setFile(null);
         }
     };
 
@@ -466,6 +470,16 @@ export default function MediaInput({ onProcess, isProcessing, publishProfiles = 
                         </>
                     )}
                 </button>
+                {onQueue && (
+                    <button
+                        type="button"
+                        onClick={(e) => handleSubmit(e, true)}
+                        disabled={!acknowledged || (mode === 'url' && !url) || (mode === 'file' && !file)}
+                        className="w-full btn-ghost mt-2"
+                    >
+                        Ajouter à la file d'attente (un autre épisode ensuite)
+                    </button>
+                )}
                 {!isProcessing && (!hasSource || !acknowledged) && (
                     <p id={ids.submitHint} className="mt-2 text-xs text-muted text-center">
                         {!hasSource

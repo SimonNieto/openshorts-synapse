@@ -1042,7 +1042,36 @@ function App() {
     }
   };
 
-  const handleProcess = async (data, forceLowQuality = false) => {
+  // The queue (13-oct-2026, the user: « mettre 2 ou 3 épisodes et poster en mixitude »): queue = the job goes to the
+  // server's queue (one after the other) and this page stays as it is; the finished ones open from the Library.
+  const [queuedJobs, setQueuedJobs] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('os_queued_jobs') || '[]'); } catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('os_queued_jobs', JSON.stringify(queuedJobs.slice(-12))); } catch { /* ignore */ }
+  }, [queuedJobs]);
+  useEffect(() => {
+    const live = queuedJobs.filter((j) => !['completed', 'failed', 'cancelled', 'gone'].includes(j.status));
+    if (!live.length) return undefined;
+    const tick = async () => {
+      const next = await Promise.all(queuedJobs.map(async (j) => {
+        if (['completed', 'failed', 'cancelled', 'gone'].includes(j.status)) return j;
+        try {
+          const res = await apiFetch(`/api/status/${j.job_id}`);
+          if (res.status === 404) return { ...j, status: 'gone' };
+          const d = await res.json();
+          return { ...j, status: d.status || j.status };
+        } catch { return j; }
+      }));
+      setQueuedJobs((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next));
+    };
+    tick();
+    const id = setInterval(tick, 15000);
+    return () => clearInterval(id);
+  }, [queuedJobs]);
+  const handleQueue = (data) => handleProcess(data, false, { queue: true });
+
+  const handleProcess = async (data, forceLowQuality = false, { queue = false } = {}) => {
     // Hosted: must be signed in AND on an active plan/trial. Self-host: BYOK keys.
     if (billingEnabled) {
       if (!isSignedIn) { setShowLogin(true); return; }
@@ -1051,6 +1080,7 @@ function App() {
       setShowKeyModal(true);
       return;
     }
+    if (!queue) {
     setStatus('processing');
     setJobProgress(null);
     setLogs(["Starting process..."]);
@@ -1061,6 +1091,7 @@ function App() {
     setQualityGate(null);
     setProjectState(null);
     setNoSource(false);
+    }
 
     try {
       let body;
@@ -1150,6 +1181,15 @@ function App() {
 
       // Quality gate: the source is below the min resolution — ask before burning
       // 20 min on it. On confirm we resend with force_low_quality.
+      if (queue) {
+        if (resData.needs_confirmation) {
+          // a low-quality source in the queue: sent again as accepted (the user is not on the page to answer)
+          return handleProcess(data, true, { queue: true });
+        }
+        const label = data.type === 'url' ? String(data.payload) : (data.payload?.name || 'video');
+        setQueuedJobs((cur) => [...cur, { job_id: resData.job_id, label, status: 'queued', at: Date.now() }]);
+        return;
+      }
       if (resData.needs_confirmation) {
         setStatus('idle');
         setQualityGate({ info: resData.quality_check, data });
@@ -1164,6 +1204,7 @@ function App() {
       refreshMe();
 
     } catch (e) {
+      if (queue) { window.alert(`Impossible d'ajouter à la file : ${e.message}`); return; }
       if (e instanceof QuotaError) {
         setStatus('idle');
         refreshMe();
@@ -2197,6 +2238,9 @@ function App() {
             <div className="h-full overflow-y-auto custom-scrollbar">
               <PlusPanel
                 onProcess={handleProcess}
+                onQueue={handleQueue}
+                queuedJobs={queuedJobs}
+                onClearQueued={() => setQueuedJobs((cur) => cur.filter((j) => !['completed', 'failed', 'cancelled', 'gone'].includes(j.status)))}
                 isProcessing={status === 'processing'}
                 publishProfiles={userProfiles}
                 defaultProfile={uploadUserId}
