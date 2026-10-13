@@ -4267,6 +4267,19 @@ if __name__ == '__main__':
                             print(f"   ⚠️ On-screen picture check failed ({type(e).__name__}: {e}) — "
                                   f"clip framed as usual.")
 
+                    # Motion planned BEFORE the reframe (13-oct-2026, the user: « un cadre large quand on revient de
+                    # l'animation au visage »): the zooms get its window as a full-screen picture, so the face comes
+                    # back wide at its end and pushes in. The reframe keeps the clip's timeline: its times hold.
+                    motion = None
+                    if os.path.exists(clip_temp_path) and os.environ.get("PLUS_MOTION_JSON") and transcript:
+                        try:
+                            import motion_clip
+                            motion = motion_clip.plan(clip, c_transcript, c_start, c_end, clip_temp_path, output_dir,
+                                                      os.path.basename(clip_final_path)[:-4] + "_",
+                                                      json.loads(os.environ["PLUS_MOTION_JSON"]),
+                                                      avoid=montage.broll_block(clip, mont) if mont_cfg else ())
+                        except Exception as e:
+                            print(f"   ⚠️ Motion planning failed ({type(e).__name__}: {e}) — clip without motion.")
                     # Smart zooms (zooms.py, plus.FX["zoom_style"] = "references"): the reframe punches in
                     # on the strong words, so it gets the clip's words, the joins to hide and the punchline.
                     import zooms as _zooms
@@ -4281,7 +4294,8 @@ if __name__ == '__main__':
                                 joins=[j["t"] for j in (mont or {}).get("joins") or [] if j.get("verdict") == "hide"],
                                 # the joins that show nothing: the frame switches there too when it can
                                 silences=[j["t"] for j in (mont or {}).get("joins") or [] if j.get("verdict") == "clean"],
-                                punch=(mont or {}).get("punch") or ((pt, pt + 3.0) if pt is not None else None))
+                                punch=(mont or {}).get("punch") or ((pt, pt + 3.0) if pt is not None else None),
+                                pictures=list(motion.block) if motion else ())
                         except Exception as e:
                             print(f"   ⚠️ Zoom cues failed ({type(e).__name__}: {e}) — fixed framing.")
                     success = render_clip(clip_temp_path, clip_final_path, output_format)
@@ -4376,16 +4390,9 @@ if __name__ == '__main__':
                     # Motion (motion_clip.py, Clip Generator++ trial): one explanatory plan per clip, decided by ONE
                     # AI call before the B-roll so its images plan around the window, placed after them, under the
                     # captions. Any failure: the clip goes on without it, never retried.
-                    motion = None
-                    if success and os.environ.get("PLUS_MOTION_JSON") and transcript:
-                        try:
-                            import motion_clip
-                            motion = motion_clip.plan(clip, c_transcript, c_start, c_end, clip_temp_path, output_dir,
-                                                      os.path.basename(clip_final_path)[:-4] + "_",
-                                                      json.loads(os.environ["PLUS_MOTION_JSON"]),
-                                                      avoid=montage.broll_block(clip, mont) if mont_cfg else ())
-                        except Exception as e:
-                            print(f"   ⚠️ Motion planning failed ({type(e).__name__}: {e}) — clip without motion.")
+                    # (13-oct-2026: planned before the reframe now, so the zooms know its window — see above.)
+                    if not success:
+                        motion = None
                     import layout_ranges as _layouts
                     if success and os.environ.get("PLUS_BROLL_JSON") and transcript:
                         try:

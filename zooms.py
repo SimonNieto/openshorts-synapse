@@ -575,7 +575,7 @@ def continuous_rates(start):
     return out
 
 
-def continuous_zoom(start, fps, rates=None, forced_in=()):
+def continuous_zoom(start, fps, rates=None, forced_in=(), forced_wide=()):
     """The continuous mode's zoom per frame (over the premium framing) and its stretches: each stretch (frames with
     one ``start``) zooms linearly at its rate (continuous_rates), by STRETCH_CAP at most then holds; it starts at
     least JUMP_MIN away from where the previous one ended — in from 1.0 (or from just over the last end when that
@@ -597,8 +597,12 @@ def continuous_zoom(start, fps, rates=None, forced_in=()):
         d = abs(rate) * dur
         top = 1.0 + LEVEL_MAX
         payoff = int(start[f]) in forced_in
-        back = rate < 0 and not payoff
-        if payoff:
+        wide = int(start[f]) in forced_wide and not payoff
+        back = rate < 0 and not payoff and not wide
+        if wide:
+            # back from a full-screen motion plan: the face comes back wide, then pushes in (the plan hides the jump)
+            s0 = 1.0
+        elif payoff:
             # the punchline: always in, PAYOFF_JUMP tighter than the camera was (from 1.0 when it was wide open)
             s0 = 1.0 if prev is None else prev + PAYOFF_JUMP
             if s0 + d > top:
@@ -842,7 +846,8 @@ def clip_boxes(input_video, n, fps, premium, heads, scene_boundaries, crop_h, or
             forced.add(int(start[min(n - 1, frame_index(p0, fps))]))
         for p0 in [p for c in cuts + joins for p in [c] if punch and abs(c - float(punch[0] or -9)) <= 0.4]:
             forced.add(int(start[min(n - 1, frame_index(p0, fps))]))   # a change right on the punchline: that one goes in
-        zarr, stretches = continuous_zoom(start, fps, forced_in=forced)
+        wide = {int(start[min(n - 1, frame_index(b, fps))]) for _, b in cues.get("pictures") or () if b < n / fps - 0.3}
+        zarr, stretches = continuous_zoom(start, fps, forced_in=forced, forced_wide=wide)
         out, report = {}, []
         for s_f, base in premium.items():
             e_f = min(n, s_f + len(base))
