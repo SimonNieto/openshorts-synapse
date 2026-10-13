@@ -1,0 +1,45 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!-- Moteur « motion seul » de The Synapse Cut (13/10/2026) : un plan inséré plein écran, sans personnage ni décor.
+     motion.html#<chemin de la fiche spec.js>. La fiche donne WORDS (mots du plan, temps entendus), ENERGY et SPEC
+     {relation, D, roles} ; la page dessine la relation avec les primitives de mcore.js (grammaire v0 du motion designer).
+     Tout est une fonction PURE du temps : window.seek(t). -->
+<style>
+@font-face { font-family: Mont; src: url('fonts/Montserrat-ExtraBold.ttf'); }
+* { margin: 0; box-sizing: border-box; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: #0B1226; font-family: Mont; }
+svg { position: absolute; inset: 0; overflow: visible; }
+text { font-family: Mont; }
+</style></head><body>
+<svg id="ov" width="1080" height="1920" viewBox="0 0 1080 1920">
+ <defs>
+  <linearGradient id="bgG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0B1226"/><stop offset=".55" stop-color="#121B33"/><stop offset="1" stop-color="#0B1226"/></linearGradient>
+  <radialGradient id="poolG" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#22305A" stop-opacity=".55"/><stop offset=".7" stop-color="#22305A" stop-opacity=".12"/><stop offset="1" stop-color="#22305A" stop-opacity="0"/></radialGradient>
+  <radialGradient id="vig" cx="50%" cy="42%" r="78%"><stop offset=".6" stop-color="#05080F" stop-opacity="0"/><stop offset="1" stop-color="#05080F" stop-opacity=".55"/></radialGradient>
+  <radialGradient id="haloA"><stop offset="0" stop-color="#FFB43F" stop-opacity=".55"/><stop offset=".5" stop-color="#FFB43F" stop-opacity=".16"/><stop offset="1" stop-color="#FFB43F" stop-opacity="0"/></radialGradient>
+  <radialGradient id="haloO"><stop offset="0" stop-color="#F4EDE0" stop-opacity=".45"/><stop offset=".5" stop-color="#F4EDE0" stop-opacity=".12"/><stop offset="1" stop-color="#F4EDE0" stop-opacity="0"/></radialGradient>
+  <filter id="glow" filterUnits="userSpaceOnUse" x="-200" y="-200" width="1480" height="2320">
+   <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="b1"/><feGaussianBlur in="SourceGraphic" stdDeviation="18" result="b2"/>
+   <feComponentTransfer in="b2" result="b2s"><feFuncA type="linear" slope=".6"/></feComponentTransfer>
+   <feMerge><feMergeNode in="b2s"/><feMergeNode in="b1"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="soft" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1280" height="2120"><feGaussianBlur stdDeviation="9"/></filter>
+  <filter id="grain"><feTurbulence id="grainT" type="fractalNoise" baseFrequency=".85" numOctaves="1" seed="1"/><feColorMatrix type="saturate" values="0"/></filter>
+ </defs>
+ <rect width="1080" height="1920" fill="url(#bgG)"/>
+ <g id="bgpool"><ellipse id="pool" cx="540" cy="640" rx="620" ry="560" fill="url(#poolG)"/></g>
+ <g id="cam">
+  <g id="scene"></g>
+  <g id="labels"></g>
+ </g>
+ <rect width="1080" height="1920" fill="url(#vig)"/>
+ <rect width="1080" height="1920" filter="url(#grain)" opacity=".045" style="mix-blend-mode:overlay"/>
+</svg>
+<!-- the production caption, simulated only when SPEC.caption (in prod the real caption pass burns on top) -->
+<svg width="1080" height="1920" style="position:absolute;inset:0">
+ <text id="cap" x="540" y="1114" text-anchor="middle" dominant-baseline="central" font-family="Mont" font-size="133"
+  fill="#FFFFFF" stroke="#000000" stroke-width="10" stroke-linejoin="round" paint-order="stroke"></text></svg>
+<script>document.write(`<script src="${decodeURIComponent(location.hash.slice(1))}"><\/script>`);</script>
+<script src="mcore.js"></script>
+<script src="recettes.js"></script>
+<script src="frame.js"></script>
+</body></html>

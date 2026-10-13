@@ -4373,6 +4373,19 @@ if __name__ == '__main__':
                     # see a head in a B-roll image, and a small card must not
                     # be zoomed off its spot. The images stay next to the clip
                     # so a restyle (app.py) re-cuts them on the new edit.
+                    # Motion (motion_clip.py, Clip Generator++ trial): one explanatory plan per clip, decided by ONE
+                    # AI call before the B-roll so its images plan around the window, placed after them, under the
+                    # captions. Any failure: the clip goes on without it, never retried.
+                    motion = None
+                    if success and os.environ.get("PLUS_MOTION_JSON") and transcript:
+                        try:
+                            import motion_clip
+                            motion = motion_clip.plan(clip, c_transcript, c_start, c_end, clip_temp_path, output_dir,
+                                                      os.path.basename(clip_final_path)[:-4] + "_",
+                                                      json.loads(os.environ["PLUS_MOTION_JSON"]),
+                                                      avoid=montage.broll_block(clip, mont) if mont_cfg else ())
+                        except Exception as e:
+                            print(f"   ⚠️ Motion planning failed ({type(e).__name__}: {e}) — clip without motion.")
                     import layout_ranges as _layouts
                     if success and os.environ.get("PLUS_BROLL_JSON") and transcript:
                         try:
@@ -4387,7 +4400,8 @@ if __name__ == '__main__':
                                                   api_key=os.getenv("GEMINI_API_KEY"), keep_dir=output_dir,
                                                   keep_prefix=os.path.basename(clip_final_path)[:-4] + "_",
                                                   ground_hook=hook_grounding.wanted(clip['layout_ranges'], c_end - c_start),
-                                                  block=montage.broll_block(clip, mont) if mont_cfg else ())
+                                                  block=list(montage.broll_block(clip, mont) if mont_cfg else ())
+                                                  + list(motion.block if motion else ()))
                             if br:
                                 if br.get("pending"):
                                     # Manual review: the clip stays as it is; the
@@ -4417,6 +4431,18 @@ if __name__ == '__main__':
                                 clip['broll'] = br["items"]
                         except Exception as e:
                             print(f"   ⚠️ On-screen picture card failed ({type(e).__name__}: {e}) — clip kept without it.")
+                    if success and motion:
+                        try:
+                            import broll as _broll
+                            item = motion_clip.finish(motion)          # the code check + capture (a refused plan: the safe one)
+                            if item:
+                                mo_tmp = os.path.join(output_dir, f"motmp_{i + 1}_{int(time.time())}.mp4")
+                                _broll.overlay_items(clip_final_path, mo_tmp, [item], img_dir=output_dir)
+                                os.replace(mo_tmp, clip_final_path)
+                                clip.setdefault('broll', []).append(item)     # a restyle re-cuts it like an image
+                            clip['motion'] = getattr(motion, 'report', None)
+                        except Exception as e:
+                            print(f"   ⚠️ Motion failed ({type(e).__name__}: {e}) — clip kept without it.")
                     # The tight frames (punch_in.py, decision 4): past 6 s without a change
                     # on screen, a dry cut to a tighter frame and back; and on the very
                     # frame of every montage join that would show. Last layer before the

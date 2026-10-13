@@ -45,6 +45,10 @@ DEFAULT_PROFILE = {
     # Off by default: it needs ComfyUI running on this PC, and a job without
     # it stops when the images cannot be made.
     "broll": {"enabled": False},
+    # One explanatory motion plan per clip (motion_clip.py, the recipe in MOTION): 4-6 s full screen, decided by
+    # one AI call, checked by code. Off by default: it is still on trial (13-oct-2026). Her choice: with the motion,
+    # no B-roll images ("broll" off); both together stay possible (the images plan around its window), to test later.
+    "motion": {"enabled": False},
     "auto_publish": {"enabled": False, "platforms": ["tiktok", "instagram", "youtube"]},
     # What the channel is about.
     "selection": {
@@ -174,6 +178,9 @@ BROLL["video"] = True
 # "duck_db" = a light ducking under the voice (1.5 dB ~ inside their ±2-3 dB, 0 = none); "target_lufs" = the
 # delivered loudness (None = the app's -14); "sfx" = the whoosh on the first drawing (plus.BROLL["sfx"]).
 # 10-oct-2026, the user on the first job (JRE #1109): « le son est un peu trop fort » -> 20 dB under the voice (was 14).
+# The motion plan, frozen like the other recipes (motion_clip.py; output/_broll_experts/motion/ for its bench).
+MOTION = {"model": "opus", "effort": "high", "fps": 30, "tabs": 1, "timeout": 150,
+          "render_url": "http://renderer:3100/motion", "output_root": "/app/output"}
 AUDIO = {"music": True, "music_db_under_voice": 20, "target_lufs": -16.6, "sfx": False, "duck_db": 1.5}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the
 # best one; an unclear hook gets one rewrite; the scoring pass hears the
@@ -299,6 +306,7 @@ def sanitize(raw):
         "format": _format(raw),
         "watermark": re.sub(r"[^\w .@&'-]", "", str(raw.get("watermark") or ""))[:30],
         "broll": {"enabled": _bool(br.get("enabled"))},
+        "motion": {"enabled": _bool((raw.get("motion") or {}).get("enabled"))},
         "auto_publish": {"enabled": _bool(ap.get("enabled")),
                          "platforms": [p for p in (ap.get("platforms") or []) if p in ("tiktok", "instagram", "youtube")]
                          or ["tiktok", "instagram", "youtube"]},
@@ -435,6 +443,8 @@ def job_env(profile):
         # The whoosh only when the sound recipe wants it too (AUDIO["sfx"]).
         env["PLUS_BROLL_JSON"] = json.dumps({**BROLL, "enabled": True, "sfx": bool(BROLL["sfx"] and AUDIO["sfx"]),
                                              "planner": "gemini" if BRAIN["broll"] == "gemini" else "claude"})
+    if p["motion"]["enabled"]:
+        env["PLUS_MOTION_JSON"] = json.dumps(MOTION)
     if p["show"]:
         env["PLAYBOOK_SHOW"] = p["show"]
     sel = p["selection"]

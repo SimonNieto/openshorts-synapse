@@ -54,6 +54,32 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+// Motion plans (motion_clip.py): the code check, then the capture of one plan, frame by frame, in this container's
+// Chromium (motion/engine/capture.mjs). Synchronous: the answer is the capture's own JSON line ({ok, check, ...}).
+const motionRequestSchema = z.object({
+  page: z.string().startsWith("/output/"),         // the plan's page: /output/.../motion.html#<spec.js>
+  out: z.string().startsWith("/output/").endsWith(".mp4"),
+  secs: z.number().positive().max(10),
+  fps: z.number().int().min(10).max(60).default(30),
+  tabs: z.number().int().min(1).max(4).default(1),       // headless Chromium does not paint background tabs: 1
+  still: z.string().startsWith("/output/").endsWith(".jpg").optional(),
+});
+app.post("/motion", async (req, res) => {
+  const parsed = motionRequestSchema.safeParse(req.body);
+  if (!parsed.success || parsed.data.page.includes("..") || parsed.data.out.includes("..")) {
+    res.status(400).json({ ok: false, error: "Invalid motion request", details: parsed.success ? undefined : parsed.error.issues });
+    return;
+  }
+  const { page, out, secs, fps, tabs, still } = parsed.data;
+  const { execFile } = await import("child_process");
+  execFile("node", ["/app/motion/capture.mjs", page, out, String(secs), String(fps), String(tabs), still || ""],
+    { timeout: 120_000, maxBuffer: 1 << 20 }, (err, stdout) => {
+      const line = String(stdout || "").trim().split("\n").pop() || "";
+      try { res.json(JSON.parse(line)); }
+      catch { res.status(500).json({ ok: false, error: err ? String(err.message) : "no answer from the capture" }); }
+    });
+});
+
 // Submit a render job
 app.post("/render", (req, res) => {
   const parsed = renderRequestSchema.safeParse(req.body);

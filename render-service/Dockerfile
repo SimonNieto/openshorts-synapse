@@ -27,6 +27,9 @@ COPY remotion/public/ /app/remotion/public/
 # Install remotion deps
 RUN cd /app/remotion && npm install
 
+# The motion plans' capture (POST /motion): the check, then the frames (motion/engine/capture.mjs, needs ws)
+COPY motion/engine/capture.mjs /app/motion/capture.mjs
+
 # Build TypeScript
 RUN npm run build
 

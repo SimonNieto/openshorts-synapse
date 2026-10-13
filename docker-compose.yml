@@ -29,6 +29,8 @@ services:
       context: .
       dockerfile: render-service/Dockerfile
     container_name: openshorts-renderer
+    # an init reaps the Chromium children each motion capture leaves (they piled up as zombies: 924 after one day)
+    init: true
     ports:
       - "3100:3100"
     volumes:
