@@ -337,7 +337,12 @@ def _capture(mo, log):
     import requests
     eng = _engine_dir(mo.cfg.get("output_root", "/app/output"))
     to_renderer = lambda p: "/output/" + os.path.relpath(p, mo.cfg.get("output_root", "/app/output")).replace(os.sep, "/")
-    page = to_renderer(os.path.join(eng, "motion.html")) + "#" + os.path.relpath(mo.base + "spec.js", eng).replace(os.sep, "/")
+    # The sheet travels in the page's #hash: a "#" in the job's file names (« Joe Rogan Experience #1513 ») cut the
+    # address and no clip of the job got its motion (13-oct-2026). The page reads a copy under a name of [0-9a-f_].
+    import hashlib, shutil
+    safe = os.path.join(os.path.dirname(mo.base), "_motion_" + hashlib.sha1(mo.base.encode("utf-8")).hexdigest()[:12] + "_spec.js")
+    shutil.copyfile(mo.base + "spec.js", safe)
+    page = to_renderer(os.path.join(eng, "motion.html")) + "#" + os.path.relpath(safe, eng).replace(os.sep, "/")
     url = os.environ.get("MOTION_RENDER_URL") or mo.cfg.get("render_url") or "http://renderer:3100/motion"
     r = requests.post(url, json={"page": page, "out": to_renderer(mo.base + "0.mp4"), "secs": mo.D,
                                  "fps": int(mo.cfg.get("fps", 30)), "tabs": int(mo.cfg.get("tabs", 1)),
