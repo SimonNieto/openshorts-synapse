@@ -4447,8 +4447,14 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                     dur = min(float(it.get("dur") or 2.0), _media_seconds(video))
                 except Exception:
                     continue
+                # « fondu » (the motion plans only, motion_clip.finish): an alpha fade in and out of that many seconds;
+                # an item without it is cut in exactly as before
+                try:
+                    fondu = max(0.0, min(float(it.get("fondu") or 0), dur / 3))
+                except (TypeError, ValueError):
+                    fondu = 0.0
                 layers.append({"t": it["t"], "dur": dur, "rise": False, "hero": True, "video": video, "x": 0, "y": 0,
-                               "flash": it.get("transition") == "flash"})
+                               "flash": it.get("transition") == "flash", "fondu": fondu})
                 continue
             if not src or not os.path.exists(src):
                 continue
@@ -4525,6 +4531,11 @@ def overlay_items(clip_path, out_path, items, img_dir=None):
                 inputs += ["-itsoffset", f"{ly['t']:.3f}", "-i", ly["video"]]
                 fade = (f",fade=t=in:st={ly['t']:.3f}:d={TRANSITION_S}:color=0x{''.join(f'{c:02X}' for c in FLASH_COLOUR)}"
                         if ly.get("flash") else "")
+                if ly.get("fondu"):
+                    # the motion plan dissolves in and out through its own night blue: its alpha fades (in clip time)
+                    f_ = ly["fondu"]
+                    fade += (f",format=yuva420p,fade=t=in:st={ly['t']:.3f}:d={f_:.3f}:alpha=1,"
+                             f"fade=t=out:st={ly['t'] + ly['dur'] - f_:.3f}:d={f_:.3f}:alpha=1")
                 graph.append(f"[{k + 1}:v]scale={w}:{h}:flags=lanczos,setsar=1,fps={fps}{fade}[mv{k}]")
                 graph.append(f"{cur}[mv{k}]overlay=0:0:eof_action=pass:enable='{win}'[b{k}]")
                 cur = f"[b{k}]"

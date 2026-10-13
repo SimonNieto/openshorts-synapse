@@ -179,7 +179,9 @@ BROLL["video"] = True
 # delivered loudness (None = the app's -14); "sfx" = the whoosh on the first drawing (plus.BROLL["sfx"]).
 # 10-oct-2026, the user on the first job (JRE #1109): « le son est un peu trop fort » -> 20 dB under the voice (was 14).
 # The motion plan, frozen like the other recipes (motion_clip.py; output/_broll_experts/motion/ for its bench).
-MOTION = {"model": "opus", "effort": "high", "fps": 30, "tabs": 1, "timeout": 150,
+# v2c (her validation, 13-oct-2026): the shot cut around the focus word, the grid on the clip's captions, the pictos;
+# "fondu" = the 0.2 s alpha fade in and out of the plan (broll.overlay_items, the motion item only).
+MOTION = {"model": "opus", "effort": "high", "fps": 30, "tabs": 1, "timeout": 150, "fondu": 0.2,
           "render_url": "http://renderer:3100/motion", "output_root": "/app/output"}
 AUDIO = {"music": True, "music_db_under_voice": 20, "target_lufs": -16.6, "sfx": False, "duck_db": 1.5}
 # Selection: two clips sharing more than 20 % (or 8 s) of each other keep the

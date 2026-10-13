@@ -1,20 +1,27 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
-<!-- Moteur « motion seul » de The Synapse Cut (13/10/2026) : un plan inséré plein écran, sans personnage ni décor.
-     motion.html#<chemin de la fiche spec.js>. La fiche donne WORDS (mots du plan, temps entendus), ENERGY et SPEC
-     {relation, D, roles} ; la page dessine la relation avec les primitives de mcore.js (grammaire v0 du motion designer).
+<!-- Moteur « motion seul » de The Synapse Cut, v2c (13/10/2026, lot 3 : pictos validés, bulle, cachet, avis en serif, affiche, balance qui porte les mots) : un plan inséré plein écran, sans personnage ni décor.
+     motion.html#<chemin de la fiche spec.js>. La fiche donne WORDS (mots du plan, temps entendus), ENERGY, et SPEC
+     {relation, D, roles, focus} ; la page dessine la relation avec les primitives de mcore.js (grammaire v0 du motion
+     designer), sur le battement du scénariste (pose · compte · frappe · tenue) et le fond vivant du designer (V2-6).
      Tout est une fonction PURE du temps : window.seek(t). -->
 <style>
 @font-face { font-family: Mont; src: url('fonts/Montserrat-ExtraBold.ttf'); }
+@font-face { font-family: ISerif; src: url('fonts/instrument-serif-400-latin.woff2'); }   /* V2-10 : ce qui est DIT comme un avis */
+@font-face { font-family: JBMono; src: url('fonts/jetbrains-mono-500-latin.woff2'); }     /* V2-10 : le cachet de statut */
 * { margin: 0; box-sizing: border-box; }
 html, body { width: 1080px; height: 1920px; overflow: hidden; background: #0B1226; font-family: Mont; }
-svg { position: absolute; inset: 0; overflow: visible; }
+svg, canvas { position: absolute; inset: 0; overflow: visible; }
 text { font-family: Mont; }
+#grain { width: 1080px; height: 1920px; opacity: .06; mix-blend-mode: overlay; pointer-events: none; }
 </style></head><body>
 <svg id="ov" width="1080" height="1920" viewBox="0 0 1080 1920">
- <defs>
-  <linearGradient id="bgG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0B1226"/><stop offset=".55" stop-color="#121B33"/><stop offset="1" stop-color="#0B1226"/></linearGradient>
-  <radialGradient id="poolG" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#22305A" stop-opacity=".55"/><stop offset=".7" stop-color="#22305A" stop-opacity=".12"/><stop offset="1" stop-color="#22305A" stop-opacity="0"/></radialGradient>
+ <defs id="defs">
+  <!-- V2-6: the stage light (r 950), the floor glow, the glows of the tenue -->
+  <radialGradient id="lightG" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#22305A" stop-opacity=".60"/><stop offset=".45" stop-color="#1A2750" stop-opacity=".32"/><stop offset="1" stop-color="#0B1226" stop-opacity="0"/></radialGradient>
+  <radialGradient id="floorG" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#1A2750" stop-opacity=".45"/><stop offset="1" stop-color="#1A2750" stop-opacity="0"/></radialGradient>
+  <radialGradient id="lueurG" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#F4EDE0" stop-opacity="1"/><stop offset=".5" stop-color="#F4EDE0" stop-opacity=".35"/><stop offset="1" stop-color="#F4EDE0" stop-opacity="0"/></radialGradient>
+  <linearGradient id="colG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F7F1E6"/><stop offset="1" stop-color="#E2D7C3"/></linearGradient>
   <radialGradient id="vig" cx="50%" cy="42%" r="78%"><stop offset=".6" stop-color="#05080F" stop-opacity="0"/><stop offset="1" stop-color="#05080F" stop-opacity=".55"/></radialGradient>
   <radialGradient id="haloA"><stop offset="0" stop-color="#FFB43F" stop-opacity=".55"/><stop offset=".5" stop-color="#FFB43F" stop-opacity=".16"/><stop offset="1" stop-color="#FFB43F" stop-opacity="0"/></radialGradient>
   <radialGradient id="haloO"><stop offset="0" stop-color="#F4EDE0" stop-opacity=".45"/><stop offset=".5" stop-color="#F4EDE0" stop-opacity=".12"/><stop offset="1" stop-color="#F4EDE0" stop-opacity="0"/></radialGradient>
@@ -23,23 +30,34 @@ text { font-family: Mont; }
    <feComponentTransfer in="b2" result="b2s"><feFuncA type="linear" slope=".6"/></feComponentTransfer>
    <feMerge><feMergeNode in="b2s"/><feMergeNode in="b1"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
   <filter id="soft" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1280" height="2120"><feGaussianBlur stdDeviation="9"/></filter>
-  <filter id="grain"><feTurbulence id="grainT" type="fractalNoise" baseFrequency=".85" numOctaves="1" seed="1"/><feColorMatrix type="saturate" values="0"/></filter>
+  <!-- V2-2: the arrival blur of the content (5 → 0 px in 0,25 s, then removed) -->
+  <filter id="arrive" filterUnits="userSpaceOnUse" x="-120" y="-120" width="1320" height="2160"><feGaussianBlur id="arriveB" stdDeviation="0"/></filter>
  </defs>
- <rect width="1080" height="1920" fill="url(#bgG)"/>
- <g id="bgpool"><ellipse id="pool" cx="540" cy="640" rx="620" ry="560" fill="url(#poolG)"/></g>
+ <rect width="1080" height="1920" fill="#0B1226"/>
+ <g id="bg">
+  <circle id="light" cx="540" cy="640" r="950" fill="url(#lightG)"/>
+  <ellipse id="floor" cx="540" cy="1500" rx="660" ry="330" fill="url(#floorG)"/>
+  <g id="fil"></g>
+ </g>
  <g id="cam">
+  <g id="lueurs"></g>
   <g id="scene"></g>
   <g id="labels"></g>
  </g>
  <rect width="1080" height="1920" fill="url(#vig)"/>
- <rect width="1080" height="1920" filter="url(#grain)" opacity=".045" style="mix-blend-mode:overlay"/>
+ <!-- V2-4: the FLOOR, outside the camera (×1,00 → ×1,02 about (500, 1380)), under the caption: ONE element -->
+ <g id="plancher"><g id="plancherLueurs"></g></g>
 </svg>
+<!-- V2-6: the grain, 4 tiles computed once (frame.js), in overlay at 0,06 -->
+<canvas id="grain" width="1080" height="1920"></canvas>
 <!-- the production caption, simulated only when SPEC.caption (in prod the real caption pass burns on top) -->
 <svg width="1080" height="1920" style="position:absolute;inset:0">
  <text id="cap" x="540" y="1114" text-anchor="middle" dominant-baseline="central" font-family="Mont" font-size="133"
   fill="#FFFFFF" stroke="#000000" stroke-width="10" stroke-linejoin="round" paint-order="stroke"></text></svg>
 <script>document.write(`<script src="${decodeURIComponent(location.hash.slice(1))}"><\/script>`);</script>
 <script src="mcore.js"></script>
+<script src="pictos.js"></script>  <!-- V2-5 : la bibliothèque fermée du designer, validée par elle (copie conforme de motion-designer/pictos_v2.js) -->
 <script src="recettes.js"></script>
+<script>window.FONTS_EXTRA = ['96px ISerif', '56px JBMono'];</script>
 <script src="frame.js"></script>
 </body></html>
